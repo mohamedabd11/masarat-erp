@@ -1,0 +1,24 @@
+{
+  "name": "masarat-erp",
+  "version": "1.0.0",
+  "private": true,
+  "description": "نظام مسارات ERP — وكالات السفر والسياحة",
+  "packageManager": "pnpm@9.0.0",
+  "engines": {
+    "node": ">=20.0.0",
+    "pnpm": ">=9.0.0"
+  },
+  "scripts": {
+    "build": "turbo build",
+    "test": "turbo test",
+    "test:accounting": "pnpm --filter @masarat/accounting test",
+    "lint": "turbo lint",
+    "type-check": "turbo type-check",
+    "dev": "turbo dev"
+  },
+  "devDependencies": {
+    "turbo": "^2.0.0",
+    "typescript": "^5.4.0",
+    "@types/node": "^20.0.0"
+  }
+}
