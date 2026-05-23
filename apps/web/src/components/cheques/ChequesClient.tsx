@@ -374,7 +374,7 @@ export function ChequesClient({ locale }: { locale: string }) {
     let unsub: (() => void) | undefined;
 
     async function load() {
-      const { getFirestore, collection, query, where, orderBy, onSnapshot } =
+      const { getFirestore, collection, query, where, onSnapshot } =
         await import('firebase/firestore');
       const { getApp } = await import('@masarat/firebase');
       const db = getFirestore(getApp());
@@ -382,13 +382,19 @@ export function ChequesClient({ locale }: { locale: string }) {
       const q = query(
         collection(db, 'cheques'),
         where('agencyId', '==', agencyId),
-        orderBy('dueDate', 'asc'),
       );
 
       unsub = onSnapshot(
         q,
         snap => {
-          setCheques(snap.docs.map(d => ({ id: d.id, ...d.data() } as ChequeDoc)));
+          const docs = snap.docs
+            .map(d => ({ id: d.id, ...d.data() } as ChequeDoc))
+            .sort((a, b) => {
+              const aDate = a.dueDate?.toDate?.()?.getTime() ?? 0;
+              const bDate = b.dueDate?.toDate?.()?.getTime() ?? 0;
+              return aDate - bDate;
+            });
+          setCheques(docs);
           setLoading(false);
         },
         err => {
