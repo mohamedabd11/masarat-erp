@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import type { Metadata } from 'next';
 import { NextIntlClientProvider } from 'next-intl';
 import { getMessages, getTranslations } from 'next-intl/server';
@@ -7,7 +8,7 @@ import { AuthProvider } from '@/providers/AuthProvider';
 import { DirectionProvider } from '@/providers/DirectionProvider';
 
 interface LocaleLayoutProps {
-  children: React.ReactNode;
+  children: ReactNode;
   params: { locale: string };
 }
 
