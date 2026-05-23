@@ -9,3 +9,15 @@ firebase-debug.log
 firestore-debug.log
 .DS_Store
 *.tsbuildinfo
+
+# Next.js build output
+.next/
+next-env.d.ts
+
+# pnpm lockfile (generated, not committed)
+pnpm-lock.yaml
+
+/test-results/
+/playwright-report/
+/blob-report/
+/playwright/.cache/
