@@ -54,7 +54,7 @@ export function BookingsClient({ locale }: BookingsClientProps) {
   const searchLower = search.toLowerCase();
   const filtered = search
     ? bookings.filter((b) => {
-        const customerName = isAr ? b.customerNameAr : b.customerNameEn;
+        const customerName = isAr ? b.customerName.ar : b.customerName.en;
         return (
           b.id.toLowerCase().includes(searchLower) ||
           customerName.toLowerCase().includes(searchLower)
@@ -129,13 +129,10 @@ export function BookingsClient({ locale }: BookingsClientProps) {
               </thead>
               <tbody className="divide-y divide-surface-border">
                 {filtered.map((booking) => {
-                  const customerName = isAr ? booking.customerNameAr : booking.customerNameEn;
+                  const customerName = isAr ? booking.customerName.ar : booking.customerName.en;
                   const createdDate = booking.createdAt ? booking.createdAt.toDate() : new Date();
-                  const departureDate = booking.departureDateISO
-                    ? new Date(booking.departureDateISO)
-                    : null;
-                  const dueHalalas =
-                    (booking.grandTotalHalalas ?? 0) - (booking.paidHalalas ?? 0);
+                  const departureDate = booking.travelDate ? booking.travelDate.toDate() : null;
+                  const dueHalalas = booking.totalDue ?? 0;
 
                   return (
                     <tr
@@ -156,7 +153,7 @@ export function BookingsClient({ locale }: BookingsClientProps) {
                       <td className="px-4 py-4">
                         <p className="text-sm font-medium text-slate-900">{customerName}</p>
                         <p className="text-xs text-slate-500 mt-0.5">
-                          {booking.travelersCount ?? 1}{' '}
+                          {booking.passengers?.length ?? 1}{' '}
                           {isAr ? 'مسافر' : 'traveler(s)'}
                         </p>
                       </td>
@@ -177,7 +174,7 @@ export function BookingsClient({ locale }: BookingsClientProps) {
                       </td>
                       <td className="px-4 py-4 text-end hidden sm:table-cell">
                         <span className="text-sm font-semibold text-slate-900">
-                          {formatCurrency(booking.grandTotalHalalas ?? 0, isAr ? 'ar-SA' : 'en-SA')}
+                          {formatCurrency(booking.pricing?.totalAmount ?? 0, isAr ? 'ar-SA' : 'en-SA')}
                         </span>
                       </td>
                       <td className="ps-4 pe-6 py-4 text-end hidden sm:table-cell">

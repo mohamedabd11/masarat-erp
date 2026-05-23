@@ -54,7 +54,7 @@ export function useFirestoreBookings(options: UseFirestoreBookingsOptions = {}):
           return;
         }
 
-        const col = bookingsCol(agencyId);
+        const col = bookingsCol();
         const constraints: Parameters<typeof query>[1][] = [
           where('agencyId', '==', agencyId),
           orderBy('createdAt', 'desc'),
@@ -106,7 +106,7 @@ export function useFirestoreBookings(options: UseFirestoreBookingsOptions = {}):
       const agencyId = (user as { agencyId?: string } | null)?.agencyId;
       if (!agencyId) return;
 
-      const col = bookingsCol(agencyId);
+      const col = bookingsCol();
       const constraints: Parameters<typeof query>[1][] = [
         where('agencyId', '==', agencyId),
         orderBy('createdAt', 'desc'),

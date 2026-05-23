@@ -40,7 +40,7 @@ export function DashboardRecentBookings({ locale }: DashboardRecentBookingsProps
   return (
     <div className="divide-y divide-surface-border">
       {bookings.map((booking) => {
-        const customerName = isAr ? booking.customerNameAr : booking.customerNameEn;
+        const customerName = isAr ? booking.customerName.ar : booking.customerName.en;
         const createdDate = booking.createdAt ? booking.createdAt.toDate() : new Date();
 
         return (
