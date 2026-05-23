@@ -54,6 +54,7 @@ export function BookingActions({
               agencyId={agencyId}
               bookingStatus={bookingStatus}
               existingInvoiceId={invoiceId}
+              grandTotalHalalas={grandTotalHalalas}
               onSuccess={(id) => handleInvoiceCreated(id)}
             />
 

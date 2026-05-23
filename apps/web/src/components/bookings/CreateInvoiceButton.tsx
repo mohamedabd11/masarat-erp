@@ -12,6 +12,7 @@ interface CreateInvoiceButtonProps {
   agencyId: string;
   bookingStatus: string;
   existingInvoiceId?: string;
+  grandTotalHalalas?: number;
   onSuccess?: (invoiceId: string, invoiceNumber: string) => void;
 }
 
@@ -20,6 +21,7 @@ export function CreateInvoiceButton({
   agencyId,
   bookingStatus,
   existingInvoiceId,
+  grandTotalHalalas,
   onSuccess,
 }: CreateInvoiceButtonProps) {
   const locale = useLocale();
@@ -32,7 +34,7 @@ export function CreateInvoiceButton({
   async function handleClick() {
     if (!canCreate) return;
     try {
-      const result = await createInvoice(bookingId, agencyId);
+      const result = await createInvoice(bookingId, agencyId, grandTotalHalalas);
       setShowSuccess(true);
       onSuccess?.(result.invoiceId, result.invoiceNumber);
       setTimeout(() => setShowSuccess(false), 5000);

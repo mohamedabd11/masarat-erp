@@ -12,6 +12,7 @@ import { Select } from '@/components/ui/Select';
 import { Card, CardHeader, CardTitle } from '@/components/ui/Card';
 import { cn, formatCurrency } from '@/lib/utils';
 import { ArrowRight, ArrowLeft, Plus, Trash2, ChevronRight, ChevronLeft, Calculator } from 'lucide-react';
+import { useAuth } from '@masarat/firebase';
 
 // ─── Schema ───────────────────────────────────────────────────────────────────
 
@@ -73,6 +74,7 @@ export default function NewBookingPage() {
   const router = useRouter();
   const t = useTranslations('bookings.form');
   const isRtl = locale === 'ar';
+  const { user } = useAuth();
   const [currentStep, setCurrentStep] = useState(0);
   const [submitting, setSubmitting] = useState(false);
 
@@ -122,13 +124,78 @@ export default function NewBookingPage() {
   }
 
   async function onSubmit(data: NewBookingFormData) {
+    if (!user) return;
     setSubmitting(true);
     try {
-      // In production: call Firebase Cloud Function createBooking
-      // For now, simulate async operation
-      await new Promise(resolve => setTimeout(resolve, 1500));
-      router.push(`/${locale}/bookings`);
-    } catch {
+      const { getFirestore, collection, addDoc, Timestamp } = await import('firebase/firestore');
+      const { getApp } = await import('@masarat/firebase');
+      const db = getFirestore(getApp());
+      const agencyId = user.agencyId;
+
+      const costHalalas = Math.round((data.costPriceSAR ?? 0) * 100);
+      const feeHalalas  = Math.round((data.serviceFeeSAR ?? 0) * 100);
+      const selling = data.revenueModel === 'agent' ? costHalalas + feeHalalas : costHalalas;
+      const vatBase = data.revenueModel === 'agent' ? feeHalalas : selling;
+      const vatHalalas  = Math.round(vatBase * 0.15);
+      const totalHalalas = selling + vatHalalas;
+
+      const nameParts = data.customerName.trim().split(' ');
+      const nameEn = nameParts.join(' ');
+
+      const bookingRef = await addDoc(collection(db, 'bookings'), {
+        agencyId,
+        type: data.bookingType,
+        status: 'confirmed',
+        customerName: { ar: data.customerName, en: nameEn },
+        customerPhone: data.customerPhone,
+        customerId: '',
+        agentId: user.uid,
+        agentName: user.displayName ?? '',
+        passengers: data.travelers.map((t, i) => ({
+          order: i + 1,
+          type: 'adult',
+          nameAr: t.nameAr,
+          nameEn: t.nameEn ?? t.nameAr,
+          passportNumber: t.passportNumber ?? '',
+          passportExpiry: t.passportExpiry ?? '',
+          nationality: t.nationality ?? 'SA',
+          dateOfBirth: t.dateOfBirth ?? '',
+          gender: 'male',
+          customerId: '',
+        })),
+        pricing: {
+          revenueModel: data.revenueModel,
+          currency: 'SAR',
+          totalCost: costHalalas,
+          serviceFee: feeHalalas,
+          vatAmount: vatHalalas,
+          totalAmount: totalHalalas,
+          commission: feeHalalas,
+        },
+        paymentStatus: 'unpaid',
+        totalPaid: 0,
+        totalDue: totalHalalas,
+        invoiceIds: [],
+        supplierId: '',
+        supplierName: data.supplierName ?? '',
+        supplierRef: data.supplierRef ?? '',
+        travelDate: data.departureDate
+          ? Timestamp.fromDate(new Date(data.departureDate))
+          : Timestamp.now(),
+        returnDate: data.returnDate
+          ? Timestamp.fromDate(new Date(data.returnDate))
+          : null,
+        notes: data.notes ?? '',
+        customFields: {},
+        source: 'web',
+        createdAt: Timestamp.now(),
+        updatedAt: Timestamp.now(),
+        createdBy: user.uid,
+      });
+
+      router.push(`/${locale}/bookings/${bookingRef.id}`);
+    } catch (err) {
+      console.error('Failed to create booking:', err);
       setSubmitting(false);
     }
   }

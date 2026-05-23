@@ -11,6 +11,7 @@ import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import { Card, CardHeader, CardTitle } from '@/components/ui/Card';
 import { ArrowRight, ArrowLeft, UserPlus } from 'lucide-react';
+import { useAuth } from '@masarat/firebase';
 
 // ─── Schema ───────────────────────────────────────────────────────────────────
 
@@ -59,6 +60,7 @@ export default function NewCustomerPage() {
   const isRtl = locale === 'ar';
   const isAr = isRtl;
 
+  const { user } = useAuth();
   const [submitting, setSubmitting] = useState(false);
 
   const {
@@ -72,13 +74,41 @@ export default function NewCustomerPage() {
     },
   });
 
-  async function onSubmit(_data: NewCustomerFormData) {
+  async function onSubmit(data: NewCustomerFormData) {
+    if (!user) return;
     setSubmitting(true);
     try {
-      // Simulate async save — replace with Firebase call in production
-      await new Promise<void>((resolve) => setTimeout(resolve, 1500));
-      router.push(`/${locale}/customers`);
-    } catch {
+      const { getFirestore, collection, addDoc, Timestamp } = await import('firebase/firestore');
+      const { getApp } = await import('@masarat/firebase');
+      const db = getFirestore(getApp());
+      const agencyId = user.agencyId;
+
+      const customerRef = await addDoc(collection(db, 'customers'), {
+        agencyId,
+        type: 'individual',
+        name: { ar: data.nameAr, en: data.nameEn ?? data.nameAr },
+        mobile: data.phone,
+        email: data.email ?? '',
+        nationalId: data.nationalId ?? '',
+        passportNumber: data.passportNumber ?? '',
+        passportExpiry: data.passportExpiry ?? '',
+        nationality: data.nationality ?? 'SA',
+        dateOfBirth: data.dateOfBirth ?? '',
+        vatNumber: data.vatNumber ?? '',
+        notes: data.notes ?? '',
+        tags: [],
+        tier: 'standard',
+        loyalty: { points: 0, totalEarned: 0 },
+        stats: { totalBookings: 0, totalSpent: 0 },
+        flags: { hasUnpaidBalance: false, isBlacklisted: false },
+        isActive: true,
+        createdAt: Timestamp.now(),
+        updatedAt: Timestamp.now(),
+      });
+
+      router.push(`/${locale}/customers/${customerRef.id}`);
+    } catch (err) {
+      console.error('Failed to create customer:', err);
       setSubmitting(false);
     }
   }

@@ -9,20 +9,21 @@ service cloud.firestore {
       return request.auth != null;
     }
 
+    // Falls back to uid when no agencyId custom claim (manually created users)
     function agencyId() {
-      return request.auth.token.agencyId;
+      return request.auth.token.agencyId != null
+        ? request.auth.token.agencyId
+        : request.auth.uid;
     }
 
     function isAdmin() {
       return request.auth.token.role == 'admin';
     }
 
-    // For read operations: the stored document must belong to the caller's agency.
     function isSameAgency() {
       return resource.data.agencyId == agencyId();
     }
 
-    // For create operations: the incoming document must declare the caller's agency.
     function isSameAgencyCreate() {
       return request.resource.data.agencyId == agencyId();
     }
@@ -33,8 +34,6 @@ service cloud.firestore {
     }
 
     // ─── agencies/{agencyId} ────────────────────────────────────────────────
-    // Any authenticated user of the same agency can read their own agency doc.
-    // Only admins of that agency may write.
     match /agencies/{agId} {
       allow read: if isAuthenticated() && agId == agencyId();
       allow write: if isAuthenticated() && agId == agencyId() && isAdmin();
@@ -82,14 +81,36 @@ service cloud.firestore {
                     && isSameAgencyCreate()
                     && hasPerm('perm_invoices_write');
 
-      allow update, delete: if isAuthenticated()
-                             && isSameAgency()
-                             && isSameAgencyCreate()
-                             && hasPerm('perm_invoices_write');
+      allow update: if isAuthenticated()
+                    && isSameAgency()
+                    && isSameAgencyCreate()
+                    && hasPerm('perm_invoices_write');
+
+      allow delete: if isAuthenticated()
+                    && isSameAgency()
+                    && isAdmin();
+    }
+
+    // ─── payments/{paymentId} ───────────────────────────────────────────────
+    // Client-side payment recording allowed with invoices write permission.
+    match /payments/{paymentId} {
+      allow read: if isAuthenticated()
+                  && isSameAgency()
+                  && hasPerm('perm_invoices_read');
+
+      allow create: if isAuthenticated()
+                    && isSameAgencyCreate()
+                    && hasPerm('perm_invoices_write');
+
+      allow update: if isAuthenticated()
+                    && isSameAgency()
+                    && isSameAgencyCreate()
+                    && hasPerm('perm_invoices_write');
+
+      allow delete: if false;
     }
 
     // ─── journal_entries/{entryId} ──────────────────────────────────────────
-    // Read: accounting permission required; writes are Cloud Functions only.
     match /journal_entries/{entryId} {
       allow read: if isAuthenticated()
                   && isSameAgency()
@@ -98,26 +119,46 @@ service cloud.firestore {
       allow write: if false; // Cloud Functions (Admin SDK) only
     }
 
-    // ─── payments/{paymentId} ───────────────────────────────────────────────
-    // Read: invoices read permission required; writes are Cloud Functions only.
-    match /payments/{paymentId} {
-      allow read: if isAuthenticated()
-                  && isSameAgency()
-                  && hasPerm('perm_invoices_read');
-
-      allow write: if false; // Cloud Functions (Admin SDK) only
-    }
-
     // ─── idempotency_keys/{key} ─────────────────────────────────────────────
-    // Cloud Functions (Admin SDK) only — deny all client access.
     match /idempotency_keys/{key} {
       allow read, write: if false;
     }
 
     // ─── invoice_counters/{agencyId} ────────────────────────────────────────
-    // Cloud Functions (Admin SDK) only — deny all client access.
     match /invoice_counters/{agId} {
       allow read, write: if false;
+    }
+
+    // ─── suppliers/{supplierId} ─────────────────────────────────────────────
+    match /suppliers/{supplierId} {
+      allow read: if isAuthenticated() && isSameAgency();
+      allow create: if isAuthenticated() && isSameAgencyCreate();
+      allow update: if isAuthenticated() && isSameAgency() && isSameAgencyCreate();
+      allow delete: if isAuthenticated() && isSameAgency() && isAdmin();
+    }
+
+    // ─── employees/{employeeId} ─────────────────────────────────────────────
+    match /employees/{employeeId} {
+      allow read: if isAuthenticated() && isSameAgency();
+      allow create: if isAuthenticated() && isSameAgencyCreate();
+      allow update: if isAuthenticated() && isSameAgency() && isSameAgencyCreate();
+      allow delete: if isAuthenticated() && isSameAgency() && isAdmin();
+    }
+
+    // ─── chart_of_accounts/{accountId} ─────────────────────────────────────
+    match /chart_of_accounts/{accountId} {
+      allow read: if isAuthenticated() && isSameAgency();
+      allow create: if isAuthenticated() && isSameAgencyCreate();
+      allow update: if isAuthenticated() && isSameAgency() && isSameAgencyCreate();
+      allow delete: if isAuthenticated() && isSameAgency() && isAdmin();
+    }
+
+    // ─── currencies/{currencyId} ────────────────────────────────────────────
+    match /currencies/{currencyId} {
+      allow read: if isAuthenticated() && isSameAgency();
+      allow create: if isAuthenticated() && isSameAgencyCreate();
+      allow update: if isAuthenticated() && isSameAgency() && isSameAgencyCreate();
+      allow delete: if isAuthenticated() && isSameAgency() && isAdmin();
     }
 
   }
