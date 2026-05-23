@@ -1,39 +1,19 @@
-import { getTranslations, getLocale } from 'next-intl/server';
-import { StatsCard } from '@/components/dashboard/StatsCard';
+import { getTranslations } from 'next-intl/server';
 import { Card, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
-import { BookingStatusBadge } from '@/components/ui/StatusBadge';
-import { formatCurrency, formatDate } from '@/lib/utils';
+import { DashboardStats } from '@/components/dashboard/DashboardStats';
+import { DashboardRecentBookings } from '@/components/dashboard/DashboardRecentBookings';
 import {
   BookOpen,
   TrendingUp,
   Users,
-  DollarSign,
   Plus,
   FileText,
 } from 'lucide-react';
 import Link from 'next/link';
 
-// Demo data — in production this comes from Firestore via server-side fetch or client hooks
-const demoStats = {
-  totalBookings: 248,
-  pendingBookings: 12,
-  totalRevenueSAR: 1_245_800, // halalas
-  pendingPaymentsSAR: 187_500,
-  activeCustomers: 183,
-};
-
-const demoRecentBookings = [
-  { id: 'BK-001', customer: 'أحمد محمد العمري', type: 'عمرة', status: 'confirmed' as const, amount: 850000, date: new Date('2026-05-20') },
-  { id: 'BK-002', customer: 'فاطمة علي الزهراني', type: 'طيران', status: 'pending_approval' as const, amount: 220000, date: new Date('2026-05-21') },
-  { id: 'BK-003', customer: 'خالد إبراهيم السعد', type: 'فندق', status: 'confirmed' as const, amount: 450000, date: new Date('2026-05-21') },
-  { id: 'BK-004', customer: 'منى عبدالله القحطاني', type: 'باقة', status: 'in_progress' as const, amount: 1200000, date: new Date('2026-05-22') },
-  { id: 'BK-005', customer: 'سعود محمد الغامدي', type: 'تأشيرة', status: 'draft' as const, amount: 75000, date: new Date('2026-05-22') },
-];
-
 export default async function DashboardPage({ params }: { params: { locale: string } }) {
   const t = await getTranslations('dashboard');
-  const tc = await getTranslations('common');
   const locale = params.locale;
 
   return (
@@ -56,41 +36,8 @@ export default async function DashboardPage({ params }: { params: { locale: stri
         </div>
       </div>
 
-      {/* Stats grid */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
-        <StatsCard
-          title={t('totalBookings')}
-          value={demoStats.totalBookings.toLocaleString(locale === 'ar' ? 'ar-SA' : 'en-US')}
-          icon={BookOpen}
-          iconBg="bg-brand-50"
-          iconColor="text-brand-600"
-          trend={{ value: 12, label: locale === 'ar' ? 'هذا الشهر' : 'this month', direction: 'up' }}
-        />
-        <StatsCard
-          title={t('pendingBookings')}
-          value={demoStats.pendingBookings}
-          icon={FileText}
-          iconBg="bg-amber-50"
-          iconColor="text-amber-600"
-          subtitle={locale === 'ar' ? 'تحتاج مراجعة' : 'Need review'}
-        />
-        <StatsCard
-          title={t('totalRevenue')}
-          value={formatCurrency(demoStats.totalRevenueSAR, locale === 'ar' ? 'ar-SA' : 'en-SA')}
-          icon={TrendingUp}
-          iconBg="bg-emerald-50"
-          iconColor="text-emerald-600"
-          trend={{ value: 8, label: locale === 'ar' ? 'مقارنةً بالشهر الماضي' : 'vs last month', direction: 'up' }}
-        />
-        <StatsCard
-          title={t('pendingPayments')}
-          value={formatCurrency(demoStats.pendingPaymentsSAR, locale === 'ar' ? 'ar-SA' : 'en-SA')}
-          icon={DollarSign}
-          iconBg="bg-red-50"
-          iconColor="text-red-500"
-          subtitle={locale === 'ar' ? 'مستحق التحصيل' : 'Due for collection'}
-        />
-      </div>
+      {/* Stats grid — real-time from Firestore */}
+      <DashboardStats locale={locale} />
 
       {/* Content grid */}
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
@@ -102,23 +49,7 @@ export default async function DashboardPage({ params }: { params: { locale: stri
               {locale === 'ar' ? 'عرض الكل' : 'View all'}
             </Link>
           </div>
-          <div className="divide-y divide-surface-border">
-            {demoRecentBookings.map((booking) => (
-              <div key={booking.id} className="px-6 py-4 flex items-center gap-4 hover:bg-slate-50 transition-colors">
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium text-slate-900 truncate">{booking.customer}</p>
-                  <p className="text-xs text-slate-500 mt-0.5">{booking.id} · {booking.type}</p>
-                </div>
-                <div className="text-end flex-shrink-0">
-                  <p className="text-sm font-semibold text-slate-900">
-                    {formatCurrency(booking.amount, locale === 'ar' ? 'ar-SA' : 'en-SA')}
-                  </p>
-                  <p className="text-xs text-slate-400">{formatDate(booking.date, locale === 'ar' ? 'ar-SA' : 'en-SA')}</p>
-                </div>
-                <BookingStatusBadge status={booking.status} locale={locale} />
-              </div>
-            ))}
-          </div>
+          <DashboardRecentBookings locale={locale} />
         </Card>
 
         {/* Quick actions */}
