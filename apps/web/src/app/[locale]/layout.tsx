@@ -1,20 +1,18 @@
 import type { ReactNode } from 'react';
 import type { Metadata } from 'next';
 import { NextIntlClientProvider } from 'next-intl';
-import { getMessages, getTranslations } from 'next-intl/server';
+import { getMessages } from 'next-intl/server';
 import { notFound } from 'next/navigation';
 import { locales, type Locale } from '@/i18n';
 import { FirebaseProvider } from '@/providers/FirebaseProvider';
 import { AuthProvider } from '@/providers/AuthProvider';
 import { DirectionProvider } from '@/providers/DirectionProvider';
 
+export const dynamic = 'force-dynamic';
+
 interface LocaleLayoutProps {
   children: ReactNode;
   params: { locale: string };
-}
-
-export async function generateStaticParams() {
-  return locales.map((locale) => ({ locale }));
 }
 
 export async function generateMetadata({ params: { locale } }: LocaleLayoutProps): Promise<Metadata> {
