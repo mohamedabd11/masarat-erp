@@ -4,6 +4,7 @@ import { NextIntlClientProvider } from 'next-intl';
 import { getMessages, getTranslations } from 'next-intl/server';
 import { notFound } from 'next/navigation';
 import { locales, type Locale } from '@/i18n';
+import { FirebaseProvider } from '@/providers/FirebaseProvider';
 import { AuthProvider } from '@/providers/AuthProvider';
 import { DirectionProvider } from '@/providers/DirectionProvider';
 
@@ -40,11 +41,13 @@ export default async function LocaleLayout({ children, params: { locale } }: Loc
       </head>
       <body className="antialiased bg-surface-muted text-slate-900 min-h-screen">
         <NextIntlClientProvider messages={messages}>
-          <DirectionProvider locale={locale}>
-            <AuthProvider>
-              {children}
-            </AuthProvider>
-          </DirectionProvider>
+          <FirebaseProvider>
+            <DirectionProvider locale={locale}>
+              <AuthProvider>
+                {children}
+              </AuthProvider>
+            </DirectionProvider>
+          </FirebaseProvider>
         </NextIntlClientProvider>
       </body>
     </html>
