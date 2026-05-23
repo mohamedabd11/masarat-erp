@@ -8,12 +8,11 @@ export function cn(...inputs: ClassValue[]) {
 /** تنسيق المبلغ بالريال السعودي */
 export function formatCurrency(halalas: number, locale: string = 'ar-SA'): string {
   const riyals = halalas / 100;
-  return new Intl.NumberFormat(locale, {
-    style: 'currency',
-    currency: 'SAR',
+  const number = new Intl.NumberFormat(locale, {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   }).format(riyals);
+  return locale.startsWith('ar') ? `${number} ر.س.` : `SAR ${number}`;
 }
 
 /** تنسيق التاريخ */
