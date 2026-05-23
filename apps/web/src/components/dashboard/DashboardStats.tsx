@@ -2,67 +2,70 @@
 
 import { useFirestoreBookings } from '@/hooks/useFirestoreBookings';
 import { StatsCard } from '@/components/dashboard/StatsCard';
-import { formatCurrency } from '@/lib/utils';
-import { BookOpen, TrendingUp, FileText, DollarSign } from 'lucide-react';
+import { formatCurrency, formatCount } from '@/lib/utils';
+import { TrendingUp, CheckCircle2, Clock, Wallet } from 'lucide-react';
 
-interface DashboardStatsProps {
-  locale: string;
-}
-
-export function DashboardStats({ locale }: DashboardStatsProps) {
+export function DashboardStats({ locale }: { locale: string }) {
   const { bookings, loading } = useFirestoreBookings();
   const isAr = locale === 'ar';
+  const loc2 = isAr ? 'ar-SA' : 'en-SA';
 
   if (loading) {
     return (
-      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 xl:grid-cols-4 gap-4">
         {[0, 1, 2, 3].map((i) => (
-          <div key={i} className="animate-pulse h-24 bg-slate-100 rounded-xl" />
+          <div key={i} className="animate-pulse h-28 bg-slate-100 rounded-xl border-s-4 border-slate-200" />
         ))}
       </div>
     );
   }
 
-  const totalBookings = bookings.length;
-  const pendingBookings = bookings.filter((b) => b.status === 'pending_approval').length;
-  const totalRevenue = bookings.reduce((sum, b) => sum + (b.grandTotalHalalas ?? 0), 0);
-  const pendingPayments = bookings.reduce((sum, b) => {
-    const paid = b.paidHalalas ?? 0;
-    const due = (b.grandTotalHalalas ?? 0) - paid;
-    return sum + (due > 0 ? due : 0);
+  const active  = bookings.filter((b) => b.status === 'confirmed' || b.status === 'in_progress').length;
+  const pending = bookings.filter((b) => b.status === 'pending_approval').length;
+  const revenue = bookings.reduce((s, b) => s + (b.grandTotalHalalas ?? (b.pricing as { totalAmount?: number } | undefined)?.totalAmount ?? 0), 0);
+  const due     = bookings.reduce((s, b) => {
+    const total = b.grandTotalHalalas ?? (b.pricing as { totalAmount?: number } | undefined)?.totalAmount ?? 0;
+    const paid  = b.paidHalalas ?? (b as { totalPaid?: number }).totalPaid ?? 0;
+    return s + Math.max(0, total - paid);
   }, 0);
 
   return (
-    <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+    <div className="grid grid-cols-2 xl:grid-cols-4 gap-4">
       <StatsCard
-        title={isAr ? 'إجمالي الحجوزات' : 'Total Bookings'}
-        value={totalBookings.toLocaleString(isAr ? 'ar-SA' : 'en-US')}
-        icon={BookOpen}
+        title={isAr ? 'إجمالي الإيرادات' : 'Total Revenue'}
+        value={formatCurrency(revenue, loc2)}
+        icon={TrendingUp}
         iconBg="bg-brand-50"
         iconColor="text-brand-600"
+        accentColor="border-brand-500"
+        subtitle={isAr ? 'من جميع الخدمات' : 'All services'}
       />
       <StatsCard
-        title={isAr ? 'حجوزات بانتظار الموافقة' : 'Pending Bookings'}
-        value={pendingBookings}
-        icon={FileText}
+        title={isAr ? 'خدمات نشطة' : 'Active Services'}
+        value={formatCount(active, loc2)}
+        icon={CheckCircle2}
+        iconBg="bg-emerald-50"
+        iconColor="text-emerald-600"
+        accentColor="border-emerald-500"
+        subtitle={isAr ? 'مؤكدة وجارية' : 'Confirmed & in progress'}
+      />
+      <StatsCard
+        title={isAr ? 'بانتظار الموافقة' : 'Pending Approval'}
+        value={formatCount(pending, loc2)}
+        icon={Clock}
         iconBg="bg-amber-50"
         iconColor="text-amber-600"
+        accentColor="border-amber-500"
         subtitle={isAr ? 'تحتاج مراجعة' : 'Need review'}
       />
       <StatsCard
-        title={isAr ? 'إجمالي الإيرادات' : 'Total Revenue'}
-        value={formatCurrency(totalRevenue, isAr ? 'ar-SA' : 'en-SA')}
-        icon={TrendingUp}
-        iconBg="bg-emerald-50"
-        iconColor="text-emerald-600"
-      />
-      <StatsCard
-        title={isAr ? 'مدفوعات معلقة' : 'Pending Payments'}
-        value={formatCurrency(pendingPayments, isAr ? 'ar-SA' : 'en-SA')}
-        icon={DollarSign}
+        title={isAr ? 'مستحق التحصيل' : 'Outstanding Balance'}
+        value={formatCurrency(due, loc2)}
+        icon={Wallet}
         iconBg="bg-red-50"
         iconColor="text-red-500"
-        subtitle={isAr ? 'مستحق التحصيل' : 'Due for collection'}
+        accentColor="border-red-400"
+        subtitle={isAr ? 'غير محصَّل' : 'Not yet collected'}
       />
     </div>
   );

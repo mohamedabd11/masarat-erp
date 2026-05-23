@@ -30,9 +30,13 @@ export default async function DashboardPage({ params }: { params: { locale: stri
       {/* Page header */}
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900">{t('title')}</h1>
+          <h1 className="text-2xl font-bold text-slate-900">
+            {isAr ? 'لوحة التحكم' : 'Dashboard'}
+          </h1>
           <p className="text-slate-500 text-sm mt-0.5">
-            {isAr ? 'آخر تحديث: الآن' : 'Last updated: just now'}
+            {isAr
+              ? new Date().toLocaleDateString('ar-SA-u-nu-latn', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })
+              : new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
           </p>
         </div>
         <Link
@@ -65,15 +69,15 @@ export default async function DashboardPage({ params }: { params: { locale: stri
               <Link
                 key={svc.type}
                 href={`/${locale}/bookings/new?type=${svc.type}`}
-                className="group flex flex-col items-center gap-2 p-3 rounded-xl hover:bg-slate-50 transition-colors"
+                className="group flex flex-col items-center gap-2 p-3 rounded-xl hover:bg-slate-50 hover:shadow-sm transition-all duration-200"
               >
                 <div
-                  className="w-11 h-11 rounded-xl flex items-center justify-center transition-transform duration-200 group-hover:scale-110"
+                  className="w-12 h-12 rounded-xl flex items-center justify-center transition-all duration-200 group-hover:scale-110 group-hover:shadow-md"
                   style={{ backgroundColor: svc.bg, color: svc.color }}
                 >
-                  <Icon size={20} />
+                  <Icon size={22} />
                 </div>
-                <span className="text-[11px] font-medium text-slate-600 text-center leading-tight">
+                <span className="text-[11px] font-semibold text-slate-600 text-center leading-tight group-hover:text-slate-800 transition-colors">
                   {isAr ? svc.ar : svc.en}
                 </span>
               </Link>

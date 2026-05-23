@@ -9,7 +9,7 @@ import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
 import { ChartOfAccountsClient } from '@/components/accounting/ChartOfAccountsClient';
 import { CurrenciesClient } from '@/components/currencies/CurrenciesClient';
-import { formatCurrency, formatDate } from '@/lib/utils';
+import { formatCurrency, formatDate, formatCount } from '@/lib/utils';
 import { cn } from '@/lib/utils';
 import {
   BarChart3,
@@ -499,7 +499,7 @@ function JournalEntriesTab({
           iconColor="text-brand-600"
           label={isAr ? 'إجمالي المدين' : 'Total Debit'}
           value={formatCurrency(totalDebit, fmtLocale)}
-          sub={`${DEMO_ENTRIES.length} ${isAr ? 'قيد' : 'entries'}`}
+          sub={`${formatCount(DEMO_ENTRIES.length, fmtLocale)} ${isAr ? 'قيد' : 'entries'}`}
         />
         <StatCard
           icon={<TrendingDown size={20} />}
@@ -518,7 +518,7 @@ function JournalEntriesTab({
           iconBg="bg-emerald-50"
           iconColor="text-emerald-600"
           label={isAr ? 'قيود متوازنة' : 'Balanced Entries'}
-          value={`${balancedCount} / ${DEMO_ENTRIES.length}`}
+          value={`${formatCount(balancedCount, fmtLocale)} / ${formatCount(DEMO_ENTRIES.length, fmtLocale)}`}
           sub={isAr ? 'متطابق مدين/دائن' : 'Debit = Credit'}
         />
       </div>
@@ -684,7 +684,7 @@ export default function AccountingPage() {
             DEMO_ENTRIES.reduce((s, e) => s + entryTotalDebit(e), 0),
             fmtLocale,
           )}
-          sub={`${DEMO_ENTRIES.length} ${isAr ? 'قيد' : 'entries'}`}
+          sub={`${formatCount(DEMO_ENTRIES.length, fmtLocale)} ${isAr ? 'قيد' : 'entries'}`}
         />
         <StatCard
           icon={<TrendingDown size={20} />}
@@ -701,14 +701,14 @@ export default function AccountingPage() {
           iconBg="bg-emerald-50"
           iconColor="text-emerald-600"
           label={isAr ? 'قيود متوازنة' : 'Balanced Entries'}
-          value={`${DEMO_ENTRIES.filter((e) => e.status === 'balanced').length} / ${DEMO_ENTRIES.length}`}
+          value={`${formatCount(DEMO_ENTRIES.filter((e) => e.status === 'balanced').length, fmtLocale)} / ${formatCount(DEMO_ENTRIES.length, fmtLocale)}`}
         />
         <StatCard
           icon={<BarChart3 size={20} />}
           iconBg="bg-amber-50"
           iconColor="text-amber-600"
           label={isAr ? 'مسودات' : 'Draft Entries'}
-          value={`${DEMO_ENTRIES.filter((e) => e.status === 'draft').length}`}
+          value={formatCount(DEMO_ENTRIES.filter((e) => e.status === 'draft').length, fmtLocale)}
           sub={isAr ? 'بانتظار الترحيل' : 'Pending posting'}
         />
       </div>

@@ -5,38 +5,48 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
-/** تنسيق المبلغ بالريال السعودي */
+/** تنسيق المبلغ بالريال السعودي — يستخدم أرقام لاتينية دائماً */
 export function formatCurrency(halalas: number, locale: string = 'ar-SA'): string {
   const riyals = halalas / 100;
-  const number = new Intl.NumberFormat(locale, {
+  const numberLocale = locale.startsWith('ar') ? 'ar-SA-u-nu-latn' : 'en-US';
+  const formatted = new Intl.NumberFormat(numberLocale, {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
+    useGrouping: true,
   }).format(riyals);
-  return locale.startsWith('ar') ? `${number} ر.س.` : `SAR ${number}`;
+  return locale.startsWith('ar') ? `${formatted} ر.س` : `SAR ${formatted}`;
 }
 
-/** تنسيق التاريخ */
+/** تنسيق التاريخ — يستخدم أرقام لاتينية دائماً */
 export function formatDate(date: Date | { toDate(): Date } | null | undefined, locale: string = 'ar-SA'): string {
   if (!date) return '';
   const d = 'toDate' in date ? date.toDate() : date;
-  return new Intl.DateTimeFormat(locale, {
+  const dateLocale = locale.startsWith('ar') ? 'ar-SA-u-nu-latn' : locale;
+  return new Intl.DateTimeFormat(dateLocale, {
     year: 'numeric',
-    month: 'long',
+    month: 'short',
     day: 'numeric',
   }).format(d);
 }
 
-/** تنسيق التاريخ والوقت */
+/** تنسيق التاريخ والوقت — يستخدم أرقام لاتينية دائماً */
 export function formatDateTime(date: Date | { toDate(): Date } | null | undefined, locale: string = 'ar-SA'): string {
   if (!date) return '';
   const d = 'toDate' in date ? date.toDate() : date;
-  return new Intl.DateTimeFormat(locale, {
+  const dateLocale = locale.startsWith('ar') ? 'ar-SA-u-nu-latn' : locale;
+  return new Intl.DateTimeFormat(dateLocale, {
     year: 'numeric',
     month: 'short',
     day: 'numeric',
     hour: '2-digit',
     minute: '2-digit',
   }).format(d);
+}
+
+/** Format integer count with Latin numerals */
+export function formatCount(n: number, locale: string = 'ar-SA'): string {
+  const numLocale = locale.startsWith('ar') ? 'ar-SA-u-nu-latn' : 'en-US';
+  return new Intl.NumberFormat(numLocale).format(n);
 }
 
 /** تحويل كود الحالة لاسم عرض */
