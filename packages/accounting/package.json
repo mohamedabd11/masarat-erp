@@ -2,8 +2,8 @@
   "name": "@masarat/accounting",
   "version": "1.0.0",
   "description": "محرك القيود المحاسبية — خالٍ من أي تبعية Firebase",
-  "main": "dist/index.js",
-  "types": "dist/index.d.ts",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
   "scripts": {
     "build": "tsc",
     "test": "vitest run",

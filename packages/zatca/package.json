@@ -2,8 +2,8 @@
   "name": "@masarat/zatca",
   "version": "1.0.0",
   "description": "ZATCA Phase 2 e-Invoice XML builder and QR code generator",
-  "main": "dist/index.js",
-  "types": "dist/index.d.ts",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
   "scripts": {
     "build": "tsc",
     "type-check": "tsc --noEmit"

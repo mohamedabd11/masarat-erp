@@ -1,6 +1,6 @@
 {
   "installCommand": "cd ../.. && npx pnpm@9 install",
-  "buildCommand": "cd ../.. && npx pnpm@9 --filter @masarat/firebase build && npx pnpm@9 --filter @masarat/zatca build && npx pnpm@9 --filter @masarat/accounting build && npx pnpm@9 --filter @masarat/web build",
+  "buildCommand": "cd ../.. && npx pnpm@9 --filter @masarat/web build",
   "outputDirectory": ".next",
   "framework": "nextjs"
 }
