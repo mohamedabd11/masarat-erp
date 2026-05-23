@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/Button';
 import { BookingStatusBadge } from '@/components/ui/StatusBadge';
 import { formatCurrency, formatDate } from '@/lib/utils';
 import { ArrowRight, ArrowLeft, FileText, User, MapPin, Users, Receipt } from 'lucide-react';
+import { BookingActions } from '@/components/bookings/BookingActions';
 
 // Demo data — in production fetched from Firestore
 const DEMO_BOOKING = {
@@ -232,13 +233,14 @@ export default async function BookingDetailPage({
                 </div>
               )}
             </div>
-            {booking.grandTotalHalalas - booking.paidHalalas > 0 && (
-              <div className="mt-4 pt-4 border-t border-surface-border">
-                <Button fullWidth size="sm">
-                  {isAr ? 'تسجيل دفعة' : 'Record Payment'}
-                </Button>
-              </div>
-            )}
+            <BookingActions
+              bookingId={booking.id}
+              agencyId="demo-agency"
+              bookingStatus={booking.status}
+              existingInvoiceId={booking.invoiceIds[0]}
+              grandTotalHalalas={booking.grandTotalHalalas}
+              paidHalalas={booking.paidHalalas}
+            />
           </Card>
 
           {/* Timeline */}

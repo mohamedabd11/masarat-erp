@@ -148,13 +148,25 @@
 | `apps/web/src/hooks/useFirestoreBookings.ts` | ✅ مكتمل |
 | `apps/web/src/hooks/useDirection.ts` | ✅ مكتمل |
 
-### المرحلة 7: التالي
-- [ ] ربط Cloud Functions بالـ UI (استدعاء createInvoice من صفحة الحجوزات)
-- [ ] لوحة التحكم بالبيانات الحقيقية من Firestore (إزالة demo data)
-- [ ] مكوّن طباعة الفاتورة (PDF via react-pdf أو html2pdf)
+### المرحلة 7: ربط Cloud Functions + طباعة + شاشات الجوال ✅
+| الملف | الحالة |
+|-------|--------|
+| `apps/web/src/hooks/useCloudFunctions.ts` | ✅ مكتمل |
+| `apps/web/src/components/bookings/CreateInvoiceButton.tsx` | ✅ مكتمل |
+| `apps/web/src/components/bookings/ProcessPaymentModal.tsx` | ✅ مكتمل |
+| `apps/web/src/components/bookings/ProcessRefundModal.tsx` | ✅ مكتمل |
+| `apps/web/src/components/bookings/BookingActions.tsx` | ✅ مكتمل |
+| `apps/web/src/components/invoices/PrintableInvoice.tsx` | ✅ مكتمل |
+| `apps/web/src/app/[locale]/(dashboard)/invoices/[id]/print/page.tsx` | ✅ مكتمل |
+| `apps/mobile/app/(tabs)/bookings.tsx` | ✅ مكتمل |
+| `apps/mobile/app/(tabs)/customers.tsx` | ✅ مكتمل |
+| `apps/mobile/app/(tabs)/invoices.tsx` | ✅ مكتمل |
+| `apps/mobile/app/(tabs)/settings.tsx` | ✅ مكتمل |
+
+### المرحلة 8: التالي
+- [ ] لوحة التحكم بالبيانات الحقيقية من Firestore (إزالة demo data، ربط useFirestoreBookings)
 - [ ] اختبارات E2E (Playwright)
-- [ ] تطبيق الجوال: صفحات الحجوزات، العملاء، الفواتير (tabs متبقية)
-- [ ] إعداد Firebase Project حقيقي وتشغيل Emulator
+- [ ] إعداد Firebase Project حقيقي وتشغيل Emulator (دليل الإعداد)
 
 ---
 
@@ -179,4 +191,6 @@
 - `CHECKPOINT-B: بعد packages/accounting`
 - `CHECKPOINT-C: بعد functions/`
 - `CHECKPOINT-D: بعد packages/ (firebase + zatca)`
-- **`CHECKPOINT-E: بعد apps/web/ ✅ الحالة الآن`** — الويب مكتمل، التالي apps/mobile أو توسيع الصفحات
+- `CHECKPOINT-E: بعد apps/web/`
+- `CHECKPOINT-F: بعد المرحلة 6 (apps/mobile الأساسي)`
+- **`CHECKPOINT-G: بعد المرحلة 7 ✅ الحالة الآن`** — Cloud Functions مربوطة بالـ UI، طباعة الفواتير، وجميع شاشات الجوال
