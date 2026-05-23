@@ -235,7 +235,7 @@ export default async function BookingDetailPage({
             </div>
             <BookingActions
               bookingId={booking.id}
-              agencyId="demo-agency"
+              agencyId={booking.agencyId}
               bookingStatus={booking.status}
               existingInvoiceId={booking.invoiceIds[0]}
               grandTotalHalalas={booking.grandTotalHalalas}

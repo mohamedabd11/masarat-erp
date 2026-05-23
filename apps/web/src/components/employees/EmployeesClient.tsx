@@ -48,7 +48,7 @@ export function EmployeesClient({ locale }: EmployeesClientProps) {
   const [saving, setSaving] = useState(false);
   const [roleFilter, setRoleFilter] = useState<EmployeeRole | 'all'>('all');
 
-  const agencyId = (user as { agencyId?: string } | null)?.agencyId ?? '';
+  const agencyId = user?.agencyId ?? '';
 
   useEffect(() => {
     if (!agencyId) { setLoading(false); return; }

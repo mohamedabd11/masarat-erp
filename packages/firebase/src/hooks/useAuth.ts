@@ -27,6 +27,7 @@ export interface AuthUser {
   uid: string;
   email: string | null;
   displayName: string | null;
+  agencyId: string;
   claims: MasaratClaims;
 }
 
@@ -64,6 +65,7 @@ export function useAuth(): UseAuthReturn {
           uid: firebaseUser.uid,
           email: firebaseUser.email,
           displayName: firebaseUser.displayName,
+          agencyId: claims.agencyId ?? firebaseUser.uid,
           claims,
         });
       } catch {
