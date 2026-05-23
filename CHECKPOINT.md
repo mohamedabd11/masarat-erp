@@ -163,10 +163,28 @@
 | `apps/mobile/app/(tabs)/invoices.tsx` | ✅ مكتمل |
 | `apps/mobile/app/(tabs)/settings.tsx` | ✅ مكتمل |
 
-### المرحلة 8: التالي
-- [ ] لوحة التحكم بالبيانات الحقيقية من Firestore (إزالة demo data، ربط useFirestoreBookings)
-- [ ] اختبارات E2E (Playwright)
-- [ ] إعداد Firebase Project حقيقي وتشغيل Emulator (دليل الإعداد)
+### المرحلة 8: ربط Firestore + E2E + دليل Firebase ✅
+| الملف | الحالة |
+|-------|--------|
+| `apps/web/src/components/dashboard/DashboardStats.tsx` | ✅ مكتمل |
+| `apps/web/src/components/dashboard/DashboardRecentBookings.tsx` | ✅ مكتمل |
+| `apps/web/src/components/bookings/BookingsClient.tsx` | ✅ مكتمل |
+| `apps/web/src/app/[locale]/(dashboard)/dashboard/page.tsx` (محدّث) | ✅ مكتمل |
+| `apps/web/src/app/[locale]/(dashboard)/bookings/page.tsx` (محدّث) | ✅ مكتمل |
+| `apps/web/playwright.config.ts` | ✅ مكتمل |
+| `apps/web/e2e/auth.spec.ts` | ✅ مكتمل |
+| `apps/web/e2e/dashboard.spec.ts` | ✅ مكتمل |
+| `apps/web/e2e/bookings.spec.ts` | ✅ مكتمل |
+| `apps/web/e2e/i18n.spec.ts` | ✅ مكتمل |
+| `apps/web/e2e/helpers/auth.ts` | ✅ مكتمل |
+| `FIREBASE-SETUP.md` | ✅ مكتمل |
+| `functions/scripts/create-admin-user.js` | ✅ مكتمل |
+
+### المرحلة 9: ما تبقّى (اختياري للإنتاج)
+- [ ] Firestore Security Rules المفصّلة (التحقق من agencyId لكل مجموعة)
+- [ ] CI/CD: GitHub Actions workflow (build + test:e2e + deploy)
+- [ ] تطبيق الجوال: ربط Firebase الحقيقي (حاليًا محاكاة)
+- [ ] EAS Build إعداد لنشر تطبيق الجوال على App Store / Play Store
 
 ---
 
@@ -193,4 +211,5 @@
 - `CHECKPOINT-D: بعد packages/ (firebase + zatca)`
 - `CHECKPOINT-E: بعد apps/web/`
 - `CHECKPOINT-F: بعد المرحلة 6 (apps/mobile الأساسي)`
-- **`CHECKPOINT-G: بعد المرحلة 7 ✅ الحالة الآن`** — Cloud Functions مربوطة بالـ UI، طباعة الفواتير، وجميع شاشات الجوال
+- `CHECKPOINT-G: بعد المرحلة 7` — Cloud Functions مربوطة بالـ UI، طباعة الفواتير، وجميع شاشات الجوال
+- **`CHECKPOINT-H: بعد المرحلة 8 ✅ الحالة الآن`** — Firestore الحقيقي، E2E Playwright، دليل Firebase كامل
