@@ -2,11 +2,12 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '@masarat/firebase';
-import type { BookingDoc, BookingStatus } from '@masarat/firebase';
+import type { BookingDoc, BookingStatus, BookingType } from '@masarat/firebase';
 import type { DocumentSnapshot } from 'firebase/firestore';
 
 interface UseFirestoreBookingsOptions {
   status?: BookingStatus;
+  type?: BookingType;
   pageSize?: number;
 }
 
@@ -65,6 +66,10 @@ export function useFirestoreBookings(options: UseFirestoreBookingsOptions = {}):
           constraints.push(where('status', '==', options.status));
         }
 
+        if (options.type) {
+          constraints.push(where('type', '==', options.type));
+        }
+
         const q = query(col, ...constraints);
         unsubscribe = onSnapshot(
           q,
@@ -75,7 +80,6 @@ export function useFirestoreBookings(options: UseFirestoreBookingsOptions = {}):
             setHasMore(snap.docs.length >= pageSize);
             setLoading(false);
             setError(null);
-            // Reset extra pages when first page refreshes
             setExtraPages([]);
           },
           (err) => {
@@ -92,7 +96,7 @@ export function useFirestoreBookings(options: UseFirestoreBookingsOptions = {}):
     setLoading(true);
     void subscribe();
     return () => unsubscribe?.();
-  }, [user, options.status, pageSize]);
+  }, [user, options.status, options.type, pageSize]);
 
   // Load next page via getDocs (one-time fetch, appended)
   const loadNextPage = useCallback(async () => {
@@ -118,6 +122,10 @@ export function useFirestoreBookings(options: UseFirestoreBookingsOptions = {}):
         constraints.push(where('status', '==', options.status));
       }
 
+      if (options.type) {
+        constraints.push(where('type', '==', options.type));
+      }
+
       const snap = await getDocs(query(col, ...constraints));
       const newDocs = snap.docs.map(d => d.data() as BookingDoc);
 
@@ -133,7 +141,7 @@ export function useFirestoreBookings(options: UseFirestoreBookingsOptions = {}):
     } finally {
       setLoadingMore(false);
     }
-  }, [lastDoc, loadingMore, hasMore, user, options.status, pageSize]);
+  }, [lastDoc, loadingMore, hasMore, user, options.status, options.type, pageSize]);
 
   const allBookings = [...bookings, ...extraPages.flat()];
 

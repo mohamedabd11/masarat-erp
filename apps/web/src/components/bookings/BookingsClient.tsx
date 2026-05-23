@@ -9,9 +9,11 @@ import { BookingStatusBadge } from '@/components/ui/StatusBadge';
 import { Card } from '@/components/ui/Card';
 import { formatCurrency, formatDate } from '@/lib/utils';
 import { BookOpen, Search } from 'lucide-react';
+import type { BookingType } from '@masarat/firebase';
 
 interface BookingsClientProps {
   locale: string;
+  bookingType?: BookingType;
 }
 
 function getBookingTypeLabel(type: string, isAr: boolean): string {
@@ -29,9 +31,9 @@ function getBookingTypeLabel(type: string, isAr: boolean): string {
   return isAr ? entry.ar : entry.en;
 }
 
-export function BookingsClient({ locale }: BookingsClientProps) {
+export function BookingsClient({ locale, bookingType }: BookingsClientProps) {
   const { bookings, loading, error, hasMore, loadNextPage, loadingMore } =
-    useFirestoreBookings({ pageSize: 50 });
+    useFirestoreBookings({ pageSize: 50, type: bookingType });
   const [search, setSearch] = useState('');
   const isAr = locale === 'ar';
 

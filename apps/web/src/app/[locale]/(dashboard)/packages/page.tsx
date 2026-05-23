@@ -1,23 +1,18 @@
-import { Construction } from 'lucide-react';
+import { BookingsClient } from '@/components/bookings/BookingsClient';
+import { Package } from 'lucide-react';
 
-export default function Page({ params }: { params: { locale: string } }) {
+export default function PackagesPage({ params }: { params: { locale: string } }) {
   const isAr = params.locale === 'ar';
   return (
-    <div className="flex flex-col items-center justify-center min-h-[60vh] text-center gap-4">
-      <div className="p-5 bg-amber-50 rounded-2xl">
-        <Construction size={40} className="text-amber-500" />
+    <div className="space-y-6">
+      <div className="flex items-center gap-3">
+        <div className="p-2 bg-purple-50 rounded-xl"><Package size={22} className="text-purple-600" /></div>
+        <div>
+          <h1 className="text-2xl font-bold text-slate-900">{isAr ? 'الباقات السياحية' : 'Tour Packages'}</h1>
+          <p className="text-slate-500 text-sm">{isAr ? 'إدارة جميع الباقات السياحية' : 'Manage all tour packages'}</p>
+        </div>
       </div>
-      <h1 className="text-2xl font-bold text-slate-900">
-        {isAr ? 'الباقات السياحية' : 'Tour Packages'}
-      </h1>
-      <p className="text-slate-500 max-w-sm">
-        {isAr
-          ? 'هذه الصفحة قيد التطوير وستكون متاحة قريباً'
-          : 'This page is under development and will be available soon'}
-      </p>
-      <span className="px-3 py-1 bg-amber-100 text-amber-700 rounded-full text-sm font-medium">
-        {isAr ? 'قريباً' : 'Coming Soon'}
-      </span>
+      <BookingsClient locale={params.locale} bookingType="package" />
     </div>
   );
 }

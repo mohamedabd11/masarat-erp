@@ -1,23 +1,18 @@
-import { Construction } from 'lucide-react';
+import { BookingsClient } from '@/components/bookings/BookingsClient';
+import { CreditCard } from 'lucide-react';
 
-export default function Page({ params }: { params: { locale: string } }) {
+export default function VisasPage({ params }: { params: { locale: string } }) {
   const isAr = params.locale === 'ar';
   return (
-    <div className="flex flex-col items-center justify-center min-h-[60vh] text-center gap-4">
-      <div className="p-5 bg-amber-50 rounded-2xl">
-        <Construction size={40} className="text-amber-500" />
+    <div className="space-y-6">
+      <div className="flex items-center gap-3">
+        <div className="p-2 bg-indigo-50 rounded-xl"><CreditCard size={22} className="text-indigo-600" /></div>
+        <div>
+          <h1 className="text-2xl font-bold text-slate-900">{isAr ? 'التأشيرات' : 'Visas'}</h1>
+          <p className="text-slate-500 text-sm">{isAr ? 'إدارة جميع طلبات التأشيرة' : 'Manage all visa applications'}</p>
+        </div>
       </div>
-      <h1 className="text-2xl font-bold text-slate-900">
-        {isAr ? 'التأشيرات' : 'Visas'}
-      </h1>
-      <p className="text-slate-500 max-w-sm">
-        {isAr
-          ? 'هذه الصفحة قيد التطوير وستكون متاحة قريباً'
-          : 'This page is under development and will be available soon'}
-      </p>
-      <span className="px-3 py-1 bg-amber-100 text-amber-700 rounded-full text-sm font-medium">
-        {isAr ? 'قريباً' : 'Coming Soon'}
-      </span>
+      <BookingsClient locale={params.locale} bookingType="visa" />
     </div>
   );
 }
