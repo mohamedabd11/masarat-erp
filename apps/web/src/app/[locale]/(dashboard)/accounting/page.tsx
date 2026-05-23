@@ -8,6 +8,7 @@ import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
 import { ChartOfAccountsClient } from '@/components/accounting/ChartOfAccountsClient';
+import { CurrenciesClient } from '@/components/currencies/CurrenciesClient';
 import { formatCurrency, formatDate } from '@/lib/utils';
 import { cn } from '@/lib/utils';
 import {
@@ -22,6 +23,7 @@ import {
   BookOpen,
   Layers,
   ListTree,
+  DollarSign,
 } from 'lucide-react';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -612,7 +614,7 @@ function JournalEntriesTab({
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
-type TabId = 'chart' | 'journal';
+type TabId = 'chart' | 'journal' | 'currencies';
 
 export default function AccountingPage() {
   const locale = useLocale();
@@ -633,6 +635,12 @@ export default function AccountingPage() {
       labelAr: 'قيود اليومية',
       labelEn: 'Journal Entries',
       icon: <BookOpen size={16} />,
+    },
+    {
+      id: 'currencies',
+      labelAr: 'العملات',
+      labelEn: 'Currencies',
+      icon: <DollarSign size={16} />,
     },
   ];
 
@@ -734,6 +742,10 @@ export default function AccountingPage() {
 
         {activeTab === 'journal' && (
           <JournalEntriesTab isAr={isAr} fmtLocale={fmtLocale} />
+        )}
+
+        {activeTab === 'currencies' && (
+          <CurrenciesClient locale={locale} />
         )}
       </div>
     </div>
