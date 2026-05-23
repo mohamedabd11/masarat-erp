@@ -24,6 +24,8 @@ import {
   Layers,
   ListTree,
   DollarSign,
+  Plus,
+  X,
 } from 'lucide-react';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -51,9 +53,18 @@ interface JournalEntry {
   reference?: string;
 }
 
+interface LineForm {
+  accountCode: string;
+  accountAr: string;
+  accountEn: string;
+  debitSAR: string;
+  creditSAR: string;
+  memo: string;
+}
+
 // ─── Demo journal data ────────────────────────────────────────────────────────
 
-const DEMO_ENTRIES: JournalEntry[] = [
+const DEMO_ENTRIES_INIT: JournalEntry[] = [
   // 1 ── Principal model — package sale
   {
     id: 'JE-2026-00051',
@@ -481,13 +492,15 @@ function EntryRow({
 function JournalEntriesTab({
   isAr,
   fmtLocale,
+  entries,
 }: {
   isAr: boolean;
   fmtLocale: string;
+  entries: JournalEntry[];
 }) {
-  const totalDebit = DEMO_ENTRIES.reduce((s, e) => s + entryTotalDebit(e), 0);
-  const totalCredit = DEMO_ENTRIES.reduce((s, e) => s + entryTotalCredit(e), 0);
-  const balancedCount = DEMO_ENTRIES.filter((e) => e.status === 'balanced').length;
+  const totalDebit = entries.reduce((s, e) => s + entryTotalDebit(e), 0);
+  const totalCredit = entries.reduce((s, e) => s + entryTotalCredit(e), 0);
+  const balancedCount = entries.filter((e) => e.status === 'balanced').length;
 
   return (
     <div className="space-y-6">
@@ -499,7 +512,7 @@ function JournalEntriesTab({
           iconColor="text-brand-600"
           label={isAr ? 'إجمالي المدين' : 'Total Debit'}
           value={formatCurrency(totalDebit, fmtLocale)}
-          sub={`${formatCount(DEMO_ENTRIES.length, fmtLocale)} ${isAr ? 'قيد' : 'entries'}`}
+          sub={`${formatCount(entries.length, fmtLocale)} ${isAr ? 'قيد' : 'entries'}`}
         />
         <StatCard
           icon={<TrendingDown size={20} />}
@@ -518,7 +531,7 @@ function JournalEntriesTab({
           iconBg="bg-emerald-50"
           iconColor="text-emerald-600"
           label={isAr ? 'قيود متوازنة' : 'Balanced Entries'}
-          value={`${formatCount(balancedCount, fmtLocale)} / ${formatCount(DEMO_ENTRIES.length, fmtLocale)}`}
+          value={`${formatCount(balancedCount, fmtLocale)} / ${formatCount(entries.length, fmtLocale)}`}
           sub={isAr ? 'متطابق مدين/دائن' : 'Debit = Credit'}
         />
       </div>
@@ -564,7 +577,7 @@ function JournalEntriesTab({
                 </tr>
               </thead>
               <tbody className="divide-y divide-surface-border">
-                {DEMO_ENTRIES.map((entry) => (
+                {entries.map((entry) => (
                   <EntryRow
                     key={entry.id}
                     entry={entry}
@@ -612,6 +625,258 @@ function JournalEntriesTab({
   );
 }
 
+// ─── NewEntryModal ────────────────────────────────────────────────────────────
+
+const EMPTY_LINE: LineForm = { accountCode: '', accountAr: '', accountEn: '', debitSAR: '', creditSAR: '', memo: '' };
+
+function NewEntryModal({
+  isAr,
+  onClose,
+  onSave,
+}: {
+  isAr: boolean;
+  onClose: () => void;
+  onSave: (entry: JournalEntry) => void;
+}) {
+  const today = new Date().toISOString().slice(0, 10);
+  const [date, setDate] = useState(today);
+  const [type, setType] = useState<EntryType>('principal');
+  const [descAr, setDescAr] = useState('');
+  const [descEn, setDescEn] = useState('');
+  const [reference, setReference] = useState('');
+  const [lines, setLines] = useState<LineForm[]>([{ ...EMPTY_LINE }, { ...EMPTY_LINE }]);
+  const [error, setError] = useState('');
+
+  const totalDebitSAR  = lines.reduce((s, l) => s + (Number(l.debitSAR)  || 0), 0);
+  const totalCreditSAR = lines.reduce((s, l) => s + (Number(l.creditSAR) || 0), 0);
+  const isBalanced = totalDebitSAR > 0 && Math.abs(totalDebitSAR - totalCreditSAR) < 0.001;
+
+  function updateLine(idx: number, field: keyof LineForm, value: string) {
+    setLines(prev => prev.map((l, i) => i === idx ? { ...l, [field]: value } : l));
+  }
+  function addLine() { setLines(prev => [...prev, { ...EMPTY_LINE }]); }
+  function removeLine(idx: number) {
+    if (lines.length <= 2) return;
+    setLines(prev => prev.filter((_, i) => i !== idx));
+  }
+
+  function handleSave() {
+    setError('');
+    if (!descAr.trim()) { setError(isAr ? 'البيان العربي مطلوب' : 'Arabic description is required'); return; }
+    const validLines = lines.filter(l => l.accountCode.trim() || Number(l.debitSAR) || Number(l.creditSAR));
+    if (validLines.length < 2) { setError(isAr ? 'يجب إدخال سطرين على الأقل' : 'At least 2 lines required'); return; }
+    if (!isBalanced) { setError(isAr ? 'يجب أن يتساوى المدين والدائن' : 'Debit must equal Credit'); return; }
+
+    const entry: JournalEntry = {
+      id: `JE-${new Date().getFullYear()}-${String(Date.now()).slice(-5)}`,
+      date: new Date(date),
+      type,
+      descAr: descAr.trim(),
+      descEn: descEn.trim() || descAr.trim(),
+      reference: reference.trim() || undefined,
+      status: 'balanced',
+      lines: validLines.map(l => ({
+        accountCode: l.accountCode.trim(),
+        accountAr: l.accountAr.trim(),
+        accountEn: l.accountEn.trim() || l.accountAr.trim(),
+        debitHalalas:  Math.round((Number(l.debitSAR)  || 0) * 100),
+        creditHalalas: Math.round((Number(l.creditSAR) || 0) * 100),
+        memo: l.memo.trim(),
+      })),
+    };
+    onSave(entry);
+    onClose();
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl max-h-[90vh] flex flex-col">
+
+        {/* Header */}
+        <div className="flex items-center justify-between px-6 py-4 border-b border-surface-border">
+          <h2 className="text-lg font-bold text-slate-900 flex items-center gap-2">
+            <BookOpen size={20} className="text-brand-600" />
+            {isAr ? 'إضافة قيد يومي جديد' : 'New Journal Entry'}
+          </h2>
+          <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-500 transition-colors">
+            <X size={18} />
+          </button>
+        </div>
+
+        {/* Body */}
+        <div className="flex-1 overflow-y-auto p-6 space-y-5">
+
+          {/* Basic fields */}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <div>
+              <label className="block text-xs font-semibold text-slate-500 mb-1.5">{isAr ? 'التاريخ' : 'Date'}</label>
+              <input type="date" value={date} onChange={e => setDate(e.target.value)}
+                className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-brand-500" />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-slate-500 mb-1.5">{isAr ? 'النوع' : 'Type'}</label>
+              <select value={type} onChange={e => setType(e.target.value as EntryType)}
+                className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white">
+                {(Object.entries(ENTRY_TYPE_LABELS) as [EntryType, { ar: string; en: string }][]).map(([key, labels]) => (
+                  <option key={key} value={key}>{isAr ? labels.ar : labels.en}</option>
+                ))}
+              </select>
+            </div>
+            <div className="md:col-span-2">
+              <label className="block text-xs font-semibold text-slate-500 mb-1.5">{isAr ? 'المرجع (اختياري)' : 'Reference (optional)'}</label>
+              <input type="text" value={reference} onChange={e => setReference(e.target.value)}
+                placeholder="BK-2026-000XXX"
+                className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-brand-500" />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-xs font-semibold text-slate-500 mb-1.5">
+                {isAr ? 'البيان (عربي)' : 'Description (Arabic)'}
+                <span className="text-red-500 ms-0.5">*</span>
+              </label>
+              <input type="text" value={descAr} onChange={e => setDescAr(e.target.value)} dir="rtl"
+                className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-brand-500" />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-slate-500 mb-1.5">{isAr ? 'البيان (إنجليزي)' : 'Description (English)'}</label>
+              <input type="text" value={descEn} onChange={e => setDescEn(e.target.value)}
+                className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-brand-500" />
+            </div>
+          </div>
+
+          {/* Lines */}
+          <div>
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-sm font-semibold text-slate-700">{isAr ? 'سطور القيد' : 'Journal Lines'}</h3>
+              <button onClick={addLine} className="text-xs font-medium text-brand-600 hover:text-brand-700 flex items-center gap-1 transition-colors">
+                <Plus size={13} /> {isAr ? 'إضافة سطر' : 'Add Line'}
+              </button>
+            </div>
+            <div className="border border-slate-200 rounded-xl overflow-hidden">
+              <table className="w-full">
+                <thead>
+                  <tr className="bg-slate-50 border-b border-slate-200">
+                    <th className="text-start ps-3 pe-2 py-2.5 text-xs font-semibold text-slate-500 w-20">{isAr ? 'كود' : 'Code'}</th>
+                    <th className="text-start px-2 py-2.5 text-xs font-semibold text-slate-500">{isAr ? 'اسم الحساب (عربي)' : 'Account (AR)'}</th>
+                    <th className="text-start px-2 py-2.5 text-xs font-semibold text-slate-500 hidden md:table-cell">{isAr ? 'اسم الحساب (إنجليزي)' : 'Account (EN)'}</th>
+                    <th className="text-end px-2 py-2.5 text-xs font-semibold text-slate-500 w-28">{isAr ? 'مدين (ر.س)' : 'Debit (SAR)'}</th>
+                    <th className="text-end px-2 py-2.5 text-xs font-semibold text-slate-500 w-28">{isAr ? 'دائن (ر.س)' : 'Credit (SAR)'}</th>
+                    <th className="text-start px-2 py-2.5 text-xs font-semibold text-slate-500 hidden lg:table-cell">{isAr ? 'البيان' : 'Memo'}</th>
+                    <th className="w-7 pe-2 py-2.5" />
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {lines.map((line, idx) => (
+                    <tr key={idx} className="hover:bg-slate-50/60 transition-colors">
+                      <td className="ps-3 pe-2 py-1.5">
+                        <input type="text" value={line.accountCode} onChange={e => updateLine(idx, 'accountCode', e.target.value)}
+                          placeholder="1120"
+                          className="w-full border border-slate-200 rounded-md px-2 py-1.5 text-xs font-mono text-slate-800 focus:outline-none focus:ring-1 focus:ring-brand-400" />
+                      </td>
+                      <td className="px-2 py-1.5">
+                        <input type="text" value={line.accountAr} onChange={e => updateLine(idx, 'accountAr', e.target.value)}
+                          dir="rtl" placeholder={isAr ? 'اسم الحساب' : 'Account name'}
+                          className="w-full border border-slate-200 rounded-md px-2 py-1.5 text-xs text-slate-800 focus:outline-none focus:ring-1 focus:ring-brand-400" />
+                      </td>
+                      <td className="px-2 py-1.5 hidden md:table-cell">
+                        <input type="text" value={line.accountEn} onChange={e => updateLine(idx, 'accountEn', e.target.value)}
+                          placeholder="Account name"
+                          className="w-full border border-slate-200 rounded-md px-2 py-1.5 text-xs text-slate-800 focus:outline-none focus:ring-1 focus:ring-brand-400" />
+                      </td>
+                      <td className="px-2 py-1.5">
+                        <input type="number" value={line.debitSAR} onChange={e => updateLine(idx, 'debitSAR', e.target.value)}
+                          placeholder="0.00" min="0" step="0.01"
+                          className="w-full border border-slate-200 rounded-md px-2 py-1.5 text-xs text-end font-mono text-slate-800 focus:outline-none focus:ring-1 focus:ring-brand-400" />
+                      </td>
+                      <td className="px-2 py-1.5">
+                        <input type="number" value={line.creditSAR} onChange={e => updateLine(idx, 'creditSAR', e.target.value)}
+                          placeholder="0.00" min="0" step="0.01"
+                          className="w-full border border-slate-200 rounded-md px-2 py-1.5 text-xs text-end font-mono text-slate-800 focus:outline-none focus:ring-1 focus:ring-brand-400" />
+                      </td>
+                      <td className="px-2 py-1.5 hidden lg:table-cell">
+                        <input type="text" value={line.memo} onChange={e => updateLine(idx, 'memo', e.target.value)}
+                          placeholder={isAr ? 'بيان اختياري' : 'Optional memo'}
+                          className="w-full border border-slate-200 rounded-md px-2 py-1.5 text-xs text-slate-800 focus:outline-none focus:ring-1 focus:ring-brand-400" />
+                      </td>
+                      <td className="pe-2 py-1.5">
+                        <button onClick={() => removeLine(idx)} disabled={lines.length <= 2}
+                          className="p-1 rounded hover:bg-red-50 text-slate-300 hover:text-red-500 disabled:opacity-25 transition-colors">
+                          <X size={13} />
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+                <tfoot>
+                  <tr className="bg-slate-50 border-t-2 border-slate-200">
+                    <td colSpan={3} className="ps-3 pe-2 py-2.5">
+                      <span className="text-xs font-bold text-slate-600">{isAr ? 'الإجمالي' : 'Total'}</span>
+                    </td>
+                    <td className="px-2 py-2.5 text-end">
+                      <span className={cn('text-sm font-bold font-mono tabular-nums', isBalanced ? 'text-emerald-700' : 'text-slate-900')}>
+                        {totalDebitSAR.toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                      </span>
+                    </td>
+                    <td className="px-2 py-2.5 text-end">
+                      <span className={cn('text-sm font-bold font-mono tabular-nums', isBalanced ? 'text-emerald-700' : 'text-slate-900')}>
+                        {totalCreditSAR.toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                      </span>
+                    </td>
+                    <td className="px-2 pe-2 py-2.5 hidden lg:table-cell">
+                      {isBalanced ? (
+                        <span className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-700">
+                          <CheckCircle2 size={12} /> {isAr ? 'متوازن' : 'Balanced'}
+                        </span>
+                      ) : (totalDebitSAR > 0 || totalCreditSAR > 0) ? (
+                        <span className="text-xs font-semibold text-red-500">
+                          {isAr
+                            ? `فرق: ${Math.abs(totalDebitSAR - totalCreditSAR).toFixed(2)}`
+                            : `Diff: ${Math.abs(totalDebitSAR - totalCreditSAR).toFixed(2)}`}
+                        </span>
+                      ) : null}
+                    </td>
+                    <td className="pe-2 py-2.5" />
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+          </div>
+
+          {error && (
+            <div className="px-4 py-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">
+              {error}
+            </div>
+          )}
+        </div>
+
+        {/* Footer */}
+        <div className="px-6 py-4 border-t border-surface-border flex items-center justify-between gap-3">
+          <div className={cn(
+            'inline-flex items-center gap-2 text-sm font-medium px-3 py-1.5 rounded-full',
+            isBalanced ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700',
+          )}>
+            {isBalanced
+              ? <><CheckCircle2 size={14} /> {isAr ? 'القيد متوازن' : 'Entry is balanced'}</>
+              : <><Clock size={14} /> {isAr ? 'القيد غير متوازن' : 'Entry not balanced'}</>}
+          </div>
+          <div className="flex items-center gap-3">
+            <button onClick={onClose}
+              className="px-4 py-2 rounded-lg border border-slate-200 text-sm text-slate-600 hover:bg-slate-50 transition-colors font-medium">
+              {isAr ? 'إلغاء' : 'Cancel'}
+            </button>
+            <Button onClick={handleSave}>
+              <BookOpen size={15} />
+              {isAr ? 'حفظ القيد' : 'Save Entry'}
+            </Button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 type TabId = 'chart' | 'journal' | 'currencies';
@@ -622,6 +887,8 @@ export default function AccountingPage() {
   const fmtLocale = isAr ? 'ar-SA' : 'en-SA';
 
   const [activeTab, setActiveTab] = useState<TabId>('chart');
+  const [entries, setEntries] = useState<JournalEntry[]>(DEMO_ENTRIES_INIT);
+  const [showNewEntry, setShowNewEntry] = useState(false);
 
   const tabs: { id: TabId; labelAr: string; labelEn: string; icon: ReactNode }[] = [
     {
@@ -665,8 +932,8 @@ export default function AccountingPage() {
             {isAr ? 'تصدير Excel' : 'Export Excel'}
           </button>
           {activeTab === 'journal' && (
-            <Button>
-              <BookOpen size={15} />
+            <Button onClick={() => setShowNewEntry(true)}>
+              <Plus size={15} />
               {isAr ? 'قيد جديد' : 'New Entry'}
             </Button>
           )}
@@ -681,10 +948,10 @@ export default function AccountingPage() {
           iconColor="text-brand-600"
           label={isAr ? 'إجمالي المدين' : 'Total Debit'}
           value={formatCurrency(
-            DEMO_ENTRIES.reduce((s, e) => s + entryTotalDebit(e), 0),
+            entries.reduce((s, e) => s + entryTotalDebit(e), 0),
             fmtLocale,
           )}
-          sub={`${formatCount(DEMO_ENTRIES.length, fmtLocale)} ${isAr ? 'قيد' : 'entries'}`}
+          sub={`${formatCount(entries.length, fmtLocale)} ${isAr ? 'قيد' : 'entries'}`}
         />
         <StatCard
           icon={<TrendingDown size={20} />}
@@ -692,7 +959,7 @@ export default function AccountingPage() {
           iconColor="text-purple-600"
           label={isAr ? 'إجمالي الدائن' : 'Total Credit'}
           value={formatCurrency(
-            DEMO_ENTRIES.reduce((s, e) => s + entryTotalCredit(e), 0),
+            entries.reduce((s, e) => s + entryTotalCredit(e), 0),
             fmtLocale,
           )}
         />
@@ -701,14 +968,14 @@ export default function AccountingPage() {
           iconBg="bg-emerald-50"
           iconColor="text-emerald-600"
           label={isAr ? 'قيود متوازنة' : 'Balanced Entries'}
-          value={`${formatCount(DEMO_ENTRIES.filter((e) => e.status === 'balanced').length, fmtLocale)} / ${formatCount(DEMO_ENTRIES.length, fmtLocale)}`}
+          value={`${formatCount(entries.filter((e) => e.status === 'balanced').length, fmtLocale)} / ${formatCount(entries.length, fmtLocale)}`}
         />
         <StatCard
           icon={<BarChart3 size={20} />}
           iconBg="bg-amber-50"
           iconColor="text-amber-600"
           label={isAr ? 'مسودات' : 'Draft Entries'}
-          value={formatCount(DEMO_ENTRIES.filter((e) => e.status === 'draft').length, fmtLocale)}
+          value={formatCount(entries.filter((e) => e.status === 'draft').length, fmtLocale)}
           sub={isAr ? 'بانتظار الترحيل' : 'Pending posting'}
         />
       </div>
@@ -741,13 +1008,22 @@ export default function AccountingPage() {
         )}
 
         {activeTab === 'journal' && (
-          <JournalEntriesTab isAr={isAr} fmtLocale={fmtLocale} />
+          <JournalEntriesTab isAr={isAr} fmtLocale={fmtLocale} entries={entries} />
         )}
 
         {activeTab === 'currencies' && (
           <CurrenciesClient locale={locale} />
         )}
       </div>
+
+      {/* New Entry Modal */}
+      {showNewEntry && (
+        <NewEntryModal
+          isAr={isAr}
+          onClose={() => setShowNewEntry(false)}
+          onSave={(entry) => setEntries(prev => [entry, ...prev])}
+        />
+      )}
     </div>
   );
 }
