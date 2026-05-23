@@ -116,7 +116,7 @@ export function BookingActions({
           bookingId={bookingId}
           invoiceId={invoiceId}
           agencyId={agencyId}
-          paidHalalas={paid}
+          paidAmountHalalas={paid}
           onClose={() => setShowRefund(false)}
           onSuccess={() => {
             setPaid(0);
