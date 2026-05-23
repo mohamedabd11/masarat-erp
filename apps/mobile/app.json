@@ -1,0 +1,38 @@
+{
+  "expo": {
+    "name": "مسارات",
+    "slug": "masarat-erp",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "splash": {
+      "image": "./assets/splash.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#0284c7"
+    },
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "sa.masarat.erp",
+      "infoPlist": {
+        "CFBundleAllowMixedLocalizations": true
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#0284c7"
+      },
+      "package": "sa.masarat.erp"
+    },
+    "plugins": [
+      "expo-router",
+      "expo-font",
+      "@react-native-firebase/app"
+    ],
+    "scheme": "masarat",
+    "experiments": {
+      "typedRoutes": true
+    }
+  }
+}

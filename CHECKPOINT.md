@@ -122,13 +122,39 @@
 | `src/providers/AuthProvider.tsx` | ✅ مكتمل |
 | `src/lib/utils.ts` | ✅ مكتمل |
 
-### المرحلة 6: التالي (لم تبدأ)
-- [ ] `apps/mobile/` — تطبيق الجوال (React Native / Expo)
-- [ ] صفحات إضافية: العملاء، الفواتير، المحاسبة، الإعدادات
-- [ ] مكوّن عرض الفاتورة (PDF-ready)
-- [ ] ربط Cloud Functions بالـ UI (استدعاء createInvoice)
-- [ ] لوحة التحكم بالبيانات الحقيقية من Firestore
+### المرحلة 6: تطبيق الجوال + الصفحات المتبقية ✅
+| الملف | الحالة |
+|-------|--------|
+| `apps/mobile/package.json` | ✅ مكتمل |
+| `apps/mobile/app.json` | ✅ مكتمل |
+| `apps/mobile/tsconfig.json` | ✅ مكتمل |
+| `apps/mobile/src/i18n/index.ts` | ✅ مكتمل |
+| `apps/mobile/app/_layout.tsx` | ✅ مكتمل |
+| `apps/mobile/app/(auth)/login.tsx` | ✅ مكتمل |
+| `apps/mobile/app/(tabs)/_layout.tsx` | ✅ مكتمل |
+| `apps/mobile/app/(tabs)/index.tsx` | ✅ مكتمل |
+| `apps/web/src/app/[locale]/(dashboard)/bookings/[id]/page.tsx` | ✅ مكتمل |
+| `apps/web/src/app/[locale]/(dashboard)/customers/page.tsx` | ✅ مكتمل |
+| `apps/web/src/app/[locale]/(dashboard)/customers/new/page.tsx` | ✅ مكتمل |
+| `apps/web/src/app/[locale]/(dashboard)/customers/[id]/page.tsx` | ✅ مكتمل |
+| `apps/web/src/app/[locale]/(dashboard)/invoices/page.tsx` | ✅ مكتمل |
+| `apps/web/src/app/[locale]/(dashboard)/invoices/[id]/page.tsx` | ✅ مكتمل |
+| `apps/web/src/app/[locale]/(dashboard)/reports/page.tsx` | ✅ مكتمل |
+| `apps/web/src/app/[locale]/(dashboard)/settings/page.tsx` | ✅ مكتمل |
+| `apps/web/src/app/[locale]/(dashboard)/accounting/page.tsx` | ✅ مكتمل |
+| `apps/web/src/app/[locale]/error.tsx` | ✅ مكتمل |
+| `apps/web/src/app/[locale]/not-found.tsx` | ✅ مكتمل |
+| `apps/web/src/components/ui/Textarea.tsx` | ✅ مكتمل |
+| `apps/web/src/hooks/useFirestoreBookings.ts` | ✅ مكتمل |
+| `apps/web/src/hooks/useDirection.ts` | ✅ مكتمل |
+
+### المرحلة 7: التالي
+- [ ] ربط Cloud Functions بالـ UI (استدعاء createInvoice من صفحة الحجوزات)
+- [ ] لوحة التحكم بالبيانات الحقيقية من Firestore (إزالة demo data)
+- [ ] مكوّن طباعة الفاتورة (PDF via react-pdf أو html2pdf)
 - [ ] اختبارات E2E (Playwright)
+- [ ] تطبيق الجوال: صفحات الحجوزات، العملاء، الفواتير (tabs متبقية)
+- [ ] إعداد Firebase Project حقيقي وتشغيل Emulator
 
 ---
 

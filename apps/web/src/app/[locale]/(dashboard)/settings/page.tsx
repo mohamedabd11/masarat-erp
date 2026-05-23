@@ -1,0 +1,746 @@
+'use client';
+
+import { useState } from 'react';
+import { useLocale } from 'next-intl';
+import { Card, CardHeader, CardTitle } from '@/components/ui/Card';
+import { Button } from '@/components/ui/Button';
+import { Input } from '@/components/ui/Input';
+import { Badge } from '@/components/ui/Badge';
+import { cn } from '@/lib/utils';
+import {
+  Building2,
+  Users,
+  Package,
+  Shield,
+  CreditCard,
+  CheckCircle2,
+  AlertTriangle,
+  ChevronRight,
+  Plane,
+  Hotel,
+  Moon,
+  Anchor,
+  BarChart3,
+  Truck,
+  Globe,
+  FileText,
+  ImagePlus,
+  LogIn,
+} from 'lucide-react';
+
+// ─── Types ───────────────────────────────────────────────────────────────────
+
+type Tab = 'agency' | 'users' | 'modules' | 'zatca' | 'billing';
+
+// ─── Tab definitions ─────────────────────────────────────────────────────────
+
+const TABS: Array<{ key: Tab; ar: string; en: string; icon: React.ReactNode }> = [
+  { key: 'agency',  ar: 'بيانات الوكالة', en: 'Agency Info', icon: <Building2 size={16} /> },
+  { key: 'users',   ar: 'المستخدمون',      en: 'Users',       icon: <Users size={16} /> },
+  { key: 'modules', ar: 'الوحدات',         en: 'Modules',     icon: <Package size={16} /> },
+  { key: 'zatca',   ar: 'ZATCA',           en: 'ZATCA',       icon: <Shield size={16} /> },
+  { key: 'billing', ar: 'الاشتراك',        en: 'Billing',     icon: <CreditCard size={16} /> },
+];
+
+// ─── Module definitions ───────────────────────────────────────────────────────
+
+interface Module {
+  id: string;
+  ar: string;
+  en: string;
+  descAr: string;
+  descEn: string;
+  icon: React.ReactNode;
+  core?: boolean;
+  enabled: boolean;
+}
+
+const INITIAL_MODULES: Module[] = [
+  {
+    id: 'bookings',
+    ar: 'الحجوزات',
+    en: 'Bookings',
+    descAr: 'إدارة جميع أنواع الحجوزات',
+    descEn: 'Manage all booking types',
+    icon: <FileText size={18} />,
+    core: true,
+    enabled: true,
+  },
+  {
+    id: 'customers',
+    ar: 'العملاء',
+    en: 'Customers',
+    descAr: 'قاعدة بيانات العملاء والمسافرين',
+    descEn: 'Customer & traveler database',
+    icon: <Users size={18} />,
+    core: true,
+    enabled: true,
+  },
+  {
+    id: 'flights',
+    ar: 'الطيران',
+    en: 'Flights',
+    descAr: 'إدارة حجوزات الطيران',
+    descEn: 'Flight booking management',
+    icon: <Plane size={18} />,
+    enabled: true,
+  },
+  {
+    id: 'hotels',
+    ar: 'الفنادق',
+    en: 'Hotels',
+    descAr: 'إدارة حجوزات الفنادق',
+    descEn: 'Hotel booking management',
+    icon: <Hotel size={18} />,
+    enabled: true,
+  },
+  {
+    id: 'packages',
+    ar: 'الباقات السياحية',
+    en: 'Tour Packages',
+    descAr: 'باقات سياحية متكاملة',
+    descEn: 'Complete tour packages',
+    icon: <Package size={18} />,
+    enabled: true,
+  },
+  {
+    id: 'umrah',
+    ar: 'العمرة والحج',
+    en: 'Umrah & Hajj',
+    descAr: 'برامج العمرة والحج المتخصصة',
+    descEn: 'Specialized Umrah & Hajj programs',
+    icon: <Moon size={18} />,
+    enabled: false,
+  },
+  {
+    id: 'insurance',
+    ar: 'التأمين',
+    en: 'Insurance',
+    descAr: 'تأمين السفر والطوارئ',
+    descEn: 'Travel & emergency insurance',
+    icon: <Shield size={18} />,
+    enabled: false,
+  },
+  {
+    id: 'visas',
+    ar: 'التأشيرات',
+    en: 'Visas',
+    descAr: 'معالجة طلبات التأشيرات',
+    descEn: 'Visa application processing',
+    icon: <Globe size={18} />,
+    enabled: false,
+  },
+  {
+    id: 'transfers',
+    ar: 'النقل',
+    en: 'Transfers',
+    descAr: 'نقل المسافرين والمجموعات',
+    descEn: 'Passenger & group transfers',
+    icon: <Truck size={18} />,
+    enabled: false,
+  },
+  {
+    id: 'cruises',
+    ar: 'الرحلات البحرية',
+    en: 'Cruises',
+    descAr: 'حجوزات الرحلات البحرية',
+    descEn: 'Cruise booking management',
+    icon: <Anchor size={18} />,
+    enabled: false,
+  },
+  {
+    id: 'accounting',
+    ar: 'المحاسبة',
+    en: 'Accounting',
+    descAr: 'قيود محاسبية وتقارير مالية',
+    descEn: 'Journal entries & financial reports',
+    icon: <BarChart3 size={18} />,
+    enabled: true,
+  },
+];
+
+// ─── Demo users ───────────────────────────────────────────────────────────────
+
+const DEMO_USERS = [
+  {
+    name: 'محمد العمري',
+    email: 'admin@masarat.sa',
+    role: { ar: 'مدير النظام', en: 'System Admin' },
+    active: true,
+    initials: 'م',
+  },
+  {
+    name: 'سارة الأحمد',
+    email: 'sara@masarat.sa',
+    role: { ar: 'موظف حجوزات', en: 'Booking Agent' },
+    active: true,
+    initials: 'س',
+  },
+  {
+    name: 'خالد النجدي',
+    email: 'khalid@masarat.sa',
+    role: { ar: 'محاسب', en: 'Accountant' },
+    active: true,
+    initials: 'خ',
+  },
+];
+
+// ─── Plan features ────────────────────────────────────────────────────────────
+
+const PLAN_FEATURES = {
+  ar: ['حتى 3 مستخدمين', 'حتى 500 حجز شهرياً', 'الوحدات الأساسية', 'دعم بالبريد الإلكتروني'],
+  en: ['Up to 3 users', 'Up to 500 bookings / month', 'Core modules', 'Email support'],
+};
+
+// ─── Toggle Switch sub-component ─────────────────────────────────────────────
+
+function ToggleSwitch({
+  checked,
+  disabled,
+  onChange,
+  label,
+}: {
+  checked: boolean;
+  disabled?: boolean;
+  onChange: () => void;
+  label: string;
+}) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      aria-label={label}
+      disabled={disabled}
+      onClick={onChange}
+      className={cn(
+        'relative flex-shrink-0 w-10 h-6 rounded-full transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:ring-offset-1',
+        checked ? 'bg-brand-600' : 'bg-slate-200',
+        disabled ? 'cursor-not-allowed opacity-50' : 'cursor-pointer',
+      )}
+    >
+      <span
+        className={cn(
+          'absolute top-0.5 start-0.5 w-5 h-5 rounded-full bg-white shadow-sm transition-transform duration-200',
+          checked ? 'translate-x-4 rtl:-translate-x-4' : 'translate-x-0',
+        )}
+      />
+    </button>
+  );
+}
+
+// ─── Page component ───────────────────────────────────────────────────────────
+
+export default function SettingsPage() {
+  const locale = useLocale();
+  const isAr = locale === 'ar';
+
+  const [activeTab, setActiveTab] = useState<Tab>('agency');
+  const [modules, setModules] = useState<Module[]>(INITIAL_MODULES);
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [zatcaEnv, setZatcaEnv] = useState<'testing' | 'production'>('testing');
+
+  function toggleModule(id: string) {
+    setModules((prev: Module[]) =>
+      prev.map((m: Module) => (m.id === id && !m.core ? { ...m, enabled: !m.enabled } : m)),
+    );
+  }
+
+  async function handleSave() {
+    setSaving(true);
+    setSaved(false);
+    await new Promise<void>(r => setTimeout(r, 1000));
+    setSaving(false);
+    setSaved(true);
+    setTimeout(() => setSaved(false), 3000);
+  }
+
+  return (
+    <div className="space-y-6">
+      {/* ── Page header ────────────────────────────────────────────────────── */}
+      <div>
+        <h1 className="text-2xl font-bold text-slate-900">
+          {isAr ? 'الإعدادات' : 'Settings'}
+        </h1>
+        <p className="text-slate-500 text-sm mt-0.5">
+          {isAr ? 'إدارة إعدادات الوكالة والنظام' : 'Manage agency and system settings'}
+        </p>
+      </div>
+
+      <div className="flex flex-col lg:flex-row gap-6">
+        {/* ── Sidebar navigation ─────────────────────────────────────────── */}
+        <nav className="lg:w-52 flex-shrink-0">
+          <Card padding="sm">
+            <ul className="space-y-0.5">
+              {TABS.map(tab => (
+                <li key={tab.key}>
+                  <button
+                    onClick={() => setActiveTab(tab.key)}
+                    className={cn(
+                      'w-full flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors text-start',
+                      activeTab === tab.key
+                        ? 'bg-brand-50 text-brand-700'
+                        : 'text-slate-600 hover:bg-slate-100',
+                    )}
+                  >
+                    <span
+                      className={cn(
+                        'flex-shrink-0',
+                        activeTab === tab.key ? 'text-brand-600' : 'text-slate-400',
+                      )}
+                    >
+                      {tab.icon}
+                    </span>
+                    {isAr ? tab.ar : tab.en}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </Card>
+        </nav>
+
+        {/* ── Tab content ────────────────────────────────────────────────── */}
+        <div className="flex-1 min-w-0">
+
+          {/* ── Agency Info ──────────────────────────────────────────────── */}
+          {activeTab === 'agency' && (
+            <Card>
+              <CardHeader>
+                <CardTitle>{isAr ? 'بيانات الوكالة' : 'Agency Information'}</CardTitle>
+              </CardHeader>
+
+              <div className="space-y-5">
+                {/* Names */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <Input
+                    label={isAr ? 'اسم الوكالة بالعربي' : 'Agency Name (Arabic)'}
+                    defaultValue="مسارات للسياحة والسفر"
+                    required
+                    dir="rtl"
+                  />
+                  <Input
+                    label={isAr ? 'اسم الوكالة بالإنجليزي' : 'Agency Name (English)'}
+                    defaultValue="Masarat Travel & Tourism"
+                    dir="ltr"
+                  />
+                </div>
+
+                {/* Registration numbers */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <Input
+                    label={isAr ? 'الرقم الضريبي (VAT)' : 'VAT Number'}
+                    defaultValue="300000000000003"
+                    hint={isAr ? '15 خانة تبدأ بـ 300' : '15 digits starting with 300'}
+                    maxLength={15}
+                    dir="ltr"
+                  />
+                  <Input
+                    label={isAr ? 'رقم السجل التجاري' : 'CR Number'}
+                    defaultValue="4030000000"
+                    dir="ltr"
+                  />
+                </div>
+
+                {/* Address section */}
+                <div className="border-t border-surface-border pt-5">
+                  <p className="text-sm font-semibold text-slate-700 mb-4">
+                    {isAr ? 'العنوان الوطني' : 'National Address'}
+                  </p>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <Input
+                      label={isAr ? 'اسم الشارع' : 'Street Name'}
+                      defaultValue="طريق الملك عبدالعزيز"
+                    />
+                    <Input
+                      label={isAr ? 'رقم المبنى' : 'Building Number'}
+                      defaultValue="3246"
+                      dir="ltr"
+                    />
+                    <Input
+                      label={isAr ? 'الحي' : 'District'}
+                      defaultValue="العليا"
+                    />
+                    <Input
+                      label={isAr ? 'المدينة' : 'City'}
+                      defaultValue="الرياض"
+                    />
+                    <Input
+                      label={isAr ? 'الرمز البريدي' : 'Postal Code'}
+                      defaultValue="12271"
+                      dir="ltr"
+                    />
+                  </div>
+                </div>
+
+                {/* Logo placeholder */}
+                <div className="border-t border-surface-border pt-5">
+                  <p className="text-sm font-semibold text-slate-700 mb-3">
+                    {isAr ? 'شعار الوكالة' : 'Agency Logo'}
+                  </p>
+                  <div className="flex items-center gap-4">
+                    <div className="w-16 h-16 rounded-xl bg-brand-50 border-2 border-dashed border-brand-200 flex items-center justify-center flex-shrink-0">
+                      <Building2 size={24} className="text-brand-300" />
+                    </div>
+                    <div>
+                      <button
+                        type="button"
+                        disabled
+                        className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-slate-200 text-sm text-slate-400 cursor-not-allowed bg-slate-50"
+                      >
+                        <ImagePlus size={15} />
+                        {isAr ? 'رفع شعار' : 'Upload Logo'}
+                      </button>
+                      <p className="text-xs text-slate-400 mt-1.5">
+                        {isAr
+                          ? 'قريباً — سيتم دعم رفع الشعار في التحديث القادم'
+                          : 'Coming soon — logo upload will be supported in the next update'}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Save button */}
+                <div className="flex items-center justify-between border-t border-surface-border pt-5">
+                  {saved && (
+                    <span className="flex items-center gap-1.5 text-sm text-emerald-600 font-medium">
+                      <CheckCircle2 size={15} />
+                      {isAr ? 'تم الحفظ بنجاح' : 'Saved successfully'}
+                    </span>
+                  )}
+                  {!saved && <span />}
+                  <Button onClick={handleSave} loading={saving}>
+                    {saving
+                      ? (isAr ? 'جارٍ الحفظ...' : 'Saving...')
+                      : (isAr ? 'حفظ التغييرات' : 'Save Changes')}
+                  </Button>
+                </div>
+              </div>
+            </Card>
+          )}
+
+          {/* ── Users ────────────────────────────────────────────────────── */}
+          {activeTab === 'users' && (
+            <Card>
+              <CardHeader>
+                <CardTitle>{isAr ? 'المستخدمون' : 'Users'}</CardTitle>
+                <Button size="sm">
+                  <LogIn size={14} />
+                  {isAr ? 'دعوة مستخدم' : 'Invite User'}
+                </Button>
+              </CardHeader>
+
+              <div className="divide-y divide-surface-border">
+                {DEMO_USERS.map(user => (
+                  <div
+                    key={user.email}
+                    className="flex items-center justify-between py-3.5 first:pt-0 last:pb-0"
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className="w-9 h-9 rounded-full bg-brand-100 flex items-center justify-center text-sm font-bold text-brand-700 flex-shrink-0">
+                        {user.initials}
+                      </div>
+                      <div>
+                        <p className="text-sm font-medium text-slate-900">{user.name}</p>
+                        <p className="text-xs text-slate-400 mt-0.5 dir-ltr">{user.email}</p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <span className="text-xs bg-slate-100 text-slate-600 px-2.5 py-1 rounded-full font-medium">
+                        {isAr ? user.role.ar : user.role.en}
+                      </span>
+                      <CheckCircle2 size={16} className="text-emerald-500 flex-shrink-0" />
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Invite note */}
+              <div className="mt-5 p-4 rounded-xl bg-slate-50 border border-slate-200">
+                <p className="text-xs text-slate-500">
+                  {isAr
+                    ? 'خطة المبتدئ تدعم حتى 3 مستخدمين. قم بالترقية لإضافة المزيد.'
+                    : 'The Starter plan supports up to 3 users. Upgrade to add more.'}
+                </p>
+              </div>
+            </Card>
+          )}
+
+          {/* ── Modules ──────────────────────────────────────────────────── */}
+          {activeTab === 'modules' && (
+            <div className="space-y-4">
+              {/* Warning banner */}
+              <Card padding="sm" className="border-amber-200 bg-amber-50">
+                <p className="text-sm text-amber-800 flex items-start gap-2">
+                  <AlertTriangle size={16} className="flex-shrink-0 mt-0.5 text-amber-600" />
+                  {isAr
+                    ? 'تفعيل الوحدات أو تعطيلها يؤثر فوراً على القائمة الجانبية وصلاحيات جميع المستخدمين.'
+                    : 'Enabling or disabling modules immediately affects the sidebar and all user permissions.'}
+                </p>
+              </Card>
+
+              {/* Module grid */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {modules.map((mod: Module) => (
+                  <Card
+                    key={mod.id}
+                    padding="sm"
+                    className={cn(
+                      'transition-opacity duration-150',
+                      !mod.enabled && 'opacity-60',
+                    )}
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      {/* Icon + text */}
+                      <div className="flex items-start gap-3 min-w-0">
+                        <div
+                          className={cn(
+                            'p-2 rounded-lg flex-shrink-0',
+                            mod.enabled
+                              ? 'bg-brand-50 text-brand-600'
+                              : 'bg-slate-100 text-slate-400',
+                          )}
+                        >
+                          {mod.icon}
+                        </div>
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="text-sm font-semibold text-slate-900">
+                              {isAr ? mod.ar : mod.en}
+                            </span>
+                            {mod.core && (
+                              <Badge variant="neutral">
+                                {isAr ? 'أساسي' : 'Core'}
+                              </Badge>
+                            )}
+                          </div>
+                          <p className="text-xs text-slate-500 mt-0.5">
+                            {isAr ? mod.descAr : mod.descEn}
+                          </p>
+                        </div>
+                      </div>
+
+                      {/* Toggle */}
+                      <ToggleSwitch
+                        checked={mod.enabled}
+                        disabled={mod.core}
+                        onChange={() => toggleModule(mod.id)}
+                        label={`Toggle ${mod.en}`}
+                      />
+                    </div>
+                  </Card>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* ── ZATCA ────────────────────────────────────────────────────── */}
+          {activeTab === 'zatca' && (
+            <div className="space-y-5">
+              <Card>
+                <CardHeader>
+                  <CardTitle>ZATCA {isAr ? 'المرحلة الثانية' : 'Phase 2'}</CardTitle>
+                  <Badge variant="warning">{isAr ? 'غير مُهيأ' : 'Not Configured'}</Badge>
+                </CardHeader>
+
+                <div className="space-y-5">
+                  {/* Certificate status */}
+                  <div className="flex items-start gap-3 p-4 rounded-xl bg-amber-50 border border-amber-200">
+                    <AlertTriangle size={20} className="text-amber-600 flex-shrink-0 mt-0.5" />
+                    <div>
+                      <p className="text-sm font-semibold text-amber-900">
+                        {isAr ? 'الشهادة الرقمية غير مُهيأة' : 'Digital Certificate Not Configured'}
+                      </p>
+                      <p className="text-xs text-amber-700 mt-1 leading-relaxed">
+                        {isAr
+                          ? 'يلزم تحميل شهادة ZATCA وتهيئتها لتفعيل إصدار الفواتير الإلكترونية المتوافقة مع متطلبات هيئة الزكاة والضريبة والجمارك.'
+                          : 'A ZATCA digital certificate must be uploaded and configured to enable e-invoicing compliant with ZATCA requirements.'}
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Environment toggle */}
+                  <div>
+                    <p className="text-sm font-semibold text-slate-700 mb-1">
+                      {isAr ? 'بيئة العمل' : 'Environment'}
+                    </p>
+                    <p className="text-xs text-slate-500 mb-3">
+                      {isAr
+                        ? 'اختر بيئة الاختبار للتطوير وبيئة الإنتاج للفواتير الحقيقية فقط.'
+                        : 'Use Testing for development. Switch to Production only for real invoices.'}
+                    </p>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      {(
+                        [
+                          {
+                            value: 'testing' as const,
+                            ar: 'بيئة الاختبار',
+                            en: 'Testing',
+                            descAr: 'للتطوير والتجربة — لا تُولَّد فواتير حقيقية',
+                            descEn: 'For development & testing — no real invoices',
+                            safe: true,
+                          },
+                          {
+                            value: 'production' as const,
+                            ar: 'بيئة الإنتاج',
+                            en: 'Production',
+                            descAr: 'للفواتير الحقيقية — قرار لا رجعة فيه',
+                            descEn: 'For real invoices — irreversible decision',
+                            safe: false,
+                          },
+                        ] as const
+                      ).map(env => (
+                        <label
+                          key={env.value}
+                          className={cn(
+                            'flex flex-col gap-2 p-4 rounded-xl border-2 cursor-pointer transition-colors',
+                            zatcaEnv === env.value
+                              ? env.safe
+                                ? 'border-emerald-400 bg-emerald-50'
+                                : 'border-red-400 bg-red-50'
+                              : 'border-slate-200 bg-white hover:border-slate-300',
+                          )}
+                        >
+                          <div className="flex items-center gap-2">
+                            <input
+                              type="radio"
+                              name="zatca-env"
+                              value={env.value}
+                              checked={zatcaEnv === env.value}
+                              onChange={() => setZatcaEnv(env.value)}
+                              className="accent-brand-600 w-4 h-4"
+                            />
+                            <span className="text-sm font-semibold text-slate-900">
+                              {isAr ? env.ar : env.en}
+                            </span>
+                            {!env.safe && (
+                              <Badge variant="danger" className="ms-auto">
+                                {isAr ? 'تحذير' : 'Warning'}
+                              </Badge>
+                            )}
+                          </div>
+                          <p className="text-xs text-slate-500 ps-6">
+                            {isAr ? env.descAr : env.descEn}
+                          </p>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Certificate upload instructions */}
+                  <div className="border-t border-surface-border pt-5">
+                    <p className="text-sm font-semibold text-slate-700 mb-2">
+                      {isAr ? 'تحميل الشهادة الرقمية' : 'Upload Digital Certificate'}
+                    </p>
+                    <p className="text-xs text-slate-500 mb-4 leading-relaxed">
+                      {isAr
+                        ? 'لأسباب أمنية، يتم رفع شهادة ZATCA عبر Firebase Console ← Functions ← Environment Variables. لا تُرسل الشهادة عبر البريد الإلكتروني أو تحتفظ بها في الكود المصدري.'
+                        : 'For security reasons, upload the ZATCA certificate via Firebase Console → Functions → Environment Variables. Never send the certificate by email or store it in source code.'}
+                    </p>
+                    <div className="flex flex-col sm:flex-row gap-3">
+                      <a
+                        href="#"
+                        className="inline-flex items-center gap-1.5 text-sm text-brand-600 hover:text-brand-700 font-semibold"
+                      >
+                        {isAr ? 'دليل إعداد ZATCA' : 'ZATCA Setup Guide'}
+                        <ChevronRight size={14} />
+                      </a>
+                      <a
+                        href="https://console.firebase.google.com"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1.5 text-sm text-slate-500 hover:text-slate-700 font-medium"
+                      >
+                        {isAr ? 'فتح Firebase Console' : 'Open Firebase Console'}
+                        <ChevronRight size={14} />
+                      </a>
+                    </div>
+                  </div>
+                </div>
+              </Card>
+            </div>
+          )}
+
+          {/* ── Billing ──────────────────────────────────────────────────── */}
+          {activeTab === 'billing' && (
+            <div className="space-y-4">
+              {/* Current plan */}
+              <Card>
+                <CardHeader>
+                  <CardTitle>{isAr ? 'خطة الاشتراك الحالية' : 'Current Plan'}</CardTitle>
+                </CardHeader>
+
+                <div className="flex items-start justify-between gap-6 flex-wrap">
+                  {/* Plan details */}
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 mb-2 flex-wrap">
+                      <span className="text-2xl font-bold text-slate-900">
+                        {isAr ? 'المبتدئ' : 'Starter'}
+                      </span>
+                      <Badge variant="success">{isAr ? 'نشط' : 'Active'}</Badge>
+                    </div>
+                    <p className="text-sm text-slate-500 mb-5">
+                      {isAr ? 'يتجدد في 1 يونيو 2026' : 'Renews June 1, 2026'}
+                    </p>
+                    <ul className="space-y-2">
+                      {(isAr ? PLAN_FEATURES.ar : PLAN_FEATURES.en).map(f => (
+                        <li key={f} className="flex items-center gap-2 text-sm text-slate-700">
+                          <CheckCircle2 size={15} className="text-emerald-500 flex-shrink-0" />
+                          {f}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+
+                  {/* Price */}
+                  <div className="text-end flex-shrink-0">
+                    <p className="text-4xl font-bold text-slate-900">299</p>
+                    <p className="text-sm text-slate-500 mt-1">
+                      {isAr ? 'ريال سعودي / شهر' : 'SAR / month'}
+                    </p>
+                  </div>
+                </div>
+
+                {/* Upgrade CTA */}
+                <div className="border-t border-surface-border pt-5 mt-5">
+                  <div className="rounded-xl bg-gradient-to-br from-brand-50 to-sky-50 border border-brand-100 p-5">
+                    <p className="text-sm font-semibold text-slate-900 mb-1">
+                      {isAr ? 'هل تريد المزيد؟' : 'Need more?'}
+                    </p>
+                    <p className="text-xs text-slate-600 mb-4">
+                      {isAr
+                        ? 'خطة Professional تدعم مستخدمين غير محدودين، حجوزات غير محدودة، ووصولاً كاملاً لجميع الوحدات.'
+                        : 'The Professional plan includes unlimited users, unlimited bookings, and full access to all modules.'}
+                    </p>
+                    <Button variant="primary" fullWidth>
+                      {isAr ? 'الترقية إلى Professional' : 'Upgrade to Professional'}
+                    </Button>
+                  </div>
+                </div>
+              </Card>
+
+              {/* Billing history placeholder */}
+              <Card>
+                <CardHeader>
+                  <CardTitle>{isAr ? 'سجل الفواتير' : 'Billing History'}</CardTitle>
+                </CardHeader>
+                <div className="text-center py-8">
+                  <CreditCard size={36} className="text-slate-200 mx-auto mb-3" />
+                  <p className="text-sm text-slate-500">
+                    {isAr ? 'لا توجد فواتير سابقة' : 'No billing history yet'}
+                  </p>
+                  <p className="text-xs text-slate-400 mt-1">
+                    {isAr
+                      ? 'ستظهر هنا فواتير الاشتراك بعد أول دفعة'
+                      : 'Subscription invoices will appear here after the first payment'}
+                  </p>
+                </div>
+              </Card>
+            </div>
+          )}
+
+        </div>
+      </div>
+    </div>
+  );
+}
