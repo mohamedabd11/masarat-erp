@@ -93,7 +93,7 @@ export async function createBookingDraft(
     customFields: data.customFields ?? {},
     createdAt: now,
     updatedAt: now,
-  } as BookingDoc);
+  } as unknown as BookingDoc);
   return ref.id;
 }
 
