@@ -25,7 +25,7 @@ initializeApp();
  * - جدولة إرسال ZATCA
  */
 export const createInvoice = onCall<CreateInvoiceRequest>(
-  { region: 'me-central1' }, // منطقة الشرق الأوسط (قريبة من السعودية)
+  { region: 'me-central2' }, // منطقة الشرق الأوسط (قريبة من السعودية)
   async (request) => {
     const agencyId = request.auth?.token?.['agencyId'];
     if (!agencyId) {
@@ -51,7 +51,7 @@ export const createInvoice = onCall<CreateInvoiceRequest>(
  * - تحديث حالة الفاتورة والحجز
  */
 export const processPayment = onCall<ProcessPaymentRequest>(
-  { region: 'me-central1' },
+  { region: 'me-central2' },
   async (request) => {
     const agencyId = request.auth?.token?.['agencyId'];
     if (!agencyId) {
@@ -79,7 +79,7 @@ export const processPayment = onCall<ProcessPaymentRequest>(
  * - تحديث حالة الحجز → cancelled
  */
 export const processRefund = onCall<ProcessRefundRequest>(
-  { region: 'me-central1' },
+  { region: 'me-central2' },
   async (request) => {
     const agencyId = request.auth?.token?.['agencyId'];
     if (!agencyId) {

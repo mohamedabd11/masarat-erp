@@ -53,11 +53,11 @@ export interface ProcessRefundResponse {
   refundAmountHalalas: number;
 }
 
-// ─── Helper: get functions instance (region me-central1) ──────────────────────
+// ─── Helper: get functions instance (region me-central2) ──────────────────────
 
 function getFunctionsInstance() {
   const app = getApp();
-  return getFunctions(app, 'me-central1');
+  return getFunctions(app, 'me-central2');
 }
 
 // ─── Hook factory ─────────────────────────────────────────────────────────────

@@ -19,7 +19,7 @@
 ### Firestore Database
 1. Firestore Database → Create database
 2. اختر **Production mode**
-3. اختر المنطقة: **`me-central1` (Doha)** — الأقرب للسعودية والخليج
+3. اختر المنطقة: **`me-central2` (Dammam)** — الأقرب للسعودية والخليج
 4. انقر "Enable"
 
 ### Authentication
@@ -31,7 +31,7 @@
 2. Functions → Get started → اختر TypeScript
 
 ### Storage (اختياري للمرفقات)
-1. Storage → Get started → Production mode → `me-central1`
+1. Storage → Get started → Production mode → `me-central2`
 
 ## 3. إعداد بيانات التطبيق / App Configuration
 
@@ -152,7 +152,7 @@ vercel --prod
 masarat-erp/
 ├── apps/web/           # Next.js web app → Firebase Hosting / Vercel
 ├── apps/mobile/        # Expo React Native → EAS Build
-├── functions/          # Firebase Cloud Functions → me-central1
+├── functions/          # Firebase Cloud Functions → me-central2
 ├── packages/
 │   ├── accounting/     # محرك المحاسبة — IFRS 15
 │   ├── firebase/       # Firebase client SDK helpers
@@ -166,6 +166,6 @@ masarat-erp/
 | المشكلة | الحل |
 |---------|------|
 | `PERMISSION_DENIED` في Firestore | تحقق من Custom Claims — `agencyId` يجب أن يكون موجوداً في الـ JWT |
-| Cloud Function timeout | تأكد من استخدام `me-central1` وليس `us-central1` |
+| Cloud Function timeout | تأكد من استخدام `me-central2` (الدمام) وليس `us-central1` |
 | ZATCA XML rejection | تحقق من صحة رقم الضريبي (VAT number) 15 رقماً |
 | Emulator لا يعمل | `firebase emulators:start --import=./emulator-data --export-on-exit` |
