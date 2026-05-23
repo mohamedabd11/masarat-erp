@@ -35,6 +35,8 @@ interface Employee {
   joinDate: string;
   salary: number; // monthly SAR in halalas (x100)
   isActive: boolean;
+  terminatedAt?: number;
+  terminationReason?: string;
   agencyId: string;
   createdAt: number;
 }
@@ -295,6 +297,35 @@ function EmployeesTab({ isAr, agencyId, locale }: { isAr: boolean; agencyId: str
     await updateDoc(doc(getFirestore(getApp()), 'employees', emp.id), { isActive: !emp.isActive });
   }
 
+  async function terminateEmployee(emp: Employee) {
+    const reason = window.prompt(isAr ? 'سبب إنهاء الخدمة (اختياري):' : 'Termination reason (optional):') ?? '';
+    if (reason === null) return; // cancelled
+    const { getFirestore, doc, updateDoc, deleteDoc } = await import('firebase/firestore');
+    const { getApp } = await import('@masarat/firebase');
+    const empDoc = doc(getFirestore(getApp()), 'employees', emp.id);
+    if (reason === '__DELETE__') {
+      await deleteDoc(empDoc);
+    } else {
+      await updateDoc(empDoc, {
+        isActive: false,
+        terminatedAt: Date.now(),
+        terminationReason: reason || (isAr ? 'إنهاء خدمة' : 'Terminated'),
+      });
+    }
+  }
+
+  async function deleteEmployee(emp: Employee) {
+    const confirmed = window.confirm(
+      isAr
+        ? `هل أنت متأكد من حذف "${emp.nameAr}" نهائياً؟ لا يمكن التراجع عن هذا الإجراء.`
+        : `Are you sure you want to permanently delete "${emp.nameEn || emp.nameAr}"? This cannot be undone.`
+    );
+    if (!confirmed) return;
+    const { getFirestore, doc, deleteDoc } = await import('firebase/firestore');
+    const { getApp } = await import('@masarat/firebase');
+    await deleteDoc(doc(getFirestore(getApp()), 'employees', emp.id));
+  }
+
   const filtered = employees.filter(e => {
     const name = isAr ? e.nameAr : (e.nameEn || e.nameAr);
     const matchSearch = !search
@@ -541,15 +572,27 @@ function EmployeesTab({ isAr, agencyId, locale }: { isAr: boolean; agencyId: str
                         </Badge>
                       </td>
                       <td className="px-4 py-3">
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-2 flex-wrap">
                           <button onClick={() => openEdit(emp)}
                             className="text-xs text-brand-600 hover:text-brand-800 font-medium">
                             {isAr ? 'تعديل' : 'Edit'}
                           </button>
                           <button onClick={() => toggleActive(emp)}
                             className="text-xs text-slate-500 hover:text-slate-700 font-medium">
-                            {emp.isActive ? (isAr ? 'تعطيل' : 'Deactivate') : (isAr ? 'تفعيل' : 'Activate')}
+                            {emp.isActive ? (isAr ? 'تعطيل' : 'Suspend') : (isAr ? 'تفعيل' : 'Activate')}
                           </button>
+                          {emp.isActive && (
+                            <button onClick={() => terminateEmployee(emp)}
+                              className="text-xs text-orange-500 hover:text-orange-700 font-medium">
+                              {isAr ? 'إنهاء الخدمة' : 'Terminate'}
+                            </button>
+                          )}
+                          {!emp.isActive && (
+                            <button onClick={() => deleteEmployee(emp)}
+                              className="text-xs text-red-500 hover:text-red-700 font-medium">
+                              {isAr ? 'حذف نهائي' : 'Delete'}
+                            </button>
+                          )}
                         </div>
                       </td>
                     </tr>
