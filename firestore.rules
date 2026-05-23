@@ -1,0 +1,124 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ─── Helper functions ───────────────────────────────────────────────────
+
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function agencyId() {
+      return request.auth.token.agencyId;
+    }
+
+    function isAdmin() {
+      return request.auth.token.role == 'admin';
+    }
+
+    // For read operations: the stored document must belong to the caller's agency.
+    function isSameAgency() {
+      return resource.data.agencyId == agencyId();
+    }
+
+    // For create operations: the incoming document must declare the caller's agency.
+    function isSameAgencyCreate() {
+      return request.resource.data.agencyId == agencyId();
+    }
+
+    // Permission gate: explicit claim OR admin role implicitly grants everything.
+    function hasPerm(perm) {
+      return request.auth.token[perm] == true || isAdmin();
+    }
+
+    // ─── agencies/{agencyId} ────────────────────────────────────────────────
+    // Any authenticated user of the same agency can read their own agency doc.
+    // Only admins of that agency may write.
+    match /agencies/{agId} {
+      allow read: if isAuthenticated() && agId == agencyId();
+      allow write: if isAuthenticated() && agId == agencyId() && isAdmin();
+    }
+
+    // ─── bookings/{bookingId} ───────────────────────────────────────────────
+    match /bookings/{bookingId} {
+      allow read: if isAuthenticated()
+                  && isSameAgency()
+                  && hasPerm('perm_bookings_read');
+
+      allow create: if isAuthenticated()
+                    && isSameAgencyCreate()
+                    && hasPerm('perm_bookings_write');
+
+      allow update, delete: if isAuthenticated()
+                             && isSameAgency()
+                             && isSameAgencyCreate()
+                             && hasPerm('perm_bookings_write');
+    }
+
+    // ─── customers/{customerId} ─────────────────────────────────────────────
+    match /customers/{customerId} {
+      allow read: if isAuthenticated()
+                  && isSameAgency()
+                  && hasPerm('perm_customers_read');
+
+      allow create: if isAuthenticated()
+                    && isSameAgencyCreate()
+                    && hasPerm('perm_customers_write');
+
+      allow update, delete: if isAuthenticated()
+                             && isSameAgency()
+                             && isSameAgencyCreate()
+                             && hasPerm('perm_customers_write');
+    }
+
+    // ─── invoices/{invoiceId} ───────────────────────────────────────────────
+    match /invoices/{invoiceId} {
+      allow read: if isAuthenticated()
+                  && isSameAgency()
+                  && hasPerm('perm_invoices_read');
+
+      allow create: if isAuthenticated()
+                    && isSameAgencyCreate()
+                    && hasPerm('perm_invoices_write');
+
+      allow update, delete: if isAuthenticated()
+                             && isSameAgency()
+                             && isSameAgencyCreate()
+                             && hasPerm('perm_invoices_write');
+    }
+
+    // ─── journal_entries/{entryId} ──────────────────────────────────────────
+    // Read: accounting permission required; writes are Cloud Functions only.
+    match /journal_entries/{entryId} {
+      allow read: if isAuthenticated()
+                  && isSameAgency()
+                  && hasPerm('perm_accounting_read');
+
+      allow write: if false; // Cloud Functions (Admin SDK) only
+    }
+
+    // ─── payments/{paymentId} ───────────────────────────────────────────────
+    // Read: invoices read permission required; writes are Cloud Functions only.
+    match /payments/{paymentId} {
+      allow read: if isAuthenticated()
+                  && isSameAgency()
+                  && hasPerm('perm_invoices_read');
+
+      allow write: if false; // Cloud Functions (Admin SDK) only
+    }
+
+    // ─── idempotency_keys/{key} ─────────────────────────────────────────────
+    // Cloud Functions (Admin SDK) only — deny all client access.
+    match /idempotency_keys/{key} {
+      allow read, write: if false;
+    }
+
+    // ─── invoice_counters/{agencyId} ────────────────────────────────────────
+    // Cloud Functions (Admin SDK) only — deny all client access.
+    match /invoice_counters/{agId} {
+      allow read, write: if false;
+    }
+
+  }
+}

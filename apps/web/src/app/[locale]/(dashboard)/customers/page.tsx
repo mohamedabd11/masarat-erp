@@ -1,10 +1,10 @@
 import { getTranslations } from 'next-intl/server';
 import Link from 'next/link';
-import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { formatCurrency } from '@/lib/utils';
-import { Plus, Users, Search, Phone, TrendingUp, BookOpen, Eye } from 'lucide-react';
+import { Users, Search, Phone, TrendingUp, BookOpen, Eye } from 'lucide-react';
+import { NewCustomerButton } from '@/components/customers/NewCustomerButton';
 
 // ─── Demo Data ────────────────────────────────────────────────────────────────
 
@@ -106,12 +106,7 @@ export default async function CustomersPage({ params }: { params: { locale: stri
               : `${demoCustomers.length} registered customers`}
           </p>
         </div>
-        <Link href={`/${locale}/customers/new`}>
-          <Button>
-            <Plus size={16} />
-            {t('newCustomer')}
-          </Button>
-        </Link>
+        <NewCustomerButton label={t('newCustomer')} />
       </div>
 
       {/* Stats row */}

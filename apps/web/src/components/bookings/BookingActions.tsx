@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { useLocale } from 'next-intl';
 import Link from 'next/link';
+import { useAuth } from '@masarat/firebase';
 import { CreateInvoiceButton } from './CreateInvoiceButton';
 import { ProcessPaymentModal } from './ProcessPaymentModal';
 import { ProcessRefundModal } from './ProcessRefundModal';
@@ -28,6 +29,8 @@ export function BookingActions({
 }: BookingActionsProps) {
   const locale = useLocale();
   const isAr = locale === 'ar';
+  const { hasPermission } = useAuth();
+  const canWriteInvoices = hasPermission('invoices', 'write');
   const [invoiceId, setInvoiceId] = useState(existingInvoiceId);
   const [paid, setPaid] = useState(paidHalalas);
   const [showPayment, setShowPayment] = useState(false);
@@ -44,37 +47,43 @@ export function BookingActions({
     <>
       {/* Invoice action */}
       <div className="pt-4 border-t border-surface-border space-y-3">
-        <CreateInvoiceButton
-          bookingId={bookingId}
-          agencyId={agencyId}
-          bookingStatus={bookingStatus}
-          existingInvoiceId={invoiceId}
-          onSuccess={(id) => handleInvoiceCreated(id)}
-        />
+        {canWriteInvoices ? (
+          <>
+            <CreateInvoiceButton
+              bookingId={bookingId}
+              agencyId={agencyId}
+              bookingStatus={bookingStatus}
+              existingInvoiceId={invoiceId}
+              onSuccess={(id) => handleInvoiceCreated(id)}
+            />
 
-        {/* Payment action — only when invoice exists and not fully paid */}
-        {invoiceId && !isFullyPaid && (
-          <Button
-            fullWidth
-            size="sm"
-            onClick={() => setShowPayment(true)}
-          >
-            {isAr ? 'تسجيل دفعة' : 'Record Payment'}
-          </Button>
-        )}
+            {/* Payment action — only when invoice exists and not fully paid */}
+            {invoiceId && !isFullyPaid && (
+              <Button
+                fullWidth
+                size="sm"
+                onClick={() => setShowPayment(true)}
+              >
+                {isAr ? 'تسجيل دفعة' : 'Record Payment'}
+              </Button>
+            )}
 
-        {/* Refund action — only when something was paid */}
-        {invoiceId && paid > 0 && (
-          <Button
-            fullWidth
-            size="sm"
-            variant="ghost"
-            onClick={() => setShowRefund(true)}
-            className="text-red-600 hover:bg-red-50"
-          >
-            <RotateCcw size={13} />
-            {isAr ? 'استرداد / إلغاء' : 'Refund / Cancel'}
-          </Button>
+            {/* Refund action — only when something was paid */}
+            {invoiceId && paid > 0 && (
+              <Button
+                fullWidth
+                size="sm"
+                variant="ghost"
+                onClick={() => setShowRefund(true)}
+                className="text-red-600 hover:bg-red-50"
+              >
+                <RotateCcw size={13} />
+                {isAr ? 'استرداد / إلغاء' : 'Refund / Cancel'}
+              </Button>
+            )}
+          </>
+        ) : (
+          <p className="text-xs text-slate-400">للعرض فقط / Read-only</p>
         )}
 
         {/* Quick link to invoice page when exists */}

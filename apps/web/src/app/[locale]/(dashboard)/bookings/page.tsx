@@ -1,8 +1,6 @@
 import { getTranslations } from 'next-intl/server';
-import Link from 'next/link';
-import { Button } from '@/components/ui/Button';
 import { BookingsClient } from '@/components/bookings/BookingsClient';
-import { Plus } from 'lucide-react';
+import { NewBookingButton } from '@/components/bookings/NewBookingButton';
 
 export default async function BookingsPage({ params }: { params: { locale: string } }) {
   const t = await getTranslations('bookings');
@@ -19,12 +17,7 @@ export default async function BookingsPage({ params }: { params: { locale: strin
             {isAr ? 'جميع الحجوزات في النظام' : 'All bookings in the system'}
           </p>
         </div>
-        <Link href={`/${locale}/bookings/new`}>
-          <Button>
-            <Plus size={16} />
-            {t('newBooking')}
-          </Button>
-        </Link>
+        <NewBookingButton label={t('newBooking')} />
       </div>
 
       {/* Search, filters, and table — client component with real Firestore data */}

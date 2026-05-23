@@ -30,7 +30,8 @@ function getBookingTypeLabel(type: string, isAr: boolean): string {
 }
 
 export function BookingsClient({ locale }: BookingsClientProps) {
-  const { bookings, loading, error } = useFirestoreBookings({ pageSize: 100 });
+  const { bookings, loading, error, hasMore, loadNextPage, loadingMore } =
+    useFirestoreBookings({ pageSize: 50 });
   const [search, setSearch] = useState('');
   const isAr = locale === 'ar';
 
@@ -195,6 +196,27 @@ export function BookingsClient({ locale }: BookingsClientProps) {
                 })}
               </tbody>
             </table>
+          </div>
+
+          {/* Footer: row count + load more */}
+          <div className="px-6 py-3 border-t border-surface-border flex items-center justify-between">
+            <span className="text-xs text-slate-400">
+              {isAr
+                ? `${filtered.length} حجز`
+                : `${filtered.length} booking${filtered.length !== 1 ? 's' : ''}`}
+            </span>
+            {hasMore && !search && (
+              <button
+                onClick={loadNextPage}
+                disabled={loadingMore}
+                className="flex items-center gap-2 text-sm text-brand-600 hover:text-brand-700 font-medium disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              >
+                {loadingMore ? (
+                  <Spinner size="sm" />
+                ) : null}
+                {isAr ? 'تحميل المزيد' : 'Load More'}
+              </button>
+            )}
           </div>
         </Card>
       )}

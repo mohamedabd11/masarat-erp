@@ -1,0 +1,161 @@
+name: Deploy
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy-functions:
+    name: Deploy Cloud Functions
+    runs-on: ubuntu-latest
+    needs: [test-accounting, build-web, build-functions]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v3
+        with:
+          version: 9
+
+      - name: Setup Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install firebase-tools
+        run: npm install -g firebase-tools
+
+      - name: Build functions
+        run: pnpm --filter @masarat/functions build || (cd functions && pnpm build)
+
+      - name: Deploy functions to Firebase
+        run: firebase deploy --only functions --project ${{ secrets.FIREBASE_PROJECT_ID }} --token ${{ secrets.FIREBASE_TOKEN }}
+
+  deploy-firestore:
+    name: Deploy Firestore Rules & Indexes
+    runs-on: ubuntu-latest
+    needs: [test-accounting, build-web, build-functions]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install firebase-tools
+        run: npm install -g firebase-tools
+
+      - name: Deploy Firestore rules and indexes
+        run: firebase deploy --only firestore:rules,firestore:indexes --project ${{ secrets.FIREBASE_PROJECT_ID }} --token ${{ secrets.FIREBASE_TOKEN }}
+
+  deploy-web:
+    name: Deploy Web to Vercel
+    runs-on: ubuntu-latest
+    needs: [deploy-functions]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v3
+        with:
+          version: 9
+
+      - name: Setup Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Vercel CLI
+        run: npm install -g vercel
+
+      - name: Deploy to Vercel (production)
+        run: vercel deploy --prod --token ${{ secrets.VERCEL_TOKEN }} --yes
+
+  # Re-declare CI jobs so deploy jobs can reference them via `needs`
+  test-accounting:
+    name: Test Accounting Package (gate)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v3
+        with:
+          version: 9
+
+      - name: Setup Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Run accounting tests
+        run: pnpm --filter @masarat/accounting test
+
+  build-web:
+    name: Build Web App (gate)
+    runs-on: ubuntu-latest
+    env:
+      NEXT_PUBLIC_FIREBASE_API_KEY: ""
+      NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN: ""
+      NEXT_PUBLIC_FIREBASE_PROJECT_ID: ""
+      NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET: ""
+      NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID: ""
+      NEXT_PUBLIC_FIREBASE_APP_ID: ""
+      NEXT_PUBLIC_USE_FIREBASE_EMULATOR: "false"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v3
+        with:
+          version: 9
+
+      - name: Setup Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build web app
+        run: pnpm --filter @masarat/web build
+
+  build-functions:
+    name: Build Cloud Functions (gate)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v3
+        with:
+          version: 9
+
+      - name: Setup Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build functions
+        run: pnpm --filter @masarat/functions build || (cd functions && pnpm build)

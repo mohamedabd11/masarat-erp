@@ -1,41 +1,45 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '@masarat/firebase';
 import type { BookingDoc, BookingStatus } from '@masarat/firebase';
+import type { DocumentSnapshot } from 'firebase/firestore';
 
 interface UseFirestoreBookingsOptions {
   status?: BookingStatus;
   pageSize?: number;
 }
 
-interface BookingsState {
+export interface BookingsState {
   bookings: BookingDoc[];
   loading: boolean;
   error: string | null;
+  lastDoc: DocumentSnapshot | null;
+  hasMore: boolean;
+  loadNextPage: () => Promise<void>;
+  loadingMore: boolean;
 }
 
-/**
- * Hook لجلب بيانات الحجوزات من Firestore مع تحديث فوري (real-time).
- * يستخدم useBookings من @masarat/firebase مع الـ agencyId من JWT claims.
- *
- * في بيئة التطوير مع الـ Emulator، يتصل تلقائياً بالـ Emulator.
- */
 export function useFirestoreBookings(options: UseFirestoreBookingsOptions = {}): BookingsState {
   const { user } = useAuth();
-  const [state, setState] = useState<BookingsState>({
-    bookings: [],
-    loading: true,
-    error: null,
-  });
+  const pageSize = options.pageSize ?? 50;
 
+  const [bookings, setBookings] = useState<BookingDoc[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [lastDoc, setLastDoc] = useState<DocumentSnapshot | null>(null);
+  const [hasMore, setHasMore] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [extraPages, setExtraPages] = useState<BookingDoc[][]>([]);
+
+  // First page — real-time via onSnapshot
   useEffect(() => {
     if (!user) {
-      setState({ bookings: [], loading: false, error: null });
+      setBookings([]);
+      setLoading(false);
       return;
     }
 
-    // Dynamic import to avoid SSR issues
     let unsubscribe: (() => void) | undefined;
 
     async function subscribe() {
@@ -45,7 +49,8 @@ export function useFirestoreBookings(options: UseFirestoreBookingsOptions = {}):
 
         const agencyId = (user as { agencyId?: string }).agencyId;
         if (!agencyId) {
-          setState({ bookings: [], loading: false, error: 'No agency ID in token' });
+          setLoading(false);
+          setError('No agency ID in token');
           return;
         }
 
@@ -53,7 +58,7 @@ export function useFirestoreBookings(options: UseFirestoreBookingsOptions = {}):
         const constraints: Parameters<typeof query>[1][] = [
           where('agencyId', '==', agencyId),
           orderBy('createdAt', 'desc'),
-          limit(options.pageSize ?? 50),
+          limit(pageSize),
         ];
 
         if (options.status) {
@@ -64,30 +69,73 @@ export function useFirestoreBookings(options: UseFirestoreBookingsOptions = {}):
         unsubscribe = onSnapshot(
           q,
           (snap) => {
-            setState({
-              bookings: snap.docs.map(d => d.data() as BookingDoc),
-              loading: false,
-              error: null,
-            });
+            const docs = snap.docs.map(d => d.data() as BookingDoc);
+            setBookings(docs);
+            setLastDoc(snap.docs[snap.docs.length - 1] ?? null);
+            setHasMore(snap.docs.length >= pageSize);
+            setLoading(false);
+            setError(null);
+            // Reset extra pages when first page refreshes
+            setExtraPages([]);
           },
           (err) => {
-            setState(prev => ({ ...prev, loading: false, error: err.message }));
+            setError(err.message);
+            setLoading(false);
           }
         );
       } catch (err) {
-        setState(prev => ({
-          ...prev,
-          loading: false,
-          error: err instanceof Error ? err.message : 'Failed to subscribe',
-        }));
+        setError(err instanceof Error ? err.message : 'Failed to subscribe');
+        setLoading(false);
       }
     }
 
-    setState(prev => ({ ...prev, loading: true }));
+    setLoading(true);
     void subscribe();
-
     return () => unsubscribe?.();
-  }, [user, options.status, options.pageSize]);
+  }, [user, options.status, pageSize]);
 
-  return state;
+  // Load next page via getDocs (one-time fetch, appended)
+  const loadNextPage = useCallback(async () => {
+    if (!lastDoc || loadingMore || !hasMore) return;
+
+    setLoadingMore(true);
+    try {
+      const { bookingsCol } = await import('@masarat/firebase');
+      const { query, where, orderBy, limit, startAfter, getDocs } = await import('firebase/firestore');
+
+      const agencyId = (user as { agencyId?: string } | null)?.agencyId;
+      if (!agencyId) return;
+
+      const col = bookingsCol(agencyId);
+      const constraints: Parameters<typeof query>[1][] = [
+        where('agencyId', '==', agencyId),
+        orderBy('createdAt', 'desc'),
+        startAfter(lastDoc),
+        limit(pageSize),
+      ];
+
+      if (options.status) {
+        constraints.push(where('status', '==', options.status));
+      }
+
+      const snap = await getDocs(query(col, ...constraints));
+      const newDocs = snap.docs.map(d => d.data() as BookingDoc);
+
+      if (newDocs.length > 0) {
+        setExtraPages(prev => [...prev, newDocs]);
+        setLastDoc(snap.docs[snap.docs.length - 1]);
+        setHasMore(snap.docs.length >= pageSize);
+      } else {
+        setHasMore(false);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load more');
+    } finally {
+      setLoadingMore(false);
+    }
+  }, [lastDoc, loadingMore, hasMore, user, options.status, pageSize]);
+
+  const allBookings = [...bookings, ...extraPages.flat()];
+
+  return { bookings: allBookings, loading, error, lastDoc, hasMore, loadNextPage, loadingMore };
 }
