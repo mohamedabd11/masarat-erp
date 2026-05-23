@@ -226,15 +226,16 @@ function EmployeesTab({ isAr, agencyId, locale }: { isAr: boolean; agencyId: str
     if (!agencyId) { setLoading(false); return; }
     let unsub: (() => void) | undefined;
     (async () => {
-      const { getFirestore, collection, query, where, orderBy, onSnapshot } = await import('firebase/firestore');
+      const { getFirestore, collection, query, where, onSnapshot } = await import("firebase/firestore");
       const { getApp } = await import('@masarat/firebase');
       const q = query(
         collection(getFirestore(getApp()), 'employees'),
         where('agencyId', '==', agencyId),
-        orderBy('createdAt', 'desc'),
       );
       unsub = onSnapshot(q, snap => {
-        setEmployees(snap.docs.map(d => ({ id: d.id, ...d.data() } as Employee)));
+        const docs = snap.docs.map(d => ({ id: d.id, ...d.data() } as Employee));
+        docs.sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0));
+        setEmployees(docs);
         setLoading(false);
       }, () => setLoading(false));
     })();
@@ -936,15 +937,16 @@ function LeavesTab({ isAr, agencyId, locale }: { isAr: boolean; agencyId: string
     if (!agencyId) { setLoading(false); return; }
     let unsub: (() => void) | undefined;
     (async () => {
-      const { getFirestore, collection, query, where, orderBy, onSnapshot } = await import('firebase/firestore');
+      const { getFirestore, collection, query, where, onSnapshot } = await import("firebase/firestore");
       const { getApp } = await import('@masarat/firebase');
       const q = query(
         collection(getFirestore(getApp()), 'leave_requests'),
         where('agencyId', '==', agencyId),
-        orderBy('createdAt', 'desc'),
       );
       unsub = onSnapshot(q, snap => {
-        setLeaves(snap.docs.map(d => ({ id: d.id, ...d.data() } as LeaveRequest)));
+        const docs = snap.docs.map(d => ({ id: d.id, ...d.data() } as LeaveRequest));
+        docs.sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0));
+        setLeaves(docs);
         setLoading(false);
       }, () => setLoading(false));
     })();

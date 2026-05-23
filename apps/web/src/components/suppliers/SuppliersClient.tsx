@@ -57,12 +57,14 @@ export function SuppliersClient({ locale }: SuppliersClientProps) {
     if (!agencyId) { setLoading(false); return; }
     let unsub: (() => void) | undefined;
     async function subscribe() {
-      const { getFirestore, collection, query, where, orderBy, onSnapshot } = await import('firebase/firestore');
+      const { getFirestore, collection, query, where, onSnapshot } = await import('firebase/firestore');
       const { getApp } = await import('@masarat/firebase');
       const col = collection(getFirestore(getApp()), 'suppliers');
-      const q = query(col, where('agencyId', '==', agencyId), orderBy('createdAt', 'desc'));
+      const q = query(col, where('agencyId', '==', agencyId));
       unsub = onSnapshot(q, snap => {
-        setSuppliers(snap.docs.map(d => ({ id: d.id, ...d.data() } as Supplier)));
+        const docs = snap.docs.map(d => ({ id: d.id, ...d.data() } as Supplier));
+        docs.sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0));
+        setSuppliers(docs);
         setLoading(false);
       }, () => setLoading(false));
     }

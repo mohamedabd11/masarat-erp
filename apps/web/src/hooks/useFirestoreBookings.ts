@@ -33,7 +33,6 @@ export function useFirestoreBookings(options: UseFirestoreBookingsOptions = {}):
   const [loadingMore, setLoadingMore] = useState(false);
   const [extraPages, setExtraPages] = useState<BookingDoc[][]>([]);
 
-  // First page — real-time via onSnapshot
   useEffect(() => {
     if (!user) {
       setBookings([]);
@@ -46,7 +45,7 @@ export function useFirestoreBookings(options: UseFirestoreBookingsOptions = {}):
     async function subscribe() {
       try {
         const { bookingsCol } = await import('@masarat/firebase');
-        const { query, where, orderBy, limit, onSnapshot } = await import('firebase/firestore');
+        const { query, where, limit, onSnapshot } = await import('firebase/firestore');
 
         const agencyId = user.agencyId;
         if (!agencyId) {
@@ -56,28 +55,37 @@ export function useFirestoreBookings(options: UseFirestoreBookingsOptions = {}):
         }
 
         const col = bookingsCol();
+        // Only filter by agencyId to avoid composite index requirement.
+        // Additional filters (status, type) applied client-side after fetch.
         const constraints: Parameters<typeof query>[1][] = [
           where('agencyId', '==', agencyId),
-          orderBy('createdAt', 'desc'),
-          limit(pageSize),
+          limit(pageSize * 3), // fetch more to account for client-side filtering
         ];
-
-        if (options.status) {
-          constraints.push(where('status', '==', options.status));
-        }
-
-        if (options.type) {
-          constraints.push(where('type', '==', options.type));
-        }
 
         const q = query(col, ...constraints);
         unsubscribe = onSnapshot(
           q,
           (snap) => {
-            const docs = snap.docs.map(d => d.data() as BookingDoc);
-            setBookings(docs);
+            let docs = snap.docs.map(d => d.data() as BookingDoc);
+
+            // Client-side filters
+            if (options.status) {
+              docs = docs.filter(d => d.status === options.status);
+            }
+            if (options.type) {
+              docs = docs.filter(d => d.type === options.type);
+            }
+
+            // Sort by createdAt desc client-side
+            docs.sort((a, b) => {
+              const aTime = a.createdAt?.toMillis?.() ?? 0;
+              const bTime = b.createdAt?.toMillis?.() ?? 0;
+              return bTime - aTime;
+            });
+
+            setBookings(docs.slice(0, pageSize));
             setLastDoc(snap.docs[snap.docs.length - 1] ?? null);
-            setHasMore(snap.docs.length >= pageSize);
+            setHasMore(snap.docs.length >= pageSize * 3);
             setLoading(false);
             setError(null);
             setExtraPages([]);
@@ -98,14 +106,13 @@ export function useFirestoreBookings(options: UseFirestoreBookingsOptions = {}):
     return () => unsubscribe?.();
   }, [user, options.status, options.type, pageSize]);
 
-  // Load next page via getDocs (one-time fetch, appended)
   const loadNextPage = useCallback(async () => {
     if (!lastDoc || loadingMore || !hasMore) return;
 
     setLoadingMore(true);
     try {
       const { bookingsCol } = await import('@masarat/firebase');
-      const { query, where, orderBy, limit, startAfter, getDocs } = await import('firebase/firestore');
+      const { query, where, limit, startAfter, getDocs } = await import('firebase/firestore');
 
       const agencyId = user?.agencyId;
       if (!agencyId) return;
@@ -113,21 +120,21 @@ export function useFirestoreBookings(options: UseFirestoreBookingsOptions = {}):
       const col = bookingsCol();
       const constraints: Parameters<typeof query>[1][] = [
         where('agencyId', '==', agencyId),
-        orderBy('createdAt', 'desc'),
         startAfter(lastDoc),
         limit(pageSize),
       ];
 
-      if (options.status) {
-        constraints.push(where('status', '==', options.status));
-      }
-
-      if (options.type) {
-        constraints.push(where('type', '==', options.type));
-      }
-
       const snap = await getDocs(query(col, ...constraints));
-      const newDocs = snap.docs.map(d => d.data() as BookingDoc);
+      let newDocs = snap.docs.map(d => d.data() as BookingDoc);
+
+      if (options.status) newDocs = newDocs.filter(d => d.status === options.status);
+      if (options.type)   newDocs = newDocs.filter(d => d.type === options.type);
+
+      newDocs.sort((a, b) => {
+        const aTime = a.createdAt?.toMillis?.() ?? 0;
+        const bTime = b.createdAt?.toMillis?.() ?? 0;
+        return bTime - aTime;
+      });
 
       if (newDocs.length > 0) {
         setExtraPages(prev => [...prev, newDocs]);
