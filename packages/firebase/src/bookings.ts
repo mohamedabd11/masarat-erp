@@ -4,7 +4,6 @@
  */
 
 import {
-  getFirestore,
   query,
   where,
   orderBy,
@@ -16,7 +15,6 @@ import {
   Timestamp,
   type QueryConstraint,
 } from 'firebase/firestore';
-import { getApp } from './config';
 import { bookingsCol, bookingDoc } from './collections';
 import type { BookingDoc, BookingStatus, BookingType } from './types';
 
