@@ -1,7 +1,9 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useLocale } from 'next-intl';
+import { useSearchParams } from 'next/navigation';
+import { useAuth } from '@masarat/firebase';
 import { Card, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
@@ -26,20 +28,31 @@ import {
   FileText,
   ImagePlus,
   LogIn,
+  Layers,
+  Plus,
+  Trash2,
+  Stamp,
+  Car,
+  Train,
+  Camera,
+  Mountain,
+  Pencil,
+  X,
 } from 'lucide-react';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
-type Tab = 'agency' | 'users' | 'modules' | 'zatca' | 'billing';
+type Tab = 'agency' | 'users' | 'modules' | 'zatca' | 'billing' | 'service_types';
 
 // ─── Tab definitions ─────────────────────────────────────────────────────────
 
 const TABS: Array<{ key: Tab; ar: string; en: string; icon: React.ReactNode }> = [
-  { key: 'agency',  ar: 'بيانات الوكالة', en: 'Agency Info', icon: <Building2 size={16} /> },
-  { key: 'users',   ar: 'المستخدمون',      en: 'Users',       icon: <Users size={16} /> },
-  { key: 'modules', ar: 'الوحدات',         en: 'Modules',     icon: <Package size={16} /> },
-  { key: 'zatca',   ar: 'ZATCA',           en: 'ZATCA',       icon: <Shield size={16} /> },
-  { key: 'billing', ar: 'الاشتراك',        en: 'Billing',     icon: <CreditCard size={16} /> },
+  { key: 'agency',        ar: 'بيانات الوكالة',  en: 'Agency Info',    icon: <Building2 size={16} /> },
+  { key: 'users',         ar: 'المستخدمون',       en: 'Users',          icon: <Users size={16} /> },
+  { key: 'modules',       ar: 'الوحدات',          en: 'Modules',        icon: <Package size={16} /> },
+  { key: 'service_types', ar: 'أنواع الخدمات',    en: 'Service Types',  icon: <Layers size={16} /> },
+  { key: 'zatca',         ar: 'ZATCA',            en: 'ZATCA',          icon: <Shield size={16} /> },
+  { key: 'billing',       ar: 'الاشتراك',         en: 'Billing',        icon: <CreditCard size={16} /> },
 ];
 
 // ─── Module definitions ───────────────────────────────────────────────────────
@@ -192,6 +205,50 @@ const PLAN_FEATURES = {
   en: ['Up to 3 users', 'Up to 500 bookings / month', 'Core modules', 'Email support'],
 };
 
+// ─── Service Types ────────────────────────────────────────────────────────────
+
+interface CustomServiceType {
+  id: string;
+  agencyId: string;
+  nameAr: string;
+  nameEn: string;
+  icon: string;
+  color: string;
+  isActive: boolean;
+}
+
+const DEFAULT_SERVICE_TYPES: Array<{
+  id: string;
+  ar: string;
+  en: string;
+  icon: React.ReactNode;
+  color: string;
+}> = [
+  { id: 'flight',    ar: 'طيران',         en: 'Flight',     icon: <Plane size={16} />,    color: '#3B82F6' },
+  { id: 'hotel',     ar: 'فندق',          en: 'Hotel',      icon: <Hotel size={16} />,    color: '#8B5CF6' },
+  { id: 'package',   ar: 'باقة سياحية',   en: 'Package',    icon: <Package size={16} />,  color: '#F59E0B' },
+  { id: 'umrah',     ar: 'عمرة وحج',      en: 'Umrah',      icon: <Moon size={16} />,     color: '#10B981' },
+  { id: 'insurance', ar: 'تأمين',         en: 'Insurance',  icon: <Shield size={16} />,   color: '#EF4444' },
+  { id: 'visa',      ar: 'تأشيرة',        en: 'Visa',       icon: <Stamp size={16} />,    color: '#6B7280' },
+];
+
+const ICON_OPTIONS: Array<{ key: string; icon: React.ReactNode }> = [
+  { key: 'plane',     icon: <Plane size={16} /> },
+  { key: 'building2', icon: <Hotel size={16} /> },
+  { key: 'package',   icon: <Package size={16} /> },
+  { key: 'moon',      icon: <Moon size={16} /> },
+  { key: 'shield',    icon: <Shield size={16} /> },
+  { key: 'stamp',     icon: <Stamp size={16} /> },
+  { key: 'anchor',    icon: <Anchor size={16} /> },
+  { key: 'car',       icon: <Car size={16} /> },
+  { key: 'train',     icon: <Train size={16} /> },
+  { key: 'camera',    icon: <Camera size={16} /> },
+  { key: 'mountain',  icon: <Mountain size={16} /> },
+  { key: 'layers',    icon: <Layers size={16} /> },
+];
+
+const PRESET_COLORS = ['#3B82F6', '#8B5CF6', '#10B981', '#F59E0B', '#EF4444', '#6B7280'];
+
 // ─── Toggle Switch sub-component ─────────────────────────────────────────────
 
 function ToggleSwitch({
@@ -234,12 +291,119 @@ function ToggleSwitch({
 export default function SettingsPage() {
   const locale = useLocale();
   const isAr = locale === 'ar';
+  const searchParams = useSearchParams();
+  const { user } = useAuth();
 
-  const [activeTab, setActiveTab] = useState<Tab>('agency');
+  // Support ?tab=service_types URL param
+  const tabParam = searchParams.get('tab') as Tab | null;
+  const validTabs: Tab[] = ['agency', 'users', 'modules', 'service_types', 'zatca', 'billing'];
+  const initialTab: Tab = tabParam && validTabs.includes(tabParam) ? tabParam : 'agency';
+
+  const [activeTab, setActiveTab] = useState<Tab>(initialTab);
   const [modules, setModules] = useState<Module[]>(INITIAL_MODULES);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [zatcaEnv, setZatcaEnv] = useState<'testing' | 'production'>('testing');
+
+  // ── Service Types state ─────────────────────────────────────────────────
+  const [customTypes, setCustomTypes] = useState<CustomServiceType[]>([]);
+  const [defaultToggles, setDefaultToggles] = useState<Record<string, boolean>>(
+    Object.fromEntries(DEFAULT_SERVICE_TYPES.map(d => [d.id, true]))
+  );
+  const [showAddForm, setShowAddForm] = useState(false);
+  const [addForm, setAddForm] = useState({ nameAr: '', nameEn: '', icon: 'layers', color: PRESET_COLORS[0] });
+  const [addSaving, setAddSaving] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editForm, setEditForm] = useState({ nameAr: '', nameEn: '', icon: 'layers', color: PRESET_COLORS[0] });
+
+  // Load custom service types from Firestore
+  useEffect(() => {
+    if (!user?.agencyId || activeTab !== 'service_types') return;
+    let unsub: (() => void) | undefined;
+
+    async function load() {
+      const { getFirestore, collection, query, where, onSnapshot } = await import('firebase/firestore');
+      const { getApp } = await import('@masarat/firebase');
+      const db = getFirestore(getApp());
+      const q = query(
+        collection(db, 'service_types'),
+        where('agencyId', '==', user!.agencyId),
+      );
+      unsub = onSnapshot(q, snap => {
+        setCustomTypes(snap.docs.map(d => ({ id: d.id, ...d.data() } as CustomServiceType)));
+      });
+    }
+
+    void load();
+    return () => unsub?.();
+  }, [user?.agencyId, activeTab]);
+
+  // Service type handlers
+  async function handleAddServiceType() {
+    if (!user?.agencyId || !addForm.nameAr.trim()) return;
+    setAddSaving(true);
+    try {
+      const { getFirestore, collection, addDoc, Timestamp } = await import('firebase/firestore');
+      const { getApp } = await import('@masarat/firebase');
+      const db = getFirestore(getApp());
+      await addDoc(collection(db, 'service_types'), {
+        agencyId: user.agencyId,
+        nameAr: addForm.nameAr.trim(),
+        nameEn: addForm.nameEn.trim() || addForm.nameAr.trim(),
+        icon: addForm.icon,
+        color: addForm.color,
+        isActive: true,
+        createdAt: Timestamp.now(),
+      });
+      setAddForm({ nameAr: '', nameEn: '', icon: 'layers', color: PRESET_COLORS[0] });
+      setShowAddForm(false);
+    } catch (err) {
+      console.error('Error adding service type:', err);
+    } finally {
+      setAddSaving(false);
+    }
+  }
+
+  async function handleDeleteServiceType(id: string) {
+    try {
+      const { getFirestore, doc, deleteDoc } = await import('firebase/firestore');
+      const { getApp } = await import('@masarat/firebase');
+      const db = getFirestore(getApp());
+      await deleteDoc(doc(db, 'service_types', id));
+    } catch (err) {
+      console.error('Error deleting service type:', err);
+    }
+  }
+
+  async function handleEditSave(id: string) {
+    try {
+      const { getFirestore, doc, updateDoc } = await import('firebase/firestore');
+      const { getApp } = await import('@masarat/firebase');
+      const db = getFirestore(getApp());
+      await updateDoc(doc(db, 'service_types', id), {
+        nameAr: editForm.nameAr.trim(),
+        nameEn: editForm.nameEn.trim() || editForm.nameAr.trim(),
+        icon: editForm.icon,
+        color: editForm.color,
+      });
+      setEditingId(null);
+    } catch (err) {
+      console.error('Error updating service type:', err);
+    }
+  }
+
+  async function handleToggleServiceType(id: string) {
+    try {
+      const { getFirestore, doc, updateDoc } = await import('firebase/firestore');
+      const { getApp } = await import('@masarat/firebase');
+      const db = getFirestore(getApp());
+      const current = customTypes.find(t => t.id === id);
+      if (!current) return;
+      await updateDoc(doc(db, 'service_types', id), { isActive: !current.isActive });
+    } catch (err) {
+      console.error('Error toggling service type:', err);
+    }
+  }
 
   function toggleModule(id: string) {
     setModules((prev: Module[]) =>
@@ -531,6 +695,277 @@ export default function SettingsPage() {
                   </Card>
                 ))}
               </div>
+            </div>
+          )}
+
+          {/* ── Service Types ────────────────────────────────────────── */}
+          {activeTab === 'service_types' && (
+            <div className="space-y-6">
+              {/* Default service types */}
+              <Card>
+                <CardHeader>
+                  <CardTitle>{isAr ? 'الخدمات الافتراضية' : 'Default Service Types'}</CardTitle>
+                </CardHeader>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  {DEFAULT_SERVICE_TYPES.map(svc => (
+                    <div
+                      key={svc.id}
+                      className="flex items-center gap-3 p-3 rounded-xl border border-slate-200 bg-slate-50/50"
+                    >
+                      <div
+                        className="p-2 rounded-lg flex-shrink-0"
+                        style={{ backgroundColor: `${svc.color}20`, color: svc.color }}
+                      >
+                        {svc.icon}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium text-slate-900">
+                          {isAr ? svc.ar : svc.en}
+                        </p>
+                        <p className="text-xs text-slate-400">{isAr ? svc.en : svc.ar}</p>
+                      </div>
+                      <ToggleSwitch
+                        checked={defaultToggles[svc.id] ?? true}
+                        onChange={() =>
+                          setDefaultToggles(prev => ({
+                            ...prev,
+                            [svc.id]: !(prev[svc.id] ?? true),
+                          }))
+                        }
+                        label={`Toggle ${svc.en}`}
+                      />
+                    </div>
+                  ))}
+                </div>
+              </Card>
+
+              {/* Custom service types */}
+              <Card>
+                <CardHeader>
+                  <CardTitle>{isAr ? 'الخدمات المخصصة' : 'Custom Service Types'}</CardTitle>
+                  <Button size="sm" onClick={() => setShowAddForm(v => !v)}>
+                    <Plus size={14} />
+                    {isAr ? 'إضافة خدمة' : 'Add Service'}
+                  </Button>
+                </CardHeader>
+
+                {/* Add form */}
+                {showAddForm && (
+                  <div className="mb-5 p-4 rounded-xl border border-brand-200 bg-brand-50/30 space-y-4">
+                    <div className="flex items-center justify-between">
+                      <p className="text-sm font-semibold text-slate-800">
+                        {isAr ? 'إضافة خدمة مخصصة' : 'Add Custom Service'}
+                      </p>
+                      <button
+                        onClick={() => setShowAddForm(false)}
+                        className="p-1 rounded text-slate-400 hover:text-slate-600 transition-colors"
+                      >
+                        <X size={14} />
+                      </button>
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <Input
+                        label={isAr ? 'الاسم بالعربي' : 'Arabic Name'}
+                        required
+                        value={addForm.nameAr}
+                        onChange={e => setAddForm(f => ({ ...f, nameAr: e.target.value }))}
+                        dir="rtl"
+                      />
+                      <Input
+                        label={isAr ? 'الاسم بالإنجليزي' : 'English Name'}
+                        value={addForm.nameEn}
+                        onChange={e => setAddForm(f => ({ ...f, nameEn: e.target.value }))}
+                        dir="ltr"
+                      />
+                    </div>
+
+                    {/* Icon selector */}
+                    <div>
+                      <p className="text-xs font-medium text-slate-600 mb-2">
+                        {isAr ? 'الأيقونة' : 'Icon'}
+                      </p>
+                      <div className="flex gap-2 flex-wrap">
+                        {ICON_OPTIONS.map(opt => (
+                          <button
+                            key={opt.key}
+                            type="button"
+                            onClick={() => setAddForm(f => ({ ...f, icon: opt.key }))}
+                            className={cn(
+                              'p-2 rounded-lg border transition-colors',
+                              addForm.icon === opt.key
+                                ? 'border-brand-500 bg-brand-50 text-brand-600'
+                                : 'border-slate-200 text-slate-500 hover:border-slate-300',
+                            )}
+                          >
+                            {opt.icon}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Color picker */}
+                    <div>
+                      <p className="text-xs font-medium text-slate-600 mb-2">
+                        {isAr ? 'اللون' : 'Color'}
+                      </p>
+                      <div className="flex gap-2">
+                        {PRESET_COLORS.map(c => (
+                          <button
+                            key={c}
+                            type="button"
+                            onClick={() => setAddForm(f => ({ ...f, color: c }))}
+                            className={cn(
+                              'w-7 h-7 rounded-full border-2 transition-transform',
+                              addForm.color === c ? 'border-slate-700 scale-110' : 'border-transparent',
+                            )}
+                            style={{ backgroundColor: c }}
+                          />
+                        ))}
+                      </div>
+                    </div>
+
+                    <div className="flex items-center justify-end gap-3">
+                      <Button variant="secondary" size="sm" onClick={() => setShowAddForm(false)}>
+                        {isAr ? 'إلغاء' : 'Cancel'}
+                      </Button>
+                      <Button
+                        size="sm"
+                        loading={addSaving}
+                        disabled={!addForm.nameAr.trim()}
+                        onClick={handleAddServiceType}
+                      >
+                        {isAr ? 'حفظ' : 'Save'}
+                      </Button>
+                    </div>
+                  </div>
+                )}
+
+                {/* Custom types list */}
+                {customTypes.length === 0 && !showAddForm && (
+                  <div className="text-center py-8">
+                    <Layers size={36} className="text-slate-200 mx-auto mb-3" />
+                    <p className="text-sm text-slate-500">
+                      {isAr ? 'لا توجد خدمات مخصصة بعد' : 'No custom service types yet'}
+                    </p>
+                    <p className="text-xs text-slate-400 mt-1">
+                      {isAr
+                        ? 'أضف خدمات مخصصة تظهر في القائمة الجانبية'
+                        : 'Add custom services that appear in the sidebar'}
+                    </p>
+                  </div>
+                )}
+
+                <div className="space-y-2">
+                  {customTypes.map(ct => (
+                    <div key={ct.id} className="border border-slate-200 rounded-xl overflow-hidden">
+                      {editingId === ct.id ? (
+                        /* Edit mode */
+                        <div className="p-4 bg-slate-50/50 space-y-3">
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                            <Input
+                              label={isAr ? 'الاسم بالعربي' : 'Arabic Name'}
+                              value={editForm.nameAr}
+                              onChange={e => setEditForm(f => ({ ...f, nameAr: e.target.value }))}
+                              dir="rtl"
+                            />
+                            <Input
+                              label={isAr ? 'الاسم بالإنجليزي' : 'English Name'}
+                              value={editForm.nameEn}
+                              onChange={e => setEditForm(f => ({ ...f, nameEn: e.target.value }))}
+                              dir="ltr"
+                            />
+                          </div>
+                          <div>
+                            <p className="text-xs font-medium text-slate-600 mb-2">
+                              {isAr ? 'الأيقونة' : 'Icon'}
+                            </p>
+                            <div className="flex gap-2 flex-wrap">
+                              {ICON_OPTIONS.map(opt => (
+                                <button
+                                  key={opt.key}
+                                  type="button"
+                                  onClick={() => setEditForm(f => ({ ...f, icon: opt.key }))}
+                                  className={cn(
+                                    'p-2 rounded-lg border transition-colors',
+                                    editForm.icon === opt.key
+                                      ? 'border-brand-500 bg-brand-50 text-brand-600'
+                                      : 'border-slate-200 text-slate-500 hover:border-slate-300',
+                                  )}
+                                >
+                                  {opt.icon}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                          <div>
+                            <p className="text-xs font-medium text-slate-600 mb-2">
+                              {isAr ? 'اللون' : 'Color'}
+                            </p>
+                            <div className="flex gap-2">
+                              {PRESET_COLORS.map(c => (
+                                <button
+                                  key={c}
+                                  type="button"
+                                  onClick={() => setEditForm(f => ({ ...f, color: c }))}
+                                  className={cn(
+                                    'w-7 h-7 rounded-full border-2 transition-transform',
+                                    editForm.color === c ? 'border-slate-700 scale-110' : 'border-transparent',
+                                  )}
+                                  style={{ backgroundColor: c }}
+                                />
+                              ))}
+                            </div>
+                          </div>
+                          <div className="flex items-center justify-end gap-2">
+                            <Button variant="secondary" size="sm" onClick={() => setEditingId(null)}>
+                              {isAr ? 'إلغاء' : 'Cancel'}
+                            </Button>
+                            <Button size="sm" onClick={() => handleEditSave(ct.id)}>
+                              {isAr ? 'حفظ' : 'Save'}
+                            </Button>
+                          </div>
+                        </div>
+                      ) : (
+                        /* View mode */
+                        <div className="flex items-center gap-3 p-3">
+                          <div
+                            className="p-2 rounded-lg flex-shrink-0"
+                            style={{ backgroundColor: `${ct.color}20`, color: ct.color }}
+                          >
+                            <Layers size={16} />
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-medium text-slate-900">{ct.nameAr}</p>
+                            {ct.nameEn && (
+                              <p className="text-xs text-slate-400">{ct.nameEn}</p>
+                            )}
+                          </div>
+                          <ToggleSwitch
+                            checked={ct.isActive}
+                            onChange={() => handleToggleServiceType(ct.id)}
+                            label={`Toggle ${ct.nameEn}`}
+                          />
+                          <button
+                            onClick={() => {
+                              setEditingId(ct.id);
+                              setEditForm({ nameAr: ct.nameAr, nameEn: ct.nameEn, icon: ct.icon, color: ct.color });
+                            }}
+                            className="p-1.5 rounded-lg text-slate-400 hover:text-brand-600 hover:bg-brand-50 transition-colors"
+                          >
+                            <Pencil size={14} />
+                          </button>
+                          <button
+                            onClick={() => handleDeleteServiceType(ct.id)}
+                            className="p-1.5 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 transition-colors"
+                          >
+                            <Trash2 size={14} />
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </Card>
             </div>
           )}
 
