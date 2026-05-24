@@ -45,17 +45,19 @@ export default function LoginPage() {
     try {
       const auth = getAuth();
       await sendPasswordResetEmail(auth, resetEmail.trim());
-      setResetDone(true);
     } catch (err: unknown) {
       const code = (err as { code?: string }).code ?? '';
-      if (code === 'auth/user-not-found' || code === 'auth/invalid-email') {
-        setResetError(isAr ? 'البريد الإلكتروني غير مسجل في النظام' : 'Email not found in the system');
-      } else {
-        setResetError(isAr ? 'تعذر إرسال الرسالة، يرجى المحاولة لاحقاً' : 'Failed to send email, please try again later');
+      if (code === 'auth/invalid-email') {
+        setResetError(isAr ? 'صيغة البريد الإلكتروني غير صحيحة' : 'Invalid email format');
+        setResetSending(false);
+        return;
       }
+      // For all other errors (including user-not-found when protection is off),
+      // show the ambiguous success message to avoid revealing registered emails.
     } finally {
       setResetSending(false);
     }
+    setResetDone(true);
   }
 
   async function onSubmit(data: LoginForm) {
@@ -113,8 +115,8 @@ export default function LoginPage() {
           {resetDone ? (
             <div className="rounded-xl bg-emerald-50 border border-emerald-200 px-5 py-4 text-sm text-emerald-700 text-center leading-relaxed">
               {isAr
-                ? 'تم إرسال رابط إعادة التعيين إلى بريدك الإلكتروني. تحقق من صندوق الوارد.'
-                : 'Reset link sent to your email. Check your inbox.'}
+                ? 'إذا كان هذا البريد الإلكتروني مسجّلاً في النظام، سيصلك رابط إعادة التعيين خلال دقائق. تحقق من صندوق الوارد والبريد المزعج.'
+                : 'If this email is registered in the system, you will receive a reset link within a few minutes. Check your inbox and spam folder.'}
             </div>
           ) : (
             <div className="space-y-4">
