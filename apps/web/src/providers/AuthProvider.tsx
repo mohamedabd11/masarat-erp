@@ -14,7 +14,9 @@ export function AuthProvider({ children }: AuthProviderProps) {
   const router = useRouter();
   const pathname = usePathname();
 
-  const isAuthPage = pathname?.includes('/login') || pathname?.includes('/reset-password');
+  const isAuthPage = pathname?.includes('/login')
+                  || pathname?.includes('/register')
+                  || pathname?.includes('/reset-password');
 
   useEffect(() => {
     if (loading) return;
