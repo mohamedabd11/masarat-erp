@@ -106,7 +106,9 @@ export function BookingDetailClient({ locale, bookingId }: BookingDetailClientPr
           </Link>
           <div>
             <div className="flex items-center gap-3">
-              <h1 className="text-xl font-bold text-slate-900 font-mono">{booking.id}</h1>
+              <h1 className="text-xl font-bold text-slate-900 font-mono">
+                {booking.bookingNumber ?? booking.id}
+              </h1>
               <BookingStatusBadge status={booking.status} locale={locale} />
             </div>
             <p className="text-slate-500 text-sm mt-0.5">

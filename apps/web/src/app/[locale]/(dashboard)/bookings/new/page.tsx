@@ -557,8 +557,12 @@ function NewBookingContent() {
       const vatH   = Math.round(vBase * 0.15);
       const totalH = sell + vatH;
 
+      const year = new Date().getFullYear();
+      const bookingNumber = `BK-${year}-${String(Date.now()).slice(-6)}`;
+
       const ref = await addDoc(collection(db, 'bookings'), {
         agencyId,
+        bookingNumber,
         type:         selType,
         status:       'confirmed',
         customerName: { ar: data.customerName, en: data.customerName },

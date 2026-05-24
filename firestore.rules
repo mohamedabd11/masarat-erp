@@ -2,10 +2,75 @@ rules_version = '2';
 
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Allow any authenticated user to read/write all documents.
-    // Tighten to per-collection agencyId checks when multi-agency support is needed.
-    match /{document=**} {
-      allow read, write: if request.auth != null;
+
+    // agencyId: from custom claim if set, else the user's own UID
+    function myAgencyId() {
+      return request.auth.token.agencyId != null
+        ? request.auth.token.agencyId
+        : request.auth.uid;
     }
+
+    function owns(agId) {
+      return request.auth != null && agId == myAgencyId();
+    }
+
+    // ── agencies ────────────────────────────────────────────────────────────
+    match /agencies/{agId} {
+      allow read, write: if owns(agId);
+    }
+
+    // ── bookings ────────────────────────────────────────────────────────────
+    match /bookings/{id} {
+      allow read, update, delete: if owns(resource.data.agencyId);
+      allow create:               if owns(request.resource.data.agencyId);
+    }
+
+    // ── customers ───────────────────────────────────────────────────────────
+    match /customers/{id} {
+      allow read, update, delete: if owns(resource.data.agencyId);
+      allow create:               if owns(request.resource.data.agencyId);
+    }
+
+    // ── invoices ────────────────────────────────────────────────────────────
+    match /invoices/{id} {
+      allow read, update, delete: if owns(resource.data.agencyId);
+      allow create:               if owns(request.resource.data.agencyId);
+    }
+
+    // ── payments ────────────────────────────────────────────────────────────
+    match /payments/{id} {
+      allow read, update: if owns(resource.data.agencyId);
+      allow create:       if owns(request.resource.data.agencyId);
+      allow delete:       if false;
+    }
+
+    // ── service_types, suppliers, employees ─────────────────────────────────
+    match /service_types/{id} {
+      allow read, write: if owns(resource.data.agencyId);
+      allow create:      if owns(request.resource.data.agencyId);
+    }
+    match /suppliers/{id} {
+      allow read, update, delete: if owns(resource.data.agencyId);
+      allow create:               if owns(request.resource.data.agencyId);
+    }
+    match /employees/{id} {
+      allow read, update, delete: if owns(resource.data.agencyId);
+      allow create:               if owns(request.resource.data.agencyId);
+    }
+
+    // ── accounting (read-only from client) ──────────────────────────────────
+    match /chart_of_accounts/{id} {
+      allow read, update, delete: if owns(resource.data.agencyId);
+      allow create:               if owns(request.resource.data.agencyId);
+    }
+    match /journal_entries/{id} {
+      allow read:  if owns(resource.data.agencyId);
+      allow write: if false;
+    }
+
+    // ── internal — no client access ─────────────────────────────────────────
+    match /idempotency_keys/{id}   { allow read, write: if false; }
+    match /invoice_counters/{id}   { allow read, write: if false; }
+
   }
 }

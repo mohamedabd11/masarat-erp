@@ -29,8 +29,8 @@ export function BookingActions({
 }: BookingActionsProps) {
   const locale = useLocale();
   const isAr = locale === 'ar';
-  const { hasPermission } = useAuth();
-  const canWriteInvoices = hasPermission('invoices', 'write');
+  const { user } = useAuth();
+  const canWriteInvoices = !!user;
   const [invoiceId, setInvoiceId] = useState(existingInvoiceId);
   const [paid, setPaid] = useState(paidHalalas);
   const [showPayment, setShowPayment] = useState(false);
