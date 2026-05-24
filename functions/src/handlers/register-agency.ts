@@ -120,14 +120,19 @@ export async function handleRegisterAgency(
 
   // مستند الوكالة
   batch.set(agencyRef, {
-    nameAr:          req.agencyNameAr.trim(),
-    nameEn:          req.agencyNameEn?.trim() || req.agencyNameAr.trim(),
-    contactEmail:    email,
-    isVatRegistered: false,
-    isActive:        true,
-    plan:            'trial',
-    createdAt:       now,
-    updatedAt:       now,
+    nameAr:             req.agencyNameAr.trim(),
+    nameEn:             req.agencyNameEn?.trim() || req.agencyNameAr.trim(),
+    contactEmail:       email,
+    isVatRegistered:    false,
+    isActive:           true,
+    plan:               'trial',
+    subscriptionStatus: 'trial',
+    trialEndDate:       new Timestamp(
+      Math.floor(Date.now() / 1000) + 14 * 24 * 60 * 60, // now + 14 days
+      0
+    ),
+    createdAt:          now,
+    updatedAt:          now,
   });
 
   // إعدادات المحاسبة
