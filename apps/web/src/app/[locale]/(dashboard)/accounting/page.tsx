@@ -9,6 +9,8 @@ import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
 import { ChartOfAccountsClient } from '@/components/accounting/ChartOfAccountsClient';
+import { TrialBalanceTab } from '@/components/accounting/TrialBalanceTab';
+import { MigrationTool } from '@/components/accounting/MigrationTool';
 import { CurrenciesClient } from '@/components/currencies/CurrenciesClient';
 import { formatCurrency, formatDate, formatCount } from '@/lib/utils';
 import { cn } from '@/lib/utils';
@@ -27,6 +29,8 @@ import {
   DollarSign,
   Plus,
   X,
+  Scale,
+  Wrench,
 } from 'lucide-react';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -152,7 +156,7 @@ function StatCard({
       </div>
       <div className="min-w-0 flex-1">
         <p className="text-xs text-slate-500 font-medium mb-0.5">{label}</p>
-        <p className="text-xl font-bold text-slate-900 truncate">{value}</p>
+        <p className="text-base sm:text-xl font-bold text-slate-900 truncate" title={value}>{value}</p>
         {sub && <p className="text-xs text-slate-400 mt-0.5">{sub}</p>}
       </div>
     </Card>
@@ -786,7 +790,7 @@ function NewEntryModal({
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
-type TabId = 'chart' | 'journal' | 'currencies';
+type TabId = 'chart' | 'journal' | 'trial' | 'currencies' | 'tools';
 
 export default function AccountingPage() {
   const locale = useLocale();
@@ -826,24 +830,11 @@ export default function AccountingPage() {
   }, [agencyId]);
 
   const tabs: { id: TabId; labelAr: string; labelEn: string; icon: ReactNode }[] = [
-    {
-      id: 'chart',
-      labelAr: 'شجرة الحسابات',
-      labelEn: 'Chart of Accounts',
-      icon: <ListTree size={16} />,
-    },
-    {
-      id: 'journal',
-      labelAr: 'قيود اليومية',
-      labelEn: 'Journal Entries',
-      icon: <BookOpen size={16} />,
-    },
-    {
-      id: 'currencies',
-      labelAr: 'العملات',
-      labelEn: 'Currencies',
-      icon: <DollarSign size={16} />,
-    },
+    { id: 'chart',      labelAr: 'شجرة الحسابات',   labelEn: 'Chart of Accounts', icon: <ListTree size={16} /> },
+    { id: 'journal',    labelAr: 'قيود اليومية',     labelEn: 'Journal Entries',   icon: <BookOpen size={16} /> },
+    { id: 'trial',      labelAr: 'ميزان المراجعة',   labelEn: 'Trial Balance',     icon: <Scale size={16} /> },
+    { id: 'currencies', labelAr: 'العملات',           labelEn: 'Currencies',        icon: <DollarSign size={16} /> },
+    { id: 'tools',      labelAr: 'أدوات',             labelEn: 'Tools',             icon: <Wrench size={16} /> },
   ];
 
   return (
@@ -952,8 +943,23 @@ export default function AccountingPage() {
           )
         )}
 
+        {activeTab === 'trial' && (
+          <TrialBalanceTab locale={locale} />
+        )}
+
         {activeTab === 'currencies' && (
           <CurrenciesClient locale={locale} />
+        )}
+
+        {activeTab === 'tools' && (
+          <div className="max-w-xl space-y-4">
+            <p className="text-sm text-slate-500">
+              {isAr
+                ? 'أدوات الإدارة — تُستخدم مرة واحدة أو عند الحاجة'
+                : 'Admin tools — run once or as needed'}
+            </p>
+            <MigrationTool locale={locale} />
+          </div>
         )}
       </div>
 
