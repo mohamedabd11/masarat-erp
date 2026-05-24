@@ -11,6 +11,7 @@ import { formatCurrency, formatDate } from '@/lib/utils';
 import { BookingActions } from './BookingActions';
 import {
   ArrowRight, ArrowLeft, FileText, User, MapPin, Users, Receipt,
+  TrendingDown, Banknote, CreditCard, Building2, Globe, FileCheck2, ArrowUpRight,
 } from 'lucide-react';
 
 interface BookingDetailClientProps {
@@ -21,12 +22,42 @@ interface BookingDetailClientProps {
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type BookingData = Record<string, any>;
 
+interface SupplierPayment {
+  id: string;
+  supplierName: string;
+  amountHalalas: number;
+  paymentMethod: string;
+  reference?: string;
+  createdAt: { toDate?: () => Date } | null;
+}
+
+function methodIcon(method: string) {
+  if (method === 'bank_transfer') return <Building2 size={12} />;
+  if (method === 'card')          return <CreditCard size={12} />;
+  if (method === 'online')        return <Globe size={12} />;
+  if (method === 'check')         return <FileCheck2 size={12} />;
+  return <Banknote size={12} />;
+}
+
+function methodLabel(method: string, isAr: boolean) {
+  const map: Record<string, { ar: string; en: string }> = {
+    cash:          { ar: 'نقداً',        en: 'Cash' },
+    bank_transfer: { ar: 'تحويل بنكي',  en: 'Bank Transfer' },
+    card:          { ar: 'بطاقة',        en: 'Card' },
+    online:        { ar: 'دفع إلكتروني', en: 'Online' },
+    check:         { ar: 'شيك',          en: 'Cheque' },
+  };
+  const m = map[method];
+  return m ? (isAr ? m.ar : m.en) : method;
+}
+
 export function BookingDetailClient({ locale, bookingId }: BookingDetailClientProps) {
   const isAr = locale === 'ar';
   const { user } = useAuth();
   const [booking, setBooking] = useState<BookingData | null>(null);
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
+  const [supplierPayments, setSupplierPayments] = useState<SupplierPayment[]>([]);
 
   const BackIcon = isAr ? ArrowRight : ArrowLeft;
 
@@ -55,6 +86,29 @@ export function BookingDetailClient({ locale, bookingId }: BookingDetailClientPr
 
     void fetchBooking();
     return () => { cancelled = true; };
+  }, [bookingId, user]);
+
+  useEffect(() => {
+    if (!user) return;
+    let unsub: (() => void) | undefined;
+
+    async function loadSupplierPayments() {
+      const { getFirestore, collection, query, where, orderBy, onSnapshot } =
+        await import('firebase/firestore');
+      const { getApp } = await import('@masarat/firebase');
+      const db = getFirestore(getApp());
+      const q = query(
+        collection(db, 'supplier_payments'),
+        where('bookingId', '==', bookingId),
+        orderBy('createdAt', 'desc'),
+      );
+      unsub = onSnapshot(q, snap => {
+        setSupplierPayments(snap.docs.map(d => ({ id: d.id, ...d.data() } as SupplierPayment)));
+      });
+    }
+
+    void loadSupplierPayments();
+    return () => unsub?.();
   }, [bookingId, user]);
 
   if (loading) {
@@ -239,6 +293,71 @@ export function BookingDetailClient({ locale, bookingId }: BookingDetailClientPr
                 <CardTitle>{isAr ? 'ملاحظات' : 'Notes'}</CardTitle>
               </CardHeader>
               <p className="text-sm text-slate-600">{booking.notes}</p>
+            </Card>
+          )}
+
+          {/* Supplier Payments */}
+          {supplierPayments.length > 0 && (
+            <Card>
+              <CardHeader>
+                <CardTitle>
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <TrendingDown size={16} className="text-red-500" />
+                      {isAr
+                        ? `سندات صرف الموردين (${supplierPayments.length})`
+                        : `Supplier Payments (${supplierPayments.length})`}
+                    </div>
+                    <span className="text-sm font-black font-mono text-red-700 tabular-nums">
+                      {formatCurrency(
+                        supplierPayments.reduce((s, p) => s + p.amountHalalas, 0),
+                        isAr ? 'ar-SA' : 'en-SA',
+                      )}
+                    </span>
+                  </div>
+                </CardTitle>
+              </CardHeader>
+              <div className="space-y-2">
+                {supplierPayments.map(sp => {
+                  const date = sp.createdAt?.toDate?.() ?? null;
+                  return (
+                    <div
+                      key={sp.id}
+                      className="flex items-center gap-3 p-3 rounded-lg bg-red-50 border border-red-100"
+                    >
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium text-slate-900 truncate">{sp.supplierName}</p>
+                        <div className="flex items-center gap-2 mt-0.5">
+                          <span className="inline-flex items-center gap-1 text-xs text-slate-500 bg-white px-2 py-0.5 rounded-full border border-slate-200">
+                            {methodIcon(sp.paymentMethod)}
+                            {methodLabel(sp.paymentMethod, isAr)}
+                          </span>
+                          {date && (
+                            <span className="text-xs text-slate-400">
+                              {formatDate(date, isAr ? 'ar-SA' : 'en-SA')}
+                            </span>
+                          )}
+                          {sp.reference && (
+                            <span className="text-xs text-slate-400 font-mono truncate">{sp.reference}</span>
+                          )}
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2 flex-shrink-0">
+                        <span className="text-sm font-bold font-mono tabular-nums text-red-600">
+                          {formatCurrency(sp.amountHalalas, isAr ? 'ar-SA' : 'en-SA')}
+                        </span>
+                        <Link
+                          href={`/${locale}/supplier-payments/${sp.id}`}
+                          className="p-1.5 rounded-lg text-slate-400 hover:text-brand-600 hover:bg-white transition-colors"
+                          title={isAr ? 'عرض السند' : 'View Voucher'}
+                        >
+                          <ArrowUpRight size={14} />
+                        </Link>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
             </Card>
           )}
         </div>
