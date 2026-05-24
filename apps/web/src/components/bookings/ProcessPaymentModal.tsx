@@ -1,7 +1,6 @@
 'use client';
 
 import { useState } from 'react';
-import { useLocale } from 'next-intl';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -11,7 +10,9 @@ import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import { Card } from '@/components/ui/Card';
 import { cn, formatCurrency } from '@/lib/utils';
-import { X, CheckCircle2, AlertCircle, Receipt } from 'lucide-react';
+import Link from 'next/link';
+import { useLocale } from 'next-intl';
+import { X, CheckCircle2, AlertCircle, Receipt, Printer } from 'lucide-react';
 
 const paymentSchema = z.object({
   amountSAR: z.coerce.number().min(0.01),
@@ -43,6 +44,7 @@ export function ProcessPaymentModal({
   const isAr = locale === 'ar';
   const { processPayment, loading, error } = useProcessPayment();
   const [success, setSuccess] = useState(false);
+  const [paymentId, setPaymentId] = useState<string | null>(null);
 
   const {
     register,
@@ -71,9 +73,9 @@ export function ProcessPaymentModal({
         reference: data.reference,
         notes: data.notes,
       });
+      setPaymentId(result.paymentId);
       setSuccess(true);
       onSuccess?.(result.remainingDueHalalas);
-      setTimeout(onClose, 2000);
     } catch {
       // error state handled by hook
     }
@@ -123,14 +125,41 @@ export function ProcessPaymentModal({
         </div>
 
         {success ? (
-          <div className="flex flex-col items-center py-6 text-center">
-            <CheckCircle2 size={48} className="text-emerald-500 mb-3" />
-            <p className="text-base font-semibold text-slate-900">
-              {isAr ? 'تم تسجيل الدفعة بنجاح' : 'Payment Recorded Successfully'}
-            </p>
-            <p className="text-sm text-slate-500 mt-1">
-              {formatCurrency(amountHalalas, isAr ? 'ar-SA' : 'en-SA')}
-            </p>
+          <div className="flex flex-col items-center py-6 text-center gap-4">
+            <CheckCircle2 size={48} className="text-emerald-500" />
+            <div>
+              <p className="text-base font-semibold text-slate-900">
+                {isAr ? 'تم تسجيل الدفعة بنجاح' : 'Payment Recorded Successfully'}
+              </p>
+              <p className="text-sm text-slate-500 mt-1">
+                {formatCurrency(amountHalalas, isAr ? 'ar-SA' : 'en-SA')}
+              </p>
+            </div>
+            <div className="flex gap-3 w-full pt-2">
+              {paymentId && (
+                <Link
+                  href={`/${locale}/payments/${paymentId}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex-1"
+                >
+                  <button
+                    type="button"
+                    className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-brand-600 text-white text-sm font-semibold hover:bg-brand-700 transition-colors"
+                  >
+                    <Printer size={15} />
+                    {isAr ? 'طباعة سند القبض' : 'Print Receipt Voucher'}
+                  </button>
+                </Link>
+              )}
+              <button
+                type="button"
+                onClick={onClose}
+                className="flex-1 px-4 py-2.5 rounded-lg border border-slate-200 text-sm font-semibold text-slate-700 hover:bg-slate-50 transition-colors"
+              >
+                {isAr ? 'إغلاق' : 'Close'}
+              </button>
+            </div>
           </div>
         ) : (
           <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
