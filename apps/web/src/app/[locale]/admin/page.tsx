@@ -5,6 +5,7 @@ export const dynamic = 'force-dynamic';
 import { useState, useEffect, useCallback } from 'react';
 import { useLocale } from 'next-intl';
 import { useAuth } from '@masarat/firebase';
+import { getAuth } from 'firebase/auth';
 import { Spinner } from '@/components/ui/Spinner';
 import { cn } from '@/lib/utils';
 import {
@@ -60,6 +61,12 @@ function daysLeft(iso: string | null): number | null {
   return Math.ceil((new Date(iso).getTime() - Date.now()) / 86_400_000);
 }
 
+async function getIdToken(): Promise<string> {
+  const { getApp } = await import('@masarat/firebase');
+  const currentUser = getAuth(getApp()).currentUser;
+  return currentUser?.getIdToken() ?? '';
+}
+
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function SuperAdminPage() {
@@ -71,7 +78,7 @@ export default function SuperAdminPage() {
   const [loading,   setLoading]   = useState(true);
   const [error,     setError]     = useState('');
   const [toastMsg,  setToastMsg]  = useState('');
-  const [acting,    setActing]    = useState<string | null>(null); // agencyId being updated
+  const [acting,    setActing]    = useState<string | null>(null);
 
   const isSuperAdmin = user?.email === SUPER_ADMIN_EMAIL;
 
@@ -81,14 +88,13 @@ export default function SuperAdminPage() {
     setLoading(true);
     setError('');
     try {
-      const { getFunctions, httpsCallable } = await import('firebase/functions');
-      const { getApp }                      = await import('@masarat/firebase');
-      const fn = httpsCallable<Record<string, never>, { agencies: AgencyRow[] }>(
-        getFunctions(getApp(), 'me-central2'),
-        'adminListAgencies'
-      );
-      const result = await fn({});
-      setAgencies(result.data.agencies);
+      const token = await getIdToken();
+      const resp  = await fetch('/api/admin/agencies', {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await resp.json() as { agencies?: AgencyRow[]; error?: string };
+      if (!resp.ok) throw new Error(data.error ?? 'خطأ');
+      setAgencies(data.agencies ?? []);
     } catch (err: unknown) {
       setError((err as { message?: string }).message ?? 'خطأ في تحميل البيانات');
     } finally {
@@ -106,16 +112,17 @@ export default function SuperAdminPage() {
   async function doAction(agencyId: string, action: AdminAction) {
     setActing(agencyId + action);
     try {
-      const { getFunctions, httpsCallable } = await import('firebase/functions');
-      const { getApp }                      = await import('@masarat/firebase');
-      const fn = httpsCallable<{ agencyId: string; action: AdminAction }, { message: string }>(
-        getFunctions(getApp(), 'me-central2'),
-        'adminUpdateSubscription'
-      );
-      const result = await fn({ agencyId, action });
-      setToastMsg(result.data.message);
+      const token = await getIdToken();
+      const resp  = await fetch('/api/admin/action', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body:    JSON.stringify({ agencyId, action }),
+      });
+      const data = await resp.json() as { message?: string; error?: string };
+      if (!resp.ok) throw new Error(data.error ?? 'خطأ');
+      setToastMsg(data.message ?? 'تم');
       setTimeout(() => setToastMsg(''), 3000);
-      await loadAgencies(); // refresh
+      await loadAgencies();
     } catch (err: unknown) {
       setToastMsg('خطأ: ' + ((err as { message?: string }).message ?? 'unknown'));
       setTimeout(() => setToastMsg(''), 4000);

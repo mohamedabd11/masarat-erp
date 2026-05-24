@@ -47,24 +47,24 @@ export default function RegisterPage() {
   async function onSubmit(values: FormValues) {
     setServerError('');
     try {
-      const { getFunctions, httpsCallable } = await import('firebase/functions');
-      const { getApp }                      = await import('@masarat/firebase');
-      const fn = httpsCallable<FormValues, { agencyId: string; setupLink: string }>(
-        getFunctions(getApp(), 'me-central2'),
-        'registerAgency'
-      );
-      const result = await fn(values);
-      setSetupLink(result.data.setupLink);
-      setStep('success');
-    } catch (err: unknown) {
-      const msg = (err as { message?: string }).message ?? '';
-      if (msg.includes('already-exists') || msg.includes('مسجّل مسبقاً')) {
+      const resp = await fetch('/api/auth/register', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify(values),
+      });
+      const data = await resp.json() as { agencyId?: string; setupLink?: string; error?: string };
+      if (resp.status === 409 || data.error?.includes('مسجّل مسبقاً')) {
         setServerError(isAr
           ? 'هذا البريد الإلكتروني مسجّل مسبقاً. هل تريد تسجيل الدخول؟'
           : 'This email is already registered. Want to sign in?');
-      } else {
-        setServerError(isAr ? 'حدث خطأ، يرجى المحاولة مجدداً' : 'An error occurred, please try again');
+        return;
       }
+      if (!resp.ok) throw new Error(data.error ?? 'خطأ');
+      setSetupLink(data.setupLink ?? '');
+      setStep('success');
+    } catch (err: unknown) {
+      const msg = (err as { message?: string }).message ?? '';
+      setServerError(msg || (isAr ? 'حدث خطأ، يرجى المحاولة مجدداً' : 'An error occurred, please try again'));
     }
   }
 

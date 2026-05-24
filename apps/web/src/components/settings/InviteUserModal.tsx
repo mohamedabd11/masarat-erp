@@ -65,24 +65,32 @@ export function InviteUserModal({ isAr, onClose, onDone }: InviteUserModalProps)
   async function onSubmit(values: FormValues) {
     setServerError('');
     try {
-      const { getFunctions, httpsCallable } = await import('firebase/functions');
-      const { getApp }                      = await import('@masarat/firebase');
-      const fn = httpsCallable<FormValues, { userId: string; setupLink: string }>(
-        getFunctions(getApp(), 'me-central2'),
-        'inviteUser'
-      );
-      const result = await fn(values);
-      setSetupLink(result.data.setupLink);
+      const { getAuth } = await import('firebase/auth');
+      const { getApp }  = await import('@masarat/firebase');
+      const token = await getAuth(getApp()).currentUser?.getIdToken() ?? '';
+
+      const resp = await fetch('/api/auth/invite', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body:    JSON.stringify(values),
+      });
+      const data = await resp.json() as { userId?: string; setupLink?: string; error?: string };
+
+      if (resp.status === 409 || data.error?.includes('مسجّل مسبقاً')) {
+        setServerError(isAr ? 'هذا البريد الإلكتروني مسجّل مسبقاً في النظام' : 'This email is already registered');
+        return;
+      }
+      if (resp.status === 403) {
+        setServerError(isAr ? 'ليس لديك صلاحية دعوة مستخدمين' : 'You do not have permission to invite users');
+        return;
+      }
+      if (!resp.ok) throw new Error(data.error ?? 'خطأ');
+
+      setSetupLink(data.setupLink ?? '');
       setStep('success');
     } catch (err: unknown) {
       const msg = (err as { message?: string }).message ?? '';
-      if (msg.includes('already-exists') || msg.includes('مسجّل مسبقاً')) {
-        setServerError(isAr ? 'هذا البريد الإلكتروني مسجّل مسبقاً في النظام' : 'This email is already registered');
-      } else if (msg.includes('permission-denied') || msg.includes('PERMISSION')) {
-        setServerError(isAr ? 'ليس لديك صلاحية دعوة مستخدمين' : 'You do not have permission to invite users');
-      } else {
-        setServerError(isAr ? 'حدث خطأ، يرجى المحاولة مجدداً' : 'An error occurred, please try again');
-      }
+      setServerError(msg || (isAr ? 'حدث خطأ، يرجى المحاولة مجدداً' : 'An error occurred, please try again'));
     }
   }
 
