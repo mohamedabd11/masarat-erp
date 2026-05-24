@@ -27,13 +27,20 @@ export function useSubscription() {
 
 // ─── Provider ─────────────────────────────────────────────────────────────────
 
+const SUPER_ADMIN_EMAIL = 'mohamedabdalazim1111@gmail.com';
+
 export function SubscriptionProvider({ children }: { children: ReactNode }) {
   const { user } = useAuth();
   const [status,        setStatus]        = useState<SubscriptionStatus>('loading');
   const [daysRemaining, setDaysRemaining] = useState<number | null>(null);
   const [isLoading,     setIsLoading]     = useState(true);
 
+  const isSuperAdmin = user?.email === SUPER_ADMIN_EMAIL;
+
   useEffect(() => {
+    // مالك النظام لا يخضع لقيود الاشتراك
+    if (isSuperAdmin) { setStatus('active'); setIsLoading(false); return; }
+
     const agencyId = user?.agencyId as string | undefined;
     if (!agencyId) { setIsLoading(false); return; }
 
@@ -75,12 +82,13 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
 
     void load();
     return () => unsub?.();
-  }, [user?.agencyId]);
+  }, [user?.agencyId, isSuperAdmin]);
 
-  const isExpired =
+  const isExpired = !isSuperAdmin && (
     (status === 'trial'  && daysRemaining !== null && daysRemaining <= 0) ||
     status === 'past_due' ||
-    status === 'cancelled';
+    status === 'cancelled'
+  );
 
   return (
     <SubscriptionContext.Provider value={{ status, daysRemaining, isExpired, isLoading }}>
