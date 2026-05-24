@@ -605,9 +605,7 @@ function NewBookingContent() {
       router.push(`/${locale}/bookings/${ref.id}`);
     } catch (err) {
       console.error('Booking save error:', err);
-      const code = (err as { code?: string }).code ?? '';
-      const detail = code ? ` (${code})` : '';
-      setFormError(isAr ? `حدث خطأ أثناء الحفظ${detail}` : `Error saving${detail}`);
+      setFormError(isAr ? 'حدث خطأ أثناء الحفظ، حاول مرة أخرى' : 'Error saving, please try again');
       setSubmitting(false);
     }
   }
