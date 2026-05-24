@@ -33,10 +33,10 @@ export interface InvoicePricing {
 // ─── Standard Chart of Accounts ──────────────────────────────────────────────
 
 export const AC = {
-  receivable:       { code: '1100', nameAr: 'ذمم مدينة - عملاء',            nameEn: 'Accounts Receivable',           type: 'asset'     as const },
-  bank:             { code: '1010', nameAr: 'بنك / صندوق',                  nameEn: 'Bank / Cash',                   type: 'asset'     as const },
+  receivable:       { code: '1120', nameAr: 'ذمم مدينة - عملاء',            nameEn: 'Accounts Receivable',           type: 'asset'     as const },
+  bank:             { code: '1110', nameAr: 'البنك',                        nameEn: 'Bank',                          type: 'asset'     as const },
   payableSupplier:  { code: '2000', nameAr: 'ذمم دائنة - موردون',            nameEn: 'Accounts Payable - Suppliers',  type: 'liability' as const },
-  vatPayable:       { code: '2100', nameAr: 'ضريبة القيمة المضافة مستحقة',  nameEn: 'VAT Payable',                   type: 'liability' as const },
+  vatPayable:       { code: '2200', nameAr: 'ضريبة القيمة المضافة مستحقة',  nameEn: 'VAT Payable',                   type: 'liability' as const },
   revenueAgent:     { code: '4000', nameAr: 'إيراد رسوم الوكالة',           nameEn: 'Revenue - Agency Fees',         type: 'revenue'   as const },
   revenuePrincipal: { code: '4100', nameAr: 'إيراد خدمات السفر',            nameEn: 'Revenue - Travel Services',     type: 'revenue'   as const },
   costOfServices:   { code: '5000', nameAr: 'تكلفة الخدمات',                nameEn: 'Cost of Services',              type: 'expense'   as const },
@@ -190,7 +190,7 @@ export async function postJournalEntry(payload: JEPayload): Promise<void> {
     createdAt:          Timestamp.now(),
   });
 
-  // Update running balances on each affected account
+  // Update running balances — use fixed document ID ${agencyId}_${code} to match useChartOfAccounts
   for (const l of lines) {
     if (l.debitHalalas === 0 && l.creditHalalas === 0) continue;
 
@@ -201,26 +201,26 @@ export async function postJournalEntry(payload: JEPayload): Promise<void> {
     if (!accountSnap.exists()) {
       await setDoc(accountRef, {
         agencyId,
-        code:          l.accountCode,
-        nameAr:        l.accountNameAr,
-        nameEn:        l.accountNameEn,
-        type:          l.accountType,
-        normalBalance: (l.accountType === 'asset' || l.accountType === 'expense') ? 'debit' : 'credit',
-        debitTotal:    l.debitHalalas,
-        creditTotal:   l.creditHalalas,
-        balance:       computeBalance(l.accountType, l.debitHalalas, l.creditHalalas),
-        createdAt:     Timestamp.now(),
-        updatedAt:     Timestamp.now(),
+        code:           l.accountCode,
+        nameAr:         l.accountNameAr,
+        nameEn:         l.accountNameEn,
+        type:           l.accountType,
+        side:           (l.accountType === 'asset' || l.accountType === 'expense') ? 'debit' : 'credit',
+        debitTotal:     l.debitHalalas,
+        creditTotal:    l.creditHalalas,
+        balanceHalalas: computeBalance(l.accountType, l.debitHalalas, l.creditHalalas),
+        createdAt:      Date.now(),
+        updatedAt:      Date.now(),
       });
     } else {
       const d      = accountSnap.data() as Record<string, number>;
       const newDR  = (d.debitTotal  ?? 0) + l.debitHalalas;
       const newCR  = (d.creditTotal ?? 0) + l.creditHalalas;
       await updateDoc(accountRef, {
-        debitTotal:  newDR,
-        creditTotal: newCR,
-        balance:     computeBalance(l.accountType, newDR, newCR),
-        updatedAt:   Timestamp.now(),
+        debitTotal:     newDR,
+        creditTotal:    newCR,
+        balanceHalalas: computeBalance(l.accountType, newDR, newCR),
+        updatedAt:      Date.now(),
       });
     }
   }

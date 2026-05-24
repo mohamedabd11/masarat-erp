@@ -793,7 +793,7 @@ export default function AccountingPage() {
   const isAr = locale === 'ar';
   const fmtLocale = isAr ? 'ar-SA' : 'en-SA';
   const { user } = useAuth();
-  const agencyId = user?.uid ?? null;
+  const agencyId = user?.agencyId ?? null;
 
   const [activeTab, setActiveTab] = useState<TabId>('chart');
   const [entries, setEntries] = useState<JournalEntry[]>([]);

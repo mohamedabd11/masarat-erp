@@ -51,8 +51,15 @@
       "queryScope": "COLLECTION",
       "fields": [
         { "fieldPath": "agencyId", "order": "ASCENDING" },
-        { "fieldPath": "bookingId", "order": "ASCENDING" },
-        { "fieldPath": "entryDate", "order": "ASCENDING" }
+        { "fieldPath": "createdAt", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "supplier_payments",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "agencyId", "order": "ASCENDING" },
+        { "fieldPath": "createdAt", "order": "DESCENDING" }
       ]
     },
     {

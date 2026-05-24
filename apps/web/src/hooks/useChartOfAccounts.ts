@@ -30,9 +30,10 @@ const DEFAULT_ACCOUNTS: Omit<ChartAccount, 'id' | 'agencyId' | 'createdAt' | 'up
   // Assets
   { code: '1100', nameAr: 'النقدية',                     nameEn: 'Cash',                         type: 'asset',     side: 'debit',  balanceHalalas: 0 },
   { code: '1110', nameAr: 'البنك',                       nameEn: 'Bank',                         type: 'asset',     side: 'debit',  balanceHalalas: 0 },
-  { code: '1120', nameAr: 'الذمم المدينة',               nameEn: 'Accounts Receivable',          type: 'asset',     side: 'debit',  balanceHalalas: 0 },
+  { code: '1120', nameAr: 'ذمم مدينة - عملاء',          nameEn: 'Accounts Receivable',          type: 'asset',     side: 'debit',  balanceHalalas: 0 },
   { code: '1130', nameAr: 'المصاريف المدفوعة مقدماً',   nameEn: 'Prepaid Expenses',             type: 'asset',     side: 'debit',  balanceHalalas: 0 },
   // Liabilities
+  { code: '2000', nameAr: 'ذمم دائنة - موردون',         nameEn: 'Accounts Payable - Suppliers', type: 'liability', side: 'credit', balanceHalalas: 0 },
   { code: '2100', nameAr: 'ذمم دائنة — شركات الطيران',  nameEn: 'Accounts Payable Airlines',    type: 'liability', side: 'credit', balanceHalalas: 0 },
   { code: '2110', nameAr: 'ذمم دائنة — فنادق',          nameEn: 'Accounts Payable Hotels',      type: 'liability', side: 'credit', balanceHalalas: 0 },
   { code: '2200', nameAr: 'ضريبة القيمة المضافة مستحقة',nameEn: 'VAT Payable',                  type: 'liability', side: 'credit', balanceHalalas: 0 },
@@ -41,13 +42,15 @@ const DEFAULT_ACCOUNTS: Omit<ChartAccount, 'id' | 'agencyId' | 'createdAt' | 'up
   { code: '3100', nameAr: 'رأس مال المالك',              nameEn: 'Owner Capital',                type: 'equity',    side: 'credit', balanceHalalas: 0 },
   { code: '3200', nameAr: 'الأرباح المحتجزة',            nameEn: 'Retained Earnings',            type: 'equity',    side: 'credit', balanceHalalas: 0 },
   // Revenue
-  { code: '4100', nameAr: 'عمولات الطيران',              nameEn: 'Flight Commission',            type: 'revenue',   side: 'credit', balanceHalalas: 0 },
+  { code: '4000', nameAr: 'إيراد رسوم الوكالة',         nameEn: 'Revenue - Agency Fees',        type: 'revenue',   side: 'credit', balanceHalalas: 0 },
+  { code: '4100', nameAr: 'إيراد خدمات السفر',          nameEn: 'Revenue - Travel Services',    type: 'revenue',   side: 'credit', balanceHalalas: 0 },
   { code: '4110', nameAr: 'إيرادات الباقات السياحية',   nameEn: 'Tour Package Revenue',         type: 'revenue',   side: 'credit', balanceHalalas: 0 },
   { code: '4120', nameAr: 'إيرادات الفنادق',            nameEn: 'Hotel Revenue',                type: 'revenue',   side: 'credit', balanceHalalas: 0 },
   { code: '4130', nameAr: 'إيرادات العمرة',             nameEn: 'Umrah Revenue',                type: 'revenue',   side: 'credit', balanceHalalas: 0 },
   { code: '4140', nameAr: 'إيرادات التأشيرات',          nameEn: 'Visa Revenue',                 type: 'revenue',   side: 'credit', balanceHalalas: 0 },
   { code: '4150', nameAr: 'إيرادات التأمين',            nameEn: 'Insurance Revenue',            type: 'revenue',   side: 'credit', balanceHalalas: 0 },
   // Expenses
+  { code: '5000', nameAr: 'تكلفة الخدمات',              nameEn: 'Cost of Services',             type: 'expense',   side: 'debit',  balanceHalalas: 0 },
   { code: '5100', nameAr: 'الرواتب والأجور',            nameEn: 'Salaries',                     type: 'expense',   side: 'debit',  balanceHalalas: 0 },
   { code: '5200', nameAr: 'الإيجار',                    nameEn: 'Rent',                         type: 'expense',   side: 'debit',  balanceHalalas: 0 },
   { code: '5300', nameAr: 'التسويق والإعلان',           nameEn: 'Marketing',                    type: 'expense',   side: 'debit',  balanceHalalas: 0 },
@@ -93,7 +96,7 @@ export function useChartOfAccounts(): UseChartOfAccountsReturn {
     async function subscribe() {
       try {
         const { getApp } = await import('@masarat/firebase');
-        const { getFirestore, collection, query, where, onSnapshot, writeBatch, doc, serverTimestamp } =
+        const { getFirestore, collection, query, where, onSnapshot, writeBatch, doc } =
           await import('firebase/firestore');
 
         const db = getFirestore(getApp());
@@ -103,14 +106,14 @@ export function useChartOfAccounts(): UseChartOfAccountsReturn {
         unsubscribe = onSnapshot(
           q,
           async (snap) => {
-            // Auto-seed on first empty load
+            // Auto-seed on first empty load using fixed IDs: ${agencyId}_${code}
             if (snap.empty && !seeded) {
               seeded = true;
               try {
                 const batch = writeBatch(db);
                 const now = Date.now();
                 for (const acct of DEFAULT_ACCOUNTS) {
-                  const ref = doc(col);
+                  const ref = doc(col, `${agencyId}_${acct.code}`);
                   batch.set(ref, {
                     ...acct,
                     agencyId,
@@ -157,13 +160,13 @@ export function useChartOfAccounts(): UseChartOfAccountsReturn {
       if (!agencyId) throw new Error('Not authenticated');
 
       const { getApp } = await import('@masarat/firebase');
-      const { getFirestore, collection, addDoc } = await import('firebase/firestore');
+      const { getFirestore, collection, doc, setDoc } = await import('firebase/firestore');
 
       const db = getFirestore(getApp());
       const col = collection(db, 'chart_of_accounts');
       const now = Date.now();
 
-      await addDoc(col, {
+      await setDoc(doc(col, `${agencyId}_${payload.code.trim()}`), {
         ...payload,
         agencyId,
         createdAt: now,
