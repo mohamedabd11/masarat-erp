@@ -496,6 +496,25 @@ function NewBookingContent() {
   const [selNames, setSelNames] = useState({ ar: '', en: '' });
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError]   = useState('');
+  const [agencyIsVatRegistered, setAgencyIsVatRegistered] = useState(false);
+
+  // Load agency VAT registration status
+  useEffect(() => {
+    if (!agencyId) return;
+    async function loadVatStatus() {
+      try {
+        const { getFirestore, doc, getDoc } = await import('firebase/firestore');
+        const { getApp } = await import('@masarat/firebase');
+        const db = getFirestore(getApp());
+        const snap = await getDoc(doc(db, 'agencies', agencyId));
+        if (snap.exists()) {
+          const d = snap.data();
+          setAgencyIsVatRegistered(d.isVatRegistered ?? (d.vatNumber ?? '').trim().length > 0);
+        }
+      } catch { /* default to false */ }
+    }
+    void loadVatStatus();
+  }, [agencyId]);
 
   const {
     register, control, watch, handleSubmit, setValue, trigger,
@@ -525,7 +544,7 @@ function NewBookingContent() {
   const model      = watch('revenueModel');
   const sellSAR    = model === 'agent' ? costSAR + feeSAR : costSAR;
   const vatBaseSAR = model === 'agent' ? feeSAR : sellSAR;
-  const vatSAR     = Math.round(vatBaseSAR * 15) / 100;
+  const vatSAR     = agencyIsVatRegistered ? Math.round(vatBaseSAR * 15) / 100 : 0;
   const totalSAR   = sellSAR + vatSAR;
   const loc2       = isAr ? 'ar-SA' : 'en-SA';
   const toH        = (n: number) => Math.round(n * 100);
@@ -554,7 +573,7 @@ function NewBookingContent() {
       const feeH   = toH(data.serviceFeeSAR ?? 0);
       const sell   = data.revenueModel === 'agent' ? costH + feeH : costH;
       const vBase  = data.revenueModel === 'agent' ? feeH : sell;
-      const vatH   = Math.round(vBase * 0.15);
+      const vatH   = agencyIsVatRegistered ? Math.round(vBase * 0.15) : 0;
       const totalH = sell + vatH;
 
       const year = new Date().getFullYear();
@@ -929,7 +948,11 @@ function NewBookingContent() {
                         className={IC} dir="ltr"
                         {...register('serviceFeeSAR')}
                       />
-                      <p className="text-[11px] text-slate-400 mt-0.5">{isAr ? 'رسومك — تخضع للضريبة 15%' : 'Your fee — subject to 15% VAT'}</p>
+                      <p className="text-[11px] text-slate-400 mt-0.5">
+                        {agencyIsVatRegistered
+                          ? (isAr ? 'رسومك — تخضع للضريبة 15%' : 'Your fee — subject to 15% VAT')
+                          : (isAr ? 'رسومك — الوكالة غير مسجّلة ضريبياً' : 'Your fee — agency not VAT-registered')}
+                      </p>
                     </div>
                   </>
                 ) : (
@@ -967,12 +990,18 @@ function NewBookingContent() {
                       <td className="px-4 py-2.5 text-slate-600">{isAr ? 'سعر البيع' : 'Selling Price'}</td>
                       <td className="px-4 py-2.5 text-end font-medium text-slate-800">{sellSAR.toFixed(2)} {isAr ? 'ر.س' : 'SAR'}</td>
                     </tr>
-                    <tr className="bg-slate-50/50">
-                      <td className="px-4 py-2.5 text-slate-500">{isAr ? 'ضريبة القيمة المضافة (15%)' : 'VAT (15%)'}</td>
-                      <td className="px-4 py-2.5 text-end text-slate-600">{vatSAR.toFixed(2)} {isAr ? 'ر.س' : 'SAR'}</td>
-                    </tr>
+                    {agencyIsVatRegistered && (
+                      <tr className="bg-slate-50/50">
+                        <td className="px-4 py-2.5 text-slate-500">{isAr ? 'ضريبة القيمة المضافة (15%)' : 'VAT (15%)'}</td>
+                        <td className="px-4 py-2.5 text-end text-slate-600">{vatSAR.toFixed(2)} {isAr ? 'ر.س' : 'SAR'}</td>
+                      </tr>
+                    )}
                     <tr className="bg-brand-50">
-                      <td className="px-4 py-3 font-bold text-slate-900">{isAr ? 'الإجمالي شامل الضريبة' : 'Total incl. VAT'}</td>
+                      <td className="px-4 py-3 font-bold text-slate-900">
+                        {agencyIsVatRegistered
+                          ? (isAr ? 'الإجمالي شامل الضريبة' : 'Total incl. VAT')
+                          : (isAr ? 'الإجمالي' : 'Total')}
+                      </td>
                       <td className="px-4 py-3 text-end">
                         <span className="text-lg font-bold text-brand-700">{formatCurrency(toH(totalSAR), loc2)}</span>
                       </td>
