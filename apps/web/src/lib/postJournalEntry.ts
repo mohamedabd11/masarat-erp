@@ -16,7 +16,7 @@ export interface JEPayload {
   agencyId:      string;
   description:   string;
   referenceId:   string;
-  referenceType: 'invoice' | 'payment' | 'refund' | 'supplier_payment';
+  referenceType: 'invoice' | 'payment' | 'refund' | 'supplier_payment' | 'manual';
   lines:         JELine[];
 }
 

@@ -2,8 +2,9 @@
 
 // NOTE: 'use client' is required for the tab state and expandable journal entry rows.
 
-import { useState, type ReactNode } from 'react';
+import { useState, useEffect, type ReactNode } from 'react';
 import { useLocale } from 'next-intl';
+import { useAuth } from '@masarat/firebase';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
@@ -62,186 +63,44 @@ interface LineForm {
   memo: string;
 }
 
-// ─── Demo journal data ────────────────────────────────────────────────────────
+// ─── Firestore → local mappers ────────────────────────────────────────────────
 
-const DEMO_ENTRIES_INIT: JournalEntry[] = [
-  // 1 ── Principal model — package sale
-  {
-    id: 'JE-2026-00051',
-    date: new Date('2026-05-22'),
-    type: 'principal',
-    descAr: 'حجز باقة سياحية — منى القحطاني BK-2026-000245',
-    descEn: 'Tour package sale — Mona Al-Qahtani BK-2026-000245',
-    status: 'balanced',
-    reference: 'BK-2026-000245',
-    lines: [
-      {
-        accountCode: '1120',
-        accountAr: 'ذمم مدينة — عملاء',
-        accountEn: 'Accounts Receivable — Customers',
-        debitHalalas: 1_380_000,
-        creditHalalas: 0,
-        memo: 'إجمالي مع ضريبة — INV-2026-000245',
-      },
-      {
-        accountCode: '4110',
-        accountAr: 'إيرادات باقات سياحية',
-        accountEn: 'Tour Package Revenue',
-        debitHalalas: 0,
-        creditHalalas: 1_200_000,
-        memo: 'صافي الإيراد بدون ضريبة',
-      },
-      {
-        accountCode: '2310',
-        accountAr: 'ضريبة القيمة المضافة — مستحقة',
-        accountEn: 'VAT Payable',
-        debitHalalas: 0,
-        creditHalalas: 180_000,
-        memo: 'ضريبة 15% على الباقة',
-      },
-    ],
-  },
+function referenceTypeToEntryType(rt: string): EntryType {
+  if (rt === 'payment') return 'receipt';
+  if (rt === 'refund') return 'adjustment';
+  if (rt === 'supplier_payment') return 'payment';
+  return 'principal';
+}
 
-  // 2 ── Agent model — flight commission
-  {
-    id: 'JE-2026-00050',
-    date: new Date('2026-05-21'),
-    type: 'agent',
-    descAr: 'عمولة حجز طيران — فاطمة الزهراني BK-2026-000247',
-    descEn: 'Flight booking commission — Fatima Al-Zahrani BK-2026-000247',
-    status: 'balanced',
-    reference: 'BK-2026-000247',
-    lines: [
-      {
-        accountCode: '1120',
-        accountAr: 'ذمم مدينة — عملاء',
-        accountEn: 'Accounts Receivable — Customers',
-        debitHalalas: 253_000,
-        creditHalalas: 0,
-        memo: 'إجمالي مع ضريبة — INV-2026-000247',
-      },
-      {
-        accountCode: '2110',
-        accountAr: 'ذمم دائنة — شركات طيران',
-        accountEn: 'Accounts Payable — Airlines',
-        debitHalalas: 0,
-        creditHalalas: 220_000,
-        memo: 'مبلغ التذكرة مستحق للشركة',
-      },
-      {
-        accountCode: '4210',
-        accountAr: 'إيرادات عمولات طيران',
-        accountEn: 'Flight Commission Revenue',
-        debitHalalas: 0,
-        creditHalalas: 28_696,
-        memo: 'عمولة 13% على قيمة التذكرة',
-      },
-      {
-        accountCode: '2310',
-        accountAr: 'ضريبة القيمة المضافة — مستحقة',
-        accountEn: 'VAT Payable',
-        debitHalalas: 0,
-        creditHalalas: 4_304,
-        memo: 'ضريبة 15% على العمولة',
-      },
-    ],
-  },
+function fsLineToLocal(fl: Record<string, unknown>): JournalLine {
+  return {
+    accountCode:   String(fl.accountCode   ?? ''),
+    accountAr:     String(fl.accountNameAr ?? fl.accountAr ?? ''),
+    accountEn:     String(fl.accountNameEn ?? fl.accountEn ?? ''),
+    debitHalalas:  Number(fl.debitHalalas  ?? 0),
+    creditHalalas: Number(fl.creditHalalas ?? 0),
+    memo:          String(fl.memo          ?? ''),
+  };
+}
 
-  // 3 ── Receipt — partial payment
-  {
-    id: 'JE-2026-00049',
-    date: new Date('2026-05-21'),
-    type: 'receipt',
-    descAr: 'استلام دفعة — خالد السعد BK-2026-000246',
-    descEn: 'Payment receipt — Khalid Al-Saad BK-2026-000246',
-    status: 'balanced',
-    reference: 'BK-2026-000246',
-    lines: [
-      {
-        accountCode: '1110',
-        accountAr: 'البنك — الحساب الجاري',
-        accountEn: 'Bank — Current Account',
-        debitHalalas: 200_000,
-        creditHalalas: 0,
-        memo: 'تحويل بنكي — مرجع TXN-4422',
-      },
-      {
-        accountCode: '1120',
-        accountAr: 'ذمم مدينة — عملاء',
-        accountEn: 'Accounts Receivable — Customers',
-        debitHalalas: 0,
-        creditHalalas: 200_000,
-        memo: 'تسوية جزئية لحجز فندق',
-      },
-    ],
-  },
-
-  // 4 ── Principal model — Umrah program sale
-  {
-    id: 'JE-2026-00048',
-    date: new Date('2026-05-20'),
-    type: 'principal',
-    descAr: 'حجز برنامج عمرة — أحمد العمري BK-2026-000248',
-    descEn: 'Umrah program sale — Ahmed Al-Omari BK-2026-000248',
-    status: 'balanced',
-    reference: 'BK-2026-000248',
-    lines: [
-      {
-        accountCode: '1110',
-        accountAr: 'البنك — الحساب الجاري',
-        accountEn: 'Bank — Current Account',
-        debitHalalas: 902_500,
-        creditHalalas: 0,
-        memo: 'دفع كامل — تحويل بنكي TXN-4401',
-      },
-      {
-        accountCode: '4120',
-        accountAr: 'إيرادات برامج العمرة والحج',
-        accountEn: 'Umrah & Hajj Program Revenue',
-        debitHalalas: 0,
-        creditHalalas: 850_000,
-        memo: 'قيمة البرنامج بدون ضريبة',
-      },
-      {
-        accountCode: '2310',
-        accountAr: 'ضريبة القيمة المضافة — مستحقة',
-        accountEn: 'VAT Payable',
-        debitHalalas: 0,
-        creditHalalas: 52_500,
-        memo: 'ضريبة 15% — مُعفى جزئياً للعمرة',
-      },
-    ],
-  },
-
-  // 5 ── Adjustment — draft entry for visa fee
-  {
-    id: 'JE-2026-00047',
-    date: new Date('2026-05-22'),
-    type: 'adjustment',
-    descAr: 'مصاريف رسوم تأشيرة — سعود الغامدي BK-2026-000244',
-    descEn: 'Visa fee expense — Saud Al-Ghamdi BK-2026-000244',
-    status: 'draft',
-    reference: 'BK-2026-000244',
-    lines: [
-      {
-        accountCode: '5210',
-        accountAr: 'مصاريف رسوم تأشيرات',
-        accountEn: 'Visa Fee Expenses',
-        debitHalalas: 65_000,
-        creditHalalas: 0,
-        memo: 'رسوم السفارة الرسمية',
-      },
-      {
-        accountCode: '2110',
-        accountAr: 'ذمم دائنة — جهات حكومية',
-        accountEn: 'Accounts Payable — Government Bodies',
-        debitHalalas: 0,
-        creditHalalas: 65_000,
-        memo: 'مستحق للسفارة — قيد مسودة',
-      },
-    ],
-  },
-];
+function fsDocToEntry(docId: string, data: Record<string, unknown>): JournalEntry {
+  const lines = Array.isArray(data.lines)
+    ? (data.lines as Record<string, unknown>[]).map(fsLineToLocal)
+    : [];
+  let date = new Date();
+  const ca = data.createdAt as { toDate?: () => Date } | undefined;
+  if (ca?.toDate) date = ca.toDate();
+  return {
+    id:        String(data.jeNumber ?? docId),
+    date,
+    type:      referenceTypeToEntryType(String(data.referenceType ?? '')),
+    descAr:    String(data.description ?? ''),
+    descEn:    String(data.description ?? ''),
+    lines,
+    status:    data.isBalanced === true ? 'balanced' : 'draft',
+    reference: data.referenceId ? String(data.referenceId) : undefined,
+  };
+}
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -631,10 +490,12 @@ const EMPTY_LINE: LineForm = { accountCode: '', accountAr: '', accountEn: '', de
 
 function NewEntryModal({
   isAr,
+  agencyId,
   onClose,
   onSave,
 }: {
   isAr: boolean;
+  agencyId: string | null;
   onClose: () => void;
   onSave: (entry: JournalEntry) => void;
 }) {
@@ -646,6 +507,7 @@ function NewEntryModal({
   const [reference, setReference] = useState('');
   const [lines, setLines] = useState<LineForm[]>([{ ...EMPTY_LINE }, { ...EMPTY_LINE }]);
   const [error, setError] = useState('');
+  const [saving, setSaving] = useState(false);
 
   const totalDebitSAR  = lines.reduce((s, l) => s + (Number(l.debitSAR)  || 0), 0);
   const totalCreditSAR = lines.reduce((s, l) => s + (Number(l.creditSAR) || 0), 0);
@@ -660,30 +522,73 @@ function NewEntryModal({
     setLines(prev => prev.filter((_, i) => i !== idx));
   }
 
-  function handleSave() {
+  async function handleSave() {
     setError('');
     if (!descAr.trim()) { setError(isAr ? 'البيان العربي مطلوب' : 'Arabic description is required'); return; }
     const validLines = lines.filter(l => l.accountCode.trim() || Number(l.debitSAR) || Number(l.creditSAR));
     if (validLines.length < 2) { setError(isAr ? 'يجب إدخال سطرين على الأقل' : 'At least 2 lines required'); return; }
     if (!isBalanced) { setError(isAr ? 'يجب أن يتساوى المدين والدائن' : 'Debit must equal Credit'); return; }
 
+    const year    = new Date().getFullYear();
+    const jeNumber = `JE-${year}-${String(Date.now()).slice(-8)}`;
+    const mappedLines = validLines.map(l => ({
+      accountCode:   l.accountCode.trim(),
+      accountNameAr: l.accountAr.trim(),
+      accountNameEn: l.accountEn.trim() || l.accountAr.trim(),
+      accountType:   'asset' as const,
+      debitHalalas:  Math.round((Number(l.debitSAR)  || 0) * 100),
+      creditHalalas: Math.round((Number(l.creditSAR) || 0) * 100),
+      memo:          l.memo.trim(),
+    }));
+    const totalDR = mappedLines.reduce((s, l) => s + l.debitHalalas,  0);
+    const totalCR = mappedLines.reduce((s, l) => s + l.creditHalalas, 0);
+
     const entry: JournalEntry = {
-      id: `JE-${new Date().getFullYear()}-${String(Date.now()).slice(-5)}`,
+      id: jeNumber,
       date: new Date(date),
       type,
       descAr: descAr.trim(),
       descEn: descEn.trim() || descAr.trim(),
       reference: reference.trim() || undefined,
       status: 'balanced',
-      lines: validLines.map(l => ({
-        accountCode: l.accountCode.trim(),
-        accountAr: l.accountAr.trim(),
-        accountEn: l.accountEn.trim() || l.accountAr.trim(),
-        debitHalalas:  Math.round((Number(l.debitSAR)  || 0) * 100),
-        creditHalalas: Math.round((Number(l.creditSAR) || 0) * 100),
-        memo: l.memo.trim(),
+      lines: mappedLines.map(l => ({
+        accountCode:   l.accountCode,
+        accountAr:     l.accountNameAr,
+        accountEn:     l.accountNameEn,
+        debitHalalas:  l.debitHalalas,
+        creditHalalas: l.creditHalalas,
+        memo:          l.memo,
       })),
     };
+
+    if (agencyId) {
+      setSaving(true);
+      try {
+        const { getFirestore, collection, addDoc, Timestamp } = await import('firebase/firestore');
+        const { getApp } = await import('@masarat/firebase');
+        const db = getFirestore(getApp());
+        await addDoc(collection(db, 'journal_entries'), {
+          agencyId,
+          jeNumber,
+          description:        descAr.trim(),
+          referenceId:        reference.trim() || null,
+          referenceType:      'manual',
+          status:             'posted',
+          lines:              mappedLines,
+          totalDebitHalalas:  totalDR,
+          totalCreditHalalas: totalCR,
+          isBalanced:         true,
+          postedAt:           Timestamp.now(),
+          createdAt:          Timestamp.now(),
+        });
+      } catch (err) {
+        setError(err instanceof Error ? err.message : (isAr ? 'خطأ في الحفظ' : 'Save error'));
+        setSaving(false);
+        return;
+      }
+      setSaving(false);
+    }
+
     onSave(entry);
     onClose();
   }
@@ -866,9 +771,11 @@ function NewEntryModal({
               className="px-4 py-2 rounded-lg border border-slate-200 text-sm text-slate-600 hover:bg-slate-50 transition-colors font-medium">
               {isAr ? 'إلغاء' : 'Cancel'}
             </button>
-            <Button onClick={handleSave}>
+            <Button onClick={handleSave} loading={saving} disabled={saving}>
               <BookOpen size={15} />
-              {isAr ? 'حفظ القيد' : 'Save Entry'}
+              {saving
+                ? (isAr ? 'جارٍ الحفظ...' : 'Saving...')
+                : (isAr ? 'حفظ القيد' : 'Save Entry')}
             </Button>
           </div>
         </div>
@@ -885,10 +792,38 @@ export default function AccountingPage() {
   const locale = useLocale();
   const isAr = locale === 'ar';
   const fmtLocale = isAr ? 'ar-SA' : 'en-SA';
+  const { user } = useAuth();
+  const agencyId = user?.uid ?? null;
 
   const [activeTab, setActiveTab] = useState<TabId>('chart');
-  const [entries, setEntries] = useState<JournalEntry[]>(DEMO_ENTRIES_INIT);
+  const [entries, setEntries] = useState<JournalEntry[]>([]);
+  const [loadingEntries, setLoadingEntries] = useState(true);
   const [showNewEntry, setShowNewEntry] = useState(false);
+
+  useEffect(() => {
+    if (!agencyId) return;
+    let cancelled = false;
+    async function load() {
+      setLoadingEntries(true);
+      try {
+        const { getFirestore, collection, query, where, orderBy, getDocs } = await import('firebase/firestore');
+        const { getApp } = await import('@masarat/firebase');
+        const db = getFirestore(getApp());
+        const q = query(
+          collection(db, 'journal_entries'),
+          where('agencyId', '==', agencyId),
+          orderBy('createdAt', 'desc'),
+        );
+        const snap = await getDocs(q);
+        if (cancelled) return;
+        setEntries(snap.docs.map(d => fsDocToEntry(d.id, d.data() as Record<string, unknown>)));
+      } finally {
+        if (!cancelled) setLoadingEntries(false);
+      }
+    }
+    void load();
+    return () => { cancelled = true; };
+  }, [agencyId]);
 
   const tabs: { id: TabId; labelAr: string; labelEn: string; icon: ReactNode }[] = [
     {
@@ -947,35 +882,29 @@ export default function AccountingPage() {
           iconBg="bg-brand-50"
           iconColor="text-brand-600"
           label={isAr ? 'إجمالي المدين' : 'Total Debit'}
-          value={formatCurrency(
-            entries.reduce((s, e) => s + entryTotalDebit(e), 0),
-            fmtLocale,
-          )}
-          sub={`${formatCount(entries.length, fmtLocale)} ${isAr ? 'قيد' : 'entries'}`}
+          value={loadingEntries ? '...' : formatCurrency(entries.reduce((s, e) => s + entryTotalDebit(e), 0), fmtLocale)}
+          sub={loadingEntries ? '' : `${formatCount(entries.length, fmtLocale)} ${isAr ? 'قيد' : 'entries'}`}
         />
         <StatCard
           icon={<TrendingDown size={20} />}
           iconBg="bg-purple-50"
           iconColor="text-purple-600"
           label={isAr ? 'إجمالي الدائن' : 'Total Credit'}
-          value={formatCurrency(
-            entries.reduce((s, e) => s + entryTotalCredit(e), 0),
-            fmtLocale,
-          )}
+          value={loadingEntries ? '...' : formatCurrency(entries.reduce((s, e) => s + entryTotalCredit(e), 0), fmtLocale)}
         />
         <StatCard
           icon={<Layers size={20} />}
           iconBg="bg-emerald-50"
           iconColor="text-emerald-600"
           label={isAr ? 'قيود متوازنة' : 'Balanced Entries'}
-          value={`${formatCount(entries.filter((e) => e.status === 'balanced').length, fmtLocale)} / ${formatCount(entries.length, fmtLocale)}`}
+          value={loadingEntries ? '...' : `${formatCount(entries.filter((e) => e.status === 'balanced').length, fmtLocale)} / ${formatCount(entries.length, fmtLocale)}`}
         />
         <StatCard
           icon={<BarChart3 size={20} />}
           iconBg="bg-amber-50"
           iconColor="text-amber-600"
           label={isAr ? 'مسودات' : 'Draft Entries'}
-          value={formatCount(entries.filter((e) => e.status === 'draft').length, fmtLocale)}
+          value={loadingEntries ? '...' : formatCount(entries.filter((e) => e.status === 'draft').length, fmtLocale)}
           sub={isAr ? 'بانتظار الترحيل' : 'Pending posting'}
         />
       </div>
@@ -1008,7 +937,19 @@ export default function AccountingPage() {
         )}
 
         {activeTab === 'journal' && (
-          <JournalEntriesTab isAr={isAr} fmtLocale={fmtLocale} entries={entries} />
+          loadingEntries ? (
+            <div className="flex items-center justify-center py-20 text-slate-400 text-sm">
+              {isAr ? 'جارٍ تحميل القيود...' : 'Loading entries...'}
+            </div>
+          ) : entries.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-20 gap-3 text-slate-400">
+              <BookOpen size={36} className="opacity-30" />
+              <p className="text-sm">{isAr ? 'لا توجد قيود محاسبية بعد' : 'No journal entries yet'}</p>
+              <p className="text-xs">{isAr ? 'ستظهر القيود تلقائياً عند إنشاء الفواتير والمدفوعات' : 'Entries appear automatically when invoices and payments are created'}</p>
+            </div>
+          ) : (
+            <JournalEntriesTab isAr={isAr} fmtLocale={fmtLocale} entries={entries} />
+          )
         )}
 
         {activeTab === 'currencies' && (
@@ -1020,6 +961,7 @@ export default function AccountingPage() {
       {showNewEntry && (
         <NewEntryModal
           isAr={isAr}
+          agencyId={agencyId}
           onClose={() => setShowNewEntry(false)}
           onSave={(entry) => setEntries(prev => [entry, ...prev])}
         />
