@@ -30,7 +30,7 @@ import {
   Globe,
   FileText,
   ImagePlus,
-  LogIn,
+  UserPlus,
   Layers,
   Plus,
   Trash2,
@@ -42,6 +42,7 @@ import {
   Pencil,
   X,
 } from 'lucide-react';
+import { InviteUserModal } from '@/components/settings/InviteUserModal';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -309,8 +310,9 @@ export default function SettingsPage() {
   const [editForm, setEditForm] = useState({ nameAr: '', nameEn: '', icon: 'layers', color: PRESET_COLORS[0] });
 
   // ── Agency users ────────────────────────────────────────────────────────
-  const [agencyUsers, setAgencyUsers] = useState<UserDoc[]>([]);
-  const [loadingUsers, setLoadingUsers] = useState(false);
+  const [agencyUsers, setAgencyUsers]     = useState<UserDoc[]>([]);
+  const [loadingUsers, setLoadingUsers]   = useState(false);
+  const [showInviteModal, setShowInviteModal] = useState(false);
 
   // Load all agency info from Firestore
   useEffect(() => {
@@ -495,6 +497,7 @@ export default function SettingsPage() {
   }
 
   return (
+    <>
     <div className="space-y-6">
       {/* ── Page header ────────────────────────────────────────────────────── */}
       <div>
@@ -760,8 +763,8 @@ export default function SettingsPage() {
             <Card>
               <CardHeader>
                 <CardTitle>{isAr ? 'المستخدمون' : 'Users'}</CardTitle>
-                <Button size="sm">
-                  <LogIn size={14} />
+                <Button size="sm" onClick={() => setShowInviteModal(true)}>
+                  <UserPlus size={14} />
                   {isAr ? 'دعوة مستخدم' : 'Invite User'}
                 </Button>
               </CardHeader>
@@ -1370,5 +1373,14 @@ export default function SettingsPage() {
         </div>
       </div>
     </div>
+
+    {showInviteModal && (
+      <InviteUserModal
+        isAr={isAr}
+        onClose={() => setShowInviteModal(false)}
+        onDone={() => setShowInviteModal(false)}
+      />
+    )}
+    </>
   );
 }

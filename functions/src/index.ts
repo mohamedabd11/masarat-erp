@@ -11,6 +11,8 @@ import { onCall, HttpsError } from 'firebase-functions/v2/https';
 import { handleCreateInvoice, type CreateInvoiceRequest } from './handlers/create-invoice';
 import { handleProcessPayment, type ProcessPaymentRequest } from './handlers/process-payment';
 import { handleProcessRefund, type ProcessRefundRequest } from './handlers/process-refund';
+import { handleRegisterAgency, type RegisterAgencyRequest } from './handlers/register-agency';
+import { handleInviteUser, type InviteUserRequest } from './handlers/invite-user';
 
 // تهيئة Firebase Admin SDK مرة واحدة
 initializeApp();
@@ -97,6 +99,55 @@ export const processRefund = onCall<ProcessRefundRequest>(
     } catch (err) {
       const message = err instanceof Error ? err.message : 'خطأ غير متوقع';
       throw new HttpsError('internal', message);
+    }
+  }
+);
+
+/**
+ * تسجيل وكالة سفر جديدة (عامة — لا تتطلب تسجيل دخول)
+ * تُنشئ: الوكالة، المستخدم المدير، Custom Claims، دليل الحسابات
+ * تُعيد: رابط تعيين كلمة المرور للمدير
+ */
+export const registerAgency = onCall<RegisterAgencyRequest>(
+  { region: 'me-central2' },
+  async (request) => {
+    try {
+      return await handleRegisterAgency(request.data);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'خطأ غير متوقع';
+      const code = message.includes('مسجّل مسبقاً') ? 'already-exists' : 'internal';
+      throw new HttpsError(code, message);
+    }
+  }
+);
+
+/**
+ * دعوة موظف جديد إلى الوكالة (يتطلب صلاحية admin)
+ * تُنشئ: حساب Firebase Auth، Custom Claims، مستند users
+ * تُعيد: رابط تعيين كلمة المرور للموظف
+ */
+export const inviteUser = onCall<InviteUserRequest>(
+  { region: 'me-central2' },
+  async (request) => {
+    const callerAgencyId = request.auth?.token?.['agencyId'] as string | undefined;
+    const callerRole     = request.auth?.token?.['role']     as string | undefined;
+    const callerUid      = request.auth?.uid;
+
+    if (!callerUid || !callerAgencyId) {
+      throw new HttpsError('unauthenticated', 'يجب تسجيل الدخول أولاً');
+    }
+    if (callerRole !== 'admin') {
+      throw new HttpsError('permission-denied', 'فقط مدير الوكالة يمكنه دعوة مستخدمين');
+    }
+
+    try {
+      return await handleInviteUser(callerUid, callerAgencyId, callerRole, request.data);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'خطأ غير متوقع';
+      const code = message.includes('مسجّل مسبقاً') ? 'already-exists'
+                 : message.includes('PERMISSION')    ? 'permission-denied'
+                 : 'internal';
+      throw new HttpsError(code, message);
     }
   }
 );

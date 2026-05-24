@@ -209,7 +209,14 @@ export default function LoginPage() {
         </>
       )}
 
-      <p className="mt-8 text-center text-xs text-slate-400">
+      <p className="mt-6 text-center text-sm text-slate-500">
+        {isAr ? 'وكالة جديدة؟' : 'New agency?'}{' '}
+        <a href={`/${locale}/register`} className="text-brand-600 hover:text-brand-700 font-medium">
+          {isAr ? 'سجّل مجاناً' : 'Register free'}
+        </a>
+      </p>
+
+      <p className="mt-4 text-center text-xs text-slate-400">
         {isAr
           ? 'نظام مسارات © 2026 — جميع الحقوق محفوظة'
           : 'Masarat ERP © 2026 — All rights reserved'}
