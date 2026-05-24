@@ -170,9 +170,8 @@ async function createInvoiceFirestore(req: CreateInvoiceRequest): Promise<Create
   // ── 5. رقم الوثيقة ────────────────────────────────────────────────────────
   const year = new Date().getFullYear();
   const seq = String(Date.now()).slice(-6);
-  const prefix = isVatRegistered ? 'INV' : 'RCP';
-  const invoiceNumber = `${prefix}-${year}-${seq}`;
-  const docType = isVatRegistered ? 'tax_invoice' : 'service_receipt';
+  const invoiceNumber = `INV-${year}-${seq}`;
+  const docType = isVatRegistered ? 'tax_invoice' : 'commercial_invoice';
 
   // ── 6. حفظ الوثيقة ───────────────────────────────────────────────────────
   const invoiceRef = await addDoc(collection(db, 'invoices'), {

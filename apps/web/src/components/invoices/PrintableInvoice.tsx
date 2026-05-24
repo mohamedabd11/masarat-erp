@@ -81,7 +81,7 @@ export function PrintableInvoice({ invoice, onClose }: PrintableInvoiceProps) {
   const isVatRegistered = (invoice.seller.vatNumber ?? '').trim().length > 0;
   const typeLabel = isVatRegistered
     ? (INVOICE_TYPE_LABELS[invoice.invoiceTypeCode] ?? INVOICE_TYPE_LABELS['388']!)
-    : { ar: 'إيصال خدمة', en: 'Service Receipt' };
+    : { ar: 'فاتورة تجارية', en: 'Commercial Invoice' };
 
   function handlePrint() {
     window.print();
@@ -314,9 +314,9 @@ export function PrintableInvoice({ invoice, onClose }: PrintableInvoiceProps) {
                 </>
               ) : (
                 <>
-                  <p className="font-semibold text-slate-700 mb-2">إيصال خدمة — غير خاضع لضريبة القيمة المضافة</p>
-                  <p>هذا الإيصال صادر عن منشأة غير مسجّلة في نظام ضريبة القيمة المضافة.</p>
-                  <p className="mt-1" dir="ltr">Service Receipt — Issued by a non-VAT registered entity.</p>
+                  <p className="font-semibold text-slate-700 mb-2">فاتورة تجارية — غير خاضع لضريبة القيمة المضافة</p>
+                  <p>هذه الفاتورة صادرة عن منشأة غير مسجّلة في نظام ضريبة القيمة المضافة لدى هيئة الزكاة والضريبة والجمارك.</p>
+                  <p className="mt-1" dir="ltr">Commercial Invoice — Issued by a non-VAT registered entity.</p>
                 </>
               )}
             </div>
