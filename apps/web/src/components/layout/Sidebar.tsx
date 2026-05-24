@@ -10,7 +10,7 @@ import {
   LayoutDashboard, ClipboardList, Users, Plane, Building2, Package,
   Moon, Shield, Stamp, FileText, Receipt, BarChart3, Truck, UserCog,
   Settings, HelpCircle, ChevronLeft, ChevronRight, Calculator,
-  Anchor, Car, Train, Camera, Mountain, Plus, Layers, Landmark,
+  Anchor, Car, Train, Camera, Mountain, Plus, Layers, Landmark, Send,
 } from 'lucide-react';
 
 // ─── Icon map for custom service types ────────────────────────────────────────
@@ -59,6 +59,7 @@ const SERVICES_GROUP: NavGroup = {
   labelEn: 'Services',
   items: [
     { key: 'all_orders', href: '/bookings',  icon: <ClipboardList size={18} />, labelAr: 'كل الطلبات',    labelEn: 'All Orders' },
+    { key: 'quotes',     href: '/quotes',    icon: <Send size={18} />,          labelAr: 'عروض الأسعار',  labelEn: 'Quotations' },
     { key: 'flights',    href: '/flights',   icon: <Plane size={18} />,         labelAr: 'طيران',         labelEn: 'Flights' },
     { key: 'hotels',     href: '/hotels',    icon: <Building2 size={18} />,     labelAr: 'فنادق',         labelEn: 'Hotels' },
     { key: 'packages',   href: '/packages',  icon: <Package size={18} />,       labelAr: 'باقات سياحية',  labelEn: 'Packages' },
