@@ -55,7 +55,8 @@ export async function GET(request: Request) {
     if (msg === 'NO_TOKEN' || msg === 'FORBIDDEN') {
       return NextResponse.json({ error: 'ممنوع الوصول' }, { status: 403 });
     }
-    console.error('[admin/agencies]', err);
-    return NextResponse.json({ error: 'خطأ في الخادم' }, { status: 500 });
+    const msg = (err as Error).message ?? 'unknown';
+    console.error('[admin/agencies]', msg);
+    return NextResponse.json({ error: msg }, { status: 500 });
   }
 }
