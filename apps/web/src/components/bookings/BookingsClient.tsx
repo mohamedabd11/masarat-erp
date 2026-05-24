@@ -1,8 +1,7 @@
 'use client';
 
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo } from 'react';
 import Link from 'next/link';
-import { useSearchParams } from 'next/navigation';
 import { useFirestoreBookings } from '@/hooks/useFirestoreBookings';
 import { Spinner } from '@/components/ui/Spinner';
 import { EmptyState } from '@/components/ui/EmptyState';
@@ -19,6 +18,7 @@ import type { BookingType } from '@masarat/firebase';
 interface BookingsClientProps {
   locale: string;
   bookingType?: BookingType;
+  initialQuery?: string;
 }
 
 type StatusFilter = 'all' | 'pending_approval' | 'confirmed' | 'in_progress' | 'completed' | 'cancelled';
@@ -45,19 +45,14 @@ const STATUS_TABS: { id: StatusFilter; ar: string; en: string }[] = [
   { id: 'cancelled',        ar: 'ملغي',            en: 'Cancelled' },
 ];
 
-export function BookingsClient({ locale, bookingType }: BookingsClientProps) {
+export function BookingsClient({ locale, bookingType, initialQuery = '' }: BookingsClientProps) {
   const { bookings, loading, error, hasMore, loadNextPage, loadingMore } =
     useFirestoreBookings({ pageSize: 50, type: bookingType });
 
-  const searchParams   = useSearchParams();
-  const urlQuery       = searchParams.get('q') ?? '';
-  const [search, setSearch]           = useState(urlQuery);
+  const [search, setSearch]             = useState(initialQuery);
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
   const isAr = locale === 'ar';
   const fmtLocale = isAr ? 'ar-SA' : 'en-SA';
-
-  // Sync search from URL param (topbar search navigates here)
-  useEffect(() => { if (urlQuery) setSearch(urlQuery); }, [urlQuery]);
 
   // ── KPIs ────────────────────────────────────────────────────────────────────
   const revenue   = bookings.reduce((s, b) => s + ((b as any).grandTotalHalalas ?? (b as any).pricing?.totalAmount ?? 0), 0);

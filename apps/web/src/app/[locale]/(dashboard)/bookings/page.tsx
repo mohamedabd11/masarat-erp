@@ -2,6 +2,7 @@ import { Suspense } from 'react';
 import { getTranslations } from 'next-intl/server';
 import { BookingsClient } from '@/components/bookings/BookingsClient';
 import { NewBookingButton } from '@/components/bookings/NewBookingButton';
+import { BookingsSearchBridge } from './BookingsSearchBridge';
 
 export default async function BookingsPage({ params }: { params: { locale: string } }) {
   const t = await getTranslations('bookings');
@@ -21,9 +22,13 @@ export default async function BookingsPage({ params }: { params: { locale: strin
         <NewBookingButton label={t('newBooking')} />
       </div>
 
-      {/* Search, filters, and table — client component with real Firestore data */}
-      <Suspense fallback={<div className="h-64 flex items-center justify-center"><div className="w-8 h-8 border-4 border-brand-600 border-t-transparent rounded-full animate-spin" /></div>}>
-        <BookingsClient locale={locale} />
+      {/* Suspense isolates useSearchParams — only needed on this page */}
+      <Suspense fallback={
+        <div className="h-64 flex items-center justify-center">
+          <div className="w-8 h-8 border-4 border-brand-600 border-t-transparent rounded-full animate-spin" />
+        </div>
+      }>
+        <BookingsSearchBridge locale={locale} />
       </Suspense>
     </div>
   );
