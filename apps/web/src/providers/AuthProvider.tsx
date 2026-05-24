@@ -18,10 +18,13 @@ export function AuthProvider({ children }: AuthProviderProps) {
                   || pathname?.includes('/register')
                   || pathname?.includes('/reset-password');
 
+  // /admin handles its own auth + 403 logic — don't redirect away from it
+  const isStandalonePage = pathname?.includes('/admin');
+
   useEffect(() => {
     if (loading) return;
 
-    if (!user && !isAuthPage) {
+    if (!user && !isAuthPage && !isStandalonePage) {
       // Extract locale from pathname (e.g., /ar/dashboard → ar)
       const locale = pathname?.split('/')[1] ?? 'ar';
       router.push(`/${locale}/login`);
@@ -31,7 +34,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
       const locale = pathname?.split('/')[1] ?? 'ar';
       router.push(`/${locale}/dashboard`);
     }
-  }, [user, loading, isAuthPage, pathname, router]);
+  }, [user, loading, isAuthPage, isStandalonePage, pathname, router]);
 
   // Block render while auth state is resolving — prevents dashboard flash
   if (loading) {
@@ -46,7 +49,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
   }
 
   // Unauthenticated on protected route: render nothing while redirect fires
-  if (!user && !isAuthPage) {
+  if (!user && !isAuthPage && !isStandalonePage) {
     return null;
   }
 
