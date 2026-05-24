@@ -51,11 +51,10 @@ export async function GET(request: Request) {
 
     return NextResponse.json({ agencies });
   } catch (err: unknown) {
-    const msg = (err as Error).message ?? '';
+    const msg = (err as Error).message ?? 'unknown';
     if (msg === 'NO_TOKEN' || msg === 'FORBIDDEN') {
       return NextResponse.json({ error: 'ممنوع الوصول' }, { status: 403 });
     }
-    const msg = (err as Error).message ?? 'unknown';
     console.error('[admin/agencies]', msg);
     return NextResponse.json({ error: msg }, { status: 500 });
   }
