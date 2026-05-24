@@ -10,6 +10,7 @@ import {
   FileText, CheckCircle2, AlertCircle, Printer,
   ChevronDown, ChevronRight, Receipt, Wallet,
   Building2, Scale, ListTree, Stamp, Calendar,
+  PieChart, Users, Plane, Moon, Shield, Star,
 } from 'lucide-react';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -267,6 +268,140 @@ const VAT_BOXES: VATBox[] = [
     noteEn: 'Amount payable to ZATCA',
     base: 0, vat: 1_251_900, highlight: 'net-due',
   },
+];
+
+// ── Balance Sheet ─────────────────────────────────────────────────────────────
+
+interface BSLine {
+  code?: string;
+  labelAr: string;
+  labelEn: string;
+  amount: number;
+  indent?: boolean;
+  bold?: boolean;
+  separator?: boolean;
+  accent?: 'brand' | 'red' | 'purple' | 'emerald' | 'slate';
+}
+
+interface BSSection {
+  titleAr: string;
+  titleEn: string;
+  color: string;
+  lines: BSLine[];
+  total: number;
+}
+
+const BALANCE_SHEET: BSSection[] = [
+  {
+    titleAr: 'الأصول المتداولة', titleEn: 'Current Assets', color: 'bg-brand-50 border-brand-200 text-brand-700',
+    total: 9_330_000,
+    lines: [
+      { code: '1110', labelAr: 'البنك — الحساب الجاري',      labelEn: 'Bank — Current Account',            amount: 8_740_000, indent: true },
+      { code: '1111', labelAr: 'الصندوق — نقدية',             labelEn: 'Cash on Hand',                      amount: 600_000,   indent: true },
+      { code: '1120', labelAr: 'ذمم مدينة — عملاء',           labelEn: 'Accounts Receivable',               amount: 4_530_000, indent: true },
+      { code: '1130', labelAr: 'مصاريف مدفوعة مقدماً',       labelEn: 'Prepaid Expenses',                  amount: 360_000,   indent: true },
+      { labelAr: 'إجمالي الأصول المتداولة',                   labelEn: 'Total Current Assets',               amount: 14_230_000, bold: true, accent: 'brand' },
+    ],
+  },
+  {
+    titleAr: 'الأصول غير المتداولة', titleEn: 'Non-Current Assets', color: 'bg-sky-50 border-sky-200 text-sky-700',
+    total: 1_200_000,
+    lines: [
+      { code: '1210', labelAr: 'أصول ثابتة — أجهزة وأثاث',   labelEn: 'Fixed Assets — Equipment & Furniture', amount: 1_200_000, indent: true },
+      { code: '1220', labelAr: 'مجمّع الإهلاك',               labelEn: 'Accumulated Depreciation',           amount: -240_000,  indent: true },
+      { labelAr: 'إجمالي الأصول غير المتداولة',              labelEn: 'Total Non-Current Assets',           amount: 960_000, bold: true, accent: 'brand' },
+    ],
+  },
+  {
+    titleAr: 'إجمالي الأصول', titleEn: 'TOTAL ASSETS', color: 'bg-brand-600 border-brand-700 text-white',
+    total: 15_190_000,
+    lines: [
+      { labelAr: 'إجمالي الأصول', labelEn: 'TOTAL ASSETS', amount: 15_190_000, bold: true },
+    ],
+  },
+  {
+    titleAr: 'الخصوم المتداولة', titleEn: 'Current Liabilities', color: 'bg-red-50 border-red-200 text-red-700',
+    total: 3_202_000,
+    lines: [
+      { code: '2110', labelAr: 'ذمم دائنة — موردون',          labelEn: 'Accounts Payable — Suppliers',     amount: 3_200_000, indent: true },
+      { code: '2310', labelAr: 'ضريبة القيمة المضافة مستحقة', labelEn: 'VAT Payable',                      amount: 1_102_000, indent: true },
+      { code: '2320', labelAr: 'دفعات مقدمة من العملاء',      labelEn: 'Customer Deposits / Advances',     amount: 480_000,   indent: true },
+      { labelAr: 'إجمالي الخصوم المتداولة',                   labelEn: 'Total Current Liabilities',        amount: 4_782_000, bold: true, accent: 'red' },
+    ],
+  },
+  {
+    titleAr: 'حقوق الملكية', titleEn: 'Equity', color: 'bg-purple-50 border-purple-200 text-purple-700',
+    total: 10_408_000,
+    lines: [
+      { code: '3110', labelAr: 'رأس المال المدفوع',             labelEn: 'Paid-in Capital',                  amount: 5_000_000, indent: true },
+      { code: '3120', labelAr: 'أرباح محتجزة — فترات سابقة',   labelEn: 'Retained Earnings',                amount: 4_756_000, indent: true },
+      { code: '3130', labelAr: 'صافي ربح الفترة الحالية',       labelEn: 'Net Profit — Current Period',      amount: 5_434_000, indent: true, accent: 'emerald' },
+      { labelAr: 'توزيعات أرباح',                               labelEn: 'Dividends Paid',                   amount: -2_000_000, indent: true },
+      { labelAr: 'إجمالي حقوق الملكية',                         labelEn: 'Total Equity',                     amount: 10_408_000, bold: true, accent: 'purple' },
+    ],
+  },
+  {
+    titleAr: 'إجمالي الخصوم وحقوق الملكية', titleEn: 'TOTAL LIABILITIES & EQUITY', color: 'bg-purple-700 border-purple-800 text-white',
+    total: 15_190_000,
+    lines: [
+      { labelAr: 'إجمالي الخصوم وحقوق الملكية', labelEn: 'TOTAL LIABILITIES & EQUITY', amount: 15_190_000, bold: true },
+    ],
+  },
+];
+
+// ── Profitability Data ────────────────────────────────────────────────────────
+
+interface ServiceProfit {
+  nameAr: string;
+  nameEn: string;
+  color: string;
+  bookings: number;
+  revenueH: number;
+  costH: number;
+}
+
+const SERVICE_PROFIT: ServiceProfit[] = [
+  { nameAr: 'عمرة وحج',      nameEn: 'Umrah & Hajj',   color: 'bg-brand-500',   bookings: 62,  revenueH: 8_500_000, costH: 6_200_000 },
+  { nameAr: 'طيران',         nameEn: 'Flights',         color: 'bg-sky-500',     bookings: 48,  revenueH: 3_200_000, costH: 0 },
+  { nameAr: 'باقات سياحية',  nameEn: 'Tour Packages',  color: 'bg-emerald-500', bookings: 35,  revenueH: 4_500_000, costH: 3_200_000 },
+  { nameAr: 'فنادق',         nameEn: 'Hotels',          color: 'bg-amber-500',   bookings: 29,  revenueH: 3_250_000, costH: 2_530_000 },
+  { nameAr: 'تأشيرات',       nameEn: 'Visas',           color: 'bg-red-400',     bookings: 56,  revenueH: 1_550_000, costH: 0 },
+  { nameAr: 'تأمين سفر',     nameEn: 'Travel Insurance',color: 'bg-rose-400',    bookings: 34,  revenueH: 420_000,   costH: 0 },
+  { nameAr: 'نقل',           nameEn: 'Transfers',       color: 'bg-violet-400',  bookings: 18,  revenueH: 180_000,   costH: 0 },
+];
+
+interface AgentStat {
+  nameAr: string;
+  nameEn: string;
+  bookings: number;
+  revenueH: number;
+  commH: number;
+  convPct: number;
+}
+
+const AGENT_STATS: AgentStat[] = [
+  { nameAr: 'أحمد المحمد',   nameEn: 'Ahmad Al-Muhammad', bookings: 74, revenueH: 8_120_000, commH: 520_000, convPct: 88 },
+  { nameAr: 'سارة القحطاني', nameEn: 'Sara Al-Qahtani',   bookings: 58, revenueH: 6_340_000, commH: 420_000, convPct: 82 },
+  { nameAr: 'خالد العتيبي',  nameEn: 'Khalid Al-Otaibi',  bookings: 41, revenueH: 4_500_000, commH: 310_000, convPct: 79 },
+  { nameAr: 'نورة الدوسري',  nameEn: 'Noura Al-Dosari',   bookings: 33, revenueH: 3_620_000, commH: 255_000, convPct: 75 },
+  { nameAr: 'فهد الشهري',    nameEn: 'Fahad Al-Shehri',   bookings: 28, revenueH: 2_820_000, commH: 198_000, convPct: 71 },
+];
+
+interface TopCustomer {
+  nameAr: string;
+  nameEn: string;
+  bookings: number;
+  totalH: number;
+  lastServiceAr: string;
+  lastServiceEn: string;
+}
+
+const TOP_CUSTOMERS: TopCustomer[] = [
+  { nameAr: 'شركة الأمانة للسفر',    nameEn: 'Al-Amana Travel Co.',      bookings: 18, totalH: 3_240_000, lastServiceAr: 'باقة سياحية',  lastServiceEn: 'Tour Package' },
+  { nameAr: 'مجموعة نجم للأعمال',    nameEn: 'Najm Business Group',      bookings: 14, totalH: 2_870_000, lastServiceAr: 'طيران',         lastServiceEn: 'Flight' },
+  { nameAr: 'عبد الرحمن السلمان',    nameEn: 'Abdulrahman Al-Salman',    bookings: 12, totalH: 1_980_000, lastServiceAr: 'عمرة وحج',      lastServiceEn: 'Umrah & Hajj' },
+  { nameAr: 'شركة الرواد للمقاولات', nameEn: 'Al-Rowad Contracting',     bookings: 9,  totalH: 1_640_000, lastServiceAr: 'فنادق',         lastServiceEn: 'Hotel' },
+  { nameAr: 'د. هند الزهراني',       nameEn: 'Dr. Hind Al-Zahrani',      bookings: 8,  totalH: 1_340_000, lastServiceAr: 'تأشيرة',        lastServiceEn: 'Visa' },
 ];
 
 const PERIODS: { id: Period; labelAr: string; labelEn: string }[] = [
@@ -902,9 +1037,318 @@ function VATReturnTab({ isAr, fmtLocale, period, onPeriodChange }: {
   );
 }
 
+// ─── Balance Sheet Tab ────────────────────────────────────────────────────────
+
+function BalanceSheetTab({ isAr, fmtLocale }: { isAr: boolean; fmtLocale: string }) {
+  const assetTotal    = 15_190_000;
+  const liabTotal     = 4_782_000;
+  const equityTotal   = 10_408_000;
+  const checkAmount   = liabTotal + equityTotal;
+  const balanced      = assetTotal === checkAmount;
+
+  return (
+    <div className="space-y-6">
+      {/* Summary chips */}
+      <div className="grid grid-cols-3 gap-4">
+        {[
+          { labelAr: 'إجمالي الأصول',            labelEn: 'Total Assets',           amount: assetTotal,  bg: 'bg-brand-600', text: 'text-white' },
+          { labelAr: 'إجمالي الخصوم',            labelEn: 'Total Liabilities',      amount: liabTotal,   bg: 'bg-red-600',   text: 'text-white' },
+          { labelAr: 'إجمالي حقوق الملكية',      labelEn: 'Total Equity',           amount: equityTotal, bg: 'bg-purple-600',text: 'text-white' },
+        ].map(s => (
+          <div key={s.labelEn} className={`${s.bg} ${s.text} rounded-2xl p-5 shadow-sm`}>
+            <p className="text-xs font-bold uppercase tracking-widest opacity-75 mb-1">{isAr ? s.labelAr : s.labelEn}</p>
+            <p className="text-2xl font-extrabold tabular-nums">{formatCurrency(s.amount, fmtLocale)}</p>
+          </div>
+        ))}
+      </div>
+
+      {/* Balance check */}
+      <div className={`flex items-center gap-3 px-4 py-3 rounded-xl border ${balanced ? 'bg-emerald-50 border-emerald-200' : 'bg-red-50 border-red-200'}`}>
+        {balanced
+          ? <CheckCircle2 size={18} className="text-emerald-600 flex-shrink-0" />
+          : <AlertCircle  size={18} className="text-red-600 flex-shrink-0" />}
+        <div>
+          <p className={`text-sm font-bold ${balanced ? 'text-emerald-700' : 'text-red-700'}`}>
+            {balanced
+              ? (isAr ? 'الميزانية متوازنة — الأصول = الخصوم + حقوق الملكية' : 'Balance sheet balanced — Assets = Liabilities + Equity')
+              : (isAr ? 'تحذير: الميزانية غير متوازنة' : 'Warning: Balance sheet is out of balance')}
+          </p>
+          <p className="text-xs text-slate-500 mt-0.5">
+            {isAr ? `${formatCurrency(assetTotal, fmtLocale)} = ${formatCurrency(liabTotal, fmtLocale)} + ${formatCurrency(equityTotal, fmtLocale)}`
+                  : `${formatCurrency(assetTotal, fmtLocale)} = ${formatCurrency(liabTotal, fmtLocale)} + ${formatCurrency(equityTotal, fmtLocale)}`}
+          </p>
+        </div>
+      </div>
+
+      {/* Sections */}
+      <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+        {/* Assets side */}
+        <div className="space-y-4">
+          {BALANCE_SHEET.filter((_, i) => i < 3).map(section => (
+            <Card key={section.titleEn} padding="none">
+              <div className={`px-5 py-3 border-b ${section.color.replace('text-white', 'text-inherit')} flex items-center justify-between`}>
+                <h3 className="text-sm font-bold">{isAr ? section.titleAr : section.titleEn}</h3>
+                <span className="text-sm font-extrabold tabular-nums">{formatCurrency(section.total, fmtLocale)}</span>
+              </div>
+              <table className="w-full">
+                <tbody>
+                  {section.lines.map((line, idx) => (
+                    <tr key={idx} className={cn(
+                      'border-b border-slate-100 last:border-0',
+                      line.bold ? 'bg-slate-50' : 'hover:bg-slate-50/40',
+                    )}>
+                      <td className={cn('py-2.5 text-sm', line.indent ? 'ps-8 pe-4' : 'ps-4 pe-4')}>
+                        {line.code && <span className="text-[10px] text-slate-400 font-mono me-2">{line.code}</span>}
+                        <span className={cn(line.bold ? 'font-bold' : 'font-medium',
+                          line.accent === 'brand' ? 'text-brand-700' : line.accent === 'emerald' ? 'text-emerald-700' : line.accent === 'purple' ? 'text-purple-700' : 'text-slate-700')}>
+                          {isAr ? line.labelAr : line.labelEn}
+                        </span>
+                      </td>
+                      <td className={cn('py-2.5 pe-5 text-end text-sm tabular-nums font-mono',
+                        line.bold ? 'font-bold' : '',
+                        line.accent === 'brand' ? 'text-brand-700' : line.accent === 'emerald' ? 'text-emerald-700' : line.accent === 'red' ? 'text-red-600' : line.amount < 0 ? 'text-red-500' : 'text-slate-800')}>
+                        {line.amount !== 0 ? formatCurrency(Math.abs(line.amount), fmtLocale) : '—'}
+                        {line.amount < 0 && <span className="text-[9px] ms-0.5 text-red-400">CR</span>}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </Card>
+          ))}
+        </div>
+        {/* Liabilities + Equity side */}
+        <div className="space-y-4">
+          {BALANCE_SHEET.filter((_, i) => i >= 3).map(section => (
+            <Card key={section.titleEn} padding="none">
+              <div className={`px-5 py-3 border-b ${section.color.replace('text-white', 'text-inherit')} flex items-center justify-between`}>
+                <h3 className="text-sm font-bold">{isAr ? section.titleAr : section.titleEn}</h3>
+                <span className="text-sm font-extrabold tabular-nums">{formatCurrency(section.total, fmtLocale)}</span>
+              </div>
+              <table className="w-full">
+                <tbody>
+                  {section.lines.map((line, idx) => (
+                    <tr key={idx} className={cn(
+                      'border-b border-slate-100 last:border-0',
+                      line.bold ? 'bg-slate-50' : 'hover:bg-slate-50/40',
+                    )}>
+                      <td className={cn('py-2.5 text-sm', line.indent ? 'ps-8 pe-4' : 'ps-4 pe-4')}>
+                        {line.code && <span className="text-[10px] text-slate-400 font-mono me-2">{line.code}</span>}
+                        <span className={cn(line.bold ? 'font-bold' : 'font-medium',
+                          line.accent === 'red' ? 'text-red-700' : line.accent === 'purple' ? 'text-purple-700' : line.accent === 'emerald' ? 'text-emerald-700' : 'text-slate-700')}>
+                          {isAr ? line.labelAr : line.labelEn}
+                        </span>
+                      </td>
+                      <td className={cn('py-2.5 pe-5 text-end text-sm tabular-nums font-mono',
+                        line.bold ? 'font-bold' : '',
+                        line.accent === 'red' ? 'text-red-700' : line.accent === 'purple' ? 'text-purple-700' : line.accent === 'emerald' ? 'text-emerald-700' : line.amount < 0 ? 'text-red-500' : 'text-slate-800')}>
+                        {line.amount !== 0 ? formatCurrency(Math.abs(line.amount), fmtLocale) : '—'}
+                        {line.amount < 0 && <span className="text-[9px] ms-0.5 text-red-400">CR</span>}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </Card>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Profitability Tab ────────────────────────────────────────────────────────
+
+function ProfitabilityTab({ isAr, fmtLocale }: { isAr: boolean; fmtLocale: string }) {
+  const totalRev  = SERVICE_PROFIT.reduce((s, p) => s + p.revenueH, 0);
+  const totalCost = SERVICE_PROFIT.reduce((s, p) => s + p.costH, 0);
+  const totalGP   = totalRev - totalCost;
+  const maxRev    = Math.max(...SERVICE_PROFIT.map(p => p.revenueH));
+
+  return (
+    <div className="space-y-6">
+      {/* KPIs */}
+      <div className="grid grid-cols-2 xl:grid-cols-4 gap-4">
+        <KpiCard icon={<TrendingUp size={20} />} iconBg="bg-brand-50" iconColor="text-brand-600"
+          label={isAr ? 'إجمالي الإيرادات' : 'Total Revenue'} value={formatCurrency(totalRev, fmtLocale)} />
+        <KpiCard icon={<Receipt size={20} />} iconBg="bg-red-50" iconColor="text-red-600"
+          label={isAr ? 'إجمالي التكاليف' : 'Total Costs'} value={formatCurrency(totalCost, fmtLocale)} />
+        <KpiCard icon={<Wallet size={20} />} iconBg="bg-emerald-50" iconColor="text-emerald-600"
+          label={isAr ? 'إجمالي الربح' : 'Gross Profit'} value={formatCurrency(totalGP, fmtLocale)}
+          sub={`${Math.round((totalGP / totalRev) * 100)}% ${isAr ? 'هامش' : 'margin'}`} />
+        <KpiCard icon={<Users size={20} />} iconBg="bg-purple-50" iconColor="text-purple-600"
+          label={isAr ? 'أفضل وكيل' : 'Top Agent'} value={isAr ? AGENT_STATS[0].nameAr : AGENT_STATS[0].nameEn}
+          sub={formatCurrency(AGENT_STATS[0].revenueH, fmtLocale)} />
+      </div>
+
+      <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+        {/* By Service */}
+        <Card>
+          <h2 className="text-base font-semibold text-slate-900 mb-5">{isAr ? 'الربحية حسب الخدمة' : 'Profitability by Service'}</h2>
+          <div className="space-y-4">
+            {SERVICE_PROFIT.sort((a, b) => (b.revenueH - b.costH) - (a.revenueH - a.costH)).map(s => {
+              const gp        = s.revenueH - s.costH;
+              const margin    = s.revenueH > 0 ? Math.round((gp / s.revenueH) * 100) : 100;
+              const revWidth  = Math.round((s.revenueH / maxRev) * 100);
+              return (
+                <div key={s.nameEn}>
+                  <div className="flex items-center justify-between mb-1">
+                    <div className="flex items-center gap-2">
+                      <span className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${s.color}`} />
+                      <span className="text-sm font-semibold text-slate-800">{isAr ? s.nameAr : s.nameEn}</span>
+                      <span className="text-xs text-slate-400">({s.bookings} {isAr ? 'حجز' : 'bk'})</span>
+                    </div>
+                    <div className="text-end flex-shrink-0">
+                      <span className="text-sm font-bold tabular-nums text-slate-900 block">{formatCurrency(gp, fmtLocale)}</span>
+                      <span className={`text-xs font-semibold ${margin >= 50 ? 'text-emerald-600' : margin >= 20 ? 'text-amber-600' : 'text-red-600'}`}>{margin}% {isAr ? 'هامش' : 'margin'}</span>
+                    </div>
+                  </div>
+                  <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
+                    <div className={`h-full ${s.color} rounded-full transition-all duration-700`} style={{ width: `${revWidth}%` }} />
+                  </div>
+                  <div className="flex justify-between text-[10px] text-slate-400 mt-0.5">
+                    <span>{isAr ? 'إيرادات:' : 'Rev:'} {formatCurrency(s.revenueH, fmtLocale)}</span>
+                    {s.costH > 0 && <span>{isAr ? 'تكلفة:' : 'Cost:'} {formatCurrency(s.costH, fmtLocale)}</span>}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </Card>
+
+        {/* By Agent */}
+        <Card padding="none">
+          <div className="px-5 py-4 border-b border-surface-border">
+            <h2 className="text-base font-semibold text-slate-900">{isAr ? 'أداء الموظفين' : 'Agent Performance'}</h2>
+          </div>
+          <table className="w-full">
+            <thead>
+              <tr className="bg-slate-50 border-b border-surface-border">
+                <th className="text-start ps-5 pe-3 py-3 text-xs font-bold text-slate-500 uppercase tracking-wider">{isAr ? 'الموظف' : 'Agent'}</th>
+                <th className="text-end px-3 py-3 text-xs font-bold text-slate-500 uppercase tracking-wider">{isAr ? 'حجوزات' : 'Bookings'}</th>
+                <th className="text-end px-3 py-3 text-xs font-bold text-slate-500 uppercase tracking-wider hidden sm:table-cell">{isAr ? 'الإيرادات' : 'Revenue'}</th>
+                <th className="text-end pe-5 px-3 py-3 text-xs font-bold text-slate-500 uppercase tracking-wider">{isAr ? 'نسبة التحويل' : 'Conv. Rate'}</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-surface-border">
+              {AGENT_STATS.map((a, idx) => (
+                <tr key={a.nameEn} className="hover:bg-slate-50/40 transition-colors">
+                  <td className="ps-5 pe-3 py-3">
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-8 h-8 rounded-full bg-gradient-to-br from-brand-400 to-brand-600 flex items-center justify-center text-white text-xs font-bold flex-shrink-0">
+                        {idx + 1}
+                      </div>
+                      <div>
+                        <p className="text-sm font-semibold text-slate-900">{isAr ? a.nameAr : a.nameEn}</p>
+                        <p className="text-xs text-slate-400">{formatCurrency(a.commH, fmtLocale)} {isAr ? 'عمولة' : 'commission'}</p>
+                      </div>
+                    </div>
+                  </td>
+                  <td className="px-3 py-3 text-end">
+                    <span className="text-sm font-bold tabular-nums text-slate-900">{formatCount(a.bookings, fmtLocale)}</span>
+                  </td>
+                  <td className="px-3 py-3 text-end hidden sm:table-cell">
+                    <span className="text-sm tabular-nums font-mono text-slate-700">{formatCurrency(a.revenueH, fmtLocale)}</span>
+                  </td>
+                  <td className="pe-5 px-3 py-3 text-end">
+                    <div className="flex items-center justify-end gap-2">
+                      <div className="w-16 h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                        <div className="h-full bg-emerald-500 rounded-full" style={{ width: `${a.convPct}%` }} />
+                      </div>
+                      <span className="text-sm font-bold text-emerald-600 tabular-nums">{a.convPct}%</span>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </Card>
+      </div>
+
+      {/* Top Customers */}
+      <Card padding="none">
+        <div className="px-5 py-4 border-b border-surface-border flex items-center justify-between">
+          <h2 className="text-base font-semibold text-slate-900">{isAr ? 'أفضل العملاء إيراداً' : 'Top Revenue Customers'}</h2>
+          <span className="text-xs text-slate-400">{isAr ? 'مرتب حسب الإجمالي' : 'Sorted by total spend'}</span>
+        </div>
+        <table className="w-full">
+          <thead>
+            <tr className="bg-slate-50 border-b border-surface-border">
+              <th className="text-start ps-5 pe-3 py-3 text-xs font-bold text-slate-500 uppercase tracking-wider w-8">#</th>
+              <th className="text-start pe-3 py-3 text-xs font-bold text-slate-500 uppercase tracking-wider">{isAr ? 'العميل' : 'Customer'}</th>
+              <th className="text-end px-3 py-3 text-xs font-bold text-slate-500 uppercase tracking-wider">{isAr ? 'حجوزات' : 'Bookings'}</th>
+              <th className="text-end px-3 py-3 text-xs font-bold text-slate-500 uppercase tracking-wider hidden md:table-cell">{isAr ? 'آخر خدمة' : 'Last Service'}</th>
+              <th className="text-end pe-5 px-3 py-3 text-xs font-bold text-slate-500 uppercase tracking-wider">{isAr ? 'الإجمالي' : 'Total'}</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-surface-border">
+            {TOP_CUSTOMERS.map((c, idx) => (
+              <tr key={c.nameEn} className="hover:bg-slate-50/40 transition-colors">
+                <td className="ps-5 pe-3 py-3.5">
+                  <span className={cn('w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold',
+                    idx === 0 ? 'bg-amber-100 text-amber-700' : idx === 1 ? 'bg-slate-200 text-slate-600' : idx === 2 ? 'bg-orange-100 text-orange-700' : 'bg-slate-100 text-slate-500')}>
+                    {idx + 1}
+                  </span>
+                </td>
+                <td className="pe-3 py-3.5">
+                  <p className="text-sm font-semibold text-slate-900">{isAr ? c.nameAr : c.nameEn}</p>
+                </td>
+                <td className="px-3 py-3.5 text-end">
+                  <span className="text-sm tabular-nums font-bold text-slate-800">{formatCount(c.bookings, fmtLocale)}</span>
+                </td>
+                <td className="px-3 py-3.5 text-end hidden md:table-cell">
+                  <span className="text-xs px-2 py-1 bg-slate-100 text-slate-600 rounded-lg font-medium">{isAr ? c.lastServiceAr : c.lastServiceEn}</span>
+                </td>
+                <td className="pe-5 px-3 py-3.5 text-end">
+                  <span className="text-sm font-bold tabular-nums text-slate-900">{formatCurrency(c.totalH, fmtLocale)}</span>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </Card>
+
+      {/* Monthly trend */}
+      <Card>
+        <div className="flex items-center justify-between mb-5">
+          <h2 className="text-base font-semibold text-slate-900">{isAr ? 'الاتجاه الشهري — الإيرادات والتكاليف' : 'Monthly Trend — Revenue vs Costs'}</h2>
+        </div>
+        <div className="space-y-3">
+          {MONTHLY.map(m => {
+            const gpH    = m.rev - m.cost;
+            const margin = Math.round((gpH / m.rev) * 100);
+            const maxM   = Math.max(...MONTHLY.map(x => x.rev));
+            const revW   = Math.round((m.rev / maxM) * 100);
+            const costW  = Math.round((m.cost / maxM) * 100);
+            return (
+              <div key={m.nameEn} className="grid grid-cols-[80px_1fr_120px] gap-3 items-center">
+                <span className="text-xs font-medium text-slate-500 text-end">{isAr ? m.nameAr : m.nameEn}</span>
+                <div className="relative h-8 bg-slate-100 rounded-lg overflow-hidden">
+                  <div className="absolute inset-y-0 start-0 bg-brand-500/20 rounded-lg transition-all" style={{ width: `${revW}%` }} />
+                  <div className="absolute inset-y-0 start-0 bg-red-400/30 rounded-lg transition-all" style={{ width: `${costW}%` }} />
+                  <div className="absolute inset-y-0 start-0 bg-emerald-500 rounded-lg transition-all h-1.5 top-1/2 -translate-y-1/2 ms-1" style={{ width: `calc(${revW}% - ${costW}%)` }} />
+                </div>
+                <div className="text-end">
+                  <p className="text-xs font-bold tabular-nums text-slate-900">{formatCurrency(gpH, fmtLocale)}</p>
+                  <p className={`text-[10px] font-semibold ${margin >= 40 ? 'text-emerald-600' : 'text-amber-600'}`}>{margin}% {isAr ? 'ربح' : 'profit'}</p>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+        <div className="flex items-center gap-4 mt-4 pt-4 border-t border-surface-border">
+          <div className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-sm bg-brand-500/40" /><span className="text-xs text-slate-500">{isAr ? 'الإيرادات' : 'Revenue'}</span></div>
+          <div className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-sm bg-red-400/40" /><span className="text-xs text-slate-500">{isAr ? 'التكاليف' : 'Costs'}</span></div>
+          <div className="flex items-center gap-1.5"><span className="w-3 h-1.5 rounded-sm bg-emerald-500" /><span className="text-xs text-slate-500">{isAr ? 'إجمالي الربح' : 'Gross Profit'}</span></div>
+        </div>
+      </Card>
+    </div>
+  );
+}
+
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
-type TabId = 'overview' | 'trial' | 'pl' | 'vat';
+type TabId = 'overview' | 'trial' | 'pl' | 'vat' | 'bs' | 'profit';
 
 export default function ReportsPage() {
   const locale  = useLocale();
@@ -914,11 +1358,13 @@ export default function ReportsPage() {
   const [activeTab, setActiveTab] = useState<TabId>('overview');
   const [period, setPeriod] = useState<Period>('h1');
 
-  const tabs: { id: TabId; labelAr: string; labelEn: string; icon: ReactNode }[] = [
-    { id: 'overview', labelAr: 'نظرة عامة',           labelEn: 'Overview',          icon: <BarChart3  size={16} /> },
-    { id: 'trial',    labelAr: 'ميزان المراجعة',       labelEn: 'Trial Balance',     icon: <Scale      size={16} /> },
-    { id: 'pl',       labelAr: 'قائمة الدخل',          labelEn: 'Income Statement',  icon: <ListTree   size={16} /> },
-    { id: 'vat',      labelAr: 'الإقرار الضريبي',      labelEn: 'VAT Return',        icon: <Stamp      size={16} /> },
+  const tabs: { id: TabId; labelAr: string; labelEn: string; icon: ReactNode; badge?: string }[] = [
+    { id: 'overview', labelAr: 'نظرة عامة',           labelEn: 'Overview',           icon: <BarChart3  size={16} /> },
+    { id: 'trial',    labelAr: 'ميزان المراجعة',       labelEn: 'Trial Balance',      icon: <Scale      size={16} /> },
+    { id: 'pl',       labelAr: 'قائمة الدخل',          labelEn: 'Income Statement',   icon: <ListTree   size={16} /> },
+    { id: 'bs',       labelAr: 'الميزانية العمومية',   labelEn: 'Balance Sheet',      icon: <Building2  size={16} /> },
+    { id: 'profit',   labelAr: 'تحليل الربحية',        labelEn: 'Profitability',      icon: <PieChart   size={16} /> },
+    { id: 'vat',      labelAr: 'الإقرار الضريبي',      labelEn: 'VAT Return',         icon: <Stamp      size={16} />, badge: 'ZATCA' },
   ];
 
   return (
@@ -929,7 +1375,9 @@ export default function ReportsPage() {
         <div className="flex-1">
           <h1 className="text-2xl font-bold text-slate-900">{isAr ? 'التقارير المالية' : 'Financial Reports'}</h1>
           <p className="text-slate-500 text-sm mt-0.5">
-            {isAr ? 'ميزان المراجعة، قائمة الدخل، وإقرار ضريبة القيمة المضافة' : 'Trial Balance, P&L, and ZATCA VAT Return'}
+            {isAr
+              ? 'ميزان المراجعة، قائمة الدخل، الميزانية العمومية، تحليل الربحية، وإقرار ضريبة القيمة المضافة'
+              : 'Trial Balance, P&L, Balance Sheet, Profitability Analysis, and ZATCA VAT Return'}
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -962,8 +1410,8 @@ export default function ReportsPage() {
             >
               {tab.icon}
               {isAr ? tab.labelAr : tab.labelEn}
-              {tab.id === 'vat' && (
-                <span className="bg-brand-100 text-brand-700 text-[10px] font-bold px-1.5 py-0.5 rounded-full">ZATCA</span>
+              {tab.badge && (
+                <span className="bg-brand-100 text-brand-700 text-[10px] font-bold px-1.5 py-0.5 rounded-full">{tab.badge}</span>
               )}
             </button>
           ))}
@@ -972,6 +1420,8 @@ export default function ReportsPage() {
         {activeTab === 'overview' && <OverviewTab isAr={isAr} fmtLocale={fmtLocale} />}
         {activeTab === 'trial'    && <TrialBalanceTab isAr={isAr} fmtLocale={fmtLocale} />}
         {activeTab === 'pl'       && <IncomeStatementTab isAr={isAr} fmtLocale={fmtLocale} />}
+        {activeTab === 'bs'       && <BalanceSheetTab isAr={isAr} fmtLocale={fmtLocale} />}
+        {activeTab === 'profit'   && <ProfitabilityTab isAr={isAr} fmtLocale={fmtLocale} />}
         {activeTab === 'vat'      && <VATReturnTab isAr={isAr} fmtLocale={fmtLocale} period={period} onPeriodChange={setPeriod} />}
       </div>
     </div>
