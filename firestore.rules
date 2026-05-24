@@ -35,78 +35,39 @@ service cloud.firestore {
 
     // ─── agencies/{agencyId} ────────────────────────────────────────────────
     match /agencies/{agId} {
-      allow read: if isAuthenticated() && agId == agencyId();
-      allow write: if isAuthenticated() && agId == agencyId() && isAdmin();
+      allow read:  if isAuthenticated() && agId == agencyId();
+      allow write: if isAuthenticated() && agId == agencyId();
     }
 
     // ─── bookings/{bookingId} ───────────────────────────────────────────────
     match /bookings/{bookingId} {
-      allow read: if isAuthenticated()
-                  && isSameAgency()
-                  && hasPerm('perm_bookings_read');
-
-      allow create: if isAuthenticated()
-                    && isSameAgencyCreate()
-                    && hasPerm('perm_bookings_write');
-
-      allow update, delete: if isAuthenticated()
-                             && isSameAgency()
-                             && isSameAgencyCreate()
-                             && hasPerm('perm_bookings_write');
+      allow read:   if isAuthenticated() && isSameAgency();
+      allow create: if isAuthenticated() && isSameAgencyCreate();
+      allow update: if isAuthenticated() && isSameAgency() && isSameAgencyCreate();
+      allow delete: if isAuthenticated() && isSameAgency() && isAdmin();
     }
 
     // ─── customers/{customerId} ─────────────────────────────────────────────
     match /customers/{customerId} {
-      allow read: if isAuthenticated()
-                  && isSameAgency()
-                  && hasPerm('perm_customers_read');
-
-      allow create: if isAuthenticated()
-                    && isSameAgencyCreate()
-                    && hasPerm('perm_customers_write');
-
-      allow update, delete: if isAuthenticated()
-                             && isSameAgency()
-                             && isSameAgencyCreate()
-                             && hasPerm('perm_customers_write');
+      allow read:   if isAuthenticated() && isSameAgency();
+      allow create: if isAuthenticated() && isSameAgencyCreate();
+      allow update: if isAuthenticated() && isSameAgency() && isSameAgencyCreate();
+      allow delete: if isAuthenticated() && isSameAgency() && isAdmin();
     }
 
     // ─── invoices/{invoiceId} ───────────────────────────────────────────────
     match /invoices/{invoiceId} {
-      allow read: if isAuthenticated()
-                  && isSameAgency()
-                  && hasPerm('perm_invoices_read');
-
-      allow create: if isAuthenticated()
-                    && isSameAgencyCreate()
-                    && hasPerm('perm_invoices_write');
-
-      allow update: if isAuthenticated()
-                    && isSameAgency()
-                    && isSameAgencyCreate()
-                    && hasPerm('perm_invoices_write');
-
-      allow delete: if isAuthenticated()
-                    && isSameAgency()
-                    && isAdmin();
+      allow read:   if isAuthenticated() && isSameAgency();
+      allow create: if isAuthenticated() && isSameAgencyCreate();
+      allow update: if isAuthenticated() && isSameAgency() && isSameAgencyCreate();
+      allow delete: if isAuthenticated() && isSameAgency() && isAdmin();
     }
 
     // ─── payments/{paymentId} ───────────────────────────────────────────────
-    // Client-side payment recording allowed with invoices write permission.
     match /payments/{paymentId} {
-      allow read: if isAuthenticated()
-                  && isSameAgency()
-                  && hasPerm('perm_invoices_read');
-
-      allow create: if isAuthenticated()
-                    && isSameAgencyCreate()
-                    && hasPerm('perm_invoices_write');
-
-      allow update: if isAuthenticated()
-                    && isSameAgency()
-                    && isSameAgencyCreate()
-                    && hasPerm('perm_invoices_write');
-
+      allow read:   if isAuthenticated() && isSameAgency();
+      allow create: if isAuthenticated() && isSameAgencyCreate();
+      allow update: if isAuthenticated() && isSameAgency() && isSameAgencyCreate();
       allow delete: if false;
     }
 
@@ -127,6 +88,14 @@ service cloud.firestore {
     // ─── invoice_counters/{agencyId} ────────────────────────────────────────
     match /invoice_counters/{agId} {
       allow read, write: if false;
+    }
+
+    // ─── service_types/{typeId} ─────────────────────────────────────────────
+    match /service_types/{typeId} {
+      allow read:   if isAuthenticated() && isSameAgency();
+      allow create: if isAuthenticated() && isSameAgencyCreate();
+      allow update: if isAuthenticated() && isSameAgency() && isSameAgencyCreate();
+      allow delete: if isAuthenticated() && isSameAgency() && isAdmin();
     }
 
     // ─── suppliers/{supplierId} ─────────────────────────────────────────────
