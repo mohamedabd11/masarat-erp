@@ -1,77 +1,152 @@
-import { notFound } from 'next/navigation';
+'use client';
+
+export const dynamic = 'force-dynamic';
+
+import { useState, useEffect } from 'react';
+import { useAuth } from '@masarat/firebase';
+import { Spinner } from '@/components/ui/Spinner';
 import { PrintableInvoice } from '@/components/invoices/PrintableInvoice';
+import type { ComponentProps } from 'react';
 
-// Demo invoice matching INV-001 from the invoices list
-const DEMO_INVOICE_DATA = {
-  invoiceNumber: 'INV-2026-000248',
-  uuid: 'a4f3b2c1-d5e6-4f78-9012-ab34cd56ef78',
-  issueDate: new Date('2026-05-20'),
-  dueDate: new Date('2026-06-05'),
-  invoiceTypeCode: '388' as const,
-  currency: 'SAR' as const,
-  seller: {
-    nameAr: 'مسارات للسياحة والسفر',
-    nameEn: 'Masarat Travel & Tourism',
-    vatNumber: '300000000000003',
-    crNumber: '4030000000',
-    address: {
-      streetName: 'طريق الملك عبدالعزيز',
-      buildingNumber: '3246',
-      district: 'العليا',
-      city: 'الرياض',
-      postalCode: '12271',
-    },
-    phone: '+966 11 234 5678',
-    email: 'invoices@masarat.sa',
-  },
-  buyer: {
-    nameAr: 'أحمد محمد العمري',
-    nameEn: 'Ahmed Al-Omari',
-    phone: '0501234567',
-  },
-  lines: [
-    {
-      id: '1',
-      nameAr: 'برنامج عمرة — 14 يوم (شخصين)',
-      nameEn: 'Umrah Program — 14 Days (2 Persons)',
-      quantity: 1,
-      unitCode: 'PCE',
-      unitPriceExclVatHalalas: 700000,
-      totalExclVatHalalas: 700000,
-      vatRate: 0,
-      vatAmountHalalas: 0,
-      totalInclVatHalalas: 700000,
-    },
-    {
-      id: '2',
-      nameAr: 'رسوم خدمة الوكالة',
-      nameEn: 'Agency Service Fee',
-      quantity: 1,
-      unitCode: 'PCE',
-      unitPriceExclVatHalalas: 50000,
-      totalExclVatHalalas: 50000,
-      vatRate: 0.15,
-      vatAmountHalalas: 7500,
-      totalInclVatHalalas: 57500,
-    },
-  ],
-  totals: {
-    subtotalExclVatHalalas: 750000,
-    totalVatHalalas: 7500,
-    grandTotalHalalas: 757500,
-  },
-  qrCodeData: undefined,
-  zatcaStatus: 'cleared',
-  notes: 'شامل التأشيرة وتذاكر الطيران والإقامة في فنادق قريبة من الحرم المكي.',
-};
+type PrintableInvoiceData = ComponentProps<typeof PrintableInvoice>['invoice'];
 
-export default function PrintInvoicePage({ params }: { params: { locale: string; id: string } }) {
-  // In production: fetch from Firestore by params.id
-  if (params.id !== 'INV-001' && params.id !== 'INV-2026-000248') notFound();
+export default function PrintInvoicePage({
+  params,
+}: {
+  params: { locale: string; id: string };
+}) {
+  const { user } = useAuth();
+  const [invoice, setInvoice] = useState<PrintableInvoiceData | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    if (!user) return;
+    let cancelled = false;
+
+    async function load() {
+      try {
+        const { getFirestore, doc, getDoc } = await import('firebase/firestore');
+        const { getApp } = await import('@masarat/firebase');
+        const db = getFirestore(getApp());
+        const snap = await getDoc(doc(db, 'invoices', params.id));
+        if (cancelled) return;
+        if (!snap.exists()) { setError('الفاتورة غير موجودة'); setLoading(false); return; }
+
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const d = { id: snap.id, ...snap.data() } as Record<string, any>;
+
+        const grandTotal: number = d.totals?.grandTotal ?? 0;
+        const subtotalExclVat: number = d.totals?.subtotalExclVat ?? Math.round(grandTotal / 1.15);
+        const totalVat: number = d.totals?.totalVat ?? (grandTotal - subtotalExclVat);
+
+        const isAr = params.locale === 'ar';
+
+        // Build line items from stored lines or synthetic fallback
+        const rawLines: PrintableInvoiceData['lines'] = (d.lines && d.lines.length > 0)
+          ? d.lines.map((l: Record<string, unknown>, idx: number) => ({
+              id: String(l.id ?? idx + 1),
+              nameAr: String(l.nameAr ?? ''),
+              nameEn: String(l.nameEn ?? ''),
+              quantity: Number(l.quantity ?? 1),
+              unitCode: String(l.unitCode ?? 'PCE'),
+              unitPriceExclVatHalalas: Number(l.unitPriceExclVatHalalas ?? 0),
+              totalExclVatHalalas: Number(l.totalExclVatHalalas ?? 0),
+              vatRate: Number(l.vatRate ?? 0),
+              vatAmountHalalas: Number(l.vatAmountHalalas ?? 0),
+              totalInclVatHalalas: Number(l.totalInclVatHalalas ?? 0),
+            }))
+          : [
+              {
+                id: '1',
+                nameAr: 'خدمة سفر',
+                nameEn: 'Travel Service',
+                quantity: 1,
+                unitCode: 'PCE',
+                unitPriceExclVatHalalas: subtotalExclVat,
+                totalExclVatHalalas: subtotalExclVat,
+                vatRate: totalVat > 0 ? 0.15 : 0,
+                vatAmountHalalas: totalVat,
+                totalInclVatHalalas: grandTotal,
+              },
+            ];
+
+        const seller = d.seller ?? {};
+        const issueDate = d.issueDate?.toDate?.() ?? d.createdAt?.toDate?.() ?? new Date();
+        const dueDate = d.dueDate?.toDate?.() ?? undefined;
+        const buyerName = isAr
+          ? (d.buyer?.name?.ar ?? d.buyer?.name?.en ?? '')
+          : (d.buyer?.name?.en ?? d.buyer?.name?.ar ?? '');
+
+        const mapped: PrintableInvoiceData = {
+          invoiceNumber: d.invoiceNumber ?? d.id,
+          uuid: d.zatca?.invoiceUUID ?? '',
+          issueDate,
+          dueDate,
+          invoiceTypeCode: (d.zatca?.invoiceTypeCode ?? '388') as '388' | '381' | '383',
+          currency: 'SAR',
+          seller: {
+            nameAr: seller.name?.ar ?? '',
+            nameEn: seller.name?.en ?? '',
+            vatNumber: seller.vatNumber ?? '',
+            crNumber: seller.crNumber ?? '',
+            address: {
+              streetName: seller.address?.streetName ?? '',
+              buildingNumber: seller.address?.buildingNumber ?? '',
+              district: seller.address?.district ?? '',
+              city: seller.address?.city ?? '',
+              postalCode: seller.address?.postalCode ?? '',
+            },
+            phone: seller.phone ?? '',
+            email: seller.email ?? '',
+          },
+          buyer: {
+            nameAr: d.buyer?.name?.ar ?? buyerName,
+            nameEn: d.buyer?.name?.en ?? '',
+            phone: d.buyer?.phone ?? '',
+            vatNumber: d.buyer?.vatNumber,
+          },
+          lines: rawLines,
+          totals: {
+            subtotalExclVatHalalas: subtotalExclVat,
+            totalVatHalalas: totalVat,
+            grandTotalHalalas: grandTotal,
+          },
+          qrCodeData: d.zatca?.qrCodeData,
+          zatcaStatus: d.zatca?.submissionStatus ?? 'not_submitted',
+        };
+
+        setInvoice(mapped);
+      } catch (err) {
+        if (!cancelled) setError(err instanceof Error ? err.message : 'حدث خطأ');
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+
+    void load();
+    return () => { cancelled = true; };
+  }, [params.id, params.locale, user]);
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-slate-100 flex items-center justify-center">
+        <Spinner size="lg" />
+      </div>
+    );
+  }
+
+  if (error || !invoice) {
+    return (
+      <div className="min-h-screen bg-slate-100 flex items-center justify-center">
+        <p className="text-slate-500">{error || 'الفاتورة غير موجودة'}</p>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-slate-100 py-6">
-      <PrintableInvoice invoice={DEMO_INVOICE_DATA} />
+      <PrintableInvoice invoice={invoice} />
     </div>
   );
 }

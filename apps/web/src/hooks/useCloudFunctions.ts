@@ -54,17 +54,29 @@ export interface ProcessRefundResponse {
 
 // ─── Direct Firestore implementations ────────────────────────────────────────
 
+const BOOKING_TYPE_LABELS: Record<string, { ar: string; en: string }> = {
+  flight:    { ar: 'حجز طيران',         en: 'Flight Booking' },
+  hotel:     { ar: 'حجز فندق',          en: 'Hotel Booking' },
+  package:   { ar: 'باقة سياحية',       en: 'Tour Package' },
+  umrah:     { ar: 'برنامج عمرة وحج',   en: 'Umrah & Hajj Program' },
+  hajj:      { ar: 'برنامج حج',         en: 'Hajj Program' },
+  visa:      { ar: 'خدمة تأشيرة',       en: 'Visa Service' },
+  insurance: { ar: 'تأمين سفر',         en: 'Travel Insurance' },
+  transport: { ar: 'خدمة نقل',          en: 'Transport Service' },
+};
+
 async function createInvoiceFirestore(req: CreateInvoiceRequest): Promise<CreateInvoiceResponse> {
   const { getFirestore, collection, addDoc, doc, getDoc, updateDoc, arrayUnion, Timestamp } =
     await import('firebase/firestore');
   const { getApp } = await import('@masarat/firebase');
   const db = getFirestore(getApp());
 
-  // Fetch booking to get pricing and customer info
+  // ── 1. قراءة بيانات الحجز ───────────────────────────────────────────────
   let grandTotal = req.grandTotalHalalas ?? 0;
-  let customerName = { ar: '', en: '' };
+  let customerName: { ar: string; en: string } = { ar: '', en: '' };
   let customerPhone = '';
   let customerId = '';
+  let bookingTypeLabel = { ar: 'خدمة سفر', en: 'Travel Service' };
 
   try {
     const bookingSnap = await getDoc(doc(db, 'bookings', req.bookingId));
@@ -76,16 +88,60 @@ async function createInvoiceFirestore(req: CreateInvoiceRequest): Promise<Create
       if (cn) customerName = { ar: cn.ar ?? '', en: cn.en ?? '' };
       customerPhone = (b.customerPhone as string) ?? '';
       customerId = (b.customerId as string) ?? '';
+      const bType = (b.type as string) ?? '';
+      bookingTypeLabel = BOOKING_TYPE_LABELS[bType] ?? bookingTypeLabel;
     }
-  } catch {
-    // Booking fetch failed — use provided fallback
-  }
+  } catch { /* use provided fallback values */ }
 
-  // Generate invoice number based on timestamp
+  // ── 2. قراءة بيانات الوكالة (البائع) ────────────────────────────────────
+  let seller: Record<string, unknown> = {};
+  try {
+    const agencySnap = await getDoc(doc(db, 'agencies', req.agencyId));
+    if (agencySnap.exists()) {
+      const a = agencySnap.data() as Record<string, unknown>;
+      seller = {
+        name: { ar: (a.nameAr as string) ?? '', en: (a.nameEn as string) ?? '' },
+        vatNumber: (a.vatNumber as string) ?? '',
+        crNumber: (a.crNumber as string) ?? '',
+        address: {
+          streetName: (a.streetName as string) ?? '',
+          buildingNumber: (a.buildingNumber as string) ?? '',
+          district: (a.district as string) ?? '',
+          city: (a.city as string) ?? '',
+          postalCode: (a.postalCode as string) ?? '',
+        },
+        phone: (a.contactPhone as string) ?? '',
+        email: (a.contactEmail as string) ?? '',
+      };
+    }
+  } catch { /* seller remains empty — invoice still valid */ }
+
+  // ── 3. حساب الأرقام ──────────────────────────────────────────────────────
+  const subtotalExclVat = Math.round(grandTotal / 1.15);
+  const totalVat = grandTotal - subtotalExclVat;
+
+  // ── 4. بنود الفاتورة (سطر واحد من بيانات الحجز) ─────────────────────────
+  const lines = [
+    {
+      id: '1',
+      nameAr: bookingTypeLabel.ar,
+      nameEn: bookingTypeLabel.en,
+      quantity: 1,
+      unitCode: 'PCE',
+      unitPriceExclVatHalalas: subtotalExclVat,
+      totalExclVatHalalas: subtotalExclVat,
+      vatRate: totalVat > 0 ? 0.15 : 0,
+      vatAmountHalalas: totalVat,
+      totalInclVatHalalas: grandTotal,
+    },
+  ];
+
+  // ── 5. رقم الفاتورة ───────────────────────────────────────────────────────
   const year = new Date().getFullYear();
   const seq = String(Date.now()).slice(-6);
   const invoiceNumber = `INV-${year}-${seq}`;
 
+  // ── 6. حفظ الفاتورة ───────────────────────────────────────────────────────
   const invoiceRef = await addDoc(collection(db, 'invoices'), {
     agencyId: req.agencyId,
     bookingId: req.bookingId,
@@ -95,17 +151,10 @@ async function createInvoiceFirestore(req: CreateInvoiceRequest): Promise<Create
     paymentStatus: 'unpaid',
     amountPaid: 0,
     amountDue: grandTotal,
-    buyer: {
-      id: customerId,
-      name: customerName,
-      phone: customerPhone,
-    },
-    totals: {
-      subtotalExclVat: Math.round(grandTotal / 1.15),
-      totalVat: grandTotal - Math.round(grandTotal / 1.15),
-      grandTotal,
-      currency: 'SAR',
-    },
+    seller,
+    buyer: { id: customerId, name: customerName, phone: customerPhone },
+    lines,
+    totals: { subtotalExclVat, totalVat, grandTotal, currency: 'SAR' },
     zatca: {
       invoiceUUID: crypto.randomUUID(),
       invoiceTypeCode: '388',
@@ -116,21 +165,14 @@ async function createInvoiceFirestore(req: CreateInvoiceRequest): Promise<Create
     createdBy: req.agencyId,
   });
 
-  // Update booking with this invoiceId
+  // ── 7. ربط الفاتورة بالحجز ───────────────────────────────────────────────
   try {
     await updateDoc(doc(db, 'bookings', req.bookingId), {
       invoiceIds: arrayUnion(invoiceRef.id),
     });
-  } catch {
-    // Invoice still created even if booking update fails
-  }
+  } catch { /* invoice still valid if booking update fails */ }
 
-  return {
-    success: true,
-    invoiceId: invoiceRef.id,
-    invoiceNumber,
-    qrCodeData: '',
-  };
+  return { success: true, invoiceId: invoiceRef.id, invoiceNumber, qrCodeData: '' };
 }
 
 async function processPaymentFirestore(req: ProcessPaymentRequest): Promise<ProcessPaymentResponse> {
