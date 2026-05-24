@@ -1,6 +1,12 @@
 'use client';
 
 import { useState, useCallback } from 'react';
+import {
+  postJournalEntry,
+  buildInvoiceLines,
+  buildPaymentReceivedLines,
+  buildRefundLines,
+} from '@/lib/postJournalEntry';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -205,6 +211,27 @@ async function createInvoiceFirestore(req: CreateInvoiceRequest): Promise<Create
     });
   } catch { /* invoice still valid if booking update fails */ }
 
+  // ── 8. قيد محاسبي تلقائي ─────────────────────────────────────────────────
+  try {
+    await postJournalEntry({
+      agencyId:     req.agencyId,
+      description:  `فاتورة رقم ${invoiceNumber} - ${bookingTypeLabel.ar}`,
+      referenceId:  invoiceRef.id,
+      referenceType: 'invoice',
+      lines: buildInvoiceLines({
+        revenueModel,
+        isVatRegistered,
+        grandTotal:      finalGrandTotal,
+        totalCost:       storedTotalCost,
+        serviceFee:      storedServiceFee,
+        vatAmount:       totalVat,
+        subtotalExclVat,
+      }),
+    });
+  } catch (err) {
+    console.warn('[Accounting] Invoice JE failed:', err);
+  }
+
   return { success: true, invoiceId: invoiceRef.id, invoiceNumber, qrCodeData: '' };
 }
 
@@ -258,6 +285,22 @@ async function processPaymentFirestore(req: ProcessPaymentRequest): Promise<Proc
     // Invoice updated successfully even if booking update fails
   }
 
+  // ── قيد محاسبي: استلام دفعة من العميل ───────────────────────────────────
+  try {
+    const methodLabel: Record<string, string> = {
+      cash: 'نقداً', bank_transfer: 'تحويل بنكي', card: 'بطاقة', online: 'إلكتروني',
+    };
+    await postJournalEntry({
+      agencyId:      req.agencyId,
+      description:   `استلام دفعة - ${methodLabel[req.paymentMethod] ?? req.paymentMethod}`,
+      referenceId:   paymentRef.id,
+      referenceType: 'payment',
+      lines:         buildPaymentReceivedLines(req.amountHalalas),
+    });
+  } catch (err) {
+    console.warn('[Accounting] Payment JE failed:', err);
+  }
+
   return {
     success: true,
     paymentId: paymentRef.id,
@@ -267,29 +310,53 @@ async function processPaymentFirestore(req: ProcessPaymentRequest): Promise<Proc
 }
 
 async function processRefundFirestore(req: ProcessRefundRequest): Promise<ProcessRefundResponse> {
-  const { getFirestore, collection, addDoc, doc, updateDoc, Timestamp } =
+  const { getFirestore, collection, addDoc, doc, getDoc, updateDoc, Timestamp } =
     await import('firebase/firestore');
   const { getApp } = await import('@masarat/firebase');
   const db = getFirestore(getApp());
+
+  // قراءة الفاتورة الأصلية لمعرفة حالة تسجيل الضريبة ونموذج الإيراد
+  let origIsVatRegistered = false;
+  let origRevenueModel    = 'agent';
+  try {
+    const invSnap = await getDoc(doc(db, 'invoices', req.invoiceId));
+    if (invSnap.exists()) {
+      const inv = invSnap.data() as Record<string, unknown>;
+      origIsVatRegistered = (inv.isVatRegistered as boolean) ?? false;
+    }
+    const bkSnap = await getDoc(doc(db, 'bookings', req.bookingId));
+    if (bkSnap.exists()) {
+      const bk = bkSnap.data() as Record<string, unknown>;
+      origRevenueModel = ((bk.pricing as Record<string, string>)?.revenueModel) ?? 'agent';
+    }
+  } catch { /* use defaults */ }
 
   // Create credit note invoice
   const year = new Date().getFullYear();
   const seq = String(Date.now()).slice(-6);
   const creditNoteNumber = `CN-${year}-${seq}`;
 
+  const refundSubtotal = origIsVatRegistered
+    ? Math.round(req.refundAmountHalalas / 1.15)
+    : req.refundAmountHalalas;
+  const refundVat = origIsVatRegistered
+    ? req.refundAmountHalalas - refundSubtotal
+    : 0;
+
   const creditNoteRef = await addDoc(collection(db, 'invoices'), {
     agencyId: req.agencyId,
     bookingId: req.bookingId,
     originalInvoiceId: req.invoiceId,
     type: 'credit_note',
+    isVatRegistered: origIsVatRegistered,
     invoiceNumber: creditNoteNumber,
     status: 'issued',
     paymentStatus: 'refunded',
     amountPaid: req.refundAmountHalalas,
     amountDue: 0,
     totals: {
-      subtotalExclVat: Math.round(req.refundAmountHalalas / 1.15),
-      totalVat: req.refundAmountHalalas - Math.round(req.refundAmountHalalas / 1.15),
+      subtotalExclVat: refundSubtotal,
+      totalVat: refundVat,
       grandTotal: req.refundAmountHalalas,
       currency: 'SAR',
     },
@@ -319,6 +386,19 @@ async function processRefundFirestore(req: ProcessRefundRequest): Promise<Proces
     });
   } catch {
     // Booking update failed — credit note still created
+  }
+
+  // ── قيد محاسبي: استرداد مبلغ للعميل ─────────────────────────────────────
+  try {
+    await postJournalEntry({
+      agencyId:      req.agencyId,
+      description:   `مذكرة دائنة ${creditNoteNumber} - استرداد`,
+      referenceId:   creditNoteRef.id,
+      referenceType: 'refund',
+      lines:         buildRefundLines(req.refundAmountHalalas, origIsVatRegistered, origRevenueModel),
+    });
+  } catch (err) {
+    console.warn('[Accounting] Refund JE failed:', err);
   }
 
   return {

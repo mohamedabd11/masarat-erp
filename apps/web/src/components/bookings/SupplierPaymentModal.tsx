@@ -11,6 +11,7 @@ import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import { Card } from '@/components/ui/Card';
 import { formatCurrency } from '@/lib/utils';
+import { postJournalEntry, buildSupplierPaymentLines } from '@/lib/postJournalEntry';
 import { X, CheckCircle2, AlertCircle, Printer, Banknote } from 'lucide-react';
 
 const schema = z.object({
@@ -107,6 +108,20 @@ export function SupplierPaymentModal({
         status:        'completed',
         createdAt:     Timestamp.now(),
       });
+
+      // ── قيد محاسبي: دفعة للمورد ──────────────────────────────────────────
+      try {
+        const paidHalalas = Math.round(data.amountSAR * 100);
+        await postJournalEntry({
+          agencyId,
+          description:   `دفعة مورد - ${supplierName || 'مورد'}`,
+          referenceId:   ref.id,
+          referenceType: 'supplier_payment',
+          lines:         buildSupplierPaymentLines(paidHalalas),
+        });
+      } catch (jeErr) {
+        console.warn('[Accounting] Supplier payment JE failed:', jeErr);
+      }
 
       setRecordId(ref.id);
     } catch (err) {

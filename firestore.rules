@@ -58,14 +58,22 @@ service cloud.firestore {
       allow create:               if owns(request.resource.data.agencyId);
     }
 
-    // ── accounting (read-only from client) ──────────────────────────────────
+    // ── supplier payments ────────────────────────────────────────────────────
+    match /supplier_payments/{id} {
+      allow read:          if owns(resource.data.agencyId);
+      allow create:        if owns(request.resource.data.agencyId);
+      allow update, delete: if false;
+    }
+
+    // ── accounting ───────────────────────────────────────────────────────────
     match /chart_of_accounts/{id} {
       allow read, update, delete: if owns(resource.data.agencyId);
       allow create:               if owns(request.resource.data.agencyId);
     }
     match /journal_entries/{id} {
-      allow read:  if owns(resource.data.agencyId);
-      allow write: if false;
+      allow read:          if owns(resource.data.agencyId);
+      allow create:        if owns(request.resource.data.agencyId);
+      allow update, delete: if false;   // قيود اليومية غير قابلة للتعديل أو الحذف
     }
 
     // ── internal — no client access ─────────────────────────────────────────
