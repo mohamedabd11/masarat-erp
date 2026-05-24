@@ -13,6 +13,11 @@ import { handleProcessPayment, type ProcessPaymentRequest } from './handlers/pro
 import { handleProcessRefund, type ProcessRefundRequest } from './handlers/process-refund';
 import { handleRegisterAgency, type RegisterAgencyRequest } from './handlers/register-agency';
 import { handleInviteUser, type InviteUserRequest } from './handlers/invite-user';
+import {
+  handleAdminListAgencies,
+  handleAdminUpdateSubscription,
+  type AdminUpdateSubscriptionRequest,
+} from './handlers/admin';
 
 // تهيئة Firebase Admin SDK مرة واحدة
 initializeApp();
@@ -147,6 +152,40 @@ export const inviteUser = onCall<InviteUserRequest>(
       const code = message.includes('مسجّل مسبقاً') ? 'already-exists'
                  : message.includes('PERMISSION')    ? 'permission-denied'
                  : 'internal';
+      throw new HttpsError(code, message);
+    }
+  }
+);
+
+/**
+ * قائمة جميع الوكالات — Super Admin فقط
+ */
+export const adminListAgencies = onCall(
+  { region: 'me-central2' },
+  async (request) => {
+    const callerEmail = request.auth?.token?.['email'] as string | undefined;
+    try {
+      return await handleAdminListAgencies(callerEmail);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'خطأ';
+      const code = message === 'SUPER_ADMIN_ONLY' ? 'permission-denied' : 'internal';
+      throw new HttpsError(code, message);
+    }
+  }
+);
+
+/**
+ * تحديث حالة اشتراك وكالة — Super Admin فقط
+ */
+export const adminUpdateSubscription = onCall<AdminUpdateSubscriptionRequest>(
+  { region: 'me-central2' },
+  async (request) => {
+    const callerEmail = request.auth?.token?.['email'] as string | undefined;
+    try {
+      return await handleAdminUpdateSubscription(callerEmail, request.data);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'خطأ';
+      const code = message === 'SUPER_ADMIN_ONLY' ? 'permission-denied' : 'internal';
       throw new HttpsError(code, message);
     }
   }
