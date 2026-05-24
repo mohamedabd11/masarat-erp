@@ -1,3 +1,4 @@
+export const dynamic = 'force-dynamic';
 import { BookingsClient } from '@/components/bookings/BookingsClient';
 import { Stamp, Globe, Clock, CheckCircle2 } from 'lucide-react';
 

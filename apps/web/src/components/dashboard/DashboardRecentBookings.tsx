@@ -82,7 +82,7 @@ export function DashboardRecentBookings({ locale }: DashboardRecentBookingsProps
         </thead>
         <tbody className="divide-y divide-slate-100">
           {bookings.map((booking) => {
-            const customerName = isAr ? booking.customerName.ar : booking.customerName.en;
+            const customerName = isAr ? (booking.customerName?.ar ?? '') : (booking.customerName?.en ?? '');
             const createdDate  = booking.createdAt ? booking.createdAt.toDate() : new Date();
 
             return (

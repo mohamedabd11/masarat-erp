@@ -1,3 +1,4 @@
+export const dynamic = 'force-dynamic';
 import { BookingsClient } from '@/components/bookings/BookingsClient';
 import { Building2, MapPin, BedDouble, Star } from 'lucide-react';
 

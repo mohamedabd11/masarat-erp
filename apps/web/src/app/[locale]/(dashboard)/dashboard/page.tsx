@@ -1,3 +1,4 @@
+export const dynamic = 'force-dynamic';
 import { getTranslations } from 'next-intl/server';
 import { Card, CardHeader, CardTitle } from '@/components/ui/Card';
 import { DashboardStats } from '@/components/dashboard/DashboardStats';

@@ -1,3 +1,4 @@
+export const dynamic = 'force-dynamic';
 import { BankingClient } from '@/components/banking/BankingClient';
 import { Landmark, CreditCard, Wallet, RefreshCw } from 'lucide-react';
 

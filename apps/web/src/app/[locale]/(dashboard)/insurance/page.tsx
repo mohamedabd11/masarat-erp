@@ -1,3 +1,4 @@
+export const dynamic = 'force-dynamic';
 import { BookingsClient } from '@/components/bookings/BookingsClient';
 import { Shield, Globe, HeartPulse, Briefcase, Plane } from 'lucide-react';
 

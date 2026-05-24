@@ -1,3 +1,4 @@
+export const dynamic = 'force-dynamic';
 import { BookingsClient } from '@/components/bookings/BookingsClient';
 import { Moon, Users, CalendarDays, Tent } from 'lucide-react';
 

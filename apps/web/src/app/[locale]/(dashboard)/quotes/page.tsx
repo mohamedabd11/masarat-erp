@@ -1,3 +1,4 @@
+export const dynamic = 'force-dynamic';
 import { QuotesClient } from '@/components/quotes/QuotesClient';
 import { FileText, Send, CheckCircle, TrendingUp } from 'lucide-react';
 

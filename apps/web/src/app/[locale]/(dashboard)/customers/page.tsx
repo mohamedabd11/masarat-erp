@@ -1,3 +1,4 @@
+export const dynamic = 'force-dynamic';
 import { CustomersClient } from '@/components/customers/CustomersClient';
 
 export default function CustomersPage({ params }: { params: { locale: string } }) {

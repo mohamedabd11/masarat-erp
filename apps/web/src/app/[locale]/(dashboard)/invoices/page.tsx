@@ -1,3 +1,4 @@
+export const dynamic = 'force-dynamic';
 import { InvoicesClient } from '@/components/invoices/InvoicesClient';
 
 export default function InvoicesPage({ params }: { params: { locale: string } }) {

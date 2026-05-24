@@ -1,3 +1,4 @@
+export const dynamic = 'force-dynamic';
 import { Suspense } from 'react';
 import { getTranslations } from 'next-intl/server';
 import { BookingsClient } from '@/components/bookings/BookingsClient';
