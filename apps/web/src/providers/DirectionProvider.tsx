@@ -1,6 +1,6 @@
 'use client';
 
-import { createContext, useContext } from 'react';
+import { createContext, useContext, type ReactNode } from 'react';
 
 interface DirectionContextValue {
   locale: string;
@@ -18,7 +18,7 @@ export function DirectionProvider({
   children,
   locale,
 }: {
-  children: React.ReactNode;
+  children: ReactNode;
   locale: string;
 }) {
   const isRtl = locale === 'ar';

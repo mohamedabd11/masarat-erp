@@ -47,7 +47,7 @@ export function useFirestoreBookings(options: UseFirestoreBookingsOptions = {}):
         const { bookingsCol } = await import('@masarat/firebase');
         const { query, where, limit, onSnapshot } = await import('firebase/firestore');
 
-        const agencyId = user.agencyId;
+        const agencyId = user?.agencyId;
         if (!agencyId) {
           setLoading(false);
           setError('No agency ID in token');

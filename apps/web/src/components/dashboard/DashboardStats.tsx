@@ -20,12 +20,12 @@ export function DashboardStats({ locale }: { locale: string }) {
     );
   }
 
-  const active  = bookings.filter((b) => b.status === 'confirmed' || b.status === 'in_progress').length;
+  const active  = bookings.filter((b) => b.status === 'confirmed' || (b.status as string) === 'in_progress').length;
   const pending = bookings.filter((b) => b.status === 'pending_approval').length;
-  const revenue = bookings.reduce((s, b) => s + (b.grandTotalHalalas ?? (b.pricing as { totalAmount?: number } | undefined)?.totalAmount ?? 0), 0);
+  const revenue = bookings.reduce((s, b) => s + ((b as any).grandTotalHalalas ?? b.pricing?.totalAmount ?? 0), 0);
   const due     = bookings.reduce((s, b) => {
-    const total = b.grandTotalHalalas ?? (b.pricing as { totalAmount?: number } | undefined)?.totalAmount ?? 0;
-    const paid  = b.paidHalalas ?? (b as { totalPaid?: number }).totalPaid ?? 0;
+    const total = (b as any).grandTotalHalalas ?? b.pricing?.totalAmount ?? 0;
+    const paid  = (b as any).paidHalalas ?? b.totalPaid ?? 0;
     return s + Math.max(0, total - paid);
   }, 0);
 
