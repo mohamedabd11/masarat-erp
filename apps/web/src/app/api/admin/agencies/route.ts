@@ -22,7 +22,7 @@ export async function GET(request: Request) {
     const { getFirestore } = await import('firebase-admin/firestore');
     const db = getFirestore();
 
-    const snap = await db.collection('agencies').orderBy('createdAt', 'desc').get();
+    const snap = await db.collection('agencies').get();
 
     const agencies = await Promise.all(
       snap.docs.map(async d => {
