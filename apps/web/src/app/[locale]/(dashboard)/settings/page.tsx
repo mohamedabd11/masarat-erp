@@ -305,6 +305,11 @@ export default function SettingsPage() {
   const [saved, setSaved] = useState(false);
   const [zatcaEnv, setZatcaEnv] = useState<'testing' | 'production'>('testing');
 
+  // ── Agency contact info (loaded from / saved to Firestore) ─────────────
+  const [contactEmail, setContactEmail] = useState('');
+  const [contactPhone, setContactPhone] = useState('');
+  const [contactHours, setContactHours] = useState('');
+
   // ── Service Types state ─────────────────────────────────────────────────
   const [customTypes, setCustomTypes] = useState<CustomServiceType[]>([]);
   const [defaultToggles, setDefaultToggles] = useState<Record<string, boolean>>(
@@ -315,6 +320,26 @@ export default function SettingsPage() {
   const [addSaving, setAddSaving] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editForm, setEditForm] = useState({ nameAr: '', nameEn: '', icon: 'layers', color: PRESET_COLORS[0] });
+
+  // Load agency contact info from Firestore
+  useEffect(() => {
+    if (!user?.agencyId) return;
+
+    async function loadAgency() {
+      const { getFirestore, doc, getDoc } = await import('firebase/firestore');
+      const { getApp } = await import('@masarat/firebase');
+      const db = getFirestore(getApp());
+      const snap = await getDoc(doc(db, 'agencies', user!.agencyId));
+      if (snap.exists()) {
+        const data = snap.data();
+        setContactEmail(data.contactEmail ?? '');
+        setContactPhone(data.contactPhone ?? '');
+        setContactHours(data.contactHours ?? '');
+      }
+    }
+
+    void loadAgency();
+  }, [user?.agencyId]);
 
   // Load custom service types from Firestore
   useEffect(() => {
@@ -412,12 +437,25 @@ export default function SettingsPage() {
   }
 
   async function handleSave() {
+    if (!user?.agencyId) return;
     setSaving(true);
     setSaved(false);
-    await new Promise<void>(r => setTimeout(r, 1000));
-    setSaving(false);
-    setSaved(true);
-    setTimeout(() => setSaved(false), 3000);
+    try {
+      const { getFirestore, doc, setDoc } = await import('firebase/firestore');
+      const { getApp } = await import('@masarat/firebase');
+      const db = getFirestore(getApp());
+      await setDoc(
+        doc(db, 'agencies', user.agencyId),
+        { contactEmail: contactEmail.trim(), contactPhone: contactPhone.trim(), contactHours: contactHours.trim() },
+        { merge: true },
+      );
+      setSaved(true);
+      setTimeout(() => setSaved(false), 3000);
+    } catch {
+      // ignore save error silently — UI already shows saved state on success
+    } finally {
+      setSaving(false);
+    }
   }
 
   return (
@@ -534,6 +572,44 @@ export default function SettingsPage() {
                       defaultValue="12271"
                       dir="ltr"
                     />
+                  </div>
+                </div>
+
+                {/* Contact info section */}
+                <div className="border-t border-surface-border pt-5">
+                  <p className="text-sm font-semibold text-slate-700 mb-4">
+                    {isAr ? 'معلومات التواصل' : 'Contact Information'}
+                  </p>
+                  <p className="text-xs text-slate-400 mb-4 -mt-2">
+                    {isAr
+                      ? 'تظهر هذه المعلومات في صفحة المساعدة ليتمكن الموظفون من التواصل معك'
+                      : 'This info appears on the Help page so staff can contact you'}
+                  </p>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <Input
+                      label={isAr ? 'البريد الإلكتروني للدعم' : 'Support Email'}
+                      type="email"
+                      value={contactEmail}
+                      onChange={e => setContactEmail(e.target.value)}
+                      placeholder="support@agency.sa"
+                      dir="ltr"
+                    />
+                    <Input
+                      label={isAr ? 'رقم الهاتف' : 'Phone Number'}
+                      type="tel"
+                      value={contactPhone}
+                      onChange={e => setContactPhone(e.target.value)}
+                      placeholder="+966 11 000 0000"
+                      dir="ltr"
+                    />
+                    <div className="sm:col-span-2">
+                      <Input
+                        label={isAr ? 'ساعات الدعم' : 'Support Hours'}
+                        value={contactHours}
+                        onChange={e => setContactHours(e.target.value)}
+                        placeholder={isAr ? 'الأحد — الخميس، 9ص — 6م' : 'Sun — Thu, 9AM — 6PM'}
+                      />
+                    </div>
                   </div>
                 </div>
 
