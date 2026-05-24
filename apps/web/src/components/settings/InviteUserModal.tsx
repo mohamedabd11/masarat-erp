@@ -148,25 +148,34 @@ export function InviteUserModal({ isAr, onClose, onDone }: InviteUserModalProps)
                 </p>
                 <p className="text-slate-500 text-sm">
                   {isAr
-                    ? 'انسخ الرابط وأرسله للموظف عبر واتساب أو البريد الإلكتروني'
-                    : 'Copy the link and send it to the user via WhatsApp or email'}
+                    ? 'أرسل الرابط للموظف عبر واتساب أو البريد حتى يعيّن كلمة مروره'
+                    : 'Send the link to the user via WhatsApp or email to set their password'}
                 </p>
               </div>
 
-              <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 text-start space-y-3">
-                <p className="text-xs font-semibold text-slate-500 uppercase tracking-widest">
-                  {isAr ? 'رابط تعيين كلمة المرور' : 'Password Setup Link'}
+              {/* Direct link button */}
+              <a
+                href={setupLink}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="w-full flex items-center justify-center gap-2 py-3 rounded-xl text-sm font-bold bg-brand-600 hover:bg-brand-700 text-white transition-colors"
+              >
+                {isAr ? 'فتح رابط تعيين كلمة المرور' : 'Open Password Setup Link'}
+              </a>
+
+              <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 text-start">
+                <p className="text-[10px] text-slate-400 mb-1">
+                  {isAr ? 'أو انسخ الرابط وأرسله للموظف:' : 'Or copy and send to the user:'}
                 </p>
-                <p className="text-xs text-slate-700 font-mono break-all bg-white border border-slate-200 rounded-lg p-2.5">
-                  {setupLink}
-                </p>
-                <button
-                  onClick={copyLink}
-                  className={cn(
-                    'w-full flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-semibold transition-colors',
-                    copied
-                      ? 'bg-emerald-600 text-white'
-                      : 'bg-brand-600 hover:bg-brand-700 text-white',
+                <div className="flex items-center gap-2">
+                  <p className="flex-1 text-[10px] text-slate-500 font-mono break-all">{setupLink}</p>
+                  <button
+                    onClick={copyLink}
+                    className={cn(
+                      'flex-shrink-0 flex items-center gap-1 px-2 py-1.5 rounded-lg text-xs font-semibold transition-colors',
+                      copied
+                        ? 'bg-emerald-600 text-white'
+                        : 'bg-slate-200 hover:bg-slate-300 text-slate-600',
                   )}
                 >
                   {copied ? <Check size={15} /> : <Copy size={15} />}
@@ -174,6 +183,7 @@ export function InviteUserModal({ isAr, onClose, onDone }: InviteUserModalProps)
                     ? (isAr ? 'تم النسخ!' : 'Copied!')
                     : (isAr ? 'نسخ الرابط' : 'Copy Link')}
                 </button>
+              </div>
               </div>
 
               <div className="flex gap-2">
