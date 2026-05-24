@@ -305,7 +305,16 @@ export default function SettingsPage() {
   const [saved, setSaved] = useState(false);
   const [zatcaEnv, setZatcaEnv] = useState<'testing' | 'production'>('testing');
 
-  // ── Agency contact info (loaded from / saved to Firestore) ─────────────
+  // ── Agency info (loaded from / saved to Firestore) ────────────────────
+  const [nameAr, setNameAr] = useState('مسارات للسياحة والسفر');
+  const [nameEn, setNameEn] = useState('Masarat Travel & Tourism');
+  const [vatNumber, setVatNumber] = useState('');
+  const [crNumber, setCrNumber] = useState('');
+  const [streetName, setStreetName] = useState('');
+  const [buildingNumber, setBuildingNumber] = useState('');
+  const [district, setDistrict] = useState('');
+  const [city, setCity] = useState('');
+  const [postalCode, setPostalCode] = useState('');
   const [contactEmail, setContactEmail] = useState('');
   const [contactPhone, setContactPhone] = useState('');
   const [contactHours, setContactHours] = useState('');
@@ -321,7 +330,7 @@ export default function SettingsPage() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editForm, setEditForm] = useState({ nameAr: '', nameEn: '', icon: 'layers', color: PRESET_COLORS[0] });
 
-  // Load agency contact info from Firestore
+  // Load all agency info from Firestore
   useEffect(() => {
     if (!user?.agencyId) return;
 
@@ -331,10 +340,19 @@ export default function SettingsPage() {
       const db = getFirestore(getApp());
       const snap = await getDoc(doc(db, 'agencies', user!.agencyId));
       if (snap.exists()) {
-        const data = snap.data();
-        setContactEmail(data.contactEmail ?? '');
-        setContactPhone(data.contactPhone ?? '');
-        setContactHours(data.contactHours ?? '');
+        const d = snap.data();
+        if (d.nameAr)        setNameAr(d.nameAr);
+        if (d.nameEn)        setNameEn(d.nameEn);
+        if (d.vatNumber)     setVatNumber(d.vatNumber);
+        if (d.crNumber)      setCrNumber(d.crNumber);
+        if (d.streetName)    setStreetName(d.streetName);
+        if (d.buildingNumber) setBuildingNumber(d.buildingNumber);
+        if (d.district)      setDistrict(d.district);
+        if (d.city)          setCity(d.city);
+        if (d.postalCode)    setPostalCode(d.postalCode);
+        setContactEmail(d.contactEmail ?? '');
+        setContactPhone(d.contactPhone ?? '');
+        setContactHours(d.contactHours ?? '');
       }
     }
 
@@ -446,7 +464,20 @@ export default function SettingsPage() {
       const db = getFirestore(getApp());
       await setDoc(
         doc(db, 'agencies', user.agencyId),
-        { contactEmail: contactEmail.trim(), contactPhone: contactPhone.trim(), contactHours: contactHours.trim() },
+        {
+          nameAr:          nameAr.trim(),
+          nameEn:          nameEn.trim(),
+          vatNumber:       vatNumber.trim(),
+          crNumber:        crNumber.trim(),
+          streetName:      streetName.trim(),
+          buildingNumber:  buildingNumber.trim(),
+          district:        district.trim(),
+          city:            city.trim(),
+          postalCode:      postalCode.trim(),
+          contactEmail:    contactEmail.trim(),
+          contactPhone:    contactPhone.trim(),
+          contactHours:    contactHours.trim(),
+        },
         { merge: true },
       );
       setSaved(true);
@@ -517,13 +548,15 @@ export default function SettingsPage() {
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <Input
                     label={isAr ? 'اسم الوكالة بالعربي' : 'Agency Name (Arabic)'}
-                    defaultValue="مسارات للسياحة والسفر"
+                    value={nameAr}
+                    onChange={e => setNameAr(e.target.value)}
                     required
                     dir="rtl"
                   />
                   <Input
                     label={isAr ? 'اسم الوكالة بالإنجليزي' : 'Agency Name (English)'}
-                    defaultValue="Masarat Travel & Tourism"
+                    value={nameEn}
+                    onChange={e => setNameEn(e.target.value)}
                     dir="ltr"
                   />
                 </div>
@@ -532,15 +565,19 @@ export default function SettingsPage() {
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <Input
                     label={isAr ? 'الرقم الضريبي (VAT)' : 'VAT Number'}
-                    defaultValue="300000000000003"
+                    value={vatNumber}
+                    onChange={e => setVatNumber(e.target.value)}
                     hint={isAr ? '15 خانة تبدأ بـ 300' : '15 digits starting with 300'}
                     maxLength={15}
                     dir="ltr"
+                    placeholder="300000000000003"
                   />
                   <Input
                     label={isAr ? 'رقم السجل التجاري' : 'CR Number'}
-                    defaultValue="4030000000"
+                    value={crNumber}
+                    onChange={e => setCrNumber(e.target.value)}
                     dir="ltr"
+                    placeholder="4030000000"
                   />
                 </div>
 
@@ -552,25 +589,35 @@ export default function SettingsPage() {
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <Input
                       label={isAr ? 'اسم الشارع' : 'Street Name'}
-                      defaultValue="طريق الملك عبدالعزيز"
+                      value={streetName}
+                      onChange={e => setStreetName(e.target.value)}
+                      placeholder={isAr ? 'طريق الملك عبدالعزيز' : 'King Abdul Aziz Road'}
                     />
                     <Input
                       label={isAr ? 'رقم المبنى' : 'Building Number'}
-                      defaultValue="3246"
+                      value={buildingNumber}
+                      onChange={e => setBuildingNumber(e.target.value)}
                       dir="ltr"
+                      placeholder="3246"
                     />
                     <Input
                       label={isAr ? 'الحي' : 'District'}
-                      defaultValue="العليا"
+                      value={district}
+                      onChange={e => setDistrict(e.target.value)}
+                      placeholder={isAr ? 'العليا' : 'Al Olaya'}
                     />
                     <Input
                       label={isAr ? 'المدينة' : 'City'}
-                      defaultValue="الرياض"
+                      value={city}
+                      onChange={e => setCity(e.target.value)}
+                      placeholder={isAr ? 'الرياض' : 'Riyadh'}
                     />
                     <Input
                       label={isAr ? 'الرمز البريدي' : 'Postal Code'}
-                      defaultValue="12271"
+                      value={postalCode}
+                      onChange={e => setPostalCode(e.target.value)}
                       dir="ltr"
+                      placeholder="12271"
                     />
                   </div>
                 </div>
