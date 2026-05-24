@@ -308,6 +308,7 @@ export default function SettingsPage() {
   // ── Agency info (loaded from / saved to Firestore) ────────────────────
   const [nameAr, setNameAr] = useState('مسارات للسياحة والسفر');
   const [nameEn, setNameEn] = useState('Masarat Travel & Tourism');
+  const [isVatRegistered, setIsVatRegistered] = useState(false);
   const [vatNumber, setVatNumber] = useState('');
   const [crNumber, setCrNumber] = useState('');
   const [streetName, setStreetName] = useState('');
@@ -343,6 +344,7 @@ export default function SettingsPage() {
         const d = snap.data();
         if (d.nameAr)        setNameAr(d.nameAr);
         if (d.nameEn)        setNameEn(d.nameEn);
+        setIsVatRegistered(d.isVatRegistered ?? (d.vatNumber ?? '').trim().length > 0);
         if (d.vatNumber)     setVatNumber(d.vatNumber);
         if (d.crNumber)      setCrNumber(d.crNumber);
         if (d.streetName)    setStreetName(d.streetName);
@@ -467,7 +469,8 @@ export default function SettingsPage() {
         {
           nameAr:          nameAr.trim(),
           nameEn:          nameEn.trim(),
-          vatNumber:       vatNumber.trim(),
+          isVatRegistered,
+          vatNumber:       isVatRegistered ? vatNumber.trim() : '',
           crNumber:        crNumber.trim(),
           streetName:      streetName.trim(),
           buildingNumber:  buildingNumber.trim(),
@@ -561,17 +564,61 @@ export default function SettingsPage() {
                   />
                 </div>
 
+                {/* VAT registration toggle */}
+                <div className="border border-surface-border rounded-xl p-4 bg-slate-50 space-y-3">
+                  <div className="flex items-center justify-between gap-4">
+                    <div>
+                      <p className="text-sm font-semibold text-slate-800">
+                        {isAr
+                          ? 'هل المنشأة مسجّلة في ضريبة القيمة المضافة؟'
+                          : 'Is the agency VAT-registered?'}
+                      </p>
+                      <p className="text-xs text-slate-500 mt-0.5">
+                        {isAr
+                          ? 'يحدد نوع الوثائق المالية الصادرة: فاتورة ضريبية أو فاتورة تجارية'
+                          : 'Determines issued document type: tax invoice vs commercial invoice'}
+                      </p>
+                    </div>
+                    <ToggleSwitch
+                      checked={isVatRegistered}
+                      onChange={() => {
+                        const next = !isVatRegistered;
+                        setIsVatRegistered(next);
+                        if (!next) setVatNumber('');
+                      }}
+                      label={isAr ? 'تسجيل ضريبة القيمة المضافة' : 'VAT Registration'}
+                    />
+                  </div>
+                  {isVatRegistered ? (
+                    <div className="flex items-center gap-2 text-xs text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-2">
+                      <CheckCircle2 size={13} />
+                      {isAr
+                        ? 'سيتم إصدار فاتورة ضريبية مع QR code متوافق مع زاتكا'
+                        : 'Tax invoices with ZATCA-compliant QR code will be issued'}
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-2 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                      <AlertTriangle size={13} />
+                      {isAr
+                        ? 'سيتم إصدار فاتورة تجارية — لا تتضمن ضريبة القيمة المضافة'
+                        : 'Commercial invoices will be issued — no VAT applied'}
+                    </div>
+                  )}
+                </div>
+
                 {/* Registration numbers */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <Input
-                    label={isAr ? 'الرقم الضريبي (VAT)' : 'VAT Number'}
-                    value={vatNumber}
-                    onChange={e => setVatNumber(e.target.value)}
-                    hint={isAr ? '15 خانة تبدأ بـ 300' : '15 digits starting with 300'}
-                    maxLength={15}
-                    dir="ltr"
-                    placeholder="300000000000003"
-                  />
+                  {isVatRegistered && (
+                    <Input
+                      label={isAr ? 'الرقم الضريبي (VAT)' : 'VAT Number'}
+                      value={vatNumber}
+                      onChange={e => setVatNumber(e.target.value)}
+                      hint={isAr ? '15 خانة تبدأ بـ 300' : '15 digits starting with 300'}
+                      maxLength={15}
+                      dir="ltr"
+                      placeholder="300000000000003"
+                    />
+                  )}
                   <Input
                     label={isAr ? 'رقم السجل التجاري' : 'CR Number'}
                     value={crNumber}
