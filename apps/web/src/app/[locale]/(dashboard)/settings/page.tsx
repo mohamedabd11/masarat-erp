@@ -43,6 +43,8 @@ import {
   X,
 } from 'lucide-react';
 import { InviteUserModal } from '@/components/settings/InviteUserModal';
+import { useSubscription } from '@/providers/SubscriptionProvider';
+import { MessageCircle } from 'lucide-react';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -178,10 +180,6 @@ const INITIAL_MODULES: Module[] = [
 
 // ─── Plan features ────────────────────────────────────────────────────────────
 
-const PLAN_FEATURES = {
-  ar: ['حتى 3 مستخدمين', 'حتى 500 حجز شهرياً', 'الوحدات الأساسية', 'دعم بالبريد الإلكتروني'],
-  en: ['Up to 3 users', 'Up to 500 bookings / month', 'Core modules', 'Email support'],
-};
 
 // ─── Service Types ────────────────────────────────────────────────────────────
 
@@ -266,11 +264,38 @@ function ToggleSwitch({
 
 // ─── Page component ───────────────────────────────────────────────────────────
 
+const WA_NUMBER = '249969837823';
+
+const PLAN_META: Record<string, { ar: string; en: string; price: string; features: { ar: string[]; en: string[] } }> = {
+  trial: {
+    ar: 'تجريبي', en: 'Trial', price: '0',
+    features: {
+      ar: ['حتى 3 مستخدمين', 'حتى 500 حجز شهرياً', 'الوحدات الأساسية', 'دعم بالبريد الإلكتروني'],
+      en: ['Up to 3 users', 'Up to 500 bookings / month', 'Core modules', 'Email support'],
+    },
+  },
+  starter: {
+    ar: 'المبتدئ', en: 'Starter', price: '199',
+    features: {
+      ar: ['حتى 3 مستخدمين', 'حتى 500 حجز شهرياً', 'الوحدات الأساسية', 'دعم بالبريد الإلكتروني'],
+      en: ['Up to 3 users', 'Up to 500 bookings / month', 'Core modules', 'Email support'],
+    },
+  },
+  professional: {
+    ar: 'الاحترافي', en: 'Professional', price: '399',
+    features: {
+      ar: ['مستخدمون غير محدودين', 'حجوزات غير محدودة', 'جميع الوحدات + ZATCA', 'دعم ذو أولوية'],
+      en: ['Unlimited users', 'Unlimited bookings', 'All modules + ZATCA', 'Priority support'],
+    },
+  },
+};
+
 export default function SettingsPage() {
   const locale = useLocale();
   const isAr = locale === 'ar';
   const searchParams = useSearchParams();
   const { user } = useAuth();
+  const { status: subStatus, plan: subPlan, agencyName: subAgencyName, daysRemaining } = useSubscription();
 
   // Support ?tab=service_types URL param
   const tabParam = searchParams.get('tab') as Tab | null;
@@ -1293,82 +1318,125 @@ export default function SettingsPage() {
           )}
 
           {/* ── Billing ──────────────────────────────────────────────────── */}
-          {activeTab === 'billing' && (
-            <div className="space-y-4">
-              {/* Current plan */}
-              <Card>
-                <CardHeader>
-                  <CardTitle>{isAr ? 'خطة الاشتراك الحالية' : 'Current Plan'}</CardTitle>
-                </CardHeader>
+          {activeTab === 'billing' && (() => {
+            const planKey   = subPlan && PLAN_META[subPlan] ? subPlan : (subStatus === 'trial' ? 'trial' : 'starter');
+            const planMeta  = PLAN_META[planKey] ?? PLAN_META['starter']!;
+            const planName  = isAr ? planMeta.ar : planMeta.en;
+            const planPrice = planMeta.price;
+            const planFeats = isAr ? planMeta.features.ar : planMeta.features.en;
 
-                <div className="flex items-start justify-between gap-6 flex-wrap">
-                  {/* Plan details */}
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 mb-2 flex-wrap">
-                      <span className="text-2xl font-bold text-slate-900">
-                        {isAr ? 'المبتدئ' : 'Starter'}
-                      </span>
-                      <Badge variant="success">{isAr ? 'نشط' : 'Active'}</Badge>
+            const statusBadge = (() => {
+              if (subStatus === 'trial')     return <Badge variant="info">{isAr ? 'تجريبي' : 'Trial'}</Badge>;
+              if (subStatus === 'active')    return <Badge variant="success">{isAr ? 'نشط' : 'Active'}</Badge>;
+              if (subStatus === 'past_due')  return <Badge variant="warning">{isAr ? 'متأخر' : 'Past Due'}</Badge>;
+              if (subStatus === 'cancelled') return <Badge variant="danger">{isAr ? 'ملغى' : 'Cancelled'}</Badge>;
+              return null;
+            })();
+
+            const statusLine = (() => {
+              if (subStatus === 'trial' && daysRemaining !== null) {
+                return isAr
+                  ? `متبقي ${daysRemaining} ${daysRemaining === 1 ? 'يوم' : 'أيام'} على انتهاء الفترة التجريبية`
+                  : `${daysRemaining} day${daysRemaining === 1 ? '' : 's'} remaining in free trial`;
+              }
+              return isAr ? 'يُجدَّد بالتواصل مع فريق المبيعات' : 'Renewed via sales team';
+            })();
+
+            const waMsg = subAgencyName
+              ? `مرحباً فريق مسارات، أرغب في ترقية اشتراك وكالتي (${subAgencyName}) إلى باقة الاحترافي.`
+              : 'مرحباً فريق مسارات، أرغب في الاشتراك في باقة الاحترافي.';
+            const waUrl = `https://wa.me/${WA_NUMBER}?text=${encodeURIComponent(waMsg)}`;
+
+            const isProfessional = planKey === 'professional';
+
+            return (
+              <div className="space-y-4">
+                {/* Current plan */}
+                <Card>
+                  <CardHeader>
+                    <CardTitle>{isAr ? 'خطة الاشتراك الحالية' : 'Current Plan'}</CardTitle>
+                  </CardHeader>
+
+                  <div className="flex items-start justify-between gap-6 flex-wrap">
+                    {/* Plan details */}
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 mb-2 flex-wrap">
+                        <span className="text-2xl font-bold text-slate-900">{planName}</span>
+                        {statusBadge}
+                      </div>
+                      <p className="text-sm text-slate-500 mb-5">{statusLine}</p>
+                      <ul className="space-y-2">
+                        {planFeats.map(f => (
+                          <li key={f} className="flex items-center gap-2 text-sm text-slate-700">
+                            <CheckCircle2 size={15} className="text-emerald-500 flex-shrink-0" />
+                            {f}
+                          </li>
+                        ))}
+                      </ul>
                     </div>
-                    <p className="text-sm text-slate-500 mb-5">
-                      {isAr ? 'يتجدد في 1 يونيو 2026' : 'Renews June 1, 2026'}
-                    </p>
-                    <ul className="space-y-2">
-                      {(isAr ? PLAN_FEATURES.ar : PLAN_FEATURES.en).map(f => (
-                        <li key={f} className="flex items-center gap-2 text-sm text-slate-700">
-                          <CheckCircle2 size={15} className="text-emerald-500 flex-shrink-0" />
-                          {f}
-                        </li>
-                      ))}
-                    </ul>
+
+                    {/* Price */}
+                    <div className="text-end flex-shrink-0">
+                      {planKey === 'trial' ? (
+                        <>
+                          <p className="text-3xl font-bold text-slate-900">{isAr ? 'مجاناً' : 'Free'}</p>
+                          <p className="text-xs text-slate-400 mt-1">{isAr ? 'فترة تجريبية' : 'Trial period'}</p>
+                        </>
+                      ) : (
+                        <>
+                          <p className="text-4xl font-bold text-slate-900">{planPrice}</p>
+                          <p className="text-sm text-slate-500 mt-1">{isAr ? 'ريال سعودي / شهر' : 'SAR / month'}</p>
+                        </>
+                      )}
+                    </div>
                   </div>
 
-                  {/* Price */}
-                  <div className="text-end flex-shrink-0">
-                    <p className="text-4xl font-bold text-slate-900">299</p>
-                    <p className="text-sm text-slate-500 mt-1">
-                      {isAr ? 'ريال سعودي / شهر' : 'SAR / month'}
-                    </p>
-                  </div>
-                </div>
+                  {/* Upgrade CTA — only when not already on professional */}
+                  {!isProfessional && (
+                    <div className="border-t border-surface-border pt-5 mt-5">
+                      <div className="rounded-xl bg-gradient-to-br from-brand-50 to-sky-50 border border-brand-100 p-5">
+                        <p className="text-sm font-semibold text-slate-900 mb-1">
+                          {isAr ? 'هل تريد المزيد؟' : 'Need more?'}
+                        </p>
+                        <p className="text-xs text-slate-600 mb-4">
+                          {isAr
+                            ? 'خطة الاحترافي تدعم مستخدمين غير محدودين، حجوزات غير محدودة، ووصولاً كاملاً لجميع الوحدات.'
+                            : 'The Professional plan includes unlimited users, unlimited bookings, and full access to all modules.'}
+                        </p>
+                        <a
+                          href={waUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="flex items-center justify-center gap-2 w-full py-2.5 rounded-xl text-sm font-bold bg-brand-600 hover:bg-brand-700 text-white transition-colors"
+                        >
+                          <MessageCircle size={16} />
+                          {isAr ? 'تواصل للترقية إلى الاحترافي' : 'Contact to Upgrade to Professional'}
+                        </a>
+                      </div>
+                    </div>
+                  )}
+                </Card>
 
-                {/* Upgrade CTA */}
-                <div className="border-t border-surface-border pt-5 mt-5">
-                  <div className="rounded-xl bg-gradient-to-br from-brand-50 to-sky-50 border border-brand-100 p-5">
-                    <p className="text-sm font-semibold text-slate-900 mb-1">
-                      {isAr ? 'هل تريد المزيد؟' : 'Need more?'}
+                {/* Billing history placeholder */}
+                <Card>
+                  <CardHeader>
+                    <CardTitle>{isAr ? 'سجل الفواتير' : 'Billing History'}</CardTitle>
+                  </CardHeader>
+                  <div className="text-center py-8">
+                    <CreditCard size={36} className="text-slate-200 mx-auto mb-3" />
+                    <p className="text-sm text-slate-500">
+                      {isAr ? 'لا توجد فواتير سابقة' : 'No billing history yet'}
                     </p>
-                    <p className="text-xs text-slate-600 mb-4">
+                    <p className="text-xs text-slate-400 mt-1">
                       {isAr
-                        ? 'خطة Professional تدعم مستخدمين غير محدودين، حجوزات غير محدودة، ووصولاً كاملاً لجميع الوحدات.'
-                        : 'The Professional plan includes unlimited users, unlimited bookings, and full access to all modules.'}
+                        ? 'ستظهر هنا فواتير الاشتراك بعد أول دفعة'
+                        : 'Subscription invoices will appear here after the first payment'}
                     </p>
-                    <Button variant="primary" fullWidth>
-                      {isAr ? 'الترقية إلى Professional' : 'Upgrade to Professional'}
-                    </Button>
                   </div>
-                </div>
-              </Card>
-
-              {/* Billing history placeholder */}
-              <Card>
-                <CardHeader>
-                  <CardTitle>{isAr ? 'سجل الفواتير' : 'Billing History'}</CardTitle>
-                </CardHeader>
-                <div className="text-center py-8">
-                  <CreditCard size={36} className="text-slate-200 mx-auto mb-3" />
-                  <p className="text-sm text-slate-500">
-                    {isAr ? 'لا توجد فواتير سابقة' : 'No billing history yet'}
-                  </p>
-                  <p className="text-xs text-slate-400 mt-1">
-                    {isAr
-                      ? 'ستظهر هنا فواتير الاشتراك بعد أول دفعة'
-                      : 'Subscription invoices will appear here after the first payment'}
-                  </p>
-                </div>
-              </Card>
-            </div>
-          )}
+                </Card>
+              </div>
+            );
+          })()}
 
         </div>
       </div>
