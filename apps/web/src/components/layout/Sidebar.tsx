@@ -10,7 +10,7 @@ import {
   LayoutDashboard, ClipboardList, Users, Plane, Building2, Package,
   Moon, Shield, Stamp, FileText, Receipt, BarChart3, Truck, UserCog,
   Settings, HelpCircle, ChevronLeft, ChevronRight, Calculator,
-  Anchor, Car, Train, Camera, Mountain, Plus, Layers, Landmark, Send,
+  Anchor, Car, Train, Camera, Mountain, Plus, Layers, Landmark, Send, Wallet,
 } from 'lucide-react';
 
 // ─── Icon map for custom service types ────────────────────────────────────────
@@ -74,10 +74,11 @@ const FINANCE_GROUP: NavGroup = {
   labelAr: 'المالية',
   labelEn: 'Finance',
   items: [
-    { key: 'invoices',   href: '/invoices',   icon: <FileText size={18} />,    labelAr: 'الفواتير',   labelEn: 'Invoices' },
-    { key: 'payments',   href: '/payments',   icon: <Receipt size={18} />,     labelAr: 'المدفوعات',  labelEn: 'Payments' },
-    { key: 'cheques',    href: '/cheques',    icon: <Landmark size={18} />,    labelAr: 'الشيكات',    labelEn: 'Cheques' },
-    { key: 'accounting', href: '/accounting', icon: <Calculator size={18} />,  labelAr: 'المحاسبة',   labelEn: 'Accounting' },
+    { key: 'invoices',   href: '/invoices',   icon: <FileText size={18} />,    labelAr: 'الفواتير',         labelEn: 'Invoices' },
+    { key: 'payments',   href: '/payments',   icon: <Receipt size={18} />,     labelAr: 'المدفوعات',        labelEn: 'Payments' },
+    { key: 'cheques',    href: '/cheques',    icon: <Landmark size={18} />,    labelAr: 'الشيكات',          labelEn: 'Cheques' },
+    { key: 'banking',    href: '/banking',    icon: <Wallet size={18} />,      labelAr: 'البنوك والصناديق', labelEn: 'Banks & Cash' },
+    { key: 'accounting', href: '/accounting', icon: <Calculator size={18} />,  labelAr: 'المحاسبة',         labelEn: 'Accounting' },
   ],
 };
 
