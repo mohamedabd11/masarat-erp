@@ -78,7 +78,10 @@ const INVOICE_TYPE_LABELS: Record<string, { ar: string; en: string }> = {
 export function PrintableInvoice({ invoice, onClose }: PrintableInvoiceProps) {
   const locale = useLocale();
   const isAr = locale === 'ar';
-  const typeLabel = INVOICE_TYPE_LABELS[invoice.invoiceTypeCode] ?? INVOICE_TYPE_LABELS['388']!;
+  const isVatRegistered = (invoice.seller.vatNumber ?? '').trim().length > 0;
+  const typeLabel = isVatRegistered
+    ? (INVOICE_TYPE_LABELS[invoice.invoiceTypeCode] ?? INVOICE_TYPE_LABELS['388']!)
+    : { ar: 'إيصال خدمة', en: 'Service Receipt' };
 
   function handlePrint() {
     window.print();
@@ -145,7 +148,7 @@ export function PrintableInvoice({ invoice, onClose }: PrintableInvoiceProps) {
         <div className="grid grid-cols-2 gap-6 mb-8">
           <div className="space-y-2">
             {[
-              { labelAr: 'رقم UUID', labelEn: 'UUID', value: invoice.uuid, mono: true, truncate: true },
+              ...(isVatRegistered ? [{ labelAr: 'رقم UUID', labelEn: 'UUID', value: invoice.uuid, mono: true, truncate: true }] : []),
               { labelAr: 'تاريخ الإصدار', labelEn: 'Issue Date', value: formatDate(invoice.issueDate, 'ar-SA') },
               ...(invoice.dueDate ? [{ labelAr: 'تاريخ الاستحقاق', labelEn: 'Due Date', value: formatDate(invoice.dueDate, 'ar-SA') }] : []),
               { labelAr: 'العملة', labelEn: 'Currency', value: 'SAR — ريال سعودي' },
@@ -163,21 +166,23 @@ export function PrintableInvoice({ invoice, onClose }: PrintableInvoiceProps) {
             ))}
           </div>
 
-          {/* QR code placeholder */}
-          <div className="flex flex-col items-center justify-center border-2 border-dashed border-slate-200 rounded-xl p-4">
-            {invoice.qrCodeData ? (
-              // In production, render actual QR code using qrcode.react
-              // <QRCodeSVG value={invoice.qrCodeData} size={100} />
-              <div className="w-24 h-24 bg-slate-100 rounded flex items-center justify-center">
-                <span className="text-xs text-slate-400 text-center">QR Code</span>
-              </div>
-            ) : (
+          {/* QR code — only for VAT-registered agencies */}
+          {isVatRegistered ? (
+            <div className="flex flex-col items-center justify-center border-2 border-dashed border-slate-200 rounded-xl p-4">
               <div className="w-24 h-24 bg-slate-50 rounded flex items-center justify-center">
                 <span className="text-xs text-slate-300 text-center">QR Code<br/>Placeholder</span>
               </div>
-            )}
-            <p className="text-xs text-slate-400 mt-2 text-center">امسح لتحقق ZATCA<br/><span dir="ltr">Scan to verify</span></p>
-          </div>
+              <p className="text-xs text-slate-400 mt-2 text-center">امسح لتحقق ZATCA<br/><span dir="ltr">Scan to verify</span></p>
+            </div>
+          ) : (
+            <div className="flex flex-col items-center justify-center rounded-xl p-4 bg-slate-50 border border-slate-100">
+              <p className="text-xs text-slate-400 text-center leading-relaxed">
+                إيصال خدمة<br/>
+                <span className="text-slate-300">غير خاضع لضريبة القيمة المضافة</span><br/>
+                <span dir="ltr" className="text-slate-300">Service Receipt — VAT Exempt</span>
+              </p>
+            </div>
+          )}
         </div>
 
         {/* ── Parties ── */}
@@ -222,8 +227,8 @@ export function PrintableInvoice({ invoice, onClose }: PrintableInvoiceProps) {
               <th className="text-start pe-3 ps-4 py-3 font-semibold rounded-s-lg">الوصف / Description</th>
               <th className="text-center px-3 py-3 font-semibold">الكمية / Qty</th>
               <th className="text-end px-3 py-3 font-semibold">سعر الوحدة / Unit Price</th>
-              <th className="text-center px-3 py-3 font-semibold">VAT %</th>
-              <th className="text-end px-3 py-3 font-semibold">VAT</th>
+              {isVatRegistered && <th className="text-center px-3 py-3 font-semibold">VAT %</th>}
+              {isVatRegistered && <th className="text-end px-3 py-3 font-semibold">VAT</th>}
               <th className="text-end px-3 pe-4 py-3 font-semibold rounded-e-lg">الإجمالي / Total</th>
             </tr>
           </thead>
@@ -240,18 +245,22 @@ export function PrintableInvoice({ invoice, onClose }: PrintableInvoiceProps) {
                 <td className="px-3 py-3 text-end text-slate-700">
                   {formatCurrency(line.unitPriceExclVatHalalas, 'ar-SA')}
                 </td>
-                <td className="px-3 py-3 text-center">
-                  {line.vatRate === 0 ? (
-                    <span className="text-xs bg-slate-200 text-slate-600 px-2 py-0.5 rounded">معفى</span>
-                  ) : (
-                    <span className="text-slate-700">{(line.vatRate * 100).toFixed(0)}%</span>
-                  )}
-                </td>
-                <td className="px-3 py-3 text-end text-slate-700">
-                  {formatCurrency(line.vatAmountHalalas, 'ar-SA')}
-                </td>
+                {isVatRegistered && (
+                  <td className="px-3 py-3 text-center">
+                    {line.vatRate === 0 ? (
+                      <span className="text-xs bg-slate-200 text-slate-600 px-2 py-0.5 rounded">معفى</span>
+                    ) : (
+                      <span className="text-slate-700">{(line.vatRate * 100).toFixed(0)}%</span>
+                    )}
+                  </td>
+                )}
+                {isVatRegistered && (
+                  <td className="px-3 py-3 text-end text-slate-700">
+                    {formatCurrency(line.vatAmountHalalas, 'ar-SA')}
+                  </td>
+                )}
                 <td className="px-3 pe-4 py-3 text-end font-semibold text-slate-900">
-                  {formatCurrency(line.totalInclVatHalalas, 'ar-SA')}
+                  {formatCurrency(isVatRegistered ? line.totalInclVatHalalas : line.totalExclVatHalalas, 'ar-SA')}
                 </td>
               </tr>
             ))}
@@ -261,16 +270,20 @@ export function PrintableInvoice({ invoice, onClose }: PrintableInvoiceProps) {
         {/* ── Totals ── */}
         <div className="flex justify-end mb-8">
           <div className="w-72 space-y-2">
-            <div className="flex justify-between text-sm text-slate-600 py-1">
-              <span>المجموع قبل الضريبة / Subtotal excl. VAT</span>
-              <span className="font-medium">{formatCurrency(invoice.totals.subtotalExclVatHalalas, 'ar-SA')}</span>
-            </div>
-            <div className="flex justify-between text-sm text-slate-600 py-1">
-              <span>ضريبة القيمة المضافة 15% / VAT 15%</span>
-              <span className="font-medium">{formatCurrency(invoice.totals.totalVatHalalas, 'ar-SA')}</span>
-            </div>
+            {isVatRegistered && (
+              <>
+                <div className="flex justify-between text-sm text-slate-600 py-1">
+                  <span>المجموع قبل الضريبة / Subtotal excl. VAT</span>
+                  <span className="font-medium">{formatCurrency(invoice.totals.subtotalExclVatHalalas, 'ar-SA')}</span>
+                </div>
+                <div className="flex justify-between text-sm text-slate-600 py-1">
+                  <span>ضريبة القيمة المضافة 15% / VAT 15%</span>
+                  <span className="font-medium">{formatCurrency(invoice.totals.totalVatHalalas, 'ar-SA')}</span>
+                </div>
+              </>
+            )}
             <div className="flex justify-between font-bold text-base text-white bg-brand-600 rounded-xl px-4 py-3 mt-2">
-              <span>الإجمالي شامل الضريبة / Total incl. VAT</span>
+              <span>{isVatRegistered ? 'الإجمالي شامل الضريبة / Total incl. VAT' : 'إجمالي المبلغ / Total Amount'}</span>
               <span>{formatCurrency(invoice.totals.grandTotalHalalas, 'ar-SA')}</span>
             </div>
           </div>
@@ -284,22 +297,32 @@ export function PrintableInvoice({ invoice, onClose }: PrintableInvoiceProps) {
           </div>
         )}
 
-        {/* ── Footer: ZATCA compliance ── */}
+        {/* ── Footer ── */}
         <div className="border-t-2 border-slate-200 pt-6">
           <div className="flex items-start justify-between gap-4">
             <div className="text-xs text-slate-500 space-y-1 max-w-sm">
-              <p className="font-semibold text-slate-700 mb-2">إشعار الامتثال لـ ZATCA / ZATCA Compliance Notice</p>
-              <p>هذه الفاتورة متوافقة مع متطلبات هيئة الزكاة والضريبة والجمارك (ZATCA) — المرحلة الثانية من الفوترة الإلكترونية.</p>
-              <p className="mt-1" dir="ltr">This invoice complies with ZATCA Phase 2 e-invoicing requirements (UBL 2.1).</p>
-              {invoice.zatcaStatus && (
-                <p className="mt-1 font-medium text-emerald-700">
-                  حالة ZATCA: {invoice.zatcaStatus === 'cleared' ? 'مخلصة ✓' : invoice.zatcaStatus}
-                </p>
+              {isVatRegistered ? (
+                <>
+                  <p className="font-semibold text-slate-700 mb-2">إشعار الامتثال لـ ZATCA / ZATCA Compliance Notice</p>
+                  <p>هذه الفاتورة متوافقة مع متطلبات هيئة الزكاة والضريبة والجمارك (ZATCA) — المرحلة الثانية من الفوترة الإلكترونية.</p>
+                  <p className="mt-1" dir="ltr">This invoice complies with ZATCA Phase 2 e-invoicing requirements (UBL 2.1).</p>
+                  {invoice.zatcaStatus && invoice.zatcaStatus !== 'not_applicable' && (
+                    <p className="mt-1 font-medium text-emerald-700">
+                      حالة ZATCA: {invoice.zatcaStatus === 'cleared' ? 'مخلصة ✓' : invoice.zatcaStatus}
+                    </p>
+                  )}
+                </>
+              ) : (
+                <>
+                  <p className="font-semibold text-slate-700 mb-2">إيصال خدمة — غير خاضع لضريبة القيمة المضافة</p>
+                  <p>هذا الإيصال صادر عن منشأة غير مسجّلة في نظام ضريبة القيمة المضافة.</p>
+                  <p className="mt-1" dir="ltr">Service Receipt — Issued by a non-VAT registered entity.</p>
+                </>
               )}
             </div>
             <div className="text-end text-xs text-slate-400">
               <p className="font-mono">{invoice.invoiceNumber}</p>
-              <p className="font-mono text-xs">{invoice.uuid.substring(0, 18)}...</p>
+              {isVatRegistered && <p className="font-mono text-xs">{invoice.uuid.substring(0, 18)}...</p>}
               <p className="mt-1">نظام مسارات ERP © 2026</p>
             </div>
           </div>

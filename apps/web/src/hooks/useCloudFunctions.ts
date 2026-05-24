@@ -126,17 +126,32 @@ async function createInvoiceFirestore(req: CreateInvoiceRequest): Promise<Create
     }
   } catch { /* seller remains empty — invoice still valid */ }
 
-  // ── 3. حساب الأرقام ──────────────────────────────────────────────────────
-  // Agent model: VAT is only on the agency fee, not the full selling price
-  // Principal model: back-calculate VAT from the grand total (full price is VAT-inclusive)
-  const subtotalExclVat = revenueModel === 'agent'
-    ? storedTotalCost + storedServiceFee          // cost + fee before VAT
-    : Math.round(grandTotal / 1.15);
-  const totalVat = revenueModel === 'agent'
-    ? storedVatAmount                             // 15% of fee only
-    : grandTotal - subtotalExclVat;
+  // ── 3. حساب الأرقام بناءً على تسجيل الضريبة ─────────────────────────────
+  const sellerVatNumber = (seller as Record<string, unknown>).vatNumber as string ?? '';
+  const isVatRegistered = sellerVatNumber.trim().length > 0;
 
-  // ── 4. بنود الفاتورة (سطر واحد من بيانات الحجز) ─────────────────────────
+  let subtotalExclVat: number;
+  let totalVat: number;
+  let finalGrandTotal: number;
+
+  if (!isVatRegistered) {
+    // وكالة غير مسجّلة ضريبياً — إيصال خدمة بدون ضريبة
+    subtotalExclVat = storedTotalCost + storedServiceFee || Math.round(grandTotal / 1.15);
+    totalVat = 0;
+    finalGrandTotal = subtotalExclVat;
+  } else if (revenueModel === 'agent') {
+    // نموذج وكيل: الضريبة على رسوم الوكالة فقط
+    subtotalExclVat = storedTotalCost + storedServiceFee;
+    totalVat = storedVatAmount;
+    finalGrandTotal = grandTotal;
+  } else {
+    // نموذج أصيل: الضريبة على كامل سعر البيع
+    subtotalExclVat = Math.round(grandTotal / 1.15);
+    totalVat = grandTotal - subtotalExclVat;
+    finalGrandTotal = grandTotal;
+  }
+
+  // ── 4. بنود الفاتورة ──────────────────────────────────────────────────────
   const lines = [
     {
       id: '1',
@@ -148,33 +163,36 @@ async function createInvoiceFirestore(req: CreateInvoiceRequest): Promise<Create
       totalExclVatHalalas: subtotalExclVat,
       vatRate: totalVat > 0 ? 0.15 : 0,
       vatAmountHalalas: totalVat,
-      totalInclVatHalalas: grandTotal,
+      totalInclVatHalalas: finalGrandTotal,
     },
   ];
 
-  // ── 5. رقم الفاتورة ───────────────────────────────────────────────────────
+  // ── 5. رقم الوثيقة ────────────────────────────────────────────────────────
   const year = new Date().getFullYear();
   const seq = String(Date.now()).slice(-6);
-  const invoiceNumber = `INV-${year}-${seq}`;
+  const prefix = isVatRegistered ? 'INV' : 'RCP';
+  const invoiceNumber = `${prefix}-${year}-${seq}`;
+  const docType = isVatRegistered ? 'tax_invoice' : 'service_receipt';
 
-  // ── 6. حفظ الفاتورة ───────────────────────────────────────────────────────
+  // ── 6. حفظ الوثيقة ───────────────────────────────────────────────────────
   const invoiceRef = await addDoc(collection(db, 'invoices'), {
     agencyId: req.agencyId,
     bookingId: req.bookingId,
-    type: 'tax_invoice',
+    type: docType,
+    isVatRegistered,
     invoiceNumber,
     status: 'issued',
     paymentStatus: 'unpaid',
     amountPaid: 0,
-    amountDue: grandTotal,
+    amountDue: finalGrandTotal,
     seller,
     buyer: { id: customerId, name: customerName, phone: customerPhone },
     lines,
-    totals: { subtotalExclVat, totalVat, grandTotal, currency: 'SAR' },
+    totals: { subtotalExclVat, totalVat, grandTotal: finalGrandTotal, currency: 'SAR' },
     zatca: {
       invoiceUUID: crypto.randomUUID(),
       invoiceTypeCode: '388',
-      submissionStatus: 'not_submitted',
+      submissionStatus: isVatRegistered ? 'not_submitted' : 'not_applicable',
     },
     issueDate: Timestamp.now(),
     createdAt: Timestamp.now(),
