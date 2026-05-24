@@ -10,12 +10,15 @@ import {
   FileText, CheckCircle2, AlertCircle, Printer,
   ChevronDown, ChevronRight, Receipt, Wallet,
   Building2, Scale, ListTree, Stamp, Calendar,
-  PieChart, Users, Plane, Moon, Shield, Star,
+  PieChart, Users, X, Send,
 } from 'lucide-react';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-type Period = 'q1' | 'q2' | 'h1' | 'fy';
+interface VatDateRange {
+  from: string; // ISO date YYYY-MM-DD
+  to: string;
+}
 
 interface TrialAccount {
   code: string;
@@ -404,12 +407,23 @@ const TOP_CUSTOMERS: TopCustomer[] = [
   { nameAr: 'د. هند الزهراني',       nameEn: 'Dr. Hind Al-Zahrani',      bookings: 8,  totalH: 1_340_000, lastServiceAr: 'تأشيرة',        lastServiceEn: 'Visa' },
 ];
 
-const PERIODS: { id: Period; labelAr: string; labelEn: string }[] = [
-  { id: 'q1', labelAr: 'الربع الأول 2026 (يناير–مارس)', labelEn: 'Q1 2026 (Jan–Mar)' },
-  { id: 'q2', labelAr: 'الربع الثاني 2026 (أبريل–يونيو)', labelEn: 'Q2 2026 (Apr–Jun)' },
-  { id: 'h1', labelAr: 'النصف الأول 2026 (يناير–يونيو)', labelEn: 'H1 2026 (Jan–Jun)' },
-  { id: 'fy', labelAr: 'السنة الكاملة 2026', labelEn: 'Full Year 2026' },
+const VAT_QUICK_PERIODS: { id: string; labelAr: string; labelEn: string; from: string; to: string }[] = [
+  { id: 'q1', labelAr: 'ر١ 2026', labelEn: 'Q1 2026', from: '2026-01-01', to: '2026-03-31' },
+  { id: 'q2', labelAr: 'ر٢ 2026', labelEn: 'Q2 2026', from: '2026-04-01', to: '2026-06-30' },
+  { id: 'h1', labelAr: 'ن١ 2026', labelEn: 'H1 2026', from: '2026-01-01', to: '2026-06-30' },
+  { id: 'fy', labelAr: 'سنوي 2026', labelEn: 'FY 2026', from: '2026-01-01', to: '2026-12-31' },
 ];
+
+// ─── CSV Export Helper ────────────────────────────────────────────────────────
+
+function downloadCSV(rows: (string | number)[][], filename: string) {
+  const csv = rows.map(r => r.map(c => `"${String(c).replace(/"/g, '""')}"`).join(',')).join('\n');
+  const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' }); // BOM for Arabic Excel
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  a.href = url; a.download = filename; a.click();
+  URL.revokeObjectURL(url);
+}
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -841,69 +855,57 @@ function IncomeStatementTab({ isAr, fmtLocale }: { isAr: boolean; fmtLocale: str
 
 // ─── VAT Return Tab ───────────────────────────────────────────────────────────
 
-function VATReturnTab({ isAr, fmtLocale, period, onPeriodChange }: {
-  isAr: boolean; fmtLocale: string; period: Period; onPeriodChange: (p: Period) => void;
+function VATReturnTab({ isAr, fmtLocale, vatRange, onVatRangeChange }: {
+  isAr: boolean; fmtLocale: string;
+  vatRange: VatDateRange; onVatRangeChange: (r: VatDateRange) => void;
 }) {
   const outputBoxes = VAT_BOXES.filter(b => b.highlight === 'output');
   const inputBoxes  = VAT_BOXES.filter(b => b.highlight === 'input');
   const netBoxes    = VAT_BOXES.filter(b => b.highlight === 'net-due');
   const netVAT      = VAT_BOXES.find(b => b.box === '13')!;
+  const [showSubmitModal, setShowSubmitModal] = useState(false);
+  const [submitted, setSubmitted]             = useState(false);
+
+  const rateBadgeMap: Record<string, string> = {
+    '15%':     'bg-red-100 text-red-700',
+    '0%':      'bg-sky-100 text-sky-700',
+    'exempt':  'bg-slate-100 text-slate-500',
+    'reverse': 'bg-purple-100 text-purple-700',
+  };
 
   function BoxRow({ b }: { b: VATBox }) {
-    const rateBadgeMap: Record<string, string> = {
-      '15%':     'bg-red-100 text-red-700',
-      '0%':      'bg-sky-100 text-sky-700',
-      'exempt':  'bg-slate-100 text-slate-500',
-      'reverse': 'bg-purple-100 text-purple-700',
-    };
     const rateBadge = b.rate ? (rateBadgeMap[b.rate] ?? '') : '';
-
+    const dotColor  = b.highlight === 'output' ? 'bg-brand-600' : b.highlight === 'input' ? 'bg-slate-600' : 'bg-emerald-600';
     return (
-      <div className="border-b border-slate-100 last:border-0">
-        <div className="grid grid-cols-12 gap-0 items-start">
+      <div className="border-b border-slate-100 last:border-0 p-4">
+        <div className="flex items-start gap-3">
           {/* Box number */}
-          <div className="col-span-1 flex items-start justify-center pt-4 pb-3">
-            <span className={cn(
-              'w-8 h-8 rounded-full flex items-center justify-center text-xs font-black',
-              b.highlight === 'output' ? 'bg-brand-600 text-white' :
-              b.highlight === 'input'  ? 'bg-slate-600 text-white' :
-              'bg-emerald-600 text-white',
-            )}>{b.box}</span>
-          </div>
-
-          {/* Label + note */}
-          <div className="col-span-7 px-4 py-3.5">
-            <div className="flex items-start gap-2 flex-wrap">
-              <p className="text-sm font-semibold text-slate-900 flex-1">
-                {isAr ? b.labelAr : b.labelEn}
-              </p>
-              {b.rate && (
-                <span className={cn('text-[10px] font-bold px-2 py-0.5 rounded-full flex-shrink-0', rateBadge)}>
-                  {b.rate}
-                </span>
-              )}
+          <span className={cn('w-8 h-8 rounded-full flex items-center justify-center text-xs font-black flex-shrink-0 mt-0.5 text-white', dotColor)}>
+            {b.box}
+          </span>
+          {/* Content */}
+          <div className="flex-1 min-w-0">
+            <div className="flex items-start gap-2 flex-wrap mb-0.5">
+              <p className="text-sm font-semibold text-slate-900 flex-1">{isAr ? b.labelAr : b.labelEn}</p>
+              {b.rate && <span className={cn('text-[10px] font-bold px-2 py-0.5 rounded-full flex-shrink-0', rateBadge)}>{b.rate}</span>}
             </div>
-            <p className="text-[11px] text-slate-400 mt-0.5 leading-relaxed">
-              {isAr ? b.noteAr : b.noteEn}
-            </p>
-          </div>
-
-          {/* Base amount */}
-          <div className="col-span-2 px-3 py-3.5 text-end border-s border-slate-100">
-            <p className="text-[10px] font-semibold text-slate-400 mb-1">{isAr ? 'الوعاء الضريبي' : 'Tax Base'}</p>
-            <p className="text-sm font-mono tabular-nums font-semibold text-slate-800">
-              {b.base > 0 ? formatCurrency(b.base, fmtLocale) : <span className="text-slate-300">—</span>}
-            </p>
-          </div>
-
-          {/* VAT amount */}
-          <div className={cn('col-span-2 px-3 py-3.5 text-end border-s border-slate-100',
-            b.highlight === 'net-due' && b.box === '13' && 'bg-emerald-50')}>
-            <p className="text-[10px] font-semibold text-slate-400 mb-1">{isAr ? 'مبلغ الضريبة' : 'VAT Amount'}</p>
-            <p className={cn('text-sm font-mono tabular-nums font-bold',
-              b.box === '13' ? 'text-emerald-700 text-base' : 'text-slate-900')}>
-              {b.vat > 0 ? formatCurrency(b.vat, fmtLocale) : <span className="text-slate-300">—</span>}
-            </p>
+            <p className="text-[11px] text-slate-400 leading-relaxed mb-2">{isAr ? b.noteAr : b.noteEn}</p>
+            {/* Amounts — always horizontal, never overflow */}
+            <div className="flex items-center gap-6 pt-2 border-t border-slate-100">
+              <div>
+                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wide mb-0.5">{isAr ? 'الوعاء الضريبي' : 'Tax Base'}</p>
+                <p className="text-sm font-mono tabular-nums font-semibold text-slate-700">
+                  {b.base > 0 ? formatCurrency(b.base, fmtLocale) : <span className="text-slate-300">—</span>}
+                </p>
+              </div>
+              <div>
+                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wide mb-0.5">{isAr ? 'مبلغ الضريبة' : 'VAT Amount'}</p>
+                <p className={cn('text-sm font-mono tabular-nums font-bold',
+                  b.box === '13' ? 'text-emerald-700 text-base' : 'text-slate-900')}>
+                  {b.vat > 0 ? formatCurrency(b.vat, fmtLocale) : <span className="text-slate-300">—</span>}
+                </p>
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -916,38 +918,57 @@ function VATReturnTab({ isAr, fmtLocale, period, onPeriodChange }: {
     return (
       <div className={cn('rounded-xl border overflow-hidden', accentBorder)}>
         <div className={cn('px-5 py-3', accentBg)}>
-          <h3 className="text-sm font-black uppercase tracking-widest text-slate-700">{title}</h3>
+          <h3 className="text-xs font-black uppercase tracking-widest text-slate-700">{title}</h3>
         </div>
         {boxes.map(b => <BoxRow key={b.box} b={b} />)}
       </div>
     );
   }
 
+  const activePreset = VAT_QUICK_PERIODS.find(p => p.from === vatRange.from && p.to === vatRange.to);
+
   return (
     <div className="space-y-6">
-      {/* Period selector */}
-      <div className={cn(
-        'rounded-xl border-2 border-brand-200 bg-brand-50 px-5 py-4',
-        'flex flex-col sm:flex-row sm:items-center gap-4',
-      )}>
-        <div className="flex items-center gap-2 text-brand-700 flex-1">
+      {/* Period selector — date range + presets */}
+      <div className="rounded-xl border-2 border-brand-200 bg-brand-50 p-4 space-y-3">
+        <div className="flex items-center gap-2 text-brand-700">
           <Stamp size={20} />
           <div>
             <p className="font-black text-base">{isAr ? 'إقرار ضريبة القيمة المضافة' : 'VAT Return — ZATCA'}</p>
             <p className="text-xs text-brand-600">{isAr ? 'متوافق مع هيئة الزكاة والضريبة والجمارك' : 'Compliant with Saudi ZATCA requirements'}</p>
           </div>
         </div>
-        <div className="flex items-center gap-2">
-          <Calendar size={15} className="text-brand-600 flex-shrink-0" />
-          <select
-            value={period}
-            onChange={e => onPeriodChange(e.target.value as Period)}
-            className="border border-brand-200 rounded-lg px-3 py-2 text-sm font-semibold text-brand-800 bg-white focus:outline-none focus:ring-2 focus:ring-brand-400"
-          >
-            {PERIODS.map(p => (
-              <option key={p.id} value={p.id}>{isAr ? p.labelAr : p.labelEn}</option>
-            ))}
-          </select>
+        {/* Quick presets */}
+        <div className="flex flex-wrap gap-2">
+          {VAT_QUICK_PERIODS.map(p => (
+            <button key={p.id} onClick={() => onVatRangeChange({ from: p.from, to: p.to })}
+              className={cn('px-3 py-1.5 rounded-lg text-xs font-bold transition-colors',
+                activePreset?.id === p.id ? 'bg-brand-600 text-white' : 'bg-white border border-brand-200 text-brand-700 hover:bg-brand-100')}>
+              {isAr ? p.labelAr : p.labelEn}
+            </button>
+          ))}
+        </div>
+        {/* Custom date range */}
+        <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3">
+          <Calendar size={14} className="text-brand-600 flex-shrink-0 hidden sm:block" />
+          <div className="flex items-center gap-2 flex-wrap">
+            <div>
+              <label className="text-[10px] font-bold text-brand-700 block mb-0.5">{isAr ? 'من تاريخ' : 'From'}</label>
+              <input type="date" value={vatRange.from} onChange={e => onVatRangeChange({ ...vatRange, from: e.target.value })}
+                className="border border-brand-200 rounded-lg px-3 py-1.5 text-sm text-brand-900 bg-white focus:outline-none focus:ring-2 focus:ring-brand-400" />
+            </div>
+            <span className="text-brand-400 mt-4 hidden sm:block">—</span>
+            <div>
+              <label className="text-[10px] font-bold text-brand-700 block mb-0.5">{isAr ? 'إلى تاريخ' : 'To'}</label>
+              <input type="date" value={vatRange.to} onChange={e => onVatRangeChange({ ...vatRange, to: e.target.value })}
+                className="border border-brand-200 rounded-lg px-3 py-1.5 text-sm text-brand-900 bg-white focus:outline-none focus:ring-2 focus:ring-brand-400" />
+            </div>
+          </div>
+          {activePreset && (
+            <span className="text-xs font-semibold text-brand-700 bg-brand-100 px-2 py-1 rounded-lg">
+              {isAr ? activePreset.labelAr : activePreset.labelEn}
+            </span>
+          )}
         </div>
       </div>
 
@@ -1000,10 +1021,21 @@ function VATReturnTab({ isAr, fmtLocale, period, onPeriodChange }: {
             </div>
           </div>
 
-          <button className="mt-5 w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-brand-600 text-white text-sm font-bold hover:bg-brand-700 transition-colors shadow-sm">
-            <Stamp size={16} />
-            {isAr ? 'تقديم الإقرار الضريبي' : 'Submit VAT Return'}
-          </button>
+          {submitted ? (
+            <div className="mt-5 flex items-center gap-3 px-4 py-3 bg-emerald-50 border border-emerald-200 rounded-xl">
+              <CheckCircle2 size={20} className="text-emerald-600 flex-shrink-0" />
+              <div>
+                <p className="text-sm font-bold text-emerald-700">{isAr ? 'تم تقديم الإقرار بنجاح' : 'VAT Return submitted successfully'}</p>
+                <p className="text-xs text-emerald-600">{isAr ? 'سيتم الربط بهيئة الزكاة عند التفعيل' : 'Will sync with ZATCA portal when activated'}</p>
+              </div>
+            </div>
+          ) : (
+            <button onClick={() => setShowSubmitModal(true)}
+              className="mt-5 w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-brand-600 text-white text-sm font-bold hover:bg-brand-700 transition-colors shadow-sm">
+              <Send size={16} />
+              {isAr ? 'تقديم الإقرار الضريبي' : 'Submit VAT Return'}
+            </button>
+          )}
           <p className="text-[10px] text-center text-slate-400 mt-2">
             {isAr ? 'سيتم ربط هذا القسم مع بوابة ZATCA عند تفعيل خاصية الإرسال الإلكتروني' : 'Will connect to ZATCA portal when e-filing is enabled'}
           </p>
@@ -1033,6 +1065,59 @@ function VATReturnTab({ isAr, fmtLocale, period, onPeriodChange }: {
           </div>
         </Card>
       </div>
+
+      {/* VAT Submit Confirmation Modal */}
+      {showSubmitModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-surface-border">
+              <h2 className="text-lg font-bold text-slate-900 flex items-center gap-2">
+                <Stamp size={20} className="text-brand-600" />
+                {isAr ? 'تأكيد تقديم الإقرار الضريبي' : 'Confirm VAT Return Submission'}
+              </h2>
+              <button onClick={() => setShowSubmitModal(false)} className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-500"><X size={18} /></button>
+            </div>
+            <div className="p-6 space-y-4">
+              <div className="bg-amber-50 border border-amber-200 rounded-xl p-4">
+                <p className="text-sm font-bold text-amber-700 mb-1">{isAr ? 'تحقق قبل التقديم' : 'Verify before submitting'}</p>
+                <p className="text-xs text-amber-600">{isAr ? 'تأكد من مراجعة جميع الخانات والأرقام قبل تقديم الإقرار لهيئة الزكاة والضريبة والجمارك' : 'Please review all boxes and amounts before submitting to ZATCA'}</p>
+              </div>
+              <div className="space-y-2 bg-slate-50 rounded-xl p-4">
+                <div className="flex justify-between text-sm">
+                  <span className="text-slate-500">{isAr ? 'الفترة الضريبية' : 'Tax Period'}</span>
+                  <span className="font-semibold text-slate-900">{vatRange.from} → {vatRange.to}</span>
+                </div>
+                <div className="flex justify-between text-sm">
+                  <span className="text-slate-500">{isAr ? 'إجمالي ضريبة المخرجات' : 'Output VAT'}</span>
+                  <span className="font-semibold text-red-700">{formatCurrency(1_746_900, fmtLocale)}</span>
+                </div>
+                <div className="flex justify-between text-sm">
+                  <span className="text-slate-500">{isAr ? 'ضريبة المدخلات المخصومة' : 'Input VAT Deducted'}</span>
+                  <span className="font-semibold text-emerald-700">{formatCurrency(495_000, fmtLocale)}</span>
+                </div>
+                <div className="flex justify-between text-sm font-bold border-t border-slate-200 pt-2 mt-2">
+                  <span className="text-slate-900">{isAr ? 'صافي الضريبة المستحقة' : 'Net VAT Due'}</span>
+                  <span className="text-brand-700 text-base">{formatCurrency(netVAT.vat, fmtLocale)}</span>
+                </div>
+              </div>
+              <p className="text-xs text-slate-400 text-center">
+                {isAr ? 'سيتم إرسال الإقرار إلكترونياً عند ربط النظام ببوابة ZATCA' : 'Will be e-filed when ZATCA portal integration is activated'}
+              </p>
+            </div>
+            <div className="px-6 py-4 border-t border-surface-border flex gap-3">
+              <button onClick={() => setShowSubmitModal(false)}
+                className="flex-1 px-4 py-2.5 rounded-xl border border-slate-200 text-sm font-medium text-slate-600 hover:bg-slate-50 transition-colors">
+                {isAr ? 'مراجعة الإقرار' : 'Review Return'}
+              </button>
+              <button onClick={() => { setShowSubmitModal(false); setSubmitted(true); }}
+                className="flex-1 px-4 py-2.5 rounded-xl bg-brand-600 text-white text-sm font-bold hover:bg-brand-700 transition-colors flex items-center justify-center gap-2">
+                <Send size={15} />
+                {isAr ? 'تأكيد التقديم' : 'Confirm Submission'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -1355,8 +1440,43 @@ export default function ReportsPage() {
   const isAr    = locale === 'ar';
   const fmtLocale = isAr ? 'ar-SA' : 'en-SA';
 
-  const [activeTab, setActiveTab] = useState<TabId>('overview');
-  const [period, setPeriod] = useState<Period>('h1');
+  const [activeTab, setActiveTab]   = useState<TabId>('overview');
+  const [vatRange, setVatRange]     = useState<VatDateRange>({ from: '2026-01-01', to: '2026-06-30' });
+  const [showExport, setShowExport] = useState(false);
+
+  function handleExportCSV() {
+    const tabLabel = tabs.find(t => t.id === activeTab);
+    const name = isAr ? tabLabel?.labelAr : tabLabel?.labelEn;
+    if (activeTab === 'trial') {
+      downloadCSV([
+        ['الكود', 'الحساب', 'مدين افتتاحي', 'دائن افتتاحي', 'مدين حركة', 'دائن حركة', 'مدين ختامي', 'دائن ختامي'],
+        ...TRIAL_ACCOUNTS.map(a => [
+          a.code, a.nameAr,
+          a.openDebit / 100, a.openCredit / 100,
+          a.mvtDebit / 100, a.mvtCredit / 100,
+          closingDebit(a) / 100, closingCredit(a) / 100,
+        ]),
+      ], `ميزان-المراجعة-${new Date().toISOString().slice(0, 10)}.csv`);
+    } else if (activeTab === 'pl') {
+      downloadCSV([
+        ['البند', 'المبلغ (ر.س)'],
+        ...PL_SECTIONS.flatMap(s => s.lines.map(l => [l.labelAr, l.amount / 100])),
+      ], `قائمة-الدخل-${new Date().toISOString().slice(0, 10)}.csv`);
+    } else if (activeTab === 'vat') {
+      downloadCSV([
+        ['الخانة', 'الوصف', 'الوعاء الضريبي (ر.س)', 'مبلغ الضريبة (ر.س)'],
+        ...VAT_BOXES.map(b => [b.box, b.labelAr, b.base / 100, b.vat / 100]),
+      ], `الاقرار-الضريبي-${vatRange.from}-${vatRange.to}.csv`);
+    } else if (activeTab === 'overview') {
+      downloadCSV([
+        ['الشهر', 'الحجوزات', 'الإيرادات (ر.س)', 'التكاليف (ر.س)', 'الضريبة (ر.س)'],
+        ...MONTHLY.map(m => [m.nameAr, m.bookings, m.rev / 100, m.cost / 100, m.vat / 100]),
+      ], `النظرة-العامة-${new Date().toISOString().slice(0, 10)}.csv`);
+    } else {
+      alert(isAr ? 'سيتوفر التصدير لهذا التقرير قريباً' : 'Export for this report coming soon');
+    }
+    setShowExport(false);
+  }
 
   const tabs: { id: TabId; labelAr: string; labelEn: string; icon: ReactNode; badge?: string }[] = [
     { id: 'overview', labelAr: 'نظرة عامة',           labelEn: 'Overview',           icon: <BarChart3  size={16} /> },
@@ -1380,16 +1500,44 @@ export default function ReportsPage() {
               : 'Trial Balance, P&L, Balance Sheet, Profitability Analysis, and ZATCA VAT Return'}
           </p>
         </div>
-        <div className="flex items-center gap-2">
-          <button className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-slate-200 text-sm text-slate-600 hover:bg-slate-50 transition-colors bg-white font-medium">
+        <div className="flex items-center gap-2 relative">
+          <button onClick={() => window.print()}
+            className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-slate-200 text-sm text-slate-600 hover:bg-slate-50 transition-colors bg-white font-medium">
             <Printer size={14} />{isAr ? 'طباعة' : 'Print'}
           </button>
-          <button className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-slate-200 text-sm text-slate-600 hover:bg-slate-50 transition-colors bg-white font-medium">
-            <Download size={14} />{isAr ? 'تصدير Excel' : 'Export Excel'}
-          </button>
-          <button className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-slate-200 text-sm text-slate-600 hover:bg-slate-50 transition-colors bg-white font-medium">
-            <FileText size={14} />{isAr ? 'تصدير PDF' : 'Export PDF'}
-          </button>
+          <div className="relative">
+            <button onClick={() => setShowExport(v => !v)}
+              className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-slate-200 text-sm text-slate-600 hover:bg-slate-50 transition-colors bg-white font-medium">
+              <Download size={14} />
+              {isAr ? 'تصدير' : 'Export'}
+              <ChevronDown size={13} className={cn('transition-transform', showExport && 'rotate-180')} />
+            </button>
+            {showExport && (
+              <>
+                <div className="fixed inset-0 z-10" onClick={() => setShowExport(false)} />
+                <div className="absolute end-0 top-full mt-1 w-56 bg-white border border-slate-200 rounded-xl shadow-lg z-20 py-1 overflow-hidden">
+                  <div className="px-3 py-2 bg-slate-50 border-b border-slate-100">
+                    <p className="text-xs font-bold text-slate-500 uppercase tracking-wide">
+                      {isAr ? 'تصدير التقرير الحالي' : 'Export Current Report'}
+                    </p>
+                    <p className="text-xs text-brand-600 font-semibold mt-0.5">
+                      {isAr ? tabs.find(t => t.id === activeTab)?.labelAr : tabs.find(t => t.id === activeTab)?.labelEn}
+                    </p>
+                  </div>
+                  <button onClick={handleExportCSV}
+                    className="w-full flex items-center gap-2.5 px-3 py-2.5 text-sm text-slate-700 hover:bg-slate-50 transition-colors">
+                    <Download size={14} className="text-emerald-600" />
+                    {isAr ? 'تصدير Excel / CSV' : 'Export Excel / CSV'}
+                  </button>
+                  <button onClick={() => { window.print(); setShowExport(false); }}
+                    className="w-full flex items-center gap-2.5 px-3 py-2.5 text-sm text-slate-700 hover:bg-slate-50 transition-colors">
+                    <FileText size={14} className="text-red-500" />
+                    {isAr ? 'تصدير PDF (طباعة)' : 'Export PDF (Print)'}
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
         </div>
       </div>
 
@@ -1422,7 +1570,7 @@ export default function ReportsPage() {
         {activeTab === 'pl'       && <IncomeStatementTab isAr={isAr} fmtLocale={fmtLocale} />}
         {activeTab === 'bs'       && <BalanceSheetTab isAr={isAr} fmtLocale={fmtLocale} />}
         {activeTab === 'profit'   && <ProfitabilityTab isAr={isAr} fmtLocale={fmtLocale} />}
-        {activeTab === 'vat'      && <VATReturnTab isAr={isAr} fmtLocale={fmtLocale} period={period} onPeriodChange={setPeriod} />}
+        {activeTab === 'vat'      && <VATReturnTab isAr={isAr} fmtLocale={fmtLocale} vatRange={vatRange} onVatRangeChange={setVatRange} />}
       </div>
     </div>
   );

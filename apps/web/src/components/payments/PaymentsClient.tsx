@@ -75,7 +75,7 @@ export function PaymentsClient({ locale }: PaymentsClientProps) {
     const q = search.toLowerCase();
     return bookings.filter(b => {
       const matchFilter = filter === 'all' || b.paymentStatus === filter;
-      const name = isAr ? b.customerName.ar : b.customerName.en;
+      const name = isAr ? (b.customerName?.ar ?? '') : (b.customerName?.en ?? '');
       const matchSearch = !q || name.toLowerCase().includes(q) || b.id.toLowerCase().includes(q);
       return matchFilter && matchSearch;
     });
@@ -199,7 +199,7 @@ export function PaymentsClient({ locale }: PaymentsClientProps) {
               </thead>
               <tbody className="divide-y divide-surface-border">
                 {filtered.map(b => {
-                  const name     = isAr ? b.customerName.ar : b.customerName.en;
+                  const name     = isAr ? (b.customerName?.ar ?? '') : (b.customerName?.en ?? '');
                   const total    = (b as any).grandTotalHalalas ?? (b as any).pricing?.totalAmount ?? 0;
                   const paidAmt  = (b as any).paidHalalas ?? b.totalPaid ?? 0;
                   const dueAmt   = Math.max(0, total - paidAmt);

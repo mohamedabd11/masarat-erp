@@ -1,7 +1,8 @@
 'use client';
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
 import { useFirestoreBookings } from '@/hooks/useFirestoreBookings';
 import { Spinner } from '@/components/ui/Spinner';
 import { EmptyState } from '@/components/ui/EmptyState';
@@ -48,10 +49,15 @@ export function BookingsClient({ locale, bookingType }: BookingsClientProps) {
   const { bookings, loading, error, hasMore, loadNextPage, loadingMore } =
     useFirestoreBookings({ pageSize: 50, type: bookingType });
 
-  const [search, setSearch]           = useState('');
+  const searchParams   = useSearchParams();
+  const urlQuery       = searchParams.get('q') ?? '';
+  const [search, setSearch]           = useState(urlQuery);
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
   const isAr = locale === 'ar';
   const fmtLocale = isAr ? 'ar-SA' : 'en-SA';
+
+  // Sync search from URL param (topbar search navigates here)
+  useEffect(() => { if (urlQuery) setSearch(urlQuery); }, [urlQuery]);
 
   // ── KPIs ────────────────────────────────────────────────────────────────────
   const revenue   = bookings.reduce((s, b) => s + ((b as any).grandTotalHalalas ?? (b as any).pricing?.totalAmount ?? 0), 0);
@@ -65,7 +71,7 @@ export function BookingsClient({ locale, bookingType }: BookingsClientProps) {
     const q = search.toLowerCase();
     return bookings.filter(b => {
       const matchStatus = statusFilter === 'all' || b.status === statusFilter;
-      const name = isAr ? b.customerName.ar : b.customerName.en;
+      const name = isAr ? (b.customerName?.ar ?? '') : (b.customerName?.en ?? '');
       const matchSearch = !q ||
         name.toLowerCase().includes(q) ||
         b.id.toLowerCase().includes(q);
@@ -181,7 +187,7 @@ export function BookingsClient({ locale, bookingType }: BookingsClientProps) {
               </thead>
               <tbody className="divide-y divide-surface-border">
                 {filtered.map(b => {
-                  const name       = isAr ? b.customerName.ar : b.customerName.en;
+                  const name       = isAr ? (b.customerName?.ar ?? b.customerName?.en ?? '') : (b.customerName?.en ?? b.customerName?.ar ?? '');
                   const typeMeta   = TYPE_META[b.type] ?? { ar: b.type, en: b.type, bg: 'bg-slate-100', text: 'text-slate-600' };
                   const total      = (b as any).grandTotalHalalas ?? (b as any).pricing?.totalAmount ?? 0;
                   const paidAmt    = (b as any).paidHalalas ?? (b as any).totalPaid ?? 0;

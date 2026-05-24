@@ -4,8 +4,9 @@ import { useTranslations, useLocale } from 'next-intl';
 import { useAuth } from '@masarat/firebase';
 import { LanguageSwitcher } from './LanguageSwitcher';
 import { cn } from '@/lib/utils';
-import { Bell, Search, Menu, LogOut, User } from 'lucide-react';
+import { Bell, Search, Menu, LogOut, User, X } from 'lucide-react';
 import { useState } from 'react';
+import { useRouter } from 'next/navigation';
 
 interface HeaderProps {
   onMenuToggle?: () => void;
@@ -19,6 +20,17 @@ export function Header({ onMenuToggle, className }: HeaderProps) {
   const [userMenuOpen, setUserMenuOpen] = useState(false);
 
   const displayName = user?.displayName ?? user?.email?.split('@')[0] ?? '';
+  const router      = useRouter();
+  const [searchQuery, setSearchQuery] = useState('');
+
+  function handleSearch(e: React.FormEvent) {
+    e.preventDefault();
+    const q = searchQuery.trim();
+    if (q) {
+      router.push(`/${locale}/bookings?q=${encodeURIComponent(q)}`);
+      setSearchQuery('');
+    }
+  }
 
   return (
     <header
@@ -38,12 +50,14 @@ export function Header({ onMenuToggle, className }: HeaderProps) {
       </button>
 
       {/* Search */}
-      <div className="flex-1 max-w-md">
+      <form onSubmit={handleSearch} className="flex-1 max-w-md">
         <div className="relative">
           <Search size={16} className="absolute start-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
           <input
             type="search"
-            placeholder={locale === 'ar' ? 'بحث...' : 'Search...'}
+            value={searchQuery}
+            onChange={e => setSearchQuery(e.target.value)}
+            placeholder={locale === 'ar' ? 'ابحث في الحجوزات...' : 'Search bookings...'}
             className={cn(
               'w-full rounded-lg border border-slate-200 bg-slate-50',
               'ps-9 pe-4 py-2 text-sm text-slate-700',
@@ -52,8 +66,14 @@ export function Header({ onMenuToggle, className }: HeaderProps) {
               'transition-colors duration-150'
             )}
           />
+          {searchQuery && (
+            <button type="button" onClick={() => setSearchQuery('')}
+              className="absolute end-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
+              <X size={14} />
+            </button>
+          )}
         </div>
-      </div>
+      </form>
 
       <div className="flex items-center gap-3 ms-auto">
         <LanguageSwitcher />
