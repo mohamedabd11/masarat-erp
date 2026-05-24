@@ -4,7 +4,9 @@ import { useState, useEffect } from 'react';
 import { useLocale } from 'next-intl';
 import { useSearchParams } from 'next/navigation';
 import { useAuth } from '@masarat/firebase';
+import type { UserDoc } from '@masarat/firebase';
 import { Card, CardHeader, CardTitle } from '@/components/ui/Card';
+import { Spinner } from '@/components/ui/Spinner';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Badge } from '@/components/ui/Badge';
@@ -16,6 +18,7 @@ import {
   Shield,
   CreditCard,
   CheckCircle2,
+  XCircle,
   AlertTriangle,
   ChevronRight,
   Plane,
@@ -172,32 +175,6 @@ const INITIAL_MODULES: Module[] = [
   },
 ];
 
-// ─── Demo users ───────────────────────────────────────────────────────────────
-
-const DEMO_USERS = [
-  {
-    name: 'محمد العمري',
-    email: 'admin@masarat.sa',
-    role: { ar: 'مدير النظام', en: 'System Admin' },
-    active: true,
-    initials: 'م',
-  },
-  {
-    name: 'سارة الأحمد',
-    email: 'sara@masarat.sa',
-    role: { ar: 'موظف حجوزات', en: 'Booking Agent' },
-    active: true,
-    initials: 'س',
-  },
-  {
-    name: 'خالد النجدي',
-    email: 'khalid@masarat.sa',
-    role: { ar: 'محاسب', en: 'Accountant' },
-    active: true,
-    initials: 'خ',
-  },
-];
-
 // ─── Plan features ────────────────────────────────────────────────────────────
 
 const PLAN_FEATURES = {
@@ -331,6 +308,10 @@ export default function SettingsPage() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editForm, setEditForm] = useState({ nameAr: '', nameEn: '', icon: 'layers', color: PRESET_COLORS[0] });
 
+  // ── Agency users ────────────────────────────────────────────────────────
+  const [agencyUsers, setAgencyUsers] = useState<UserDoc[]>([]);
+  const [loadingUsers, setLoadingUsers] = useState(false);
+
   // Load all agency info from Firestore
   useEffect(() => {
     if (!user?.agencyId) return;
@@ -360,6 +341,27 @@ export default function SettingsPage() {
 
     void loadAgency();
   }, [user?.agencyId]);
+
+  // Load agency users from Firestore when on users tab
+  useEffect(() => {
+    if (!user?.agencyId || activeTab !== 'users') return;
+    let unsub: (() => void) | undefined;
+
+    async function load() {
+      setLoadingUsers(true);
+      const { getFirestore, collection, query, where, onSnapshot } = await import('firebase/firestore');
+      const { getApp } = await import('@masarat/firebase');
+      const db = getFirestore(getApp());
+      const q = query(collection(db, 'users'), where('agencyId', '==', user!.agencyId));
+      unsub = onSnapshot(q, snap => {
+        setAgencyUsers(snap.docs.map(d => ({ id: d.id, ...d.data() } as UserDoc)));
+        setLoadingUsers(false);
+      }, () => setLoadingUsers(false));
+    }
+
+    void load();
+    return () => unsub?.();
+  }, [user?.agencyId, activeTab]);
 
   // Load custom service types from Firestore
   useEffect(() => {
@@ -764,29 +766,50 @@ export default function SettingsPage() {
                 </Button>
               </CardHeader>
 
-              <div className="divide-y divide-surface-border">
-                {DEMO_USERS.map(user => (
-                  <div
-                    key={user.email}
-                    className="flex items-center justify-between py-3.5 first:pt-0 last:pb-0"
-                  >
-                    <div className="flex items-center gap-3">
-                      <div className="w-9 h-9 rounded-full bg-brand-100 flex items-center justify-center text-sm font-bold text-brand-700 flex-shrink-0">
-                        {user.initials}
+              <div className="divide-y divide-surface-border min-h-[60px]">
+                {loadingUsers ? (
+                  <div className="py-8 flex justify-center"><Spinner size="sm" /></div>
+                ) : agencyUsers.length === 0 ? (
+                  <p className="py-8 text-center text-sm text-slate-400">
+                    {isAr ? 'لا يوجد مستخدمون مسجّلون بعد' : 'No users registered yet'}
+                  </p>
+                ) : (
+                  agencyUsers.map(u => {
+                    const displayName  = isAr ? (u.name?.ar || u.name?.en) : (u.name?.en || u.name?.ar);
+                    const initials     = (displayName || u.email || '?').charAt(0).toUpperCase();
+                    const isCurrentUser = user?.uid === u.id;
+                    return (
+                      <div key={u.id} className="flex items-center justify-between py-3.5 first:pt-0 last:pb-0">
+                        <div className="flex items-center gap-3">
+                          <div className="w-9 h-9 rounded-full bg-brand-100 flex items-center justify-center text-sm font-bold text-brand-700 flex-shrink-0">
+                            {initials}
+                          </div>
+                          <div>
+                            <p className="text-sm font-medium text-slate-900 flex items-center gap-1.5">
+                              {displayName || u.email}
+                              {isCurrentUser && (
+                                <span className="text-[10px] text-brand-600 font-bold bg-brand-50 px-1.5 py-0.5 rounded-full">
+                                  {isAr ? 'أنت' : 'You'}
+                                </span>
+                              )}
+                            </p>
+                            <p className="text-xs text-slate-400 mt-0.5">{u.email}</p>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-3">
+                          {u.role && (
+                            <span className="text-xs bg-slate-100 text-slate-600 px-2.5 py-1 rounded-full font-medium">
+                              {u.role}
+                            </span>
+                          )}
+                          {u.isActive
+                            ? <CheckCircle2 size={16} className="text-emerald-500 flex-shrink-0" />
+                            : <XCircle     size={16} className="text-slate-300   flex-shrink-0" />}
+                        </div>
                       </div>
-                      <div>
-                        <p className="text-sm font-medium text-slate-900">{user.name}</p>
-                        <p className="text-xs text-slate-400 mt-0.5 dir-ltr">{user.email}</p>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-3">
-                      <span className="text-xs bg-slate-100 text-slate-600 px-2.5 py-1 rounded-full font-medium">
-                        {isAr ? user.role.ar : user.role.en}
-                      </span>
-                      <CheckCircle2 size={16} className="text-emerald-500 flex-shrink-0" />
-                    </div>
-                  </div>
-                ))}
+                    );
+                  })
+                )}
               </div>
 
               {/* Invite note */}
