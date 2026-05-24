@@ -1,20 +1,27 @@
 'use client';
 
-import Link from 'next/link';
 import { useLocale } from 'next-intl';
 import { useSubscription } from '@/providers/SubscriptionProvider';
-import { Clock, Zap } from 'lucide-react';
+import { Clock, MessageCircle } from 'lucide-react';
 import { cn } from '@/lib/utils';
+
+const WA_NUMBER = '249969837823';
 
 export function TrialBanner() {
   const locale = useLocale();
   const isAr   = locale === 'ar';
-  const { status, daysRemaining } = useSubscription();
+  const { status, daysRemaining, agencyName } = useSubscription();
 
   if (status !== 'trial' || daysRemaining === null || daysRemaining <= 0) return null;
 
   const urgent  = daysRemaining <= 3;
   const warning = daysRemaining <= 7;
+
+  const waMsg = agencyName
+    ? `مرحباً فريق مسارات، أرغب في ترقية اشتراك وكالتي (${agencyName}) إلى باقة مدفوعة.`
+    : 'مرحباً فريق مسارات، أرغب في الاشتراك في إحدى الباقات المدفوعة.';
+
+  const waUrl = `https://wa.me/${WA_NUMBER}?text=${encodeURIComponent(waMsg)}`;
 
   return (
     <div className={cn(
@@ -31,8 +38,10 @@ export function TrialBanner() {
             : `${daysRemaining} day${daysRemaining === 1 ? '' : 's'} remaining in your free trial`}
         </span>
       </div>
-      <Link
-        href={`/${locale}/settings?tab=billing`}
+      <a
+        href={waUrl}
+        target="_blank"
+        rel="noopener noreferrer"
         className={cn(
           'flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-bold transition-colors flex-shrink-0',
           urgent  ? 'bg-white text-red-700   hover:bg-red-50' :
@@ -40,9 +49,9 @@ export function TrialBanner() {
                     'bg-white text-brand-700 hover:bg-brand-50',
         )}
       >
-        <Zap size={12} />
+        <MessageCircle size={12} />
         {isAr ? 'ترقية الآن' : 'Upgrade Now'}
-      </Link>
+      </a>
     </div>
   );
 }

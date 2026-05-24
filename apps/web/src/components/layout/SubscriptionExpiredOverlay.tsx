@@ -1,8 +1,10 @@
 'use client';
 
-import Link from 'next/link';
 import { useLocale } from 'next-intl';
-import { LockKeyhole, Zap, Phone, Mail } from 'lucide-react';
+import { LockKeyhole, Zap, MessageCircle, Mail } from 'lucide-react';
+import { useSubscription } from '@/providers/SubscriptionProvider';
+
+const WA_NUMBER = '249969837823';
 
 const PLANS = [
   {
@@ -29,8 +31,16 @@ const PLANS = [
 ];
 
 export function SubscriptionExpiredOverlay() {
-  const locale = useLocale();
-  const isAr   = locale === 'ar';
+  const locale     = useLocale();
+  const isAr       = locale === 'ar';
+  const { agencyName } = useSubscription();
+
+  function waLink(planAr: string) {
+    const msg = agencyName
+      ? `مرحباً فريق مسارات، أرغب في ترقية اشتراك وكالتي (${agencyName}) إلى ${planAr}.`
+      : `مرحباً فريق مسارات، أرغب في الاشتراك في ${planAr}.`;
+    return `https://wa.me/${WA_NUMBER}?text=${encodeURIComponent(msg)}`;
+  }
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/95 backdrop-blur-sm p-4 overflow-y-auto">
@@ -46,8 +56,8 @@ export function SubscriptionExpiredOverlay() {
           </h1>
           <p className="text-slate-400 text-sm max-w-md mx-auto">
             {isAr
-              ? 'لمتابعة استخدام نظام مسارات والوصول إلى بياناتك، يرجى تفعيل اشتراكك'
-              : 'To continue using Masarat ERP and access your data, please activate your subscription'}
+              ? 'لمتابعة استخدام نظام مسارات والوصول إلى بياناتك، تواصل معنا لتفعيل اشتراكك'
+              : 'To continue using Masarat ERP, contact us to activate your subscription'}
           </p>
         </div>
 
@@ -88,16 +98,19 @@ export function SubscriptionExpiredOverlay() {
                   </li>
                 ))}
               </ul>
-              <Link
-                href={`/${locale}/settings?tab=billing`}
-                className={`block text-center py-2.5 rounded-xl text-sm font-bold transition-colors ${
+              <a
+                href={waLink(isAr ? plan.ar : plan.en)}
+                target="_blank"
+                rel="noopener noreferrer"
+                className={`flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-bold transition-colors ${
                   plan.featured
                     ? 'bg-white text-brand-700 hover:bg-brand-50'
                     : 'bg-slate-700 text-slate-200 hover:bg-slate-600'
                 }`}
               >
-                {isAr ? 'اشترك الآن' : 'Subscribe Now'}
-              </Link>
+                <MessageCircle size={15} />
+                {isAr ? 'تواصل مع المبيعات' : 'Contact Sales'}
+              </a>
             </div>
           ))}
         </div>
@@ -106,13 +119,18 @@ export function SubscriptionExpiredOverlay() {
         <div className="text-center text-sm text-slate-500 space-y-1">
           <p>{isAr ? 'تحتاج مساعدة؟ تواصل معنا:' : 'Need help? Contact us:'}</p>
           <div className="flex items-center justify-center gap-4">
-            <a href="tel:+966" className="flex items-center gap-1.5 text-slate-400 hover:text-white transition-colors">
-              <Phone size={13} />
-              <span dir="ltr">+966 5X XXX XXXX</span>
+            <a
+              href={`https://wa.me/${WA_NUMBER}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center gap-1.5 text-slate-400 hover:text-white transition-colors"
+            >
+              <MessageCircle size={13} />
+              <span dir="ltr">+{WA_NUMBER}</span>
             </a>
-            <a href="mailto:support@masarat.app" className="flex items-center gap-1.5 text-slate-400 hover:text-white transition-colors">
+            <a href="mailto:support@masarat-erp.com" className="flex items-center gap-1.5 text-slate-400 hover:text-white transition-colors">
               <Mail size={13} />
-              support@masarat.app
+              support@masarat-erp.com
             </a>
           </div>
         </div>

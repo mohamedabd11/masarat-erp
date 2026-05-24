@@ -38,6 +38,23 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'فقط مدير الوكالة يمكنه دعوة مستخدمين' }, { status: 403 });
     }
 
+    // التحقق من حد المستخدمين حسب الباقة
+    const agencySnap = await db.collection('agencies').doc(callerAgencyId).get();
+    const agencyPlan = (agencySnap.data()?.['plan'] ?? 'trial') as string;
+    const userLimit  = agencyPlan === 'professional' ? Infinity : 3;
+
+    const usersCount = await db
+      .collection('users')
+      .where('agencyId', '==', callerAgencyId)
+      .count()
+      .get();
+
+    if (usersCount.data().count >= userLimit) {
+      return NextResponse.json({
+        error: `وصلت للحد الأقصى (${userLimit} مستخدمين) في باقتك الحالية. يرجى ترقية الباقة للمتابعة.`,
+      }, { status: 403 });
+    }
+
     const body = await request.json() as InviteUserRequest;
     const { nameAr, nameEn, mobile, role } = body;
     const email = body.email?.trim().toLowerCase();

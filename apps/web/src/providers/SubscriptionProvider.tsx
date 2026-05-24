@@ -9,13 +9,17 @@ export type SubscriptionStatus = 'trial' | 'active' | 'past_due' | 'cancelled' |
 
 interface SubscriptionContextValue {
   status:        SubscriptionStatus;
-  daysRemaining: number | null; // only meaningful when status === 'trial'
+  plan:          string;
+  agencyName:    string;
+  daysRemaining: number | null;
   isExpired:     boolean;
   isLoading:     boolean;
 }
 
 const SubscriptionContext = createContext<SubscriptionContextValue>({
   status:        'loading',
+  plan:          '',
+  agencyName:    '',
   daysRemaining: null,
   isExpired:     false,
   isLoading:     true,
@@ -32,14 +36,15 @@ const SUPER_ADMIN_EMAIL = 'mohamedabdalazim1111@gmail.com';
 export function SubscriptionProvider({ children }: { children: ReactNode }) {
   const { user } = useAuth();
   const [status,        setStatus]        = useState<SubscriptionStatus>('loading');
+  const [plan,          setPlan]          = useState('');
+  const [agencyName,    setAgencyName]    = useState('');
   const [daysRemaining, setDaysRemaining] = useState<number | null>(null);
   const [isLoading,     setIsLoading]     = useState(true);
 
   const isSuperAdmin = user?.email === SUPER_ADMIN_EMAIL;
 
   useEffect(() => {
-    // مالك النظام لا يخضع لقيود الاشتراك
-    if (isSuperAdmin) { setStatus('active'); setIsLoading(false); return; }
+    if (isSuperAdmin) { setStatus('active'); setPlan('super_admin'); setIsLoading(false); return; }
 
     const agencyId = user?.agencyId as string | undefined;
     if (!agencyId) { setIsLoading(false); return; }
@@ -62,6 +67,8 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
         const d   = snap.data() as Record<string, any>;
         const sub = (d.subscriptionStatus ?? 'active') as SubscriptionStatus;
         setStatus(sub);
+        setPlan(d.plan ?? '');
+        setAgencyName(d.nameAr ?? d.nameEn ?? '');
 
         if (sub === 'trial') {
           const trialEnd: Date | null = d.trialEndDate?.toDate?.() ?? null;
@@ -69,7 +76,6 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
             const days = Math.ceil((trialEnd.getTime() - Date.now()) / 86_400_000);
             setDaysRemaining(Math.max(0, days));
           } else {
-            // لا يوجد trialEndDate ← نعطيه 14 يوماً افتراضياً (وكالات قديمة)
             setDaysRemaining(14);
           }
         } else {
@@ -91,7 +97,7 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
   );
 
   return (
-    <SubscriptionContext.Provider value={{ status, daysRemaining, isExpired, isLoading }}>
+    <SubscriptionContext.Provider value={{ status, plan, agencyName, daysRemaining, isExpired, isLoading }}>
       {children}
     </SubscriptionContext.Provider>
   );
