@@ -264,44 +264,44 @@ export function Sidebar({ collapsed = false, onToggle, onClose }: SidebarProps) 
             </ul>
           </div>
         ))}
+
+        {/* Bottom items inside nav — eliminates mobile gap */}
+        <div className="px-3 mt-3 pt-3 border-t border-surface-border space-y-0.5">
+          {BOTTOM_ITEMS.map(item => (
+            <Link
+              key={item.key}
+              href={buildHref(item.href)}
+              onClick={onClose}
+              className={cn(
+                'flex items-center rounded-lg transition-colors duration-150 text-sm font-medium',
+                collapsed ? 'justify-center px-2 py-2.5' : 'gap-3 px-3 py-2.5',
+                isActive(item.href)
+                  ? 'bg-brand-50 text-brand-700'
+                  : 'text-slate-500 hover:bg-slate-100 hover:text-slate-700',
+              )}
+            >
+              {item.icon}
+              {!collapsed && <span>{isAr ? item.labelAr : item.labelEn}</span>}
+            </Link>
+          ))}
+
+          {onToggle && (
+            <button
+              onClick={onToggle}
+              className={cn(
+                'w-full flex items-center rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-600',
+                'transition-colors duration-150 text-sm',
+                collapsed ? 'justify-center px-2 py-2.5' : 'gap-3 px-3 py-2.5',
+              )}
+            >
+              <CollapseIcon size={16} />
+              {!collapsed && (
+                <span className="text-xs">{isAr ? 'طي القائمة' : 'Collapse'}</span>
+              )}
+            </button>
+          )}
+        </div>
       </nav>
-
-      {/* Bottom items */}
-      <div className="border-t border-surface-border py-3 px-3 space-y-0.5">
-        {BOTTOM_ITEMS.map(item => (
-          <Link
-            key={item.key}
-            href={buildHref(item.href)}
-            onClick={onClose}
-            className={cn(
-              'flex items-center rounded-lg transition-colors duration-150 text-sm font-medium',
-              collapsed ? 'justify-center px-2 py-2.5' : 'gap-3 px-3 py-2.5',
-              isActive(item.href)
-                ? 'bg-brand-50 text-brand-700'
-                : 'text-slate-500 hover:bg-slate-100 hover:text-slate-700',
-            )}
-          >
-            {item.icon}
-            {!collapsed && <span>{isAr ? item.labelAr : item.labelEn}</span>}
-          </Link>
-        ))}
-
-        {onToggle && (
-          <button
-            onClick={onToggle}
-            className={cn(
-              'w-full flex items-center rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-600',
-              'transition-colors duration-150 text-sm',
-              collapsed ? 'justify-center px-2 py-2.5' : 'gap-3 px-3 py-2.5',
-            )}
-          >
-            <CollapseIcon size={16} />
-            {!collapsed && (
-              <span className="text-xs">{isAr ? 'طي القائمة' : 'Collapse'}</span>
-            )}
-          </button>
-        )}
-      </div>
     </aside>
   );
 }
