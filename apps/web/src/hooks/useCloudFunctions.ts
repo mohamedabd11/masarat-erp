@@ -77,13 +77,23 @@ async function createInvoiceFirestore(req: CreateInvoiceRequest): Promise<Create
   let customerPhone = '';
   let customerId = '';
   let bookingTypeLabel = { ar: 'خدمة سفر', en: 'Travel Service' };
+  let revenueModel = 'principal';
+  let storedVatAmount = 0;
+  let storedServiceFee = 0;
+  let storedTotalCost = 0;
 
   try {
     const bookingSnap = await getDoc(doc(db, 'bookings', req.bookingId));
     if (bookingSnap.exists()) {
       const b = bookingSnap.data() as Record<string, unknown>;
-      const pricing = b.pricing as Record<string, number> | undefined;
-      if (pricing) grandTotal = pricing.totalAmount ?? pricing.grandTotal ?? grandTotal;
+      const pricing = b.pricing as Record<string, number & { revenueModel?: string }> | undefined;
+      if (pricing) {
+        grandTotal = pricing.totalAmount ?? pricing.grandTotal ?? grandTotal;
+        revenueModel = (pricing as unknown as Record<string, string>).revenueModel ?? 'principal';
+        storedVatAmount  = pricing.vatAmount  ?? 0;
+        storedServiceFee = pricing.serviceFee ?? 0;
+        storedTotalCost  = pricing.totalCost  ?? 0;
+      }
       const cn = b.customerName as { ar?: string; en?: string } | undefined;
       if (cn) customerName = { ar: cn.ar ?? '', en: cn.en ?? '' };
       customerPhone = (b.customerPhone as string) ?? '';
@@ -117,8 +127,14 @@ async function createInvoiceFirestore(req: CreateInvoiceRequest): Promise<Create
   } catch { /* seller remains empty — invoice still valid */ }
 
   // ── 3. حساب الأرقام ──────────────────────────────────────────────────────
-  const subtotalExclVat = Math.round(grandTotal / 1.15);
-  const totalVat = grandTotal - subtotalExclVat;
+  // Agent model: VAT is only on the agency fee, not the full selling price
+  // Principal model: back-calculate VAT from the grand total (full price is VAT-inclusive)
+  const subtotalExclVat = revenueModel === 'agent'
+    ? storedTotalCost + storedServiceFee          // cost + fee before VAT
+    : Math.round(grandTotal / 1.15);
+  const totalVat = revenueModel === 'agent'
+    ? storedVatAmount                             // 15% of fee only
+    : grandTotal - subtotalExclVat;
 
   // ── 4. بنود الفاتورة (سطر واحد من بيانات الحجز) ─────────────────────────
   const lines = [
