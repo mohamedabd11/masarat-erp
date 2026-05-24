@@ -28,7 +28,7 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
             onClick={() => setMobileSidebarOpen(false)}
           />
           <div className="relative z-50 flex-shrink-0">
-            <Sidebar onToggle={() => setMobileSidebarOpen(false)} />
+            <Sidebar onToggle={() => setMobileSidebarOpen(false)} onClose={() => setMobileSidebarOpen(false)} />
           </div>
         </div>
       )}

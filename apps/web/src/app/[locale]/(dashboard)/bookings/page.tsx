@@ -1,3 +1,4 @@
+import { Suspense } from 'react';
 import { getTranslations } from 'next-intl/server';
 import { BookingsClient } from '@/components/bookings/BookingsClient';
 import { NewBookingButton } from '@/components/bookings/NewBookingButton';
@@ -21,7 +22,9 @@ export default async function BookingsPage({ params }: { params: { locale: strin
       </div>
 
       {/* Search, filters, and table — client component with real Firestore data */}
-      <BookingsClient locale={locale} />
+      <Suspense fallback={<div className="h-64 flex items-center justify-center"><div className="w-8 h-8 border-4 border-brand-600 border-t-transparent rounded-full animate-spin" /></div>}>
+        <BookingsClient locale={locale} />
+      </Suspense>
     </div>
   );
 }

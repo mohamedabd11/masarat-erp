@@ -9,12 +9,11 @@ export function cn(...inputs: ClassValue[]) {
 export function formatCurrency(halalas: number, locale: string = 'ar-SA'): string {
   const riyals = halalas / 100;
   const numberLocale = locale.startsWith('ar') ? 'ar-SA-u-nu-latn' : 'en-US';
-  const formatted = new Intl.NumberFormat(numberLocale, {
+  return new Intl.NumberFormat(numberLocale, {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
     useGrouping: true,
   }).format(riyals);
-  return locale.startsWith('ar') ? `${formatted} ر.س` : `SAR ${formatted}`;
 }
 
 /** تنسيق التاريخ — يستخدم أرقام لاتينية دائماً */

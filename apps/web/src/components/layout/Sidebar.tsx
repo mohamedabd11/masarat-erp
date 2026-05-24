@@ -102,9 +102,10 @@ const BOTTOM_ITEMS: NavItem[] = [
 interface SidebarProps {
   collapsed?: boolean;
   onToggle?: () => void;
+  onClose?: () => void;
 }
 
-export function Sidebar({ collapsed = false, onToggle }: SidebarProps) {
+export function Sidebar({ collapsed = false, onToggle, onClose }: SidebarProps) {
   const locale = useLocale();
   const pathname = usePathname();
   const isAr = locale === 'ar';
@@ -152,6 +153,7 @@ export function Sidebar({ collapsed = false, onToggle }: SidebarProps) {
       <Link
         href={buildHref(item.href)}
         title={collapsed ? (isAr ? item.labelAr : item.labelEn) : undefined}
+        onClick={onClose}
         className={cn(
           'flex items-center rounded-lg transition-colors duration-150 text-sm font-medium',
           collapsed ? 'justify-center px-2 py-2.5' : 'gap-3 px-3 py-2',
@@ -240,6 +242,7 @@ export function Sidebar({ collapsed = false, onToggle }: SidebarProps) {
                     <Link
                       href={buildHref(ctHref)}
                       title={collapsed ? (isAr ? ct.nameAr : ct.nameEn) : undefined}
+                      onClick={onClose}
                       className={cn(
                         'flex items-center rounded-lg transition-colors duration-150 text-sm font-medium',
                         collapsed ? 'justify-center px-2 py-2.5' : 'gap-3 px-3 py-2',
@@ -269,6 +272,7 @@ export function Sidebar({ collapsed = false, onToggle }: SidebarProps) {
           <Link
             key={item.key}
             href={buildHref(item.href)}
+            onClick={onClose}
             className={cn(
               'flex items-center rounded-lg transition-colors duration-150 text-sm font-medium',
               collapsed ? 'justify-center px-2 py-2.5' : 'gap-3 px-3 py-2.5',
