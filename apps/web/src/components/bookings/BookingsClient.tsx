@@ -1,14 +1,18 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import Link from 'next/link';
 import { useFirestoreBookings } from '@/hooks/useFirestoreBookings';
 import { Spinner } from '@/components/ui/Spinner';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { BookingStatusBadge } from '@/components/ui/StatusBadge';
 import { Card } from '@/components/ui/Card';
-import { formatCurrency, formatDate } from '@/lib/utils';
-import { BookOpen, Search } from 'lucide-react';
+import { formatCurrency, formatDate, formatCount } from '@/lib/utils';
+import { cn } from '@/lib/utils';
+import {
+  BookOpen, Search, X, Plus, TrendingUp, CheckCircle2,
+  Clock, AlertCircle, ChevronRight, Wallet, ArrowUpRight,
+} from 'lucide-react';
 import type { BookingType } from '@masarat/firebase';
 
 interface BookingsClientProps {
@@ -16,179 +20,221 @@ interface BookingsClientProps {
   bookingType?: BookingType;
 }
 
-function getBookingTypeLabel(type: string, isAr: boolean): string {
-  const labels: Record<string, { ar: string; en: string }> = {
-    umrah:      { ar: 'عمرة',          en: 'Umrah' },
-    flight:     { ar: 'طيران',         en: 'Flight' },
-    hotel:      { ar: 'فندق',          en: 'Hotel' },
-    package:    { ar: 'باقة سياحية',   en: 'Tour Package' },
-    visa:       { ar: 'تأشيرة',        en: 'Visa' },
-    insurance:  { ar: 'تأمين',         en: 'Insurance' },
-    transport:  { ar: 'نقل',           en: 'Transport' },
-  };
-  const entry = labels[type];
-  if (!entry) return type;
-  return isAr ? entry.ar : entry.en;
-}
+type StatusFilter = 'all' | 'pending_approval' | 'confirmed' | 'in_progress' | 'completed' | 'cancelled';
+
+const TYPE_META: Record<string, { ar: string; en: string; bg: string; text: string }> = {
+  flight:       { ar: 'طيران',        en: 'Flight',        bg: 'bg-sky-100',     text: 'text-sky-700' },
+  hotel:        { ar: 'فندق',         en: 'Hotel',         bg: 'bg-amber-100',   text: 'text-amber-700' },
+  package:      { ar: 'باقة سياحية',  en: 'Package',       bg: 'bg-purple-100',  text: 'text-purple-700' },
+  umrah:        { ar: 'عمرة',         en: 'Umrah',         bg: 'bg-brand-100',   text: 'text-brand-700' },
+  hajj:         { ar: 'حج',           en: 'Hajj',          bg: 'bg-brand-100',   text: 'text-brand-700' },
+  visa:         { ar: 'تأشيرة',       en: 'Visa',          bg: 'bg-red-100',     text: 'text-red-700' },
+  insurance:    { ar: 'تأمين',        en: 'Insurance',     bg: 'bg-rose-100',    text: 'text-rose-700' },
+  transfer:     { ar: 'نقل',          en: 'Transfer',      bg: 'bg-emerald-100', text: 'text-emerald-700' },
+  family_visit: { ar: 'زيارة عائلية', en: 'Family Visit',  bg: 'bg-pink-100',    text: 'text-pink-700' },
+  cruise:       { ar: 'رحلة بحرية',   en: 'Cruise',        bg: 'bg-teal-100',    text: 'text-teal-700' },
+};
+
+const STATUS_TABS: { id: StatusFilter; ar: string; en: string }[] = [
+  { id: 'all',              ar: 'الكل',            en: 'All' },
+  { id: 'pending_approval', ar: 'انتظار موافقة',   en: 'Pending' },
+  { id: 'confirmed',        ar: 'مؤكد',            en: 'Confirmed' },
+  { id: 'in_progress',      ar: 'جاري',            en: 'In Progress' },
+  { id: 'completed',        ar: 'مكتمل',           en: 'Completed' },
+  { id: 'cancelled',        ar: 'ملغي',            en: 'Cancelled' },
+];
 
 export function BookingsClient({ locale, bookingType }: BookingsClientProps) {
   const { bookings, loading, error, hasMore, loadNextPage, loadingMore } =
     useFirestoreBookings({ pageSize: 50, type: bookingType });
-  const [search, setSearch] = useState('');
+
+  const [search, setSearch]           = useState('');
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
   const isAr = locale === 'ar';
+  const fmtLocale = isAr ? 'ar-SA' : 'en-SA';
 
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center py-24">
-        <Spinner size="lg" />
-      </div>
-    );
-  }
+  // ── KPIs ────────────────────────────────────────────────────────────────────
+  const revenue   = bookings.reduce((s, b) => s + ((b as any).grandTotalHalalas ?? (b as any).pricing?.totalAmount ?? 0), 0);
+  const paid      = bookings.reduce((s, b) => s + ((b as any).paidHalalas ?? (b as any).totalPaid ?? 0), 0);
+  const pending   = bookings.filter(b => b.status === 'pending_approval').length;
+  const active    = bookings.filter(b => b.status === 'confirmed' || (b.status as string) === 'in_progress').length;
+  const completed = bookings.filter(b => b.status === 'completed').length;
 
-  if (error) {
-    return (
-      <div className="py-8 text-center text-sm text-red-600">
-        {isAr ? 'حدث خطأ أثناء تحميل الحجوزات' : 'Error loading bookings'}: {error}
-      </div>
-    );
-  }
+  // ── Filtered list ─────────────────────────────────────────────────────────
+  const filtered = useMemo(() => {
+    const q = search.toLowerCase();
+    return bookings.filter(b => {
+      const matchStatus = statusFilter === 'all' || b.status === statusFilter;
+      const name = isAr ? b.customerName.ar : b.customerName.en;
+      const matchSearch = !q ||
+        name.toLowerCase().includes(q) ||
+        b.id.toLowerCase().includes(q);
+      return matchStatus && matchSearch;
+    });
+  }, [bookings, search, statusFilter, isAr]);
 
-  const searchLower = search.toLowerCase();
-  const filtered = search
-    ? bookings.filter((b) => {
-        const customerName = isAr ? b.customerName.ar : b.customerName.en;
-        return (
-          b.id.toLowerCase().includes(searchLower) ||
-          customerName.toLowerCase().includes(searchLower)
-        );
-      })
-    : bookings;
+  if (loading) return <div className="flex items-center justify-center py-24"><Spinner size="lg" /></div>;
+  if (error)   return <div className="py-8 text-center text-sm text-red-600">{isAr ? 'خطأ في تحميل البيانات' : 'Error loading data'}: {error}</div>;
 
   return (
-    <>
-      {/* Filters bar */}
-      <Card padding="sm">
-        <div className="flex flex-col sm:flex-row gap-3">
-          <div className="flex-1 relative">
-            <Search
-              size={16}
-              className="absolute start-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none"
-            />
-            <input
-              type="search"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder={isAr ? 'ابحث عن حجز أو عميل...' : 'Search booking or customer...'}
-              className="w-full rounded-lg border border-slate-200 bg-white ps-9 pe-4 py-2 text-sm text-slate-700 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent"
-            />
-          </div>
-        </div>
-      </Card>
+    <div className="space-y-5">
 
-      {/* Bookings table or empty state */}
+      {/* ── KPI strip ─────────────────────────────────────────────────────── */}
+      <div className="grid grid-cols-2 xl:grid-cols-5 gap-3">
+        {[
+          { icon: TrendingUp,   bg: 'bg-brand-50',   color: 'text-brand-600',   accent: 'border-brand-500',   label: isAr ? 'إجمالي الإيرادات' : 'Total Revenue',   value: formatCurrency(revenue, fmtLocale) },
+          { icon: Wallet,       bg: 'bg-emerald-50', color: 'text-emerald-600', accent: 'border-emerald-500', label: isAr ? 'المحصّل' : 'Collected',                value: formatCurrency(paid, fmtLocale) },
+          { icon: Clock,        bg: 'bg-amber-50',   color: 'text-amber-600',   accent: 'border-amber-500',   label: isAr ? 'انتظار موافقة' : 'Pending Approval',   value: formatCount(pending, fmtLocale) },
+          { icon: CheckCircle2, bg: 'bg-sky-50',     color: 'text-sky-600',     accent: 'border-sky-500',     label: isAr ? 'نشط' : 'Active',                       value: formatCount(active, fmtLocale) },
+          { icon: BookOpen,     bg: 'bg-slate-50',   color: 'text-slate-600',   accent: 'border-slate-400',   label: isAr ? 'مكتملة' : 'Completed',                 value: formatCount(completed, fmtLocale) },
+        ].map(k => (
+          <div key={k.label} className={cn(
+            'bg-white rounded-xl border border-slate-200 shadow-sm p-4 border-s-4', k.accent,
+          )}>
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-[11px] font-bold uppercase tracking-widest text-slate-400 mb-1">{k.label}</p>
+                <p className="text-xl font-extrabold text-slate-900 tabular-nums">{k.value}</p>
+              </div>
+              <div className={cn('p-2.5 rounded-xl', k.bg)}>
+                <k.icon size={18} className={k.color} strokeWidth={2} />
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* ── Search + New booking ──────────────────────────────────────────── */}
+      <div className="flex flex-col sm:flex-row gap-3">
+        <div className="flex-1 relative">
+          <Search size={15} className="absolute start-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+          <input
+            type="search"
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            placeholder={isAr ? 'ابحث بالاسم أو رقم الحجز...' : 'Search by name or booking #...'}
+            className="w-full rounded-xl border border-slate-200 bg-white ps-9 pe-10 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
+          />
+          {search && (
+            <button onClick={() => setSearch('')} className="absolute end-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
+              <X size={14} />
+            </button>
+          )}
+        </div>
+        <Link
+          href={`/${locale}/bookings/new`}
+          className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-brand-600 text-white text-sm font-semibold hover:bg-brand-700 transition-colors shadow-sm whitespace-nowrap"
+        >
+          <Plus size={15} />
+          {isAr ? 'خدمة جديدة' : 'New Booking'}
+        </Link>
+      </div>
+
+      {/* ── Status filter tabs ────────────────────────────────────────────── */}
+      <div className="flex gap-1 overflow-x-auto pb-px">
+        {STATUS_TABS.map(tab => {
+          const count = tab.id === 'all' ? bookings.length : bookings.filter(b => b.status === tab.id).length;
+          return (
+            <button
+              key={tab.id}
+              onClick={() => setStatusFilter(tab.id)}
+              className={cn(
+                'inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-sm font-medium whitespace-nowrap transition-colors',
+                statusFilter === tab.id
+                  ? 'bg-brand-600 text-white shadow-sm'
+                  : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50',
+              )}
+            >
+              {isAr ? tab.ar : tab.en}
+              <span className={cn(
+                'text-[11px] font-bold px-1.5 py-0.5 rounded-full',
+                statusFilter === tab.id ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-500',
+              )}>
+                {count}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+
+      {/* ── Table ────────────────────────────────────────────────────────── */}
       {filtered.length === 0 ? (
         <EmptyState
           icon={<BookOpen size={48} />}
-          title={
-            search
-              ? (isAr ? 'لا توجد نتائج' : 'No results found')
-              : (isAr ? 'لا توجد حجوزات بعد' : 'No bookings yet')
-          }
-          description={
-            search
-              ? (isAr ? 'جرب كلمة بحث مختلفة' : 'Try a different search term')
-              : (isAr ? 'أنشئ حجزك الأول للبدء' : 'Create your first booking to get started')
-          }
+          title={isAr ? 'لا توجد نتائج' : 'No results'}
+          description={isAr ? 'جرب تغيير الفلتر أو البحث' : 'Try adjusting your search or filters'}
         />
       ) : (
         <Card padding="none">
           <div className="overflow-x-auto">
             <table className="w-full">
               <thead>
-                <tr className="border-b border-surface-border bg-slate-50/50">
-                  <th className="text-start ps-6 pe-4 py-3.5 text-xs font-semibold text-slate-500 uppercase tracking-wider">
-                    {isAr ? 'رقم الحجز' : 'Booking #'}
-                  </th>
-                  <th className="text-start px-4 py-3.5 text-xs font-semibold text-slate-500 uppercase tracking-wider">
-                    {isAr ? 'العميل' : 'Customer'}
-                  </th>
-                  <th className="text-start px-4 py-3.5 text-xs font-semibold text-slate-500 uppercase tracking-wider hidden md:table-cell">
-                    {isAr ? 'نوع الحجز' : 'Type'}
-                  </th>
-                  <th className="text-start px-4 py-3.5 text-xs font-semibold text-slate-500 uppercase tracking-wider hidden lg:table-cell">
-                    {isAr ? 'تاريخ المغادرة' : 'Departure'}
-                  </th>
-                  <th className="text-start px-4 py-3.5 text-xs font-semibold text-slate-500 uppercase tracking-wider">
-                    {isAr ? 'الحالة' : 'Status'}
-                  </th>
-                  <th className="text-end px-4 py-3.5 text-xs font-semibold text-slate-500 uppercase tracking-wider hidden sm:table-cell">
-                    {isAr ? 'الإجمالي' : 'Total'}
-                  </th>
-                  <th className="text-end ps-4 pe-6 py-3.5 text-xs font-semibold text-slate-500 uppercase tracking-wider hidden sm:table-cell">
-                    {isAr ? 'المستحق' : 'Due'}
-                  </th>
+                <tr className="border-b border-surface-border bg-slate-50/60">
+                  <th className="text-start ps-6 pe-3 py-3.5 text-xs font-bold text-slate-500 uppercase tracking-wider">{isAr ? 'رقم الحجز' : 'Booking #'}</th>
+                  <th className="text-start px-3 py-3.5 text-xs font-bold text-slate-500 uppercase tracking-wider">{isAr ? 'العميل' : 'Customer'}</th>
+                  <th className="text-start px-3 py-3.5 text-xs font-bold text-slate-500 uppercase tracking-wider hidden md:table-cell">{isAr ? 'الخدمة' : 'Service'}</th>
+                  <th className="text-start px-3 py-3.5 text-xs font-bold text-slate-500 uppercase tracking-wider hidden lg:table-cell">{isAr ? 'التاريخ' : 'Date'}</th>
+                  <th className="text-start px-3 py-3.5 text-xs font-bold text-slate-500 uppercase tracking-wider hidden xl:table-cell">{isAr ? 'الدفع' : 'Payment'}</th>
+                  <th className="text-start px-3 py-3.5 text-xs font-bold text-slate-500 uppercase tracking-wider">{isAr ? 'الحالة' : 'Status'}</th>
+                  <th className="text-end pe-5 px-3 py-3.5 text-xs font-bold text-slate-500 uppercase tracking-wider">{isAr ? 'الإجمالي' : 'Total'}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-surface-border">
-                {filtered.map((booking) => {
-                  const customerName = isAr ? booking.customerName.ar : booking.customerName.en;
-                  const createdDate = booking.createdAt ? booking.createdAt.toDate() : new Date();
-                  const departureDate = booking.travelDate ? booking.travelDate.toDate() : null;
-                  const dueHalalas = booking.totalDue ?? 0;
+                {filtered.map(b => {
+                  const name       = isAr ? b.customerName.ar : b.customerName.en;
+                  const typeMeta   = TYPE_META[b.type] ?? { ar: b.type, en: b.type, bg: 'bg-slate-100', text: 'text-slate-600' };
+                  const total      = (b as any).grandTotalHalalas ?? (b as any).pricing?.totalAmount ?? 0;
+                  const paidAmt    = (b as any).paidHalalas ?? (b as any).totalPaid ?? 0;
+                  const paidPct    = total > 0 ? Math.min(100, Math.round((paidAmt / total) * 100)) : 0;
+                  const createdAt  = (b as any).createdAt?.toDate?.() ?? null;
 
                   return (
-                    <tr
-                      key={booking.id}
-                      className="hover:bg-slate-50/50 transition-colors group"
-                    >
-                      <td className="ps-6 pe-4 py-4">
-                        <Link
-                          href={`/${locale}/bookings/${booking.id}`}
-                          className="text-sm font-mono font-medium text-brand-700 hover:text-brand-800 hover:underline"
-                        >
-                          {booking.id}
+                    <tr key={b.id} className="hover:bg-slate-50/60 transition-colors group">
+                      <td className="ps-6 pe-3 py-4">
+                        <Link href={`/${locale}/bookings/${b.id}`} className="font-mono text-sm font-semibold text-brand-700 hover:text-brand-800 hover:underline">
+                          {b.id.slice(0, 12)}…
                         </Link>
-                        <p className="text-xs text-slate-400 mt-0.5">
-                          {formatDate(createdDate, isAr ? 'ar-SA' : 'en-SA')}
-                        </p>
                       </td>
-                      <td className="px-4 py-4">
-                        <p className="text-sm font-medium text-slate-900">{customerName}</p>
-                        <p className="text-xs text-slate-500 mt-0.5">
-                          {booking.passengers?.length ?? 1}{' '}
-                          {isAr ? 'مسافر' : 'traveler(s)'}
-                        </p>
+                      <td className="px-3 py-4">
+                        <p className="text-sm font-semibold text-slate-900">{name}</p>
                       </td>
-                      <td className="px-4 py-4 hidden md:table-cell">
-                        <span className="text-sm text-slate-600">
-                          {getBookingTypeLabel(booking.type, isAr)}
+                      <td className="px-3 py-4 hidden md:table-cell">
+                        <span className={cn('inline-flex items-center px-2.5 py-1 rounded-lg text-xs font-bold', typeMeta.bg, typeMeta.text)}>
+                          {isAr ? typeMeta.ar : typeMeta.en}
                         </span>
                       </td>
-                      <td className="px-4 py-4 hidden lg:table-cell">
-                        <span className="text-sm text-slate-600">
-                          {departureDate
-                            ? formatDate(departureDate, isAr ? 'ar-SA' : 'en-SA')
-                            : '—'}
+                      <td className="px-3 py-4 hidden lg:table-cell">
+                        <span className="text-sm text-slate-500">{createdAt ? formatDate(createdAt, fmtLocale) : '—'}</span>
+                      </td>
+                      <td className="px-3 py-4 hidden xl:table-cell">
+                        <div className="w-32">
+                          <div className="flex items-center justify-between mb-1">
+                            <span className="text-[10px] text-slate-400">{paidPct}%</span>
+                            <span className="text-[10px] text-slate-400">
+                              {paidPct === 100 ? (isAr ? 'مكتمل' : 'Paid') : (isAr ? 'جزئي' : 'Partial')}
+                            </span>
+                          </div>
+                          <div className="h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                            <div
+                              className={cn('h-full rounded-full transition-all', paidPct === 100 ? 'bg-emerald-500' : 'bg-amber-400')}
+                              style={{ width: `${paidPct}%` }}
+                            />
+                          </div>
+                        </div>
+                      </td>
+                      <td className="px-3 py-4">
+                        <BookingStatusBadge status={b.status as any} locale={locale} />
+                      </td>
+                      <td className="pe-5 px-3 py-4 text-end">
+                        <span className="text-sm font-bold tabular-nums text-slate-900">
+                          {total > 0 ? formatCurrency(total, fmtLocale) : '—'}
                         </span>
-                      </td>
-                      <td className="px-4 py-4">
-                        <BookingStatusBadge status={booking.status} locale={locale} />
-                      </td>
-                      <td className="px-4 py-4 text-end hidden sm:table-cell">
-                        <span className="text-sm font-semibold text-slate-900">
-                          {formatCurrency(booking.pricing?.totalAmount ?? 0, isAr ? 'ar-SA' : 'en-SA')}
-                        </span>
-                      </td>
-                      <td className="ps-4 pe-6 py-4 text-end hidden sm:table-cell">
-                        <span
-                          className={`text-sm font-medium ${
-                            dueHalalas > 0 ? 'text-red-600' : 'text-emerald-600'
-                          }`}
+                        <Link
+                          href={`/${locale}/bookings/${b.id}`}
+                          className="ms-2 opacity-0 group-hover:opacity-100 transition-opacity inline-flex"
                         >
-                          {dueHalalas > 0
-                            ? formatCurrency(dueHalalas, isAr ? 'ar-SA' : 'en-SA')
-                            : (isAr ? 'مكتمل' : 'Paid')}
-                        </span>
+                          <ChevronRight size={14} className="text-brand-500" />
+                        </Link>
                       </td>
                     </tr>
                   );
@@ -197,28 +243,26 @@ export function BookingsClient({ locale, bookingType }: BookingsClientProps) {
             </table>
           </div>
 
-          {/* Footer: row count + load more */}
+          {/* Footer */}
           <div className="px-6 py-3 border-t border-surface-border flex items-center justify-between">
             <span className="text-xs text-slate-400">
               {isAr
-                ? `${filtered.length} حجز`
-                : `${filtered.length} booking${filtered.length !== 1 ? 's' : ''}`}
+                ? `${formatCount(filtered.length, fmtLocale)} من ${formatCount(bookings.length, fmtLocale)} حجز`
+                : `${filtered.length} of ${bookings.length} bookings`}
             </span>
-            {hasMore && !search && (
+            {hasMore && (
               <button
                 onClick={loadNextPage}
                 disabled={loadingMore}
-                className="flex items-center gap-2 text-sm text-brand-600 hover:text-brand-700 font-medium disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                className="flex items-center gap-1.5 text-xs text-brand-600 hover:text-brand-700 font-medium disabled:opacity-50"
               >
-                {loadingMore ? (
-                  <Spinner size="sm" />
-                ) : null}
-                {isAr ? 'تحميل المزيد' : 'Load More'}
+                {loadingMore ? <Spinner size="sm" /> : <ArrowUpRight size={13} />}
+                {isAr ? 'تحميل المزيد' : 'Load more'}
               </button>
             )}
           </div>
         </Card>
       )}
-    </>
+    </div>
   );
 }
