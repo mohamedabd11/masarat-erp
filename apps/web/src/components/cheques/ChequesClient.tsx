@@ -363,7 +363,7 @@ export function ChequesClient({ locale }: { locale: string }) {
   const [showForm, setShowForm] = useState(false);
   const [saving, setSaving] = useState(false);
 
-  const agencyId = user?.agencyId ?? user?.uid ?? null;
+  const agencyId = (user?.agencyId as string | undefined) ?? null;
 
   // Load cheques from Firestore
   useEffect(() => {
