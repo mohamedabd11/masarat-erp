@@ -66,7 +66,7 @@ export function useFirestoreBookings(options: UseFirestoreBookingsOptions = {}):
         unsubscribe = onSnapshot(
           q,
           (snap) => {
-            let docs = snap.docs.map(d => d.data() as BookingDoc);
+            let docs = snap.docs.map(d => ({ id: d.id, ...d.data() }) as BookingDoc);
 
             // Client-side filters
             if (options.status) {
@@ -125,7 +125,7 @@ export function useFirestoreBookings(options: UseFirestoreBookingsOptions = {}):
       ];
 
       const snap = await getDocs(query(col, ...constraints));
-      let newDocs = snap.docs.map(d => d.data() as BookingDoc);
+      let newDocs = snap.docs.map(d => ({ id: d.id, ...d.data() }) as BookingDoc);
 
       if (options.status) newDocs = newDocs.filter(d => d.status === options.status);
       if (options.type)   newDocs = newDocs.filter(d => d.type === options.type);
