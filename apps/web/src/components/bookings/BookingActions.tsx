@@ -7,8 +7,9 @@ import { useAuth } from '@masarat/firebase';
 import { CreateInvoiceButton } from './CreateInvoiceButton';
 import { ProcessPaymentModal } from './ProcessPaymentModal';
 import { ProcessRefundModal } from './ProcessRefundModal';
+import { SupplierPaymentModal } from './SupplierPaymentModal';
 import { Button } from '@/components/ui/Button';
-import { RotateCcw } from 'lucide-react';
+import { RotateCcw, Banknote } from 'lucide-react';
 
 interface BookingActionsProps {
   bookingId: string;
@@ -33,8 +34,9 @@ export function BookingActions({
   const canWriteInvoices = !!user;
   const [invoiceId, setInvoiceId] = useState(existingInvoiceId);
   const [paid, setPaid] = useState(paidHalalas);
-  const [showPayment, setShowPayment] = useState(false);
-  const [showRefund, setShowRefund] = useState(false);
+  const [showPayment, setShowPayment]           = useState(false);
+  const [showRefund, setShowRefund]             = useState(false);
+  const [showSupplierPayment, setShowSupplierPayment] = useState(false);
 
   const remaining = grandTotalHalalas - paid;
   const isFullyPaid = remaining <= 0;
@@ -82,6 +84,18 @@ export function BookingActions({
                 {isAr ? 'استرداد / إلغاء' : 'Refund / Cancel'}
               </Button>
             )}
+
+            {/* Supplier payment voucher */}
+            <Button
+              fullWidth
+              size="sm"
+              variant="ghost"
+              onClick={() => setShowSupplierPayment(true)}
+              className="text-slate-600 hover:bg-slate-50 border border-slate-200"
+            >
+              <Banknote size={13} />
+              {isAr ? 'سند صرف للمورد' : 'Supplier Payment Voucher'}
+            </Button>
           </>
         ) : (
           <p className="text-xs text-slate-400">للعرض فقط / Read-only</p>
@@ -123,6 +137,14 @@ export function BookingActions({
             setPaid(0);
             setShowRefund(false);
           }}
+        />
+      )}
+
+      {showSupplierPayment && (
+        <SupplierPaymentModal
+          bookingId={bookingId}
+          agencyId={agencyId}
+          onClose={() => setShowSupplierPayment(false)}
         />
       )}
     </>
