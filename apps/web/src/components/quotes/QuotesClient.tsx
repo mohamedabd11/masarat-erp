@@ -124,7 +124,7 @@ function QuoteRow({ q, isAr, fmtLocale, locale, onStatusChange }: {
         </td>
         <td className="px-3 py-3.5">
           <p className="text-sm font-semibold text-slate-900">{isAr ? q.customerNameAr : q.customerNameEn}</p>
-          {q.customerPhone && <p className="text-xs text-slate-400 mt-0.5 font-mono" dir="ltr">{q.customerPhone}</p>}
+          {q.customerPhone && <p className="text-xs text-slate-400 mt-0.5 font-mono">{q.customerPhone}</p>}
         </td>
         <td className="px-3 py-3.5 hidden md:table-cell">
           <span className="text-xs text-slate-500">

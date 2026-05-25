@@ -224,7 +224,7 @@ export function CustomersClient({ locale }: CustomersClientProps) {
                         {c.mobile && (
                           <div className="flex items-center gap-1.5 text-sm text-slate-600">
                             <Phone size={12} className="text-slate-400 flex-shrink-0" />
-                            <span dir="ltr">{c.mobile}</span>
+                            <span>{c.mobile}</span>
                           </div>
                         )}
                       </td>

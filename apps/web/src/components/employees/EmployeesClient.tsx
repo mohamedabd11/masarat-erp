@@ -554,16 +554,16 @@ function EmployeesTab({ isAr, agencyId, locale }: { isAr: boolean; agencyId: str
                       <td className="px-4 py-3 text-slate-600 whitespace-nowrap">
                         {isAr ? deptInfo.ar : deptInfo.en}
                       </td>
-                      <td className="px-4 py-3 text-slate-500 whitespace-nowrap" dir="ltr">
+                      <td className="px-4 py-3 text-slate-500 whitespace-nowrap">
                         {emp.phone || '—'}
                       </td>
                       <td className="px-4 py-3 text-slate-500 max-w-[180px] truncate">
                         {emp.email || '—'}
                       </td>
-                      <td className="px-4 py-3 text-slate-700 whitespace-nowrap font-medium" dir="ltr">
+                      <td className="px-4 py-3 text-slate-700 whitespace-nowrap font-medium">
                         {emp.salary ? formatCurrency(emp.salary, isAr ? 'ar-SA' : 'en-US') : '—'}
                       </td>
-                      <td className="px-4 py-3 text-slate-500 whitespace-nowrap" dir="ltr">
+                      <td className="px-4 py-3 text-slate-500 whitespace-nowrap">
                         {emp.joinDate || '—'}
                       </td>
                       <td className="px-4 py-3">
@@ -630,7 +630,7 @@ function EmployeesTab({ isAr, agencyId, locale }: { isAr: boolean; agencyId: str
                         </span>
                       </div>
                       <div className="space-y-1 text-xs text-slate-500">
-                        {emp.phone && <div className="flex items-center gap-1.5"><Phone size={11} /><span dir="ltr">{emp.phone}</span></div>}
+                        {emp.phone && <div className="flex items-center gap-1.5"><Phone size={11} /><span>{emp.phone}</span></div>}
                         {emp.email && <div className="flex items-center gap-1.5"><Mail size={11} /><span className="truncate">{emp.email}</span></div>}
                         {emp.salary ? <div className="flex items-center gap-1.5"><Banknote size={11} /><span>{formatCurrency(emp.salary, isAr ? 'ar-SA' : 'en-US')}</span></div> : null}
                       </div>

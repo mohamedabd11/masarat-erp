@@ -204,7 +204,7 @@ export function BookingDetailClient({ locale, bookingId }: BookingDetailClientPr
               </div>
               <div>
                 <p className="text-slate-500 text-xs mb-1">{isAr ? 'الهاتف' : 'Phone'}</p>
-                <p className="font-medium text-slate-900 font-mono" dir="ltr">{booking.customerPhone ?? '—'}</p>
+                <p className="font-medium text-slate-900 font-mono" dir="rtl">{booking.customerPhone ?? '—'}</p>
               </div>
             </div>
           </Card>

@@ -133,7 +133,7 @@ export function PrintableInvoice({ invoice, onClose }: PrintableInvoiceProps) {
             </div>
             <div>
               <h2 className="text-xl font-bold text-slate-900">{invoice.seller.nameAr}</h2>
-              <p className="text-sm text-slate-500 mt-0.5" dir="ltr">{invoice.seller.nameEn}</p>
+              <p className="text-sm text-slate-500 mt-0.5">{invoice.seller.nameEn}</p>
             </div>
           </div>
 
@@ -185,10 +185,10 @@ export function PrintableInvoice({ invoice, onClose }: PrintableInvoiceProps) {
                 </p>
               )}
               {invoice.seller.phone && (
-                <p className="text-xs text-slate-600" dir="ltr">{invoice.seller.phone}</p>
+                <p className="text-xs text-slate-600">{invoice.seller.phone}</p>
               )}
               {invoice.seller.email && (
-                <p className="text-xs text-slate-600" dir="ltr">{invoice.seller.email}</p>
+                <p className="text-xs text-slate-600 break-all">{invoice.seller.email}</p>
               )}
               {invoice.seller.crNumber && (
                 <p className="text-xs text-slate-500">س.ت: <span className="font-mono font-semibold">{invoice.seller.crNumber}</span></p>
@@ -205,7 +205,7 @@ export function PrintableInvoice({ invoice, onClose }: PrintableInvoiceProps) {
               البائع / Supplier
             </p>
             <p className="font-bold text-slate-900 mb-1">{invoice.seller.nameAr}</p>
-            <p className="text-sm text-slate-600 mb-0.5" dir="ltr">{invoice.seller.nameEn}</p>
+            <p className="text-sm text-slate-600 mb-0.5">{invoice.seller.nameEn}</p>
             <div className="mt-2 space-y-1 text-xs text-slate-600">
               {isVatRegistered && invoice.seller.vatNumber && (
                 <p>الرقم الضريبي / VAT: <span className="font-mono font-semibold">{invoice.seller.vatNumber}</span></p>
@@ -217,7 +217,7 @@ export function PrintableInvoice({ invoice, onClose }: PrintableInvoiceProps) {
                 <p>{[invoice.seller.address.streetName, invoice.seller.address.district, invoice.seller.address.city].filter(Boolean).join('، ')}</p>
               )}
               {invoice.seller.phone && <p>هاتف: {invoice.seller.phone}</p>}
-              {invoice.seller.email && <p dir="ltr">{invoice.seller.email}</p>}
+              {invoice.seller.email && <p className="break-all">{invoice.seller.email}</p>}
             </div>
           </div>
 

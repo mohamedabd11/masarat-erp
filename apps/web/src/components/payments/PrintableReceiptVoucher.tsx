@@ -183,7 +183,7 @@ export function PrintableReceiptVoucher({ data }: { data: ReceiptVoucherData }) 
             <div className="text-right">
               <p className="font-bold text-slate-900 text-sm">{customerName}</p>
               {data.customer.phone && (
-                <p className="text-xs text-slate-500 font-mono mt-0.5" dir="ltr">{data.customer.phone}</p>
+                <p className="text-xs text-slate-500 font-mono mt-0.5">{data.customer.phone}</p>
               )}
             </div>
             <div className="text-left">

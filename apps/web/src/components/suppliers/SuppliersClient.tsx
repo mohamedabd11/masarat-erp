@@ -276,7 +276,7 @@ export function SuppliersClient({ locale }: SuppliersClientProps) {
                   {s.phone && (
                     <div className="flex items-center gap-2 text-sm text-slate-700">
                       <Phone size={13} className="text-slate-400 flex-shrink-0" />
-                      <span dir="ltr" className="font-mono">{s.phone}</span>
+                      <span className="font-mono">{s.phone}</span>
                     </div>
                   )}
                   {s.email && (
