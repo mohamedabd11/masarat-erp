@@ -29,12 +29,20 @@ export default function PrintInvoicePage({
         const { getFirestore, doc, getDoc } = await import('firebase/firestore');
         const { getApp } = await import('@masarat/firebase');
         const db = getFirestore(getApp());
-        const snap = await getDoc(doc(db, 'invoices', params.id));
+        const agencyId = user?.agencyId as string | undefined;
+
+        const [snap, agencySnap] = await Promise.all([
+          getDoc(doc(db, 'invoices', params.id)),
+          agencyId ? getDoc(doc(db, 'agencies', agencyId)) : Promise.resolve(null),
+        ]);
         if (cancelled) return;
         if (!snap.exists()) { setError('الفاتورة غير موجودة'); setLoading(false); return; }
 
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const d = { id: snap.id, ...snap.data() } as Record<string, any>;
+        // Always use the agency's CURRENT isVatRegistered setting — never trust what was stored on the invoice
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const agencyIsVatRegistered = agencySnap?.exists() ? (agencySnap.data() as any).isVatRegistered === true : false;
 
         const grandTotal: number = d.totals?.grandTotal ?? 0;
         const subtotalExclVat: number = d.totals?.subtotalExclVat ?? Math.round(grandTotal / 1.15);
@@ -90,7 +98,7 @@ export default function PrintInvoicePage({
             nameEn: seller.name?.en ?? '',
             vatNumber: seller.vatNumber ?? '',
             crNumber: seller.crNumber ?? '',
-            isVatRegistered: Boolean(seller.isVatRegistered ?? d.isVatRegistered),
+            isVatRegistered: agencyIsVatRegistered,
             address: {
               streetName: seller.address?.streetName ?? '',
               buildingNumber: seller.address?.buildingNumber ?? '',
