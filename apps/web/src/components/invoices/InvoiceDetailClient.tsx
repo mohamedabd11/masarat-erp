@@ -212,7 +212,7 @@ export function InvoiceDetailClient({ locale, invoiceId }: InvoiceDetailClientPr
                 href={`/${locale}/bookings/${invoice.bookingId}`}
                 className="hover:text-brand-600 hover:underline font-mono"
               >
-                {invoice.bookingId}
+                {resolvedBookingNumber ?? invoice.bookingId}
               </Link>
             </p>
           </div>
