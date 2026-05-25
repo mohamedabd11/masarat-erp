@@ -86,6 +86,7 @@ export function InvoiceDetailClient({ locale, invoiceId }: InvoiceDetailClientPr
   const [invoice, setInvoice] = useState<FirestoreInvoice | null>(null);
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
+  const [isVatRegistered, setIsVatRegistered] = useState(false);
 
   const BackIcon = isAr ? ArrowRight : ArrowLeft;
 
@@ -98,12 +99,19 @@ export function InvoiceDetailClient({ locale, invoiceId }: InvoiceDetailClientPr
         const { getFirestore, doc, getDoc } = await import('firebase/firestore');
         const { getApp } = await import('@masarat/firebase');
         const db = getFirestore(getApp());
-        const snap = await getDoc(doc(db, 'invoices', invoiceId));
+        const agencyId = user?.agencyId as string | undefined;
+
+        const [snap, agencySnap] = await Promise.all([
+          getDoc(doc(db, 'invoices', invoiceId)),
+          agencyId ? getDoc(doc(db, 'agencies', agencyId)) : Promise.resolve(null),
+        ]);
         if (cancelled) return;
         if (!snap.exists()) {
           setNotFound(true);
         } else {
           setInvoice({ id: snap.id, ...snap.data() } as FirestoreInvoice);
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          setIsVatRegistered(agencySnap?.exists() ? (agencySnap.data() as any).isVatRegistered === true : false);
         }
       } catch {
         if (!cancelled) setNotFound(true);
@@ -221,14 +229,16 @@ export function InvoiceDetailClient({ locale, invoiceId }: InvoiceDetailClientPr
                   {isAr ? 'إشعار دائن' : 'Credit Note'}
                 </span>
               )}
-              {/* ZATCA status */}
-              <span className={cn(
-                'inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium ring-1 ring-inset',
-                zStyle.bg,
-              )}>
-                <span className={cn('w-1.5 h-1.5 rounded-full', zStyle.dot)} />
-                ZATCA: {isAr ? zStyle.ar : zStyle.en}
-              </span>
+              {/* ZATCA status — only shown for VAT-registered agencies */}
+              {isVatRegistered && (
+                <span className={cn(
+                  'inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium ring-1 ring-inset',
+                  zStyle.bg,
+                )}>
+                  <span className={cn('w-1.5 h-1.5 rounded-full', zStyle.dot)} />
+                  ZATCA: {isAr ? zStyle.ar : zStyle.en}
+                </span>
+              )}
             </div>
 
             {/* Dates */}
@@ -249,7 +259,7 @@ export function InvoiceDetailClient({ locale, invoiceId }: InvoiceDetailClientPr
                   </div>
                 </div>
               )}
-              {uuid && (
+              {isVatRegistered && uuid && (
                 <div className="col-span-2 flex items-start gap-2">
                   <Hash size={15} className="text-slate-400 mt-0.5 flex-shrink-0" />
                   <div>
@@ -490,8 +500,8 @@ export function InvoiceDetailClient({ locale, invoiceId }: InvoiceDetailClientPr
         </div>
       </Card>
 
-      {/* ── ZATCA compliance footer ──────────────────────────────────────────── */}
-      <Card className={cn(
+      {/* ── ZATCA compliance footer — only shown for VAT-registered agencies ──── */}
+      {isVatRegistered && <Card className={cn(
         zatcaStatus === 'cleared' || zatcaStatus === 'reported'
           ? 'border-emerald-200 bg-emerald-50/40'
           : 'border-amber-200 bg-amber-50/40',
@@ -523,7 +533,7 @@ export function InvoiceDetailClient({ locale, invoiceId }: InvoiceDetailClientPr
             )}
           </div>
         </div>
-      </Card>
+      </Card>}
     </div>
   );
 }
