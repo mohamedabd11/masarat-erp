@@ -9,7 +9,11 @@ import {
   buildPaymentReceivedLines,
   buildSupplierPaymentLines,
 } from '@/lib/postJournalEntry';
-import { CheckCircle2, AlertTriangle, Search, Zap } from 'lucide-react';
+import { CheckCircle2, AlertTriangle, Search, Zap, RefreshCw } from 'lucide-react';
+
+function computeBal(type: string, dr: number, cr: number) {
+  return (type === 'asset' || type === 'expense') ? dr - cr : cr - dr;
+}
 
 interface PendingStats {
   invoices: number;
@@ -22,12 +26,14 @@ export function MigrationTool({ locale }: { locale: string }) {
   const { user } = useAuth();
   const agencyId = user?.agencyId ?? null;
 
-  const [checking,  setChecking]  = useState(false);
-  const [migrating, setMigrating] = useState(false);
-  const [stats,     setStats]     = useState<PendingStats | null>(null);
-  const [progress,  setProgress]  = useState('');
-  const [done,      setDone]      = useState(false);
-  const [error,     setError]     = useState('');
+  const [checking,    setChecking]    = useState(false);
+  const [migrating,   setMigrating]   = useState(false);
+  const [rebuilding,  setRebuilding]  = useState(false);
+  const [stats,       setStats]       = useState<PendingStats | null>(null);
+  const [progress,    setProgress]    = useState('');
+  const [done,        setDone]        = useState(false);
+  const [rebuildDone, setRebuildDone] = useState(false);
+  const [error,       setError]       = useState('');
 
   async function getMigratedIds(db: unknown) {
     const { collection, query, where, getDocs } = await import('firebase/firestore');
@@ -172,6 +178,71 @@ export function MigrationTool({ locale }: { locale: string }) {
     }
   }
 
+  async function rebuildBalances() {
+    if (!agencyId) return;
+    setRebuilding(true);
+    setRebuildDone(false);
+    setError('');
+    try {
+      const { getFirestore, collection, query, where, getDocs, doc, writeBatch } = await import('firebase/firestore');
+      const { getApp } = await import('@masarat/firebase');
+      const db = getFirestore(getApp());
+
+      // 1. Load all journal entries for this agency
+      const jeSnap = await getDocs(query(collection(db, 'journal_entries'), where('agencyId', '==', agencyId)));
+
+      // 2. Accumulate totals per account in memory
+      const accountMap = new Map<string, {
+        code: string; nameAr: string; nameEn: string; type: string;
+        debitTotal: number; creditTotal: number;
+      }>();
+
+      for (const jeDoc of jeSnap.docs) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const lines = (jeDoc.data() as any).lines as Array<Record<string, unknown>> ?? [];
+        for (const line of lines) {
+          const code = String(line['accountCode'] ?? '');
+          if (!code) continue;
+          const key = `${agencyId}_${code}`;
+          const entry = accountMap.get(key) ?? {
+            code,
+            nameAr: String(line['accountNameAr'] ?? ''),
+            nameEn: String(line['accountNameEn'] ?? ''),
+            type:   String(line['accountType']   ?? ''),
+            debitTotal:  0,
+            creditTotal: 0,
+          };
+          entry.debitTotal  += Number(line['debitHalalas']  ?? 0);
+          entry.creditTotal += Number(line['creditHalalas'] ?? 0);
+          accountMap.set(key, entry);
+        }
+      }
+
+      // 3. Write rebuilt balances in a single batch
+      const batch = writeBatch(db);
+      for (const [docId, ac] of accountMap.entries()) {
+        batch.set(doc(db, 'chart_of_accounts', docId), {
+          agencyId,
+          code:           ac.code,
+          nameAr:         ac.nameAr,
+          nameEn:         ac.nameEn,
+          type:           ac.type,
+          side:           (ac.type === 'asset' || ac.type === 'expense') ? 'debit' : 'credit',
+          debitTotal:     ac.debitTotal,
+          creditTotal:    ac.creditTotal,
+          balanceHalalas: computeBal(ac.type, ac.debitTotal, ac.creditTotal),
+          updatedAt:      Date.now(),
+        });
+      }
+      await batch.commit();
+      setRebuildDone(true);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Rebuild failed');
+    } finally {
+      setRebuilding(false);
+    }
+  }
+
   const total = stats ? stats.invoices + stats.payments + stats.supplierPayments : 0;
 
   return (
@@ -209,6 +280,38 @@ export function MigrationTool({ locale }: { locale: string }) {
           {isAr ? 'اكتمل الترحيل بنجاح' : 'Migration completed successfully'}
         </div>
       )}
+
+      {/* Rebuild balances */}
+      <div className="border-t border-slate-100 pt-4 space-y-2">
+        <div>
+          <p className="text-xs font-semibold text-slate-700">
+            {isAr ? 'إعادة بناء أرصدة الحسابات' : 'Rebuild Account Balances'}
+          </p>
+          <p className="text-xs text-slate-400 mt-0.5">
+            {isAr
+              ? 'يُعيد احتساب أرصدة دليل الحسابات من القيود المحاسبية المرحّلة. استخدمه لتصحيح أي خلل في الميزان التجريبي.'
+              : 'Recomputes chart-of-accounts balances from all posted journal entries. Use this to fix any trial balance discrepancy.'}
+          </p>
+        </div>
+        {rebuildDone && (
+          <div className="flex items-center gap-2 px-3 py-2 bg-emerald-50 border border-emerald-200 rounded-lg text-xs text-emerald-700">
+            <CheckCircle2 size={13} />
+            {isAr ? 'تمت إعادة البناء بنجاح' : 'Balances rebuilt successfully'}
+          </div>
+        )}
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={rebuildBalances}
+          loading={rebuilding}
+          disabled={rebuilding || migrating || checking}
+        >
+          <RefreshCw size={13} />
+          {rebuilding
+            ? (isAr ? 'جارٍ إعادة البناء...' : 'Rebuilding...')
+            : (isAr ? 'إعادة بناء الأرصدة' : 'Rebuild Balances')}
+        </Button>
+      </div>
 
       {/* Stats */}
       {stats !== null && (

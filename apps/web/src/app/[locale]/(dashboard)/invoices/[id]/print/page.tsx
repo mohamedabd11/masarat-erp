@@ -90,6 +90,7 @@ export default function PrintInvoicePage({
             nameEn: seller.name?.en ?? '',
             vatNumber: seller.vatNumber ?? '',
             crNumber: seller.crNumber ?? '',
+            isVatRegistered: Boolean(seller.isVatRegistered ?? d.isVatRegistered),
             address: {
               streetName: seller.address?.streetName ?? '',
               buildingNumber: seller.address?.buildingNumber ?? '',
