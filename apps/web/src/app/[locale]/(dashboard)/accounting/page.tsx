@@ -810,17 +810,19 @@ export default function AccountingPage() {
     async function load() {
       setLoadingEntries(true);
       try {
-        const { getFirestore, collection, query, where, orderBy, getDocs } = await import('firebase/firestore');
+        const { getFirestore, collection, query, where, getDocs } = await import('firebase/firestore');
         const { getApp } = await import('@masarat/firebase');
         const db = getFirestore(getApp());
         const q = query(
           collection(db, 'journal_entries'),
           where('agencyId', '==', agencyId),
-          orderBy('createdAt', 'desc'),
         );
         const snap = await getDocs(q);
         if (cancelled) return;
-        setEntries(snap.docs.map(d => fsDocToEntry(d.id, d.data() as Record<string, unknown>)));
+        const sorted = snap.docs
+          .map(d => fsDocToEntry(d.id, d.data() as Record<string, unknown>))
+          .sort((a, b) => b.date.getTime() - a.date.getTime());
+        setEntries(sorted);
       } finally {
         if (!cancelled) setLoadingEntries(false);
       }

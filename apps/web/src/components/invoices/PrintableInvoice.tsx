@@ -78,7 +78,8 @@ const INVOICE_TYPE_LABELS: Record<string, { ar: string; en: string }> = {
 export function PrintableInvoice({ invoice, onClose }: PrintableInvoiceProps) {
   const locale = useLocale();
   const isAr = locale === 'ar';
-  const isVatRegistered = (invoice.seller.vatNumber ?? '').trim().length > 0;
+  const isVatRegistered = (invoice.seller as Record<string, unknown>).isVatRegistered === true
+    || ((invoice.seller.vatNumber ?? '').trim().length > 0 && (invoice as Record<string, unknown>).isVatRegistered === true);
   const typeLabel = isVatRegistered
     ? (INVOICE_TYPE_LABELS[invoice.invoiceTypeCode] ?? INVOICE_TYPE_LABELS['388']!)
     : { ar: 'فاتورة تجارية', en: 'Commercial Invoice' };

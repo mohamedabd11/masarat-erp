@@ -182,7 +182,7 @@ export function buildSupplierPaymentLines(
 
 export async function postJournalEntry(payload: JEPayload): Promise<void> {
   const {
-    getFirestore, collection, addDoc, doc, getDoc, setDoc, updateDoc, Timestamp,
+    getFirestore, collection, doc, runTransaction, Timestamp,
   } = await import('firebase/firestore');
   const { getApp } = await import('@masarat/firebase');
   const db = getFirestore(getApp());
@@ -195,59 +195,69 @@ export async function postJournalEntry(payload: JEPayload): Promise<void> {
   if (totalDR !== totalCR) {
     throw new Error(`Journal entry not balanced: DR ${totalDR} ≠ CR ${totalCR}`);
   }
-  if (totalDR === 0) return; // nothing to post
+  if (totalDR === 0) return;
 
   const year     = new Date().getFullYear();
   const jeNumber = `JE-${year}-${String(Date.now()).slice(-8)}`;
+  const jeRef    = doc(collection(db, 'journal_entries'));  // pre-generate ID
 
-  // Save the immutable journal entry document
-  await addDoc(collection(db, 'journal_entries'), {
-    agencyId,
-    jeNumber,
-    description:        payload.description,
-    referenceId:        payload.referenceId,
-    referenceType:      payload.referenceType,
-    status:             'posted',
-    lines,
-    totalDebitHalalas:  totalDR,
-    totalCreditHalalas: totalCR,
-    isBalanced:         true,
-    postedAt:           Timestamp.now(),
-    createdAt:          Timestamp.now(),
-  });
+  const activeLines = lines.filter(l => l.debitHalalas > 0 || l.creditHalalas > 0);
+  const accountRefs = activeLines.map(l =>
+    doc(db, 'chart_of_accounts', `${agencyId}_${l.accountCode}`),
+  );
 
-  // Update running balances — use fixed document ID ${agencyId}_${code} to match useChartOfAccounts
-  for (const l of lines) {
-    if (l.debitHalalas === 0 && l.creditHalalas === 0) continue;
+  // Single atomic transaction: JE document + all account balance updates
+  await runTransaction(db, async (tx) => {
+    // Read all account docs first (required before writes in a transaction)
+    const accountSnaps = await Promise.all(accountRefs.map(ref => tx.get(ref)));
 
-    const accountDocId = `${agencyId}_${l.accountCode}`;
-    const accountRef   = doc(db, 'chart_of_accounts', accountDocId);
-    const accountSnap  = await getDoc(accountRef);
+    // Write the immutable journal entry
+    tx.set(jeRef, {
+      agencyId,
+      jeNumber,
+      description:        payload.description,
+      referenceId:        payload.referenceId,
+      referenceType:      payload.referenceType,
+      status:             'posted',
+      lines,
+      totalDebitHalalas:  totalDR,
+      totalCreditHalalas: totalCR,
+      isBalanced:         true,
+      postedAt:           Timestamp.now(),
+      createdAt:          Timestamp.now(),
+    });
 
-    if (!accountSnap.exists()) {
-      await setDoc(accountRef, {
-        agencyId,
-        code:           l.accountCode,
-        nameAr:         l.accountNameAr,
-        nameEn:         l.accountNameEn,
-        type:           l.accountType,
-        side:           (l.accountType === 'asset' || l.accountType === 'expense') ? 'debit' : 'credit',
-        debitTotal:     l.debitHalalas,
-        creditTotal:    l.creditHalalas,
-        balanceHalalas: computeBalance(l.accountType, l.debitHalalas, l.creditHalalas),
-        createdAt:      Date.now(),
-        updatedAt:      Date.now(),
-      });
-    } else {
-      const d      = accountSnap.data() as Record<string, number>;
-      const newDR  = (d.debitTotal  ?? 0) + l.debitHalalas;
-      const newCR  = (d.creditTotal ?? 0) + l.creditHalalas;
-      await updateDoc(accountRef, {
-        debitTotal:     newDR,
-        creditTotal:    newCR,
-        balanceHalalas: computeBalance(l.accountType, newDR, newCR),
-        updatedAt:      Date.now(),
-      });
+    // Update or create each account balance
+    for (let i = 0; i < activeLines.length; i++) {
+      const l    = activeLines[i]!;
+      const ref  = accountRefs[i]!;
+      const snap = accountSnaps[i]!;
+
+      if (!snap.exists()) {
+        tx.set(ref, {
+          agencyId,
+          code:           l.accountCode,
+          nameAr:         l.accountNameAr,
+          nameEn:         l.accountNameEn,
+          type:           l.accountType,
+          side:           (l.accountType === 'asset' || l.accountType === 'expense') ? 'debit' : 'credit',
+          debitTotal:     l.debitHalalas,
+          creditTotal:    l.creditHalalas,
+          balanceHalalas: computeBalance(l.accountType, l.debitHalalas, l.creditHalalas),
+          createdAt:      Date.now(),
+          updatedAt:      Date.now(),
+        });
+      } else {
+        const d     = snap.data() as Record<string, number>;
+        const newDR = (d['debitTotal']  ?? 0) + l.debitHalalas;
+        const newCR = (d['creditTotal'] ?? 0) + l.creditHalalas;
+        tx.update(ref, {
+          debitTotal:     newDR,
+          creditTotal:    newCR,
+          balanceHalalas: computeBalance(l.accountType, newDR, newCR),
+          updatedAt:      Date.now(),
+        });
+      }
     }
-  }
+  });
 }

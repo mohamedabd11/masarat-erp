@@ -116,6 +116,7 @@ async function createInvoiceFirestore(req: CreateInvoiceRequest): Promise<Create
     if (agencySnap.exists()) {
       const a = agencySnap.data() as Record<string, unknown>;
       seller = {
+        isVatRegistered: (a.isVatRegistered as boolean) === true,
         name: { ar: (a.nameAr as string) ?? '', en: (a.nameEn as string) ?? '' },
         vatNumber: (a.vatNumber as string) ?? '',
         crNumber: (a.crNumber as string) ?? '',
@@ -133,8 +134,7 @@ async function createInvoiceFirestore(req: CreateInvoiceRequest): Promise<Create
   } catch { /* seller remains empty — invoice still valid */ }
 
   // ── 3. حساب الأرقام بناءً على تسجيل الضريبة ─────────────────────────────
-  const sellerVatNumber = (seller as Record<string, unknown>).vatNumber as string ?? '';
-  const isVatRegistered = sellerVatNumber.trim().length > 0;
+  const isVatRegistered = (seller as Record<string, unknown>).isVatRegistered === true;
 
   let subtotalExclVat: number;
   let totalVat: number;
