@@ -167,7 +167,7 @@ export function PrintableInvoice({ invoice, onClose }: PrintableInvoiceProps) {
             ))}
           </div>
 
-          {/* QR code — only for VAT-registered agencies */}
+          {/* QR code (VAT) or agency contact card (non-VAT) */}
           {isVatRegistered ? (
             <div className="flex flex-col items-center justify-center border-2 border-dashed border-slate-200 rounded-xl p-4">
               <div className="w-24 h-24 bg-slate-50 rounded flex items-center justify-center">
@@ -176,12 +176,23 @@ export function PrintableInvoice({ invoice, onClose }: PrintableInvoiceProps) {
               <p className="text-xs text-slate-400 mt-2 text-center">امسح لتحقق ZATCA<br/><span dir="ltr">Scan to verify</span></p>
             </div>
           ) : (
-            <div className="flex flex-col items-center justify-center rounded-xl p-4 bg-slate-50 border border-slate-100">
-              <p className="text-xs text-slate-400 text-center leading-relaxed">
-                إيصال خدمة<br/>
-                <span className="text-slate-300">غير خاضع لضريبة القيمة المضافة</span><br/>
-                <span dir="ltr" className="text-slate-300">Service Receipt — VAT Exempt</span>
-              </p>
+            <div className="flex flex-col justify-center rounded-xl p-4 bg-brand-50 border border-brand-100 space-y-2">
+              <p className="text-xs font-bold text-brand-700 uppercase tracking-wider">بيانات التواصل</p>
+              {invoice.seller.address.city && (
+                <p className="text-xs text-slate-600">
+                  {[invoice.seller.address.streetName, invoice.seller.address.district, invoice.seller.address.city]
+                    .filter(Boolean).join('، ')}
+                </p>
+              )}
+              {invoice.seller.phone && (
+                <p className="text-xs text-slate-600" dir="ltr">{invoice.seller.phone}</p>
+              )}
+              {invoice.seller.email && (
+                <p className="text-xs text-slate-600" dir="ltr">{invoice.seller.email}</p>
+              )}
+              {invoice.seller.crNumber && (
+                <p className="text-xs text-slate-500">س.ت: <span className="font-mono font-semibold">{invoice.seller.crNumber}</span></p>
+              )}
             </div>
           )}
         </div>
@@ -196,10 +207,17 @@ export function PrintableInvoice({ invoice, onClose }: PrintableInvoiceProps) {
             <p className="font-bold text-slate-900 mb-1">{invoice.seller.nameAr}</p>
             <p className="text-sm text-slate-600 mb-0.5" dir="ltr">{invoice.seller.nameEn}</p>
             <div className="mt-2 space-y-1 text-xs text-slate-600">
-              <p>الرقم الضريبي / VAT: <span className="font-mono font-semibold">{invoice.seller.vatNumber}</span></p>
-              <p>س.ت / CR: <span className="font-mono font-semibold">{invoice.seller.crNumber}</span></p>
-              <p>{invoice.seller.address.streetName}، {invoice.seller.address.district}، {invoice.seller.address.city}</p>
+              {isVatRegistered && invoice.seller.vatNumber && (
+                <p>الرقم الضريبي / VAT: <span className="font-mono font-semibold">{invoice.seller.vatNumber}</span></p>
+              )}
+              {invoice.seller.crNumber && (
+                <p>س.ت / CR: <span className="font-mono font-semibold">{invoice.seller.crNumber}</span></p>
+              )}
+              {(invoice.seller.address.streetName || invoice.seller.address.district || invoice.seller.address.city) && (
+                <p>{[invoice.seller.address.streetName, invoice.seller.address.district, invoice.seller.address.city].filter(Boolean).join('، ')}</p>
+              )}
               {invoice.seller.phone && <p>هاتف: {invoice.seller.phone}</p>}
+              {invoice.seller.email && <p dir="ltr">{invoice.seller.email}</p>}
             </div>
           </div>
 
