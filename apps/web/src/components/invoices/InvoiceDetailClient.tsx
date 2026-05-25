@@ -423,12 +423,16 @@ export function InvoiceDetailClient({ locale, invoiceId }: InvoiceDetailClientPr
                 <th className="text-end px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">
                   {isAr ? 'سعر الوحدة' : 'Unit Price'}
                 </th>
-                <th className="text-center px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider w-20">
-                  {isAr ? 'ض.ق.م %' : 'VAT %'}
-                </th>
-                <th className="text-end px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">
-                  {isAr ? 'مبلغ الضريبة' : 'VAT Amt'}
-                </th>
+                {isVatRegistered && (
+                  <>
+                    <th className="text-center px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider w-20">
+                      {isAr ? 'ض.ق.م %' : 'VAT %'}
+                    </th>
+                    <th className="text-end px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">
+                      {isAr ? 'مبلغ الضريبة' : 'VAT Amt'}
+                    </th>
+                  </>
+                )}
                 <th className="text-end ps-4 pe-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">
                   {isAr ? 'الإجمالي' : 'Total'}
                 </th>
@@ -449,18 +453,22 @@ export function InvoiceDetailClient({ locale, invoiceId }: InvoiceDetailClientPr
                   <td className="px-4 py-4 text-end text-slate-600">
                     {formatCurrency(line.unitPriceExclVatHalalas, fmtLocale)}
                   </td>
-                  <td className="px-4 py-4 text-center">
-                    {line.vatRate === 0 ? (
-                      <span className="text-xs bg-slate-100 text-slate-500 px-2 py-0.5 rounded font-medium">
-                        {isAr ? 'معفى' : 'Exempt'}
-                      </span>
-                    ) : (
-                      <span className="text-slate-600">{(line.vatRate * 100).toFixed(0)}%</span>
-                    )}
-                  </td>
-                  <td className="px-4 py-4 text-end text-slate-600">
-                    {formatCurrency(line.vatAmountHalalas, fmtLocale)}
-                  </td>
+                  {isVatRegistered && (
+                    <>
+                      <td className="px-4 py-4 text-center">
+                        {line.vatRate === 0 ? (
+                          <span className="text-xs bg-slate-100 text-slate-500 px-2 py-0.5 rounded font-medium">
+                            {isAr ? 'معفى' : 'Exempt'}
+                          </span>
+                        ) : (
+                          <span className="text-slate-600">{(line.vatRate * 100).toFixed(0)}%</span>
+                        )}
+                      </td>
+                      <td className="px-4 py-4 text-end text-slate-600">
+                        {formatCurrency(line.vatAmountHalalas, fmtLocale)}
+                      </td>
+                    </>
+                  )}
                   <td className="ps-4 pe-6 py-4 text-end font-semibold text-slate-900">
                     {formatCurrency(line.totalInclVatHalalas, fmtLocale)}
                   </td>
@@ -474,14 +482,18 @@ export function InvoiceDetailClient({ locale, invoiceId }: InvoiceDetailClientPr
         <div className="border-t border-surface-border">
           <div className="flex justify-end px-6 py-4">
             <div className="w-full sm:w-80 space-y-2">
-              <div className="flex items-center justify-between text-sm">
-                <span className="text-slate-500">{isAr ? 'المجموع (قبل الضريبة)' : 'Subtotal (excl. VAT)'}</span>
-                <span className="text-slate-700 font-medium">{formatCurrency(subtotalExclVat, fmtLocale)}</span>
-              </div>
-              <div className="flex items-center justify-between text-sm">
-                <span className="text-slate-500">{isAr ? 'ضريبة القيمة المضافة (15%)' : 'VAT (15%)'}</span>
-                <span className="text-slate-700 font-medium">{formatCurrency(totalVat, fmtLocale)}</span>
-              </div>
+              {isVatRegistered && (
+                <>
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="text-slate-500">{isAr ? 'المجموع (قبل الضريبة)' : 'Subtotal (excl. VAT)'}</span>
+                    <span className="text-slate-700 font-medium">{formatCurrency(subtotalExclVat, fmtLocale)}</span>
+                  </div>
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="text-slate-500">{isAr ? 'ضريبة القيمة المضافة (15%)' : 'VAT (15%)'}</span>
+                    <span className="text-slate-700 font-medium">{formatCurrency(totalVat, fmtLocale)}</span>
+                  </div>
+                </>
+              )}
               <div className="border-t border-slate-200 pt-2 mt-1">
                 <div className="flex items-center justify-between">
                   <span className="text-base font-bold text-slate-900">
@@ -491,9 +503,11 @@ export function InvoiceDetailClient({ locale, invoiceId }: InvoiceDetailClientPr
                     {formatCurrency(grandTotal, fmtLocale)}
                   </span>
                 </div>
-                <p className="text-xs text-slate-400 mt-1 text-end">
-                  {isAr ? 'شامل ضريبة القيمة المضافة' : 'Inclusive of VAT'}
-                </p>
+                {isVatRegistered && (
+                  <p className="text-xs text-slate-400 mt-1 text-end">
+                    {isAr ? 'شامل ضريبة القيمة المضافة' : 'Inclusive of VAT'}
+                  </p>
+                )}
               </div>
             </div>
           </div>
