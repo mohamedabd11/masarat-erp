@@ -5,7 +5,7 @@ import { useAuth } from '@masarat/firebase';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-export type SubscriptionStatus = 'trial' | 'active' | 'past_due' | 'cancelled' | 'loading';
+export type SubscriptionStatus = 'trial' | 'active' | 'lifetime' | 'past_due' | 'cancelled' | 'loading';
 
 interface SubscriptionContextValue {
   status:        SubscriptionStatus;
@@ -13,6 +13,7 @@ interface SubscriptionContextValue {
   agencyName:    string;
   daysRemaining: number | null;
   isExpired:     boolean;
+  isLifetime:    boolean;
   isLoading:     boolean;
 }
 
@@ -22,6 +23,7 @@ const SubscriptionContext = createContext<SubscriptionContextValue>({
   agencyName:    '',
   daysRemaining: null,
   isExpired:     false,
+  isLifetime:    false,
   isLoading:     true,
 });
 
@@ -90,14 +92,16 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
     return () => unsub?.();
   }, [user?.agencyId, isSuperAdmin]);
 
-  const isExpired = !isSuperAdmin && (
+  const isLifetime = status === 'lifetime';
+
+  const isExpired = !isSuperAdmin && !isLifetime && (
     (status === 'trial'  && daysRemaining !== null && daysRemaining <= 0) ||
     status === 'past_due' ||
     status === 'cancelled'
   );
 
   return (
-    <SubscriptionContext.Provider value={{ status, plan, agencyName, daysRemaining, isExpired, isLoading }}>
+    <SubscriptionContext.Provider value={{ status, plan, agencyName, daysRemaining, isExpired, isLifetime, isLoading }}>
       {children}
     </SubscriptionContext.Provider>
   );

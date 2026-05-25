@@ -3,7 +3,7 @@ import { ensureAdminApp } from '@/lib/firebase-admin';
 
 const SUPER_ADMIN_EMAIL = process.env['SUPER_ADMIN_EMAIL'] ?? 'mohamedabdalazim1111@gmail.com';
 
-type AdminAction = 'activate_month' | 'activate_year' | 'suspend' | 'extend_trial';
+type AdminAction = 'activate_month' | 'activate_year' | 'activate_lifetime' | 'suspend' | 'extend_trial';
 
 async function verifySuperAdmin(request: Request) {
   const authHeader = request.headers.get('Authorization') ?? '';
@@ -57,9 +57,22 @@ export async function POST(request: Request) {
           subscriptionStatus:  'active',
           plan:                'professional',
           subscriptionEndDate: new Timestamp(Math.floor(Date.now() / 1000) + 365 * 24 * 3600, 0),
+          isLifetime:          false,
           updatedAt: now,
         };
         message = 'تم تفعيل الاشتراك لمدة سنة';
+        break;
+
+      case 'activate_lifetime':
+        update  = {
+          subscriptionStatus:  'lifetime',
+          plan:                'lifetime',
+          isLifetime:          true,
+          subscriptionEndDate: null,
+          trialEndDate:        null,
+          updatedAt: now,
+        };
+        message = 'تم تفعيل الاشتراك مدى الحياة ♾';
         break;
 
       case 'suspend':

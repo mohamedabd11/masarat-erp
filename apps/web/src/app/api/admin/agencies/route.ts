@@ -40,6 +40,7 @@ export async function GET(request: Request) {
           contactEmail:        data['contactEmail']       ?? '',
           subscriptionStatus:  data['subscriptionStatus'] ?? 'trial',
           plan:                data['plan']               ?? 'trial',
+          isLifetime:          data['isLifetime']         === true,
           trialEndDate:        data['trialEndDate']?.toDate?.()?.toISOString()        ?? null,
           subscriptionEndDate: data['subscriptionEndDate']?.toDate?.()?.toISOString() ?? null,
           createdAt:           data['createdAt']?.toDate?.()?.toISOString()           ?? null,

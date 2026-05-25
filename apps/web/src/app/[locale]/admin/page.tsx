@@ -11,7 +11,7 @@ import { cn } from '@/lib/utils';
 import {
   ShieldCheck, Building2, Users, RefreshCw,
   CheckCircle2, XCircle, Clock, AlertTriangle,
-  CalendarCheck, CalendarDays, Ban, Zap,
+  CalendarCheck, CalendarDays, Ban, Zap, Infinity,
 } from 'lucide-react';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -25,6 +25,7 @@ interface AgencyRow {
   contactEmail:        string;
   subscriptionStatus:  string;
   plan:                string;
+  isLifetime:          boolean;
   trialEndDate:        string | null;
   subscriptionEndDate: string | null;
   createdAt:           string | null;
@@ -32,16 +33,17 @@ interface AgencyRow {
   userCount:           number;
 }
 
-type AdminAction = 'activate_month' | 'activate_year' | 'suspend' | 'extend_trial';
+type AdminAction = 'activate_month' | 'activate_year' | 'activate_lifetime' | 'suspend' | 'extend_trial';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function StatusBadge({ status }: { status: string }) {
   const cfg: Record<string, { label: string; className: string; icon: React.ReactNode }> = {
-    trial:    { label: 'تجريبي',  className: 'bg-blue-100   text-blue-700',   icon: <Clock size={11} /> },
-    active:   { label: 'نشط',     className: 'bg-emerald-100 text-emerald-700', icon: <CheckCircle2 size={11} /> },
-    past_due: { label: 'متأخر',   className: 'bg-red-100    text-red-700',    icon: <AlertTriangle size={11} /> },
-    cancelled:{ label: 'ملغي',    className: 'bg-slate-100  text-slate-500',  icon: <XCircle size={11} /> },
+    trial:    { label: 'تجريبي',   className: 'bg-blue-100   text-blue-700',   icon: <Clock size={11} /> },
+    active:   { label: 'نشط',      className: 'bg-emerald-100 text-emerald-700', icon: <CheckCircle2 size={11} /> },
+    lifetime: { label: 'مدى الحياة', className: 'bg-amber-100  text-amber-700',  icon: <Infinity size={11} /> },
+    past_due: { label: 'متأخر',    className: 'bg-red-100    text-red-700',    icon: <AlertTriangle size={11} /> },
+    cancelled:{ label: 'ملغي',     className: 'bg-slate-100  text-slate-500',  icon: <XCircle size={11} /> },
   };
   const c = cfg[status] ?? cfg['trial'];
   return (
@@ -196,6 +198,7 @@ export default function SuperAdminPage() {
         {[
           { label: 'إجمالي الوكالات', value: agencies.length, color: 'text-white' },
           { label: 'نشطة',            value: agencies.filter(a => a.subscriptionStatus === 'active').length,   color: 'text-emerald-400' },
+          { label: 'مدى الحياة',      value: agencies.filter(a => a.subscriptionStatus === 'lifetime').length, color: 'text-amber-400' },
           { label: 'تجريبية',         value: agencies.filter(a => a.subscriptionStatus === 'trial').length,    color: 'text-blue-400' },
           { label: 'متوقفة',          value: agencies.filter(a => a.subscriptionStatus === 'past_due' || a.subscriptionStatus === 'cancelled').length, color: 'text-red-400' },
         ].map(s => (
@@ -222,9 +225,11 @@ export default function SuperAdminPage() {
       ) : (
         <div className="space-y-3">
           {agencies.map(agency => {
-            const endDate = agency.subscriptionStatus === 'trial'
-              ? agency.trialEndDate
-              : agency.subscriptionEndDate;
+            const endDate = agency.isLifetime
+              ? null
+              : agency.subscriptionStatus === 'trial'
+                ? agency.trialEndDate
+                : agency.subscriptionEndDate;
             const days    = daysLeft(endDate);
             const isActingOnThis = acting?.startsWith(agency.id);
 
@@ -251,7 +256,12 @@ export default function SuperAdminPage() {
                         <Users size={11} />
                         {agency.userCount} مستخدم
                       </span>
-                      {endDate && days !== null && (
+                      {agency.isLifetime ? (
+                        <span className="flex items-center gap-1 text-amber-400 font-semibold">
+                          <Infinity size={11} />
+                          اشتراك دائم — بلا انتهاء
+                        </span>
+                      ) : endDate && days !== null ? (
                         <span className={cn(
                           'flex items-center gap-1',
                           days < 0 ? 'text-red-400' : days <= 3 ? 'text-amber-400' : 'text-slate-400',
@@ -262,7 +272,7 @@ export default function SuperAdminPage() {
                             : `ينتهي بعد ${days} يوم`}
                           {' '}({formatDate(endDate)})
                         </span>
-                      )}
+                      ) : null}
                       <span className="flex items-center gap-1">
                         <Clock size={11} />
                         {formatDate(agency.createdAt)}
@@ -293,6 +303,21 @@ export default function SuperAdminPage() {
                         ? <Spinner size="sm" />
                         : <Zap size={13} />}
                       سنة
+                    </button>
+
+                    <button
+                      onClick={() => {
+                        if (confirm(`تفعيل اشتراك مدى الحياة لوكالة "${agency.nameAr}"؟\nهذا الإجراء يجعل النظام يعمل بلا انتهاء.`)) {
+                          void doAction(agency.id, 'activate_lifetime');
+                        }
+                      }}
+                      disabled={!!acting || agency.isLifetime}
+                      className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-600 hover:bg-amber-500 disabled:opacity-30 rounded-lg text-xs font-semibold transition-colors"
+                    >
+                      {isActingOnThis && acting?.endsWith('activate_lifetime')
+                        ? <Spinner size="sm" />
+                        : <Infinity size={13} />}
+                      مدى الحياة
                     </button>
 
                     <button
