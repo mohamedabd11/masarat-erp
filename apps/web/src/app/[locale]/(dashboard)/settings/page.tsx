@@ -311,6 +311,9 @@ export default function SettingsPage() {
   // ── Agency info (loaded from / saved to Firestore) ────────────────────
   const [nameAr, setNameAr] = useState('مسارات للسياحة والسفر');
   const [nameEn, setNameEn] = useState('Masarat Travel & Tourism');
+  const [logoUrl, setLogoUrl] = useState('');
+  const [logoUploading, setLogoUploading] = useState(false);
+  const [logoError, setLogoError] = useState('');
   const [isVatRegistered, setIsVatRegistered] = useState(false);
   const [vatNumber, setVatNumber] = useState('');
   const [crNumber, setCrNumber] = useState('');
@@ -352,6 +355,7 @@ export default function SettingsPage() {
         const d = snap.data();
         if (d.nameAr)        setNameAr(d.nameAr);
         if (d.nameEn)        setNameEn(d.nameEn);
+        if (d.logoUrl)       setLogoUrl(d.logoUrl);
         setIsVatRegistered(d.isVatRegistered ?? (d.vatNumber ?? '').trim().length > 0);
         if (d.vatNumber)     setVatNumber(d.vatNumber);
         if (d.crNumber)      setCrNumber(d.crNumber);
@@ -483,6 +487,40 @@ export default function SettingsPage() {
     setModules((prev: Module[]) =>
       prev.map((m: Module) => (m.id === id && !m.core ? { ...m, enabled: !m.enabled } : m)),
     );
+  }
+
+  async function handleLogoUpload(file: File) {
+    if (!user?.agencyId) return;
+    setLogoError('');
+
+    if (!file.type.startsWith('image/')) {
+      setLogoError(isAr ? 'يجب أن يكون الملف صورة' : 'File must be an image');
+      return;
+    }
+    if (file.size > 2 * 1024 * 1024) {
+      setLogoError(isAr ? 'حجم الصورة يجب أن يكون أقل من 2MB' : 'Image must be under 2MB');
+      return;
+    }
+
+    setLogoUploading(true);
+    try {
+      const { getStorage, ref, uploadBytes, getDownloadURL } = await import('firebase/storage');
+      const { getApp } = await import('@masarat/firebase');
+      const storage  = getStorage(getApp());
+      const logoRef  = ref(storage, `agencies/${user.agencyId}/logo`);
+      await uploadBytes(logoRef, file, { contentType: file.type });
+      const url = await getDownloadURL(logoRef);
+
+      const { getFirestore, doc, updateDoc } = await import('firebase/firestore');
+      const db = getFirestore(getApp());
+      await updateDoc(doc(db, 'agencies', user.agencyId), { logoUrl: url });
+
+      setLogoUrl(url);
+    } catch {
+      setLogoError(isAr ? 'فشل رفع الشعار، حاول مرة أخرى' : 'Upload failed, please try again');
+    } finally {
+      setLogoUploading(false);
+    }
   }
 
   async function handleSave() {
@@ -737,29 +775,54 @@ export default function SettingsPage() {
                   </div>
                 </div>
 
-                {/* Logo placeholder */}
+                {/* Logo upload */}
                 <div className="border-t border-surface-border pt-5">
                   <p className="text-sm font-semibold text-slate-700 mb-3">
                     {isAr ? 'شعار الوكالة' : 'Agency Logo'}
                   </p>
                   <div className="flex items-center gap-4">
-                    <div className="w-16 h-16 rounded-xl bg-brand-50 border-2 border-dashed border-brand-200 flex items-center justify-center flex-shrink-0">
-                      <Building2 size={24} className="text-brand-300" />
+                    {/* Preview */}
+                    <div className="w-16 h-16 rounded-xl bg-brand-50 border-2 border-dashed border-brand-200 flex items-center justify-center flex-shrink-0 overflow-hidden">
+                      {logoUrl ? (
+                        <img src={logoUrl} alt="logo" className="w-full h-full object-contain p-1" />
+                      ) : (
+                        <Building2 size={24} className="text-brand-300" />
+                      )}
                     </div>
-                    <div>
-                      <button
-                        type="button"
-                        disabled
-                        className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-slate-200 text-sm text-slate-400 cursor-not-allowed bg-slate-50"
+
+                    <div className="space-y-1.5">
+                      {/* Hidden file input */}
+                      <input
+                        id="logo-file-input"
+                        type="file"
+                        accept="image/png,image/jpeg,image/webp,image/svg+xml"
+                        className="hidden"
+                        onChange={e => {
+                          const file = e.target.files?.[0];
+                          if (file) void handleLogoUpload(file);
+                          e.target.value = '';
+                        }}
+                      />
+                      <label
+                        htmlFor="logo-file-input"
+                        className={cn(
+                          'inline-flex items-center gap-2 px-3 py-2 rounded-lg border text-sm font-medium cursor-pointer transition-colors',
+                          logoUploading
+                            ? 'border-slate-200 text-slate-400 bg-slate-50 cursor-not-allowed pointer-events-none'
+                            : 'border-brand-200 text-brand-700 bg-brand-50 hover:bg-brand-100',
+                        )}
                       >
-                        <ImagePlus size={15} />
-                        {isAr ? 'رفع شعار' : 'Upload Logo'}
-                      </button>
-                      <p className="text-xs text-slate-400 mt-1.5">
-                        {isAr
-                          ? 'قريباً — سيتم دعم رفع الشعار في التحديث القادم'
-                          : 'Coming soon — logo upload will be supported in the next update'}
+                        {logoUploading ? <Spinner size="sm" /> : <ImagePlus size={15} />}
+                        {logoUploading
+                          ? (isAr ? 'جارٍ الرفع...' : 'Uploading...')
+                          : (isAr ? 'رفع شعار' : 'Upload Logo')}
+                      </label>
+                      <p className="text-xs text-slate-400">
+                        {isAr ? 'PNG · JPG · SVG · WebP — حد أقصى 2MB' : 'PNG · JPG · SVG · WebP — max 2MB'}
                       </p>
+                      {logoError && (
+                        <p className="text-xs text-red-500">{logoError}</p>
+                      )}
                     </div>
                   </div>
                 </div>

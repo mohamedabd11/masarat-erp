@@ -113,15 +113,22 @@ export function Sidebar({ collapsed = false, onToggle, onClose }: SidebarProps) 
   const isAr = locale === 'ar';
   const { user } = useAuth();
   const [customTypes, setCustomTypes] = useState<CustomServiceType[]>([]);
+  const [logoUrl, setLogoUrl] = useState('');
 
   useEffect(() => {
     if (!user?.agencyId) return;
     let unsub: (() => void) | undefined;
 
     async function load() {
-      const { getFirestore, collection, query, where, onSnapshot } = await import('firebase/firestore');
+      const { getFirestore, collection, query, where, onSnapshot, doc } = await import('firebase/firestore');
       const { getApp } = await import('@masarat/firebase');
       const db = getFirestore(getApp());
+
+      // Listen to agency logo changes
+      onSnapshot(doc(db, 'agencies', user!.agencyId), snap => {
+        setLogoUrl((snap.data()?.logoUrl as string) ?? '');
+      });
+
       const q = query(
         collection(db, 'service_types'),
         where('agencyId', '==', user!.agencyId),
@@ -185,8 +192,11 @@ export function Sidebar({ collapsed = false, onToggle, onClose }: SidebarProps) 
         'flex items-center border-b border-surface-border flex-shrink-0',
         collapsed ? 'h-16 justify-center px-2' : 'h-16 px-5 gap-3',
       )}>
-        <div className="flex items-center justify-center w-9 h-9 rounded-lg bg-brand-600 text-white font-bold text-lg flex-shrink-0">
-          م
+        <div className="flex items-center justify-center w-9 h-9 rounded-lg bg-brand-600 text-white font-bold text-lg flex-shrink-0 overflow-hidden">
+          {logoUrl
+            ? <img src={logoUrl} alt="logo" className="w-full h-full object-contain p-0.5" />
+            : 'م'
+          }
         </div>
         {!collapsed && (
           <div className="min-w-0">
