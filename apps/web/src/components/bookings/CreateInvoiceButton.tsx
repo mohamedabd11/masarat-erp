@@ -1,11 +1,10 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useLocale } from 'next-intl';
 import { useCreateInvoice } from '@/hooks/useCloudFunctions';
 import { Button } from '@/components/ui/Button';
 import { FileText, CheckCircle2, AlertCircle } from 'lucide-react';
-import { cn } from '@/lib/utils';
 
 interface CreateInvoiceButtonProps {
   bookingId: string;
@@ -26,10 +25,34 @@ export function CreateInvoiceButton({
 }: CreateInvoiceButtonProps) {
   const locale = useLocale();
   const isAr = locale === 'ar';
-  const { createInvoice, loading, error, data, reset } = useCreateInvoice();
+  const { createInvoice, loading, error, data } = useCreateInvoice();
   const [showSuccess, setShowSuccess] = useState(false);
+  const [isVatRegistered, setIsVatRegistered] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    if (!agencyId) return;
+    let cancelled = false;
+    async function loadAgency() {
+      const { getFirestore, doc, getDoc } = await import('firebase/firestore');
+      const { getApp } = await import('@masarat/firebase');
+      const snap = await getDoc(doc(getFirestore(getApp()), 'agencies', agencyId));
+      if (cancelled) return;
+      if (snap.exists()) {
+        const d = snap.data() as Record<string, unknown>;
+        setIsVatRegistered((d['isVatRegistered'] as boolean) ?? false);
+      } else {
+        setIsVatRegistered(false);
+      }
+    }
+    void loadAgency();
+    return () => { cancelled = true; };
+  }, [agencyId]);
 
   const canCreate = bookingStatus === 'confirmed' && !existingInvoiceId;
+
+  // Hide the invoice section entirely when agency is not VAT-registered
+  // (isVatRegistered === null means still loading → keep hidden)
+  if (!isVatRegistered && !existingInvoiceId) return null;
 
   async function handleClick() {
     if (!canCreate) return;
@@ -79,7 +102,7 @@ export function CreateInvoiceButton({
         ) : (
           <>
             <FileText size={14} />
-            {isAr ? 'إصدار فاتورة ZATCA' : 'Issue ZATCA Invoice'}
+            {isAr ? 'فاتورة ضريبية' : 'Tax Invoice'}
           </>
         )}
       </Button>
