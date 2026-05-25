@@ -12,6 +12,7 @@ import {
   ShieldCheck, Building2, Users, RefreshCw,
   CheckCircle2, XCircle, Clock, AlertTriangle,
   CalendarCheck, CalendarDays, Ban, Zap, Infinity,
+  Trash2, TriangleAlert,
 } from 'lucide-react';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -34,6 +35,125 @@ interface AgencyRow {
 }
 
 type AdminAction = 'activate_month' | 'activate_year' | 'activate_lifetime' | 'suspend' | 'extend_trial';
+
+// ─── Wipe Modal ───────────────────────────────────────────────────────────────
+
+function WipeModal({
+  agency,
+  onClose,
+  onWiped,
+  getIdToken,
+}: {
+  agency: AgencyRow;
+  onClose: () => void;
+  onWiped: (msg: string) => void;
+  getIdToken: () => Promise<string>;
+}) {
+  const [inputVal, setInputVal]   = useState('');
+  const [loading,  setLoading]    = useState(false);
+  const [error,    setError]      = useState('');
+
+  const confirmed = inputVal.trim() === agency.nameAr;
+
+  async function handleWipe() {
+    if (!confirmed) return;
+    setLoading(true);
+    setError('');
+    try {
+      const token = await getIdToken();
+      const resp  = await fetch('/api/admin/wipe-agency', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body:    JSON.stringify({ agencyId: agency.id, confirmName: agency.nameAr }),
+      });
+      const data = await resp.json() as { message?: string; error?: string };
+      if (!resp.ok) throw new Error(data.error ?? 'خطأ');
+      onWiped(data.message ?? 'تم التصفير');
+      onClose();
+    } catch (err: unknown) {
+      setError((err as { message?: string }).message ?? 'خطأ في الخادم');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
+      <div className="bg-slate-900 border border-red-800/60 rounded-2xl w-full max-w-md shadow-2xl">
+
+        {/* Header */}
+        <div className="flex items-center gap-3 px-6 py-5 border-b border-slate-800">
+          <div className="w-10 h-10 rounded-xl bg-red-900/50 flex items-center justify-center flex-shrink-0">
+            <TriangleAlert size={20} className="text-red-400" />
+          </div>
+          <div>
+            <p className="font-bold text-white">تصفير بيانات الوكالة</p>
+            <p className="text-xs text-slate-400">هذا الإجراء لا يمكن التراجع عنه</p>
+          </div>
+        </div>
+
+        {/* Body */}
+        <div className="px-6 py-5 space-y-4">
+          <div className="bg-red-900/20 border border-red-800/40 rounded-xl p-4 text-sm text-red-300 space-y-1">
+            <p>سيتم حذف جميع بيانات الوكالة التشغيلية:</p>
+            <p className="text-xs text-red-400 leading-relaxed">
+              الفواتير · الحجوزات · العملاء · الدفعات · القيود المحاسبية · الموردون · الموظفون · الأقسام · الحسابات البنكية · دليل الحسابات
+            </p>
+            <p className="text-xs text-slate-400 mt-2">
+              تبقى: بيانات الوكالة الأساسية + المستخدمين + إعدادات النظام
+            </p>
+          </div>
+
+          <div className="bg-slate-800 rounded-xl p-3 text-sm">
+            <p className="text-slate-400 text-xs mb-0.5">الوكالة المستهدفة</p>
+            <p className="font-bold text-white">{agency.nameAr}</p>
+            <p className="text-xs text-slate-500 mt-0.5">{agency.contactEmail}</p>
+          </div>
+
+          <div>
+            <label className="block text-xs text-slate-400 mb-1.5">
+              اكتب اسم الوكالة للتأكيد:
+              <span className="text-white font-semibold"> {agency.nameAr}</span>
+            </label>
+            <input
+              type="text"
+              value={inputVal}
+              onChange={e => setInputVal(e.target.value)}
+              placeholder="اكتب الاسم هنا…"
+              className="w-full bg-slate-800 border border-slate-700 rounded-xl px-4 py-2.5 text-sm text-white placeholder-slate-600 focus:outline-none focus:border-red-600"
+              dir="rtl"
+            />
+          </div>
+
+          {error && (
+            <p className="text-red-400 text-xs bg-red-900/20 border border-red-800/40 rounded-lg px-3 py-2">
+              {error}
+            </p>
+          )}
+        </div>
+
+        {/* Footer */}
+        <div className="flex gap-3 px-6 pb-6">
+          <button
+            onClick={onClose}
+            disabled={loading}
+            className="flex-1 px-4 py-2.5 bg-slate-800 hover:bg-slate-700 disabled:opacity-50 rounded-xl text-sm font-medium text-slate-300 transition-colors"
+          >
+            إلغاء
+          </button>
+          <button
+            onClick={handleWipe}
+            disabled={!confirmed || loading}
+            className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 bg-red-700 hover:bg-red-600 disabled:opacity-30 rounded-xl text-sm font-bold text-white transition-colors"
+          >
+            {loading ? <Spinner size="sm" /> : <Trash2 size={14} />}
+            تصفير البيانات
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -76,11 +196,12 @@ export default function SuperAdminPage() {
   const isAr   = locale === 'ar';
   const { user, loading: authLoading } = useAuth();
 
-  const [agencies,  setAgencies]  = useState<AgencyRow[]>([]);
-  const [loading,   setLoading]   = useState(true);
-  const [error,     setError]     = useState('');
-  const [toastMsg,  setToastMsg]  = useState('');
-  const [acting,    setActing]    = useState<string | null>(null);
+  const [agencies,    setAgencies]    = useState<AgencyRow[]>([]);
+  const [loading,     setLoading]     = useState(true);
+  const [error,       setError]       = useState('');
+  const [toastMsg,    setToastMsg]    = useState('');
+  const [acting,      setActing]      = useState<string | null>(null);
+  const [wipeTarget,  setWipeTarget]  = useState<AgencyRow | null>(null);
 
   const isSuperAdmin = user?.email === SUPER_ADMIN_EMAIL;
 
@@ -163,8 +284,23 @@ export default function SuperAdminPage() {
 
   // ── Main UI ────────────────────────────────────────────────────────────────
 
+  function showToast(msg: string) {
+    setToastMsg(msg);
+    setTimeout(() => setToastMsg(''), 4000);
+  }
+
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 p-6" dir="rtl">
+
+      {/* Wipe Modal */}
+      {wipeTarget && (
+        <WipeModal
+          agency={wipeTarget}
+          onClose={() => setWipeTarget(null)}
+          onWiped={msg => { showToast(msg); void loadAgencies(); }}
+          getIdToken={getIdToken}
+        />
+      )}
 
       {/* Toast */}
       {toastMsg && (
@@ -345,6 +481,19 @@ export default function SuperAdminPage() {
                         : <Ban size={13} />}
                       إيقاف
                     </button>
+
+                    {/* Wipe — trial only */}
+                    {agency.subscriptionStatus === 'trial' && (
+                      <button
+                        onClick={() => setWipeTarget(agency)}
+                        disabled={!!acting}
+                        title="تصفير بيانات الفترة التجريبية"
+                        className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-800 hover:bg-red-900/60 border border-slate-700 hover:border-red-700 disabled:opacity-30 rounded-lg text-xs font-semibold text-slate-400 hover:text-red-400 transition-colors"
+                      >
+                        <Trash2 size={13} />
+                        تصفير
+                      </button>
+                    )}
 
                   </div>
                 </div>
