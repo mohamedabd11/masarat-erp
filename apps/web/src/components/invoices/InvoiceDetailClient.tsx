@@ -354,20 +354,16 @@ export function InvoiceDetailClient({ locale, invoiceId }: InvoiceDetailClientPr
                 </dd>
               </div>
             )}
-            {(invoice.seller?.phone || invoice.seller?.email) && (
-              <div className="flex gap-4 flex-wrap">
-                {invoice.seller.phone && (
-                  <div>
-                    <dt className="text-xs text-slate-400">{isAr ? 'الهاتف' : 'Phone'}</dt>
-                    <dd className="text-slate-700 font-mono text-xs mt-0.5" dir="ltr">{invoice.seller.phone}</dd>
-                  </div>
-                )}
-                {invoice.seller.email && (
-                  <div>
-                    <dt className="text-xs text-slate-400">{isAr ? 'البريد' : 'Email'}</dt>
-                    <dd className="text-slate-700 text-xs mt-0.5">{invoice.seller.email}</dd>
-                  </div>
-                )}
+            {invoice.seller?.phone && (
+              <div>
+                <dt className="text-xs text-slate-400">{isAr ? 'الهاتف' : 'Phone'}</dt>
+                <dd className="text-slate-700 font-mono text-xs mt-0.5" dir="rtl">{invoice.seller.phone}</dd>
+              </div>
+            )}
+            {invoice.seller?.email && (
+              <div>
+                <dt className="text-xs text-slate-400">{isAr ? 'البريد' : 'Email'}</dt>
+                <dd className="text-slate-700 text-xs mt-0.5 break-all" dir="rtl">{invoice.seller.email}</dd>
               </div>
             )}
             {!sellerNameAr && !sellerNameEn && (
@@ -395,7 +391,7 @@ export function InvoiceDetailClient({ locale, invoiceId }: InvoiceDetailClientPr
             {invoice.buyer?.phone && (
               <div>
                 <dt className="text-xs text-slate-400">{isAr ? 'رقم الهاتف' : 'Phone'}</dt>
-                <dd className="text-slate-700 font-mono mt-0.5" dir="ltr">{invoice.buyer.phone}</dd>
+                <dd className="text-slate-700 font-mono mt-0.5" dir="rtl">{invoice.buyer.phone}</dd>
               </div>
             )}
             {invoice.buyer?.vatNumber && (
@@ -406,7 +402,7 @@ export function InvoiceDetailClient({ locale, invoiceId }: InvoiceDetailClientPr
             )}
             <div>
               <dt className="text-xs text-slate-400">{isAr ? 'رقم الحجز' : 'Booking Ref'}</dt>
-              <dd className="mt-0.5">
+              <dd className="mt-0.5" dir="rtl">
                 <Link
                   href={`/${locale}/bookings/${invoice.bookingId}`}
                   className="text-brand-700 font-mono hover:underline text-sm"
