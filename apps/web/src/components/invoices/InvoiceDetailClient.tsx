@@ -285,29 +285,31 @@ export function InvoiceDetailClient({ locale, invoiceId }: InvoiceDetailClientPr
             </div>
           </div>
 
-          {/* QR placeholder */}
-          <div className="flex flex-col items-center gap-2 flex-shrink-0">
-            <div className="w-28 h-28 rounded-lg border-2 border-dashed border-slate-200 bg-slate-50 flex items-center justify-center">
-              {invoice.zatca?.qrCodeData ? (
-                <span className="text-[10px] text-slate-400 text-center px-2 break-all font-mono">
-                  QR
-                </span>
-              ) : (
-                <div className="text-center">
-                  <div className="grid grid-cols-3 gap-0.5 mb-1 mx-auto w-fit">
-                    {Array.from({ length: 9 }).map((_, i) => (
-                      <div key={i} className={cn('w-2.5 h-2.5 rounded-sm',
-                        [0, 2, 6, 8, 4].includes(i) ? 'bg-slate-300' : 'bg-slate-100')} />
-                    ))}
+          {/* QR placeholder — only for VAT-registered agencies */}
+          {isVatRegistered && (
+            <div className="flex flex-col items-center gap-2 flex-shrink-0">
+              <div className="w-28 h-28 rounded-lg border-2 border-dashed border-slate-200 bg-slate-50 flex items-center justify-center">
+                {invoice.zatca?.qrCodeData ? (
+                  <span className="text-[10px] text-slate-400 text-center px-2 break-all font-mono">
+                    QR
+                  </span>
+                ) : (
+                  <div className="text-center">
+                    <div className="grid grid-cols-3 gap-0.5 mb-1 mx-auto w-fit">
+                      {Array.from({ length: 9 }).map((_, i) => (
+                        <div key={i} className={cn('w-2.5 h-2.5 rounded-sm',
+                          [0, 2, 6, 8, 4].includes(i) ? 'bg-slate-300' : 'bg-slate-100')} />
+                      ))}
+                    </div>
+                    <p className="text-[9px] text-slate-400">{isAr ? 'قريباً' : 'Soon'}</p>
                   </div>
-                  <p className="text-[9px] text-slate-400">{isAr ? 'قريباً' : 'Soon'}</p>
-                </div>
-              )}
+                )}
+              </div>
+              <p className="text-[10px] text-slate-400 text-center max-w-[7rem]">
+                {isAr ? 'امسح للتحقق' : 'Scan to verify'}
+              </p>
             </div>
-            <p className="text-[10px] text-slate-400 text-center max-w-[7rem]">
-              {isAr ? 'امسح للتحقق' : 'Scan to verify'}
-            </p>
-          </div>
+          )}
         </div>
       </Card>
 
@@ -331,7 +333,7 @@ export function InvoiceDetailClient({ locale, invoiceId }: InvoiceDetailClientPr
                 </dd>
               </div>
             )}
-            {invoice.seller?.vatNumber && (
+            {isVatRegistered && invoice.seller?.vatNumber && (
               <div>
                 <dt className="text-xs text-slate-400">{isAr ? 'الرقم الضريبي' : 'VAT Number'}</dt>
                 <dd className="text-slate-700 font-mono mt-0.5">{invoice.seller.vatNumber}</dd>
@@ -484,7 +486,7 @@ export function InvoiceDetailClient({ locale, invoiceId }: InvoiceDetailClientPr
                     </>
                   )}
                   <td className="ps-4 pe-6 py-4 text-end font-semibold text-slate-900">
-                    {formatCurrency(line.totalInclVatHalalas, fmtLocale)}
+                    {formatCurrency(isVatRegistered ? line.totalInclVatHalalas : line.totalExclVatHalalas, fmtLocale)}
                   </td>
                 </tr>
               ))}
