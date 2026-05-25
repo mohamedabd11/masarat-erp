@@ -33,14 +33,30 @@ export interface InvoicePricing {
 // ─── Standard Chart of Accounts ──────────────────────────────────────────────
 
 export const AC = {
-  receivable:       { code: '1120', nameAr: 'ذمم مدينة - عملاء',            nameEn: 'Accounts Receivable',           type: 'asset'     as const },
-  bank:             { code: '1110', nameAr: 'البنك',                        nameEn: 'Bank',                          type: 'asset'     as const },
-  payableSupplier:  { code: '2000', nameAr: 'ذمم دائنة - موردون',            nameEn: 'Accounts Payable - Suppliers',  type: 'liability' as const },
-  vatPayable:       { code: '2200', nameAr: 'ضريبة القيمة المضافة مستحقة',  nameEn: 'VAT Payable',                   type: 'liability' as const },
-  revenueAgent:     { code: '4000', nameAr: 'إيراد رسوم الوكالة',           nameEn: 'Revenue - Agency Fees',         type: 'revenue'   as const },
-  revenuePrincipal: { code: '4100', nameAr: 'إيراد خدمات السفر',            nameEn: 'Revenue - Travel Services',     type: 'revenue'   as const },
-  costOfServices:   { code: '5000', nameAr: 'تكلفة الخدمات',                nameEn: 'Cost of Services',              type: 'expense'   as const },
+  cash:             { code: '1100', nameAr: 'الصندوق النقدي',                nameEn: 'Cash on Hand',                  type: 'asset'     as const },
+  bank:             { code: '1110', nameAr: 'البنك',                         nameEn: 'Bank',                          type: 'asset'     as const },
+  pos:              { code: '1115', nameAr: 'حساب الشبكة (نقاط البيع)',      nameEn: 'POS / Card Terminal',           type: 'asset'     as const },
+  receivable:       { code: '1120', nameAr: 'ذمم مدينة - عملاء',             nameEn: 'Accounts Receivable',           type: 'asset'     as const },
+  payableSupplier:  { code: '2000', nameAr: 'ذمم دائنة - موردون',             nameEn: 'Accounts Payable - Suppliers',  type: 'liability' as const },
+  vatPayable:       { code: '2200', nameAr: 'ضريبة القيمة المضافة مستحقة',   nameEn: 'VAT Payable',                   type: 'liability' as const },
+  revenueAgent:     { code: '4000', nameAr: 'إيراد رسوم الوكالة',            nameEn: 'Revenue - Agency Fees',         type: 'revenue'   as const },
+  revenuePrincipal: { code: '4100', nameAr: 'إيراد خدمات السفر',             nameEn: 'Revenue - Travel Services',     type: 'revenue'   as const },
+  costOfServices:   { code: '5000', nameAr: 'تكلفة الخدمات',                 nameEn: 'Cost of Services',              type: 'expense'   as const },
 } as const;
+
+// Maps a payment method string to the correct cash/bank/POS account
+export type PaymentMethod = 'cash' | 'bank_transfer' | 'card' | 'online' | 'check';
+
+export function resolvePaymentAccount(method: PaymentMethod | string) {
+  switch (method) {
+    case 'cash':          return AC.cash;
+    case 'bank_transfer': return AC.bank;
+    case 'check':         return AC.bank;
+    case 'card':          return AC.pos;
+    case 'online':        return AC.pos;
+    default:              return AC.bank;
+  }
+}
 
 // ─── Internal helpers ─────────────────────────────────────────────────────────
 
@@ -115,9 +131,13 @@ export function buildInvoiceLines(p: InvoicePricing): JELine[] {
   ];
 }
 
-export function buildPaymentReceivedLines(amountHalalas: number): JELine[] {
+export function buildPaymentReceivedLines(
+  amountHalalas: number,
+  paymentMethod: PaymentMethod | string = 'bank_transfer',
+): JELine[] {
+  const payAc = resolvePaymentAccount(paymentMethod);
   return [
-    jl(AC.bank,       amountHalalas, 0),
+    jl(payAc,         amountHalalas, 0),
     jl(AC.receivable, 0, amountHalalas),
   ];
 }
@@ -126,9 +146,11 @@ export function buildRefundLines(
   refundAmountHalalas: number,
   isVatRegistered:     boolean,
   revenueModel:        string,
+  paymentMethod:       PaymentMethod | string = 'bank_transfer',
 ): JELine[] {
   if (refundAmountHalalas === 0) return [];
   const revenueAc = revenueModel === 'agent' ? AC.revenueAgent : AC.revenuePrincipal;
+  const payAc     = resolvePaymentAccount(paymentMethod);
 
   if (isVatRegistered) {
     const exclVat = Math.round(refundAmountHalalas / 1.15);
@@ -136,19 +158,23 @@ export function buildRefundLines(
     return [
       jl(revenueAc,    exclVat, 0),
       jl(AC.vatPayable, vat,    0),
-      jl(AC.bank,       0,      refundAmountHalalas),
+      jl(payAc,         0,      refundAmountHalalas),
     ];
   }
   return [
     jl(revenueAc, refundAmountHalalas, 0),
-    jl(AC.bank,   0, refundAmountHalalas),
+    jl(payAc,     0, refundAmountHalalas),
   ];
 }
 
-export function buildSupplierPaymentLines(amountHalalas: number): JELine[] {
+export function buildSupplierPaymentLines(
+  amountHalalas: number,
+  paymentMethod: PaymentMethod | string = 'bank_transfer',
+): JELine[] {
+  const payAc = resolvePaymentAccount(paymentMethod);
   return [
     jl(AC.payableSupplier, amountHalalas, 0),
-    jl(AC.bank,            0, amountHalalas),
+    jl(payAc,              0, amountHalalas),
   ];
 }
 

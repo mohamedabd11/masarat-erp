@@ -295,7 +295,7 @@ async function processPaymentFirestore(req: ProcessPaymentRequest): Promise<Proc
       description:   `استلام دفعة - ${methodLabel[req.paymentMethod] ?? req.paymentMethod}`,
       referenceId:   paymentRef.id,
       referenceType: 'payment',
-      lines:         buildPaymentReceivedLines(req.amountHalalas),
+      lines:         buildPaymentReceivedLines(req.amountHalalas, req.paymentMethod),
     });
   } catch (err) {
     console.warn('[Accounting] Payment JE failed:', err);

@@ -117,7 +117,7 @@ export function SupplierPaymentModal({
           description:   `دفعة مورد - ${supplierName || 'مورد'}`,
           referenceId:   ref.id,
           referenceType: 'supplier_payment',
-          lines:         buildSupplierPaymentLines(paidHalalas),
+          lines:         buildSupplierPaymentLines(paidHalalas, data.paymentMethod),
         });
       } catch (jeErr) {
         console.warn('[Accounting] Supplier payment JE failed:', jeErr);
