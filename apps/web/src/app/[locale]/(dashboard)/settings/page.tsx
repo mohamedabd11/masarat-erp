@@ -502,12 +502,27 @@ export default function SettingsPage() {
       return;
     }
 
+    // Verify storage bucket is configured
+    const bucket = process.env['NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET'];
+    if (!bucket) {
+      setLogoError(
+        isAr
+          ? 'خدمة التخزين غير مهيأة — تأكد من ضبط NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET'
+          : 'Storage not configured — set NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET',
+      );
+      return;
+    }
+
     setLogoUploading(true);
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 30_000);
+
     try {
       const { getStorage, ref, uploadBytes, getDownloadURL } = await import('firebase/storage');
       const { getApp } = await import('@masarat/firebase');
-      const storage  = getStorage(getApp());
-      const logoRef  = ref(storage, `agencies/${user.agencyId}/logo`);
+      const storage = getStorage(getApp());
+      const logoRef = ref(storage, `agencies/${user.agencyId}/logo`);
+
       await uploadBytes(logoRef, file, { contentType: file.type });
       const url = await getDownloadURL(logoRef);
 
@@ -516,9 +531,15 @@ export default function SettingsPage() {
       await updateDoc(doc(db, 'agencies', user.agencyId), { logoUrl: url });
 
       setLogoUrl(url);
-    } catch {
-      setLogoError(isAr ? 'فشل رفع الشعار، حاول مرة أخرى' : 'Upload failed, please try again');
+    } catch (err: unknown) {
+      const isAbort = (err as { name?: string }).name === 'AbortError';
+      setLogoError(
+        isAbort
+          ? (isAr ? 'انتهت مهلة الرفع — تحقق من اتصالك' : 'Upload timed out — check your connection')
+          : (isAr ? 'فشل رفع الشعار — تحقق من إعدادات Firebase Storage' : 'Upload failed — check Firebase Storage settings'),
+      );
     } finally {
+      clearTimeout(timeout);
       setLogoUploading(false);
     }
   }
