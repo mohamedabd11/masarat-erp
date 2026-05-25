@@ -191,7 +191,9 @@ export function Sidebar({ collapsed = false, onToggle, onClose }: SidebarProps) 
         {!collapsed && (
           <div className="min-w-0">
             <div className="font-bold text-slate-900 text-base leading-tight">مسارات</div>
-            <div className="text-xs text-slate-400 font-light">Masarat ERP</div>
+            <div className="text-xs text-slate-400 font-light">
+              {isAr ? 'نظام إدارة الوكالات' : 'Travel Agency ERP'}
+            </div>
           </div>
         )}
       </div>
