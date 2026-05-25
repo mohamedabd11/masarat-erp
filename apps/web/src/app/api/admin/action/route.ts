@@ -72,7 +72,7 @@ export async function POST(request: Request) {
           trialEndDate:        null,
           updatedAt: now,
         };
-        message = 'تم تفعيل الاشتراك مدى الحياة ♾';
+        message = 'تم تفعيل الاشتراك الدائم ♾';
         break;
 
       case 'suspend':
