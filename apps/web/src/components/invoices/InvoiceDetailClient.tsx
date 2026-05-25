@@ -34,6 +34,7 @@ interface FirestoreInvoice {
   id: string;
   agencyId: string;
   bookingId: string;
+  bookingNumber?: string;
   type: string;
   invoiceNumber: string;
   status: string;
@@ -87,6 +88,7 @@ export function InvoiceDetailClient({ locale, invoiceId }: InvoiceDetailClientPr
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
   const [isVatRegistered, setIsVatRegistered] = useState(false);
+  const [resolvedBookingNumber, setResolvedBookingNumber] = useState<string | null>(null);
 
   const BackIcon = isAr ? ArrowRight : ArrowLeft;
 
@@ -109,9 +111,21 @@ export function InvoiceDetailClient({ locale, invoiceId }: InvoiceDetailClientPr
         if (!snap.exists()) {
           setNotFound(true);
         } else {
-          setInvoice({ id: snap.id, ...snap.data() } as FirestoreInvoice);
+          const inv = { id: snap.id, ...snap.data() } as FirestoreInvoice;
+          setInvoice(inv);
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           setIsVatRegistered(agencySnap?.exists() ? (agencySnap.data() as any).isVatRegistered === true : false);
+
+          // Resolve booking number: use stored field or fetch from booking doc
+          if (inv.bookingNumber) {
+            setResolvedBookingNumber(inv.bookingNumber);
+          } else if (inv.bookingId) {
+            const bkSnap = await getDoc(doc(db, 'bookings', inv.bookingId));
+            if (!cancelled && bkSnap.exists()) {
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              setResolvedBookingNumber((bkSnap.data() as any).bookingNumber ?? null);
+            }
+          }
         }
       } catch {
         if (!cancelled) setNotFound(true);
@@ -395,7 +409,7 @@ export function InvoiceDetailClient({ locale, invoiceId }: InvoiceDetailClientPr
                   href={`/${locale}/bookings/${invoice.bookingId}`}
                   className="text-brand-700 font-mono hover:underline text-sm"
                 >
-                  {invoice.bookingId}
+                  {resolvedBookingNumber ?? invoice.bookingId}
                 </Link>
               </dd>
             </div>

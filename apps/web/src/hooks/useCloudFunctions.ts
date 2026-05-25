@@ -83,6 +83,7 @@ async function createInvoiceFirestore(req: CreateInvoiceRequest): Promise<Create
   let customerPhone = '';
   let customerId = '';
   let bookingTypeLabel = { ar: 'خدمة سفر', en: 'Travel Service' };
+  let bookingNumber = '';
   let revenueModel = 'principal';
   let storedVatAmount = 0;
   let storedServiceFee = 0;
@@ -104,6 +105,7 @@ async function createInvoiceFirestore(req: CreateInvoiceRequest): Promise<Create
       if (cn) customerName = { ar: cn.ar ?? '', en: cn.en ?? '' };
       customerPhone = (b.customerPhone as string) ?? '';
       customerId = (b.customerId as string) ?? '';
+      bookingNumber = (b.bookingNumber as string) ?? '';
       const bType = (b.type as string) ?? '';
       bookingTypeLabel = BOOKING_TYPE_LABELS[bType] ?? bookingTypeLabel;
     }
@@ -183,6 +185,7 @@ async function createInvoiceFirestore(req: CreateInvoiceRequest): Promise<Create
   const invoiceRef = await addDoc(collection(db, 'invoices'), {
     agencyId: req.agencyId,
     bookingId: req.bookingId,
+    bookingNumber: bookingNumber || null,
     type: docType,
     isVatRegistered,
     invoiceNumber,
