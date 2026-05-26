@@ -42,10 +42,10 @@ export function PaymentsClient({ locale }: PaymentsClientProps) {
   const [search, setSearch] = useState('');
 
   // ── Aggregates ────────────────────────────────────────────────────────────
-  const totalPaid    = bookings.reduce((s, b) => s + ((b as any).paidHalalas ?? b.totalPaid ?? 0), 0);
+  const totalPaid    = bookings.reduce((s, b) => s + (b.paidHalalas ?? b.totalPaid ?? 0), 0);
   const totalDue     = bookings.reduce((s, b) => {
-    const total = (b as any).grandTotalHalalas ?? (b as any).pricing?.totalAmount ?? 0;
-    const paid  = (b as any).paidHalalas ?? b.totalPaid ?? 0;
+    const total = b.grandTotalHalalas ?? b.pricing?.totalAmount ?? 0;
+    const paid  = b.paidHalalas ?? b.totalPaid ?? 0;
     return s + Math.max(0, total - paid);
   }, 0);
   const collectionRate = (totalPaid + totalDue) > 0 ? Math.round((totalPaid / (totalPaid + totalDue)) * 100) : 0;
@@ -55,11 +55,11 @@ export function PaymentsClient({ locale }: PaymentsClientProps) {
   const aging  = useMemo(() => {
     const current: number[] = [0, 0, 0, 0, 0]; // [current, 1-30, 31-60, 61-90, 90+]
     bookings.forEach(b => {
-      const due = (b as any).grandTotalHalalas ?? (b as any).pricing?.totalAmount ?? 0;
-      const paid = (b as any).paidHalalas ?? b.totalPaid ?? 0;
+      const due = b.grandTotalHalalas ?? b.pricing?.totalAmount ?? 0;
+      const paid = b.paidHalalas ?? b.totalPaid ?? 0;
       const outstanding = Math.max(0, due - paid);
       if (outstanding <= 0) return;
-      const created = (b as any).createdAt?.toDate?.()?.getTime() ?? now;
+      const created = b.createdAt?.toDate?.()?.getTime() ?? now;
       const ageDays = Math.floor((now - created) / 86_400_000);
       if      (ageDays <= 0)  current[0] += outstanding;
       else if (ageDays <= 30) current[1] += outstanding;
@@ -200,11 +200,11 @@ export function PaymentsClient({ locale }: PaymentsClientProps) {
               <tbody className="divide-y divide-surface-border">
                 {filtered.map(b => {
                   const name     = isAr ? (b.customerName?.ar ?? '') : (b.customerName?.en ?? '');
-                  const total    = (b as any).grandTotalHalalas ?? (b as any).pricing?.totalAmount ?? 0;
-                  const paidAmt  = (b as any).paidHalalas ?? b.totalPaid ?? 0;
+                  const total    = b.grandTotalHalalas ?? b.pricing?.totalAmount ?? 0;
+                  const paidAmt  = b.paidHalalas ?? b.totalPaid ?? 0;
                   const dueAmt   = Math.max(0, total - paidAmt);
                   const pct      = total > 0 ? Math.min(100, Math.round((paidAmt / total) * 100)) : 0;
-                  const createdAt = (b as any).createdAt?.toDate?.() ?? null;
+                  const createdAt = b.createdAt?.toDate?.() ?? null;
 
                   return (
                     <tr key={b.id} className="hover:bg-slate-50/60 transition-colors group">

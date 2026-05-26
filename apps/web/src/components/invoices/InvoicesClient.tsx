@@ -235,7 +235,7 @@ export function InvoicesClient({ locale }: InvoicesClientProps) {
                         ) : <span className="text-slate-300">—</span>}
                       </td>
                       <td className="px-3 py-4">
-                        <InvoiceStatusBadge status={inv.paymentStatus as any} locale={locale} />
+                        <InvoiceStatusBadge status={inv.paymentStatus} locale={locale} />
                       </td>
                       <td className="px-3 py-4 text-end">
                         <span className="text-sm font-bold tabular-nums text-slate-900">

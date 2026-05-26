@@ -55,8 +55,8 @@ export function BookingsClient({ locale, bookingType, initialQuery = '' }: Booki
   const fmtLocale = isAr ? 'ar-SA' : 'en-SA';
 
   // ── KPIs ────────────────────────────────────────────────────────────────────
-  const revenue   = bookings.reduce((s, b) => s + ((b as any).grandTotalHalalas ?? (b as any).pricing?.totalAmount ?? 0), 0);
-  const paid      = bookings.reduce((s, b) => s + ((b as any).paidHalalas ?? (b as any).totalPaid ?? 0), 0);
+  const revenue   = bookings.reduce((s, b) => s + (b.grandTotalHalalas ?? b.pricing?.totalAmount ?? 0), 0);
+  const paid      = bookings.reduce((s, b) => s + (b.paidHalalas ?? b.totalPaid ?? 0), 0);
   const pending   = bookings.filter(b => b.status === 'pending_approval').length;
   const active    = bookings.filter(b => b.status === 'confirmed' || (b.status as string) === 'in_progress').length;
   const completed = bookings.filter(b => b.status === 'completed').length;
@@ -184,10 +184,10 @@ export function BookingsClient({ locale, bookingType, initialQuery = '' }: Booki
                 {filtered.map(b => {
                   const name       = isAr ? (b.customerName?.ar ?? b.customerName?.en ?? '') : (b.customerName?.en ?? b.customerName?.ar ?? '');
                   const typeMeta   = TYPE_META[b.type] ?? { ar: b.type, en: b.type, bg: 'bg-slate-100', text: 'text-slate-600' };
-                  const total      = (b as any).grandTotalHalalas ?? (b as any).pricing?.totalAmount ?? 0;
-                  const paidAmt    = (b as any).paidHalalas ?? (b as any).totalPaid ?? 0;
+                  const total      = b.grandTotalHalalas ?? b.pricing?.totalAmount ?? 0;
+                  const paidAmt    = b.paidHalalas ?? b.totalPaid ?? 0;
                   const paidPct    = total > 0 ? Math.min(100, Math.round((paidAmt / total) * 100)) : 0;
-                  const createdAt  = (b as any).createdAt?.toDate?.() ?? null;
+                  const createdAt  = b.createdAt?.toDate?.() ?? null;
 
                   return (
                     <tr key={b.id} className="hover:bg-slate-50/60 transition-colors group">
@@ -224,7 +224,7 @@ export function BookingsClient({ locale, bookingType, initialQuery = '' }: Booki
                         </div>
                       </td>
                       <td className="px-3 py-4">
-                        <BookingStatusBadge status={b.status as any} locale={locale} />
+                        <BookingStatusBadge status={b.status} locale={locale} />
                       </td>
                       <td className="pe-5 px-3 py-4 text-end">
                         <span className="text-sm font-bold tabular-nums text-slate-900">

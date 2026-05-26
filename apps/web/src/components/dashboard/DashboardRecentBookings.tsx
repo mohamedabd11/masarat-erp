@@ -121,7 +121,7 @@ export function DashboardRecentBookings({ locale }: DashboardRecentBookingsProps
                 {/* Total */}
                 <td className="px-3 py-3.5 text-end">
                   <span className="text-sm font-bold text-slate-900 tabular-nums whitespace-nowrap">
-                    {formatCurrency((booking as any).grandTotalHalalas ?? booking.pricing?.totalAmount ?? 0, loc2)}
+                    {formatCurrency(booking.grandTotalHalalas ?? booking.pricing?.totalAmount ?? 0, loc2)}
                   </span>
                 </td>
 

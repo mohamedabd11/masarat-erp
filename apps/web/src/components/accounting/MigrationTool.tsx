@@ -39,12 +39,10 @@ export function MigrationTool({ locale }: { locale: string }) {
 
   const busy = checking || migrating || rebuilding || resetting;
 
-  async function getMigratedIds(db: unknown) {
+  async function getMigratedIds(db: import('firebase/firestore').Firestore) {
     const { collection, query, where, getDocs } = await import('firebase/firestore');
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const snap = await getDocs(query((collection as any)(db, 'journal_entries'), (where as any)('agencyId', '==', agencyId)));
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    return new Set<string>(snap.docs.map((d: any) => d.data().referenceId as string).filter(Boolean));
+    const snap = await getDocs(query(collection(db, 'journal_entries'), where('agencyId', '==', agencyId)));
+    return new Set<string>(snap.docs.map(d => (d.data() as Record<string, unknown>)['referenceId'] as string).filter(Boolean));
   }
 
   async function checkPending() {
@@ -200,8 +198,7 @@ export function MigrationTool({ locale }: { locale: string }) {
       }>();
 
       for (const jeDoc of jeSnap.docs) {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const lines = (jeDoc.data() as any).lines as Array<Record<string, unknown>> ?? [];
+        const lines = ((jeDoc.data() as Record<string, unknown>)['lines'] as Array<Record<string, unknown>>) ?? [];
         for (const line of lines) {
           const code = String(line['accountCode'] ?? '');
           if (!code) continue;
@@ -356,8 +353,7 @@ export function MigrationTool({ locale }: { locale: string }) {
         debitTotal: number; creditTotal: number;
       }>();
       for (const jeDoc of freshJeSnap.docs) {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const lines = (jeDoc.data() as any).lines as Array<Record<string, unknown>> ?? [];
+        const lines = ((jeDoc.data() as Record<string, unknown>)['lines'] as Array<Record<string, unknown>>) ?? [];
         for (const line of lines) {
           const code = String(line['accountCode'] ?? '');
           if (!code) continue;

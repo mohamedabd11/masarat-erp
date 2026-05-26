@@ -73,6 +73,7 @@ export interface BookingDoc {
   supplierId?: string;
   supplierName?: string;
   supplierRef?: string;
+  bookingNumber?: string;
   travelDate: Timestamp;
   returnDate?: Timestamp;
   notes?: string;
@@ -81,6 +82,9 @@ export interface BookingDoc {
   createdAt: Timestamp;
   updatedAt: Timestamp;
   createdBy: string;
+  // حقول محسوبة مختصرة (قد تُخزَّن مُسبقاً لأداء القراءة)
+  paidHalalas?: number;
+  grandTotalHalalas?: number;
 }
 
 // ─── Customer ─────────────────────────────────────────────────────────────────

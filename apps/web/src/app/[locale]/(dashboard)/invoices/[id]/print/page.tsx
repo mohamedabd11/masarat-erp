@@ -41,8 +41,7 @@ export default function PrintInvoicePage({
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const d = { id: snap.id, ...snap.data() } as Record<string, any>;
         // Always use the agency's CURRENT isVatRegistered setting — never trust what was stored on the invoice
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const agencyIsVatRegistered = agencySnap?.exists() ? (agencySnap.data() as any).isVatRegistered === true : false;
+        const agencyIsVatRegistered = agencySnap?.exists() ? (agencySnap.data() as Record<string, unknown>)['isVatRegistered'] === true : false;
 
         const grandTotal: number = d.totals?.grandTotal ?? 0;
         const subtotalExclVat: number = d.totals?.subtotalExclVat ?? Math.round(grandTotal / 1.15);

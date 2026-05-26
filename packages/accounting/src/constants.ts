@@ -1,0 +1,16 @@
+export const VAT_RATE = 0.15;
+export const TRIAL_DAYS = 14;
+export const SUBSCRIPTION_MONTHLY_DAYS = 30;
+export const SUBSCRIPTION_YEARLY_DAYS = 365;
+
+export const DEFAULT_ACCOUNT_CODES = {
+  CASH: '1100',
+  BANK: '1110',
+  POS: '1115',
+  RECEIVABLE: '1120',
+  AP_SUPPLIERS: '2000',
+  VAT_PAYABLE: '2200',
+  REVENUE_AGENT: '4000',
+  REVENUE_PRINCIPAL: '4100',
+  COST_OF_SERVICES: '5000',
+} as const;
