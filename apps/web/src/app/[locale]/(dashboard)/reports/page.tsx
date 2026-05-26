@@ -9,6 +9,7 @@ import { formatCurrency, formatCount } from '@/lib/utils';
 import { cn } from '@/lib/utils';
 import { useReportsData, type MonthlyRow, type TypeMixRow, type VatInvoice } from '@/hooks/useReportsData';
 import { useChartOfAccounts, type ChartAccount } from '@/hooks/useChartOfAccounts';
+import { useIncomeStatement } from '@/hooks/useIncomeStatement';
 import {
   TrendingUp, TrendingDown, BarChart3, Download,
   FileText, CheckCircle2, AlertCircle, Printer,
@@ -104,7 +105,6 @@ function closingDebit(a: TrialAccount)  { return Math.max(0, a.openDebit  + a.mv
 function closingCredit(a: TrialAccount) { return Math.max(0, a.openCredit + a.mvtCredit - a.openDebit  - a.mvtDebit); }
 
 function accountToTrial(a: ChartAccount): TrialAccount {
-  const isDebitNormal = a.type === 'asset' || a.type === 'expense';
   return {
     code: a.code,
     nameAr: a.nameAr,
@@ -112,8 +112,8 @@ function accountToTrial(a: ChartAccount): TrialAccount {
     category: a.type,
     openDebit: 0,
     openCredit: 0,
-    mvtDebit:  isDebitNormal ? Math.max(0, a.balanceHalalas) : 0,
-    mvtCredit: !isDebitNormal ? Math.max(0, a.balanceHalalas) : 0,
+    mvtDebit:  a.debitTotal  ?? 0,
+    mvtCredit: a.creditTotal ?? 0,
   };
 }
 
@@ -468,25 +468,64 @@ function TrialBalanceTab({ accounts, loadingAccounts, isAr, fmtLocale }: {
 
 // ─── Income Statement Tab ─────────────────────────────────────────────────────
 
-function IncomeStatementTab({ accounts, loadingAccounts, isAr, fmtLocale }: {
-  accounts: ChartAccount[]; loadingAccounts: boolean; isAr: boolean; fmtLocale: string;
-}) {
-  const { revenueAccounts, expenseAccounts, totalRevenue, totalExpense, netProfit, grossMargin, netMargin } = useMemo(() => {
-    const revenueAccounts = accounts.filter(a => a.type === 'revenue' && a.balanceHalalas !== 0).sort((a, b) => a.code.localeCompare(b.code));
-    const expenseAccounts = accounts.filter(a => a.type === 'expense' && a.balanceHalalas !== 0).sort((a, b) => a.code.localeCompare(b.code));
-    const totalRevenue = revenueAccounts.reduce((s, a) => s + a.balanceHalalas, 0);
-    const totalExpense = expenseAccounts.reduce((s, a) => s + a.balanceHalalas, 0);
-    const netProfit = totalRevenue - totalExpense;
-    const grossMargin = totalRevenue > 0 ? Math.round((netProfit / totalRevenue) * 100) : 0;
-    const netMargin = totalRevenue > 0 ? Math.round((netProfit / totalRevenue) * 100) : 0;
-    return { revenueAccounts, expenseAccounts, totalRevenue, totalExpense, netProfit, grossMargin, netMargin };
-  }, [accounts]);
+const QUARTER_OPTS: { value: 0 | 1 | 2 | 3 | 4; ar: string; en: string }[] = [
+  { value: 0, ar: 'السنة كاملة', en: 'Full Year' },
+  { value: 1, ar: 'ر١ (يناير–مارس)',   en: 'Q1 Jan–Mar' },
+  { value: 2, ar: 'ر٢ (أبريل–يونيو)', en: 'Q2 Apr–Jun' },
+  { value: 3, ar: 'ر٣ (يوليو–سبتمبر)',en: 'Q3 Jul–Sep' },
+  { value: 4, ar: 'ر٤ (أكتوبر–ديسمبر)',en: 'Q4 Oct–Dec' },
+];
 
-  if (loadingAccounts) return <LoadingPane />;
+function IncomeStatementTab({ isAr, fmtLocale }: { isAr: boolean; fmtLocale: string }) {
+  const {
+    revenueLines, expenseLines,
+    totalRevenue, totalExpense,
+    grossProfit, netProfit,
+    grossMargin, netMargin,
+    loading, year, quarter, setYear, setQuarter,
+    fromDate, toDate,
+  } = useIncomeStatement();
+
+  function handleExport() {
+    downloadCSV([
+      ['النوع', 'الكود', 'البند', 'المبلغ (ر.س)'],
+      ...revenueLines.map(l => ['إيرادات', l.code, l.nameAr, l.halalas / 100]),
+      ...expenseLines.map(l => ['مصروفات', l.code, l.nameAr, l.halalas / 100]),
+    ], `قائمة-الدخل-${year}${quarter > 0 ? `-Q${quarter}` : ''}.csv`);
+  }
+
+  const periodLabel = (() => {
+    const fmt = (d: Date) => d.toLocaleDateString(isAr ? 'ar-SA' : 'en-SA', { year: 'numeric', month: 'short', day: 'numeric' });
+    const endDisplay = new Date(toDate.getTime() - 1);
+    return `${fmt(fromDate)} — ${fmt(endDisplay)}`;
+  })();
+
+  if (loading) return <LoadingPane />;
 
   return (
     <div className="space-y-5">
-      {/* Summary KPIs */}
+
+      {/* Period selector */}
+      <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3 bg-slate-50 border border-slate-200 rounded-xl px-4 py-3">
+        <div className="flex items-center gap-1 flex-shrink-0">
+          <YearNav year={year} setYear={setYear} isAr={isAr} />
+        </div>
+        <div className="flex gap-1 flex-wrap">
+          {QUARTER_OPTS.map(q => (
+            <button key={q.value}
+              onClick={() => setQuarter(q.value)}
+              className={cn('px-3 py-1.5 rounded-lg text-xs font-bold transition-colors',
+                quarter === q.value
+                  ? 'bg-brand-600 text-white'
+                  : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50')}>
+              {isAr ? q.ar : q.en}
+            </button>
+          ))}
+        </div>
+        <span className="text-xs text-slate-400 font-mono ms-auto hidden sm:block">{periodLabel}</span>
+      </div>
+
+      {/* KPI cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <KpiCard icon={<TrendingUp size={18} />} iconBg="bg-brand-50" iconColor="text-brand-600"
           label={isAr ? 'إجمالي الإيرادات' : 'Total Revenue'}
@@ -494,79 +533,103 @@ function IncomeStatementTab({ accounts, loadingAccounts, isAr, fmtLocale }: {
         <KpiCard icon={<TrendingDown size={18} />} iconBg="bg-amber-50" iconColor="text-amber-600"
           label={isAr ? 'إجمالي المصروفات' : 'Total Expenses'}
           value={formatCurrency(totalExpense, fmtLocale)} />
-        <KpiCard icon={<Scale size={18} />} iconBg={netProfit >= 0 ? 'bg-emerald-50' : 'bg-red-50'} iconColor={netProfit >= 0 ? 'text-emerald-600' : 'text-red-600'}
+        <KpiCard
+          icon={<Wallet size={18} />}
+          iconBg={grossProfit >= 0 ? 'bg-sky-50' : 'bg-red-50'}
+          iconColor={grossProfit >= 0 ? 'text-sky-600' : 'text-red-600'}
+          label={isAr ? 'مجمل الربح' : 'Gross Profit'}
+          value={formatCurrency(Math.abs(grossProfit), fmtLocale)}
+          sub={`${grossMargin >= 0 ? '+' : '-'}${Math.abs(grossMargin)}% ${isAr ? 'هامش' : 'margin'}`} />
+        <KpiCard
+          icon={<Scale size={18} />}
+          iconBg={netProfit >= 0 ? 'bg-emerald-50' : 'bg-red-50'}
+          iconColor={netProfit >= 0 ? 'text-emerald-600' : 'text-red-600'}
           label={isAr ? 'صافي الربح' : 'Net Profit'}
           value={formatCurrency(Math.abs(netProfit), fmtLocale)}
-          sub={`${netMargin >= 0 ? '+' : '-'}${Math.abs(netMargin)}% ${isAr ? 'هامش' : 'margin'}`} />
-        <KpiCard icon={<TrendingUp size={18} />} iconBg="bg-sky-50" iconColor="text-sky-600"
-          label={isAr ? 'هامش الربح' : 'Profit Margin'}
-          value={`${grossMargin}%`} />
+          sub={`${netMargin >= 0 ? '+' : '-'}${Math.abs(netMargin)}% ${isAr ? 'هامش صافي' : 'net margin'}`} />
       </div>
 
       <Card padding="none">
-        <div className="px-6 py-4 border-b border-surface-border flex items-center justify-between">
+        <div className="px-6 py-4 border-b border-surface-border flex items-center justify-between gap-3 flex-wrap">
           <div>
             <h2 className="text-base font-bold text-slate-900">
               {isAr ? 'قائمة الدخل (الأرباح والخسائر)' : 'Income Statement (Profit & Loss)'}
             </h2>
-            <p className="text-xs text-slate-400 mt-0.5">{isAr ? 'مجمّع من دليل الحسابات' : 'Aggregated from Chart of Accounts'}</p>
+            <p className="text-xs text-slate-400 mt-0.5">{isAr ? `من القيود المحاسبية · ${periodLabel}` : `From journal entries · ${periodLabel}`}</p>
           </div>
-          <button className="inline-flex items-center gap-2 text-xs text-slate-500 hover:text-slate-700 border border-slate-200 rounded-lg px-3 py-1.5 hover:bg-slate-50 transition-colors"
-            onClick={() => window.print()}>
-            <Printer size={13} />{isAr ? 'طباعة' : 'Print'}
-          </button>
+          <div className="flex gap-2">
+            <button onClick={handleExport}
+              className="inline-flex items-center gap-1.5 text-xs text-slate-500 hover:text-slate-700 border border-slate-200 rounded-lg px-3 py-1.5 hover:bg-slate-50 transition-colors">
+              <Download size={13} />{isAr ? 'تصدير CSV' : 'Export CSV'}
+            </button>
+            <button onClick={() => window.print()}
+              className="inline-flex items-center gap-1.5 text-xs text-slate-500 hover:text-slate-700 border border-slate-200 rounded-lg px-3 py-1.5 hover:bg-slate-50 transition-colors">
+              <Printer size={13} />{isAr ? 'طباعة' : 'Print'}
+            </button>
+          </div>
         </div>
 
-        {revenueAccounts.length === 0 && expenseAccounts.length === 0 ? (
-          <p className="text-sm text-slate-400 text-center py-16">{isAr ? 'لا توجد إيرادات أو مصروفات مسجّلة بعد' : 'No revenue or expense entries yet'}</p>
+        {revenueLines.length === 0 && expenseLines.length === 0 ? (
+          <p className="text-sm text-slate-400 text-center py-16">
+            {isAr ? 'لا توجد قيود إيرادات أو مصروفات في هذه الفترة' : 'No revenue or expense entries in this period'}
+          </p>
         ) : (
           <div className="divide-y divide-surface-border">
-            {/* Revenue section */}
+
+            {/* Revenue */}
             <div>
-              <div className="px-6 py-2 bg-emerald-50">
-                <span className="text-[11px] font-black uppercase tracking-widest text-emerald-600">
+              <div className="px-6 py-2 bg-emerald-50 border-b border-emerald-100">
+                <span className="text-[11px] font-black uppercase tracking-widest text-emerald-700">
                   {isAr ? 'الإيرادات' : 'REVENUE'}
                 </span>
               </div>
-              {revenueAccounts.map(a => (
-                <div key={a.id} className="flex items-center justify-between px-6 py-3 hover:bg-slate-50/60 transition-colors">
+              {revenueLines.map(l => (
+                <div key={l.code} className="flex items-center justify-between px-6 py-3 hover:bg-slate-50/60 transition-colors">
                   <span className="text-sm ps-4 text-slate-600 flex items-center gap-2">
-                    <span className="font-mono text-[10px] text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded">{a.code}</span>
-                    {isAr ? a.nameAr : a.nameEn}
+                    <span className="font-mono text-[10px] text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded">{l.code}</span>
+                    {isAr ? l.nameAr : l.nameEn}
                   </span>
-                  <span className="tabular-nums font-mono text-sm font-medium text-slate-800">
-                    {formatCurrency(a.balanceHalalas, fmtLocale)}
+                  <span className="tabular-nums font-mono text-sm font-semibold text-slate-800">
+                    {formatCurrency(l.halalas, fmtLocale)}
                   </span>
                 </div>
               ))}
-              <div className="flex items-center justify-between px-6 py-3 bg-white">
-                <span className="text-sm font-bold text-slate-900">{isAr ? 'إجمالي الإيرادات' : 'Total Revenue'}</span>
+              <div className="flex items-center justify-between px-6 py-3 bg-emerald-50/40">
+                <span className="text-sm font-bold text-slate-900 ps-4">{isAr ? 'إجمالي الإيرادات' : 'Total Revenue'}</span>
                 <span className="tabular-nums font-mono text-sm font-black text-emerald-700">{formatCurrency(totalRevenue, fmtLocale)}</span>
               </div>
             </div>
 
-            {/* Expense section */}
+            {/* Expenses */}
             <div>
-              <div className="px-6 py-2 bg-amber-50">
-                <span className="text-[11px] font-black uppercase tracking-widest text-amber-600">
+              <div className="px-6 py-2 bg-amber-50 border-b border-amber-100">
+                <span className="text-[11px] font-black uppercase tracking-widest text-amber-700">
                   {isAr ? 'المصروفات' : 'EXPENSES'}
                 </span>
               </div>
-              {expenseAccounts.map(a => (
-                <div key={a.id} className="flex items-center justify-between px-6 py-3 hover:bg-slate-50/60 transition-colors">
+              {expenseLines.map(l => (
+                <div key={l.code} className="flex items-center justify-between px-6 py-3 hover:bg-slate-50/60 transition-colors">
                   <span className="text-sm ps-4 text-slate-600 flex items-center gap-2">
-                    <span className="font-mono text-[10px] text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded">{a.code}</span>
-                    {isAr ? a.nameAr : a.nameEn}
+                    <span className="font-mono text-[10px] text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded">{l.code}</span>
+                    {isAr ? l.nameAr : l.nameEn}
                   </span>
-                  <span className="tabular-nums font-mono text-sm font-medium text-red-600">
-                    ({formatCurrency(a.balanceHalalas, fmtLocale)})
+                  <span className="tabular-nums font-mono text-sm font-semibold text-red-600">
+                    ({formatCurrency(l.halalas, fmtLocale)})
                   </span>
                 </div>
               ))}
-              <div className="flex items-center justify-between px-6 py-3 bg-white">
-                <span className="text-sm font-bold text-slate-900">{isAr ? 'إجمالي المصروفات' : 'Total Expenses'}</span>
+              <div className="flex items-center justify-between px-6 py-3 bg-amber-50/40">
+                <span className="text-sm font-bold text-slate-900 ps-4">{isAr ? 'إجمالي المصروفات' : 'Total Expenses'}</span>
                 <span className="tabular-nums font-mono text-sm font-black text-red-600">({formatCurrency(totalExpense, fmtLocale)})</span>
               </div>
+            </div>
+
+            {/* Gross Profit line */}
+            <div className="flex items-center justify-between px-6 py-3.5 bg-sky-50/60">
+              <span className="text-sm font-bold text-sky-800 ps-4">{isAr ? 'مجمل الربح (الإيرادات − تكلفة الخدمات)' : 'Gross Profit (Revenue − Cost of Services)'}</span>
+              <span className={cn('tabular-nums font-mono text-sm font-black', grossProfit >= 0 ? 'text-sky-700' : 'text-red-700')}>
+                {grossProfit < 0 ? '(' : ''}{formatCurrency(Math.abs(grossProfit), fmtLocale)}{grossProfit < 0 ? ')' : ''}
+              </span>
             </div>
           </div>
         )}
@@ -576,10 +639,10 @@ function IncomeStatementTab({ accounts, loadingAccounts, isAr, fmtLocale }: {
           netProfit >= 0 ? 'bg-gradient-to-r from-emerald-50 to-white border-emerald-300' : 'bg-gradient-to-r from-red-50 to-white border-red-300')}>
           <div>
             <p className={cn('text-[11px] font-black uppercase tracking-widest mb-1', netProfit >= 0 ? 'text-emerald-600' : 'text-red-600')}>
-              {isAr ? 'صافي الربح النهائي' : 'NET PROFIT'}
+              {isAr ? 'صافي الربح النهائي' : 'NET PROFIT / (LOSS)'}
             </p>
             <p className={cn('text-xs', netProfit >= 0 ? 'text-emerald-600' : 'text-red-600')}>
-              {netMargin >= 0 ? '+' : ''}{netMargin}% {isAr ? 'هامش الربح الصافي' : 'Net Profit Margin'}
+              {netMargin >= 0 ? '+' : ''}{netMargin}% {isAr ? 'هامش الربح الصافي' : 'net profit margin'}
             </p>
           </div>
           <p className={cn('text-3xl font-black tabular-nums', netProfit >= 0 ? 'text-emerald-700' : 'text-red-700')}>
@@ -1188,13 +1251,7 @@ export default function ReportsPage() {
         ]),
       ], `ميزان-المراجعة-${new Date().toISOString().slice(0, 10)}.csv`);
     } else if (activeTab === 'pl') {
-      const revAccounts = accounts.filter(a => a.type === 'revenue' && a.balanceHalalas !== 0);
-      const expAccounts = accounts.filter(a => a.type === 'expense' && a.balanceHalalas !== 0);
-      downloadCSV([
-        ['النوع', 'الكود', 'البند', 'المبلغ (ر.س)'],
-        ...revAccounts.map(a => ['إيرادات', a.code, a.nameAr, a.balanceHalalas / 100]),
-        ...expAccounts.map(a => ['مصروفات', a.code, a.nameAr, a.balanceHalalas / 100]),
-      ], `قائمة-الدخل-${new Date().toISOString().slice(0, 10)}.csv`);
+      alert(isAr ? 'استخدم زر "تصدير CSV" داخل قائمة الدخل' : 'Use the "Export CSV" button inside the Income Statement tab');
     } else if (activeTab === 'vat') {
       const from = new Date(vatRange.from + 'T00:00:00');
       const to   = new Date(vatRange.to   + 'T23:59:59');
@@ -1315,7 +1372,7 @@ export default function ReportsPage() {
           <TrialBalanceTab accounts={accounts} loadingAccounts={loadingAccounts} isAr={isAr} fmtLocale={fmtLocale} />
         )}
         {activeTab === 'pl' && (
-          <IncomeStatementTab accounts={accounts} loadingAccounts={loadingAccounts} isAr={isAr} fmtLocale={fmtLocale} />
+          <IncomeStatementTab isAr={isAr} fmtLocale={fmtLocale} />
         )}
         {activeTab === 'bs' && (
           <BalanceSheetTab accounts={accounts} loadingAccounts={loadingAccounts} isAr={isAr} fmtLocale={fmtLocale} />

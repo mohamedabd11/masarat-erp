@@ -16,6 +16,8 @@ export interface ChartAccount {
   type: AccountType;
   side: AccountSide;
   balanceHalalas: number;
+  debitTotal: number;  // gross debit movements (for trial balance)
+  creditTotal: number; // gross credit movements (for trial balance)
   agencyId: string;
   createdAt: number;   // epoch ms
   updatedAt: number;
@@ -130,7 +132,15 @@ export function useChartOfAccounts(): UseChartOfAccountsReturn {
               return;
             }
 
-            const docs = snap.docs.map((d) => ({ id: d.id, ...d.data() } as ChartAccount));
+            const docs = snap.docs.map((d) => {
+              const raw = d.data() as Record<string, unknown>;
+              return {
+                id: d.id,
+                ...raw,
+                debitTotal:  Number(raw['debitTotal']  ?? 0),
+                creditTotal: Number(raw['creditTotal'] ?? 0),
+              } as ChartAccount;
+            });
             // Sort by code
             docs.sort((a, b) => a.code.localeCompare(b.code));
             setAccounts(docs);
