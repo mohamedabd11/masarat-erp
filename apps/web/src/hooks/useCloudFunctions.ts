@@ -14,6 +14,7 @@ export interface CreateInvoiceResponse {
 export interface ProcessPaymentResponse {
   success: boolean;
   paymentId: string;
+  receiptNumber: string;
   remainingDueHalalas: number;
   invoiceStatus: string;
 }

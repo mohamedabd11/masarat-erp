@@ -85,7 +85,7 @@ export function BookingActions({
               </Button>
             )}
 
-            {/* Supplier payment voucher */}
+            {/* Payment voucher - general */}
             <Button
               fullWidth
               size="sm"
@@ -94,7 +94,7 @@ export function BookingActions({
               className="text-slate-600 hover:bg-slate-50 border border-slate-200"
             >
               <Banknote size={13} />
-              {isAr ? 'سند صرف للمورد' : 'Supplier Payment Voucher'}
+              {isAr ? 'تسجيل سند صرف' : 'Record Payment Voucher'}
             </Button>
           </>
         ) : (
@@ -121,7 +121,7 @@ export function BookingActions({
           onClose={() => setShowPayment(false)}
           onSuccess={(newRemaining) => {
             setPaid(grandTotalHalalas - newRemaining);
-            setShowPayment(false);
+            // لا نُغلق النافذة هنا — المستخدم يحتاج يرى زر "طباعة سند القبض" أولاً
           }}
         />
       )}

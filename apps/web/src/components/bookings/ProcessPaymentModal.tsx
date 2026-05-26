@@ -45,6 +45,7 @@ export function ProcessPaymentModal({
   const { processPayment, loading, error } = useProcessPayment();
   const [success, setSuccess] = useState(false);
   const [paymentId, setPaymentId] = useState<string | null>(null);
+  const [receiptNumber, setReceiptNumber] = useState<string | null>(null);
 
   const {
     register,
@@ -74,6 +75,7 @@ export function ProcessPaymentModal({
         notes: data.notes,
       });
       setPaymentId(result.paymentId);
+      setReceiptNumber(result.receiptNumber ?? null);
       setSuccess(true);
       onSuccess?.(result.remainingDueHalalas);
     } catch {
@@ -131,21 +133,25 @@ export function ProcessPaymentModal({
               <p className="text-base font-semibold text-slate-900">
                 {isAr ? 'تم تسجيل الدفعة بنجاح' : 'Payment Recorded Successfully'}
               </p>
-              <p className="text-sm text-slate-500 mt-1">
+              <p className="text-2xl font-black text-emerald-700 tabular-nums mt-1">
                 {formatCurrency(amountHalalas, isAr ? 'ar-SA' : 'en-SA')}
               </p>
+              {receiptNumber && (
+                <p className="text-xs text-slate-400 font-mono mt-1">
+                  {isAr ? 'رقم السند:' : 'Receipt No:'} {receiptNumber}
+                </p>
+              )}
             </div>
-            <div className="flex gap-3 w-full pt-2">
+            <div className="flex flex-col gap-2 w-full pt-2">
               {paymentId && (
                 <Link
                   href={`/${locale}/payments/${paymentId}`}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="flex-1"
                 >
                   <button
                     type="button"
-                    className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-brand-600 text-white text-sm font-semibold hover:bg-brand-700 transition-colors"
+                    className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-lg bg-brand-600 text-white text-sm font-semibold hover:bg-brand-700 transition-colors"
                   >
                     <Printer size={15} />
                     {isAr ? 'طباعة سند القبض' : 'Print Receipt Voucher'}
@@ -155,7 +161,7 @@ export function ProcessPaymentModal({
               <button
                 type="button"
                 onClick={onClose}
-                className="flex-1 px-4 py-2.5 rounded-lg border border-slate-200 text-sm font-semibold text-slate-700 hover:bg-slate-50 transition-colors"
+                className="w-full px-4 py-2.5 rounded-lg border border-slate-200 text-sm font-semibold text-slate-700 hover:bg-slate-50 transition-colors"
               >
                 {isAr ? 'إغلاق' : 'Close'}
               </button>

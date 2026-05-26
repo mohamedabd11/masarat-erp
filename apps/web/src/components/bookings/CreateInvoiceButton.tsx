@@ -49,10 +49,7 @@ export function CreateInvoiceButton({
   }, [agencyId]);
 
   const canCreate = bookingStatus === 'confirmed' && !existingInvoiceId;
-
-  // Hide the invoice section entirely when agency is not VAT-registered
-  // (isVatRegistered === null means still loading → keep hidden)
-  if (!isVatRegistered && !existingInvoiceId) return null;
+  const isLoading = isVatRegistered === null;
 
   async function handleClick() {
     if (!canCreate) return;
@@ -85,24 +82,28 @@ export function CreateInvoiceButton({
     );
   }
 
+  const invoiceLabel = isVatRegistered
+    ? (isAr ? 'فاتورة ضريبية' : 'Tax Invoice')
+    : (isAr ? 'إصدار إيصال' : 'Issue Receipt');
+
   return (
     <div className="space-y-2">
       <Button
         onClick={handleClick}
-        loading={loading}
-        disabled={loading || showSuccess}
+        loading={loading || isLoading}
+        disabled={loading || showSuccess || isLoading}
         variant={showSuccess ? 'secondary' : 'primary'}
         size="sm"
       >
         {showSuccess ? (
           <>
             <CheckCircle2 size={14} />
-            {isAr ? 'تم إصدار الفاتورة' : 'Invoice Created'}
+            {isAr ? 'تم الإصدار' : 'Issued'}
           </>
         ) : (
           <>
             <FileText size={14} />
-            {isAr ? 'فاتورة ضريبية' : 'Tax Invoice'}
+            {invoiceLabel}
           </>
         )}
       </Button>
