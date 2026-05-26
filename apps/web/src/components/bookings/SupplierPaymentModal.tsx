@@ -11,42 +11,47 @@ import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import { Card } from '@/components/ui/Card';
 import { formatCurrency } from '@/lib/utils';
-import { postJournalEntry, buildSupplierPaymentLines } from '@/lib/postJournalEntry';
+import { postJournalEntry, buildExpensePaymentLines, type ExpenseCategory } from '@/lib/postJournalEntry';
 import { X, CheckCircle2, AlertCircle, Printer, Banknote } from 'lucide-react';
 
 const schema = z.object({
-  amountSAR:     z.coerce.number().min(0.01),
-  paymentMethod: z.enum(['cash', 'bank_transfer', 'card', 'online', 'check']),
-  reference:     z.string().optional(),
-  notes:         z.string().optional(),
+  payeeName:       z.string().min(1, 'مطلوب'),
+  expenseCategory: z.enum(['supplier', 'operational', 'salaries', 'office', 'other']),
+  amountSAR:       z.coerce.number().min(0.01),
+  paymentMethod:   z.enum(['cash', 'bank_transfer', 'card', 'online', 'check']),
+  reference:       z.string().optional(),
+  notes:           z.string().optional(),
 });
 
 type FormData = z.infer<typeof schema>;
 
 interface SupplierPaymentModalProps {
-  bookingId: string;
-  agencyId:  string;
-  onClose:   () => void;
+  bookingId?: string;
+  agencyId:   string;
+  onClose:    () => void;
+  onSuccess?: () => void;
 }
 
 export function SupplierPaymentModal({
   bookingId,
   agencyId,
   onClose,
+  onSuccess,
 }: SupplierPaymentModalProps) {
   const locale = useLocale();
   const isAr   = locale === 'ar';
 
-  const [supplierName,    setSupplierName]    = useState('');
-  const [supplierCostSAR, setSupplierCostSAR] = useState(0);
-  const [bookingNumber,   setBookingNumber]   = useState('');
-  const [loadingBooking,  setLoadingBooking]  = useState(true);
-  const [saving,          setSaving]          = useState(false);
-  const [saveError,       setSaveError]       = useState('');
-  const [recordId,        setRecordId]        = useState<string | null>(null);
+  const [defaultPayeeName,  setDefaultPayeeName]  = useState('');
+  const [defaultAmountSAR,  setDefaultAmountSAR]  = useState(0);
+  const [bookingNumber,     setBookingNumber]      = useState('');
+  const [loadingBooking,    setLoadingBooking]     = useState(!!bookingId);
+  const [saving,            setSaving]             = useState(false);
+  const [saveError,         setSaveError]          = useState('');
+  const [recordId,          setRecordId]           = useState<string | null>(null);
 
-  // Load booking to pre-fill supplier name + cost
+  // Load booking data to pre-fill payee name + amount (only when bookingId provided)
   useEffect(() => {
+    if (!bookingId) return;
     let cancelled = false;
     async function load() {
       try {
@@ -55,12 +60,11 @@ export function SupplierPaymentModal({
         const db = getFirestore(getApp());
         const snap = await getDoc(doc(db, 'bookings', bookingId));
         if (cancelled || !snap.exists()) return;
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const b = snap.data() as Record<string, any>;
+        const b = snap.data() as Record<string, unknown>;
         if (!cancelled) {
-          setSupplierName(b.supplierName ?? '');
-          setSupplierCostSAR((b.pricing?.totalCost ?? 0) / 100);
-          setBookingNumber(b.bookingNumber ?? '');
+          setDefaultPayeeName((b['supplierName'] as string) ?? '');
+          setDefaultAmountSAR(((b['pricing'] as Record<string, number> | undefined)?.['totalCost'] ?? 0) / 100);
+          setBookingNumber((b['bookingNumber'] as string) ?? '');
         }
       } finally {
         if (!cancelled) setLoadingBooking(false);
@@ -77,15 +81,15 @@ export function SupplierPaymentModal({
     formState: { errors },
   } = useForm<FormData>({
     resolver: zodResolver(schema),
-    defaultValues: { paymentMethod: 'bank_transfer', amountSAR: supplierCostSAR },
+    defaultValues: {
+      payeeName:       defaultPayeeName,
+      expenseCategory: 'supplier',
+      paymentMethod:   'bank_transfer',
+      amountSAR:       defaultAmountSAR || undefined,
+    },
   });
 
-  // Sync default amount once booking data is loaded
-  useEffect(() => {
-    // react-hook-form doesn't re-read defaultValues after mount; handled via form reset below
-  }, [supplierCostSAR]);
-
-  const amountSAR    = watch('amountSAR') || 0;
+  const amountSAR     = watch('amountSAR') || 0;
   const amountHalalas = Math.round(amountSAR * 100);
 
   async function onSubmit(data: FormData) {
@@ -98,32 +102,38 @@ export function SupplierPaymentModal({
 
       const ref = await addDoc(collection(db, 'supplier_payments'), {
         agencyId,
-        bookingId,
-        supplierName,
-        bookingNumber: bookingNumber || null,
-        amountHalalas: Math.round(data.amountSAR * 100),
-        paymentMethod: data.paymentMethod,
-        reference:     data.reference ?? '',
-        notes:         data.notes     ?? '',
-        status:        'completed',
-        createdAt:     Timestamp.now(),
+        bookingId:       bookingId ?? null,
+        bookingNumber:   bookingNumber || null,
+        payeeName:       data.payeeName,
+        supplierName:    data.payeeName,       // backward-compat alias
+        expenseCategory: data.expenseCategory,
+        amountHalalas:   Math.round(data.amountSAR * 100),
+        paymentMethod:   data.paymentMethod,
+        reference:       data.reference ?? '',
+        notes:           data.notes     ?? '',
+        status:          'completed',
+        createdAt:       Timestamp.now(),
       });
 
-      // ── قيد محاسبي: دفعة للمورد ──────────────────────────────────────────
+      // ── قيد محاسبي ────────────────────────────────────────────────────────
       try {
-        const paidHalalas = Math.round(data.amountSAR * 100);
         await postJournalEntry({
           agencyId,
-          description:   `دفعة مورد - ${supplierName || 'مورد'}`,
+          description:   `سند صرف - ${data.payeeName}`,
           referenceId:   ref.id,
-          referenceType: 'supplier_payment',
-          lines:         buildSupplierPaymentLines(paidHalalas, data.paymentMethod),
+          referenceType: 'expense_payment',
+          lines:         buildExpensePaymentLines(
+            Math.round(data.amountSAR * 100),
+            data.paymentMethod,
+            data.expenseCategory as ExpenseCategory,
+          ),
         });
       } catch (jeErr) {
-        console.warn('[Accounting] Supplier payment JE failed:', jeErr);
+        console.warn('[Accounting] Expense JE failed:', jeErr);
       }
 
       setRecordId(ref.id);
+      onSuccess?.();
     } catch (err) {
       setSaveError(err instanceof Error ? err.message : (isAr ? 'حدث خطأ أثناء الحفظ' : 'Save error'));
     } finally {
@@ -131,12 +141,20 @@ export function SupplierPaymentModal({
     }
   }
 
+  const categoryOptions = [
+    { value: 'supplier',    label: isAr ? 'مورد خدمة'          : 'Service Supplier'   },
+    { value: 'operational', label: isAr ? 'مصاريف تشغيلية'     : 'Operating Expenses'  },
+    { value: 'salaries',    label: isAr ? 'رواتب وأجور'         : 'Salaries & Wages'   },
+    { value: 'office',      label: isAr ? 'مصاريف مكتبية'       : 'Office Expenses'     },
+    { value: 'other',       label: isAr ? 'أخرى'                : 'Other'               },
+  ];
+
   const paymentMethodOptions = [
-    { value: 'cash',          label: isAr ? 'نقداً'          : 'Cash' },
-    { value: 'bank_transfer', label: isAr ? 'تحويل بنكي'    : 'Bank Transfer' },
-    { value: 'card',          label: isAr ? 'بطاقة ائتمان'  : 'Credit Card' },
-    { value: 'online',        label: isAr ? 'دفع إلكتروني'  : 'Online' },
-    { value: 'check',         label: isAr ? 'شيك'            : 'Cheque' },
+    { value: 'cash',          label: isAr ? 'نقداً'          : 'Cash'          },
+    { value: 'bank_transfer', label: isAr ? 'تحويل بنكي'    : 'Bank Transfer'  },
+    { value: 'card',          label: isAr ? 'بطاقة ائتمان'  : 'Credit Card'   },
+    { value: 'online',        label: isAr ? 'دفع إلكتروني'  : 'Online'        },
+    { value: 'check',         label: isAr ? 'شيك'            : 'Cheque'        },
   ];
 
   return (
@@ -149,7 +167,7 @@ export function SupplierPaymentModal({
           <div className="flex items-center gap-2">
             <Banknote size={20} className="text-red-600" />
             <h2 className="text-lg font-bold text-slate-900">
-              {isAr ? 'تسجيل دفعة للمورد' : 'Record Supplier Payment'}
+              {isAr ? 'تسجيل سند صرف' : 'Record Payment Voucher'}
             </h2>
           </div>
           <button
@@ -160,46 +178,27 @@ export function SupplierPaymentModal({
           </button>
         </div>
 
-        {/* Supplier info */}
-        {!loadingBooking && (
-          <div className="rounded-xl p-4 mb-6 bg-red-50 border border-red-200">
-            <p className="text-xs text-slate-500 mb-1">{isAr ? 'اسم المورد' : 'Supplier'}</p>
-            <p className="font-bold text-slate-900">
-              {supplierName || (isAr ? '(غير محدد)' : '(not set)')}
-            </p>
-            {supplierCostSAR > 0 && (
-              <p className="text-xs text-slate-500 mt-1">
-                {isAr ? 'تكلفة الحجز: ' : 'Booking cost: '}
-                <span className="font-semibold text-red-700">
-                  {formatCurrency(supplierCostSAR * 100, isAr ? 'ar-SA' : 'en-SA')}
-                </span>
-              </p>
-            )}
-          </div>
-        )}
-
         {recordId ? (
           /* ── Success state ─────────────────────────────────────────────── */
           <div className="flex flex-col items-center py-6 text-center gap-4">
             <CheckCircle2 size={48} className="text-emerald-500" />
             <div>
               <p className="text-base font-semibold text-slate-900">
-                {isAr ? 'تم تسجيل الدفعة بنجاح' : 'Payment Recorded Successfully'}
+                {isAr ? 'تم تسجيل سند الصرف بنجاح' : 'Payment Voucher Recorded Successfully'}
               </p>
-              <p className="text-sm text-slate-500 mt-1">
+              <p className="text-2xl font-black text-red-700 tabular-nums mt-1">
                 {formatCurrency(amountHalalas, isAr ? 'ar-SA' : 'en-SA')}
               </p>
             </div>
-            <div className="flex gap-3 w-full pt-2">
+            <div className="flex flex-col gap-2 w-full pt-2">
               <Link
                 href={`/${locale}/supplier-payments/${recordId}`}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="flex-1"
               >
                 <button
                   type="button"
-                  className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-red-600 text-white text-sm font-semibold hover:bg-red-700 transition-colors"
+                  className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-lg bg-red-600 text-white text-sm font-semibold hover:bg-red-700 transition-colors"
                 >
                   <Printer size={15} />
                   {isAr ? 'طباعة سند الصرف' : 'Print Payment Voucher'}
@@ -208,7 +207,7 @@ export function SupplierPaymentModal({
               <button
                 type="button"
                 onClick={onClose}
-                className="flex-1 px-4 py-2.5 rounded-lg border border-slate-200 text-sm font-semibold text-slate-700 hover:bg-slate-50 transition-colors"
+                className="w-full px-4 py-2.5 rounded-lg border border-slate-200 text-sm font-semibold text-slate-700 hover:bg-slate-50 transition-colors"
               >
                 {isAr ? 'إغلاق' : 'Close'}
               </button>
@@ -218,12 +217,34 @@ export function SupplierPaymentModal({
           /* ── Form ──────────────────────────────────────────────────────── */
           <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
             <Input
+              label={isAr ? 'صُرف لـ (الجهة المستفيدة)' : 'Paid To (Payee)'}
+              placeholder={
+                loadingBooking
+                  ? (isAr ? 'جارٍ التحميل...' : 'Loading...')
+                  : (isAr ? 'اسم المورد أو الجهة' : 'Supplier or payee name')
+              }
+              required
+              defaultValue={defaultPayeeName || undefined}
+              error={errors.payeeName?.message}
+              disabled={loadingBooking}
+              {...register('payeeName')}
+            />
+
+            <Select
+              label={isAr ? 'نوع المصروف' : 'Expense Category'}
+              required
+              options={categoryOptions}
+              error={errors.expenseCategory?.message}
+              {...register('expenseCategory')}
+            />
+
+            <Input
               label={`${isAr ? 'المبلغ المدفوع (ريال)' : 'Amount Paid (SAR)'}`}
               type="number"
               step="0.01"
               min="0.01"
               required
-              defaultValue={supplierCostSAR || undefined}
+              defaultValue={defaultAmountSAR || undefined}
               error={errors.amountSAR?.message}
               {...register('amountSAR')}
             />
@@ -262,7 +283,7 @@ export function SupplierPaymentModal({
               <Button type="submit" fullWidth loading={saving}>
                 {saving
                   ? (isAr ? 'جارٍ التسجيل...' : 'Processing...')
-                  : (isAr ? 'تسجيل الدفعة' : 'Record Payment')}
+                  : (isAr ? 'تسجيل السند' : 'Record Voucher')}
               </Button>
             </div>
           </form>

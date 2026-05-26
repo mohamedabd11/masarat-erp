@@ -16,7 +16,7 @@ export interface JEPayload {
   agencyId:      string;
   description:   string;
   referenceId:   string;
-  referenceType: 'invoice' | 'payment' | 'refund' | 'supplier_payment' | 'manual';
+  referenceType: 'invoice' | 'payment' | 'refund' | 'supplier_payment' | 'expense_payment' | 'manual';
   lines:         JELine[];
 }
 
@@ -33,15 +33,19 @@ export interface InvoicePricing {
 // ─── Standard Chart of Accounts ──────────────────────────────────────────────
 
 export const AC = {
-  cash:             { code: '1100', nameAr: 'الصندوق النقدي',                nameEn: 'Cash on Hand',                  type: 'asset'     as const },
-  bank:             { code: '1110', nameAr: 'البنك',                         nameEn: 'Bank',                          type: 'asset'     as const },
-  pos:              { code: '1115', nameAr: 'حساب الشبكة (نقاط البيع)',      nameEn: 'POS / Card Terminal',           type: 'asset'     as const },
-  receivable:       { code: '1120', nameAr: 'ذمم مدينة - عملاء',             nameEn: 'Accounts Receivable',           type: 'asset'     as const },
-  payableSupplier:  { code: '2000', nameAr: 'ذمم دائنة - موردون',             nameEn: 'Accounts Payable - Suppliers',  type: 'liability' as const },
-  vatPayable:       { code: '2200', nameAr: 'ضريبة القيمة المضافة مستحقة',   nameEn: 'VAT Payable',                   type: 'liability' as const },
-  revenueAgent:     { code: '4000', nameAr: 'إيراد رسوم الوكالة',            nameEn: 'Revenue - Agency Fees',         type: 'revenue'   as const },
-  revenuePrincipal: { code: '4100', nameAr: 'إيراد خدمات السفر',             nameEn: 'Revenue - Travel Services',     type: 'revenue'   as const },
-  costOfServices:   { code: '5000', nameAr: 'تكلفة الخدمات',                 nameEn: 'Cost of Services',              type: 'expense'   as const },
+  cash:              { code: '1100', nameAr: 'الصندوق النقدي',                nameEn: 'Cash on Hand',                  type: 'asset'     as const },
+  bank:              { code: '1110', nameAr: 'البنك',                         nameEn: 'Bank',                          type: 'asset'     as const },
+  pos:               { code: '1115', nameAr: 'حساب الشبكة (نقاط البيع)',      nameEn: 'POS / Card Terminal',           type: 'asset'     as const },
+  receivable:        { code: '1120', nameAr: 'ذمم مدينة - عملاء',             nameEn: 'Accounts Receivable',           type: 'asset'     as const },
+  payableSupplier:   { code: '2000', nameAr: 'ذمم دائنة - موردون',             nameEn: 'Accounts Payable - Suppliers',  type: 'liability' as const },
+  vatPayable:        { code: '2200', nameAr: 'ضريبة القيمة المضافة مستحقة',   nameEn: 'VAT Payable',                   type: 'liability' as const },
+  revenueAgent:      { code: '4000', nameAr: 'إيراد رسوم الوكالة',            nameEn: 'Revenue - Agency Fees',         type: 'revenue'   as const },
+  revenuePrincipal:  { code: '4100', nameAr: 'إيراد خدمات السفر',             nameEn: 'Revenue - Travel Services',     type: 'revenue'   as const },
+  costOfServices:    { code: '5000', nameAr: 'تكلفة الخدمات',                 nameEn: 'Cost of Services',              type: 'expense'   as const },
+  operatingExpenses: { code: '5100', nameAr: 'مصاريف تشغيلية',               nameEn: 'Operating Expenses',            type: 'expense'   as const },
+  salariesExpenses:  { code: '5200', nameAr: 'رواتب وأجور',                   nameEn: 'Salaries & Wages',              type: 'expense'   as const },
+  officeExpenses:    { code: '5300', nameAr: 'مصاريف مكتبية',                 nameEn: 'Office Expenses',               type: 'expense'   as const },
+  otherExpenses:     { code: '5900', nameAr: 'مصاريف أخرى',                   nameEn: 'Other Expenses',                type: 'expense'   as const },
 } as const;
 
 // Maps a payment method string to the correct cash/bank/POS account
@@ -175,6 +179,31 @@ export function buildSupplierPaymentLines(
   return [
     jl(AC.payableSupplier, amountHalalas, 0),
     jl(payAc,              0, amountHalalas),
+  ];
+}
+
+export type ExpenseCategory = 'supplier' | 'operational' | 'salaries' | 'office' | 'other';
+
+export function resolveExpenseAccount(category: ExpenseCategory) {
+  switch (category) {
+    case 'supplier':    return AC.costOfServices;
+    case 'operational': return AC.operatingExpenses;
+    case 'salaries':    return AC.salariesExpenses;
+    case 'office':      return AC.officeExpenses;
+    default:            return AC.otherExpenses;
+  }
+}
+
+export function buildExpensePaymentLines(
+  amountHalalas: number,
+  paymentMethod: PaymentMethod | string = 'bank_transfer',
+  category: ExpenseCategory = 'other',
+): JELine[] {
+  const expenseAc = resolveExpenseAccount(category);
+  const payAc     = resolvePaymentAccount(paymentMethod);
+  return [
+    jl(expenseAc, amountHalalas, 0),
+    jl(payAc,     0, amountHalalas),
   ];
 }
 

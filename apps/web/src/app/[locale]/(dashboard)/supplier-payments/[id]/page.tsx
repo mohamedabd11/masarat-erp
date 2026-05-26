@@ -93,14 +93,15 @@ export default function SupplierPaymentVoucherPage({
 
         const voucher: PaymentVoucherData = {
           voucherNumber,
-          recordId:      params.id,
-          issuedDate:    rec.createdAt?.toDate?.() ?? new Date(),
-          amountHalalas: rec.amountHalalas ?? 0,
-          paymentMethod: rec.paymentMethod ?? 'cash',
-          reference:     rec.reference || undefined,
-          notes:         rec.notes     || undefined,
+          recordId:        params.id,
+          issuedDate:      rec.createdAt?.toDate?.() ?? new Date(),
+          amountHalalas:   rec.amountHalalas ?? 0,
+          paymentMethod:   rec.paymentMethod ?? 'cash',
+          reference:       rec.reference || undefined,
+          notes:           rec.notes     || undefined,
           bookingNumber,
-          supplierName:  rec.supplierName ?? '',
+          payeeName:       (rec.payeeName as string | undefined) ?? (rec.supplierName as string | undefined) ?? '',
+          expenseCategory: (rec.expenseCategory as string | undefined) ?? undefined,
           agency: {
             nameAr:    agencyNameAr,
             nameEn:    agencyNameEn,

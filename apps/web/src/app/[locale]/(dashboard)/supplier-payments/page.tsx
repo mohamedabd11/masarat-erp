@@ -6,14 +6,16 @@ import { useState, useEffect, useMemo } from 'react';
 import { useLocale } from 'next-intl';
 import { useAuth } from '@masarat/firebase';
 import { Card } from '@/components/ui/Card';
+import { Button } from '@/components/ui/Button';
 import { Spinner } from '@/components/ui/Spinner';
 import { formatCurrency, formatDate } from '@/lib/utils';
 import { cn } from '@/lib/utils';
 import {
   ArrowUpRight, Search, X, Banknote, CreditCard,
-  Building2, Globe, FileCheck2, CheckCircle2, TrendingDown,
+  Building2, Globe, FileCheck2, CheckCircle2, TrendingDown, Plus,
 } from 'lucide-react';
 import Link from 'next/link';
+import { SupplierPaymentModal } from '@/components/bookings/SupplierPaymentModal';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -22,7 +24,9 @@ interface SupplierPayment {
   agencyId: string;
   bookingId?: string;
   bookingNumber?: string;
-  supplierName: string;
+  payeeName?: string;
+  supplierName?: string;
+  expenseCategory?: string;
   amountHalalas: number;
   paymentMethod: string;
   reference?: string;
@@ -64,10 +68,11 @@ export default function SupplierPaymentsPage() {
   const { user }  = useAuth();
   const agencyId  = (user?.agencyId as string | undefined) ?? null;
 
-  const [payments, setPayments] = useState<SupplierPayment[]>([]);
-  const [loading, setLoading]   = useState(true);
-  const [search, setSearch]     = useState('');
-  const [method, setMethod]     = useState<MethodFilter>('all');
+  const [payments, setPayments]   = useState<SupplierPayment[]>([]);
+  const [loading, setLoading]     = useState(true);
+  const [search, setSearch]       = useState('');
+  const [method, setMethod]       = useState<MethodFilter>('all');
+  const [showModal, setShowModal] = useState(false);
 
   useEffect(() => {
     if (!agencyId) { setLoading(false); return; }
@@ -104,8 +109,9 @@ export default function SupplierPaymentsPage() {
     return payments.filter(p => {
       if (method !== 'all' && p.paymentMethod !== method) return false;
       if (!q) return true;
+      const name = (p.payeeName ?? p.supplierName ?? '').toLowerCase();
       return (
-        p.supplierName.toLowerCase().includes(q) ||
+        name.includes(q) ||
         (p.bookingNumber ?? '').toLowerCase().includes(q) ||
         (p.reference ?? '').toLowerCase().includes(q)
       );
@@ -142,17 +148,23 @@ export default function SupplierPaymentsPage() {
           </div>
         </div>
 
-        {/* Summary chip */}
-        {!loading && (
-          <div className="flex-shrink-0 bg-red-50 border border-red-200 rounded-xl px-4 py-2 text-end">
-            <p className="text-[10px] font-bold uppercase tracking-widest text-red-500">
-              {isAr ? 'إجمالي المعروض' : 'Showing Total'}
-            </p>
-            <p className="text-lg font-extrabold text-red-700 tabular-nums">
-              {formatCurrency(totalHalalas, fmtLocale)}
-            </p>
-          </div>
-        )}
+        <div className="flex items-center gap-3 flex-shrink-0">
+          {/* Summary chip */}
+          {!loading && (
+            <div className="bg-red-50 border border-red-200 rounded-xl px-4 py-2 text-end">
+              <p className="text-[10px] font-bold uppercase tracking-widest text-red-500">
+                {isAr ? 'إجمالي المعروض' : 'Showing Total'}
+              </p>
+              <p className="text-lg font-extrabold text-red-700 tabular-nums">
+                {formatCurrency(totalHalalas, fmtLocale)}
+              </p>
+            </div>
+          )}
+          <Button size="sm" onClick={() => setShowModal(true)}>
+            <Plus size={14} />
+            {isAr ? 'سند صرف جديد' : 'New Voucher'}
+          </Button>
+        </div>
       </div>
 
       {/* Filters */}
@@ -163,7 +175,7 @@ export default function SupplierPaymentsPage() {
             type="text"
             value={search}
             onChange={e => setSearch(e.target.value)}
-            placeholder={isAr ? 'بحث بالمورد أو رقم الحجز...' : 'Search supplier or booking number...'}
+            placeholder={isAr ? 'بحث بالجهة أو رقم الحجز...' : 'Search payee or booking number...'}
             className="w-full ps-9 pe-9 py-2 text-sm border border-slate-200 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-brand-400"
           />
           {search && (
@@ -213,7 +225,7 @@ export default function SupplierPaymentsPage() {
                     {isAr ? 'التاريخ' : 'Date'}
                   </th>
                   <th className="text-start px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">
-                    {isAr ? 'المورد' : 'Supplier'}
+                    {isAr ? 'صُرف لـ' : 'Paid To'}
                   </th>
                   <th className="text-start px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider hidden md:table-cell">
                     {isAr ? 'رقم الحجز' : 'Booking #'}
@@ -238,7 +250,7 @@ export default function SupplierPaymentsPage() {
                         {date ? formatDate(date, fmtLocale) : '—'}
                       </td>
                       <td className="px-3 py-3.5">
-                        <p className="text-sm font-medium text-slate-900">{p.supplierName || '—'}</p>
+                        <p className="text-sm font-medium text-slate-900">{p.payeeName ?? p.supplierName ?? '—'}</p>
                         {p.reference && (
                           <p className="text-xs text-slate-400 mt-0.5">{p.reference}</p>
                         )}
@@ -298,6 +310,12 @@ export default function SupplierPaymentsPage() {
             </table>
           </div>
         </Card>
+      )}
+      {showModal && agencyId && (
+        <SupplierPaymentModal
+          agencyId={agencyId}
+          onClose={() => setShowModal(false)}
+        />
       )}
     </div>
   );
