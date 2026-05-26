@@ -132,12 +132,12 @@ export default function SupplierPaymentsPage() {
           </div>
           <div>
             <h1 className="text-2xl font-bold text-slate-900">
-              {isAr ? 'سندات صرف الموردين' : 'Supplier Payments'}
+              {isAr ? 'سندات الصرف' : 'Payment Vouchers'}
             </h1>
             <p className="text-slate-500 text-sm mt-0.5">
               {isAr
-                ? 'جميع المبالغ المدفوعة للموردين عبر الحجوزات'
-                : 'All amounts paid to suppliers across bookings'}
+                ? 'جميع المبالغ المصروفة — للموردين وغيرهم'
+                : 'All payment vouchers — suppliers and other expenses'}
             </p>
           </div>
         </div>

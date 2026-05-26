@@ -305,8 +305,8 @@ export function BookingDetailClient({ locale, bookingId }: BookingDetailClientPr
                     <div className="flex items-center gap-2">
                       <TrendingDown size={16} className="text-red-500" />
                       {isAr
-                        ? `سندات صرف الموردين (${supplierPayments.length})`
-                        : `Supplier Payments (${supplierPayments.length})`}
+                        ? `سندات الصرف (${supplierPayments.length})`
+                        : `Payment Vouchers (${supplierPayments.length})`}
                     </div>
                     <span className="text-sm font-black font-mono text-red-700 tabular-nums">
                       {formatCurrency(

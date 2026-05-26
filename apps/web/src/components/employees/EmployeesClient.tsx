@@ -150,7 +150,7 @@ export function EmployeesClient({ locale }: EmployeesClientProps) {
   const [activeTab, setActiveTab] = useState<Tab>('employees');
 
   const tabs: { key: Tab; label: string; icon: React.ReactNode }[] = [
-    { key: 'employees',   label: isAr ? 'الموظفون'  : 'Employees',   icon: <UserCog size={16} /> },
+    { key: 'employees',   label: isAr ? 'الموظفين'  : 'Employees',   icon: <UserCog size={16} /> },
     { key: 'salaries',    label: isAr ? 'الرواتب'   : 'Salaries',    icon: <Banknote size={16} /> },
     { key: 'leaves',      label: isAr ? 'الإجازات'  : 'Leave',        icon: <CalendarDays size={16} /> },
     { key: 'departments', label: isAr ? 'الأقسام'   : 'Departments',  icon: <Building2 size={16} /> },

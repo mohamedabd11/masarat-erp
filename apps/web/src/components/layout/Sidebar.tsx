@@ -78,7 +78,7 @@ const FINANCE_GROUP: NavGroup = {
     { key: 'invoices',          href: '/invoices',          icon: <FileText size={18} />,     labelAr: 'الفواتير',           labelEn: 'Invoices' },
     { key: 'payments',          href: '/payments',          icon: <Receipt size={18} />,      labelAr: 'المدفوعات',          labelEn: 'Payments' },
     { key: 'receipt_vouchers',  href: '/receipt-vouchers',  icon: <TrendingUp size={18} />,   labelAr: 'سندات القبض',        labelEn: 'Receipt Vouchers' },
-    { key: 'supplier_payments', href: '/supplier-payments', icon: <TrendingDown size={18} />, labelAr: 'سندات صرف الموردين', labelEn: 'Supplier Payments' },
+    { key: 'supplier_payments', href: '/supplier-payments', icon: <TrendingDown size={18} />, labelAr: 'سندات الصرف',        labelEn: 'Payment Vouchers' },
     { key: 'cheques',           href: '/cheques',           icon: <Landmark size={18} />,     labelAr: 'الشيكات',            labelEn: 'Cheques' },
     { key: 'banking',           href: '/banking',           icon: <Wallet size={18} />,       labelAr: 'البنوك والصناديق',   labelEn: 'Banks & Cash' },
     { key: 'accounting',        href: '/accounting',        icon: <Calculator size={18} />,   labelAr: 'المحاسبة',           labelEn: 'Accounting' },
@@ -91,8 +91,8 @@ const MANAGEMENT_GROUP: NavGroup = {
   labelEn: 'Management',
   items: [
     { key: 'customers', href: '/customers', icon: <Users size={18} />,    labelAr: 'العملاء',   labelEn: 'Customers' },
-    { key: 'suppliers', href: '/suppliers', icon: <Truck size={18} />,    labelAr: 'الموردون',  labelEn: 'Suppliers' },
-    { key: 'employees', href: '/employees', icon: <UserCog size={18} />,  labelAr: 'الموظفون',  labelEn: 'Employees' },
+    { key: 'suppliers', href: '/suppliers', icon: <Truck size={18} />,    labelAr: 'الموردين',          labelEn: 'Suppliers' },
+    { key: 'employees', href: '/employees', icon: <UserCog size={18} />,  labelAr: 'إدارة الموظفين',    labelEn: 'Employees' },
     { key: 'reports',   href: '/reports',   icon: <BarChart3 size={18} />, labelAr: 'التقارير',  labelEn: 'Reports' },
   ],
 };

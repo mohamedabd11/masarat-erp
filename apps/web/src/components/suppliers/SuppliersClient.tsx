@@ -127,7 +127,7 @@ export function SuppliersClient({ locale }: SuppliersClientProps) {
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center gap-4">
         <div className="flex-1">
-          <h1 className="text-2xl font-bold text-slate-900">{isAr ? 'الموردون' : 'Suppliers'}</h1>
+          <h1 className="text-2xl font-bold text-slate-900">{isAr ? 'الموردين' : 'Suppliers'}</h1>
           <p className="text-slate-500 text-sm mt-0.5">{isAr ? 'إدارة شركاء الأعمال وموردي الخدمات' : 'Manage business partners and service providers'}</p>
         </div>
         <Button size="sm" onClick={() => { setShowForm(true); setEditId(null); setForm(EMPTY); }}>
