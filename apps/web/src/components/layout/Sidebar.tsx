@@ -11,7 +11,7 @@ import {
   Moon, Shield, Stamp, FileText, Receipt, BarChart3, Truck, UserCog,
   Settings, HelpCircle, ChevronLeft, ChevronRight, Calculator,
   Anchor, Car, Train, Camera, Mountain, Plus, Layers, Landmark, Send, Wallet,
-  TrendingDown,
+  TrendingDown, TrendingUp,
 } from 'lucide-react';
 
 // ─── Icon map for custom service types ────────────────────────────────────────
@@ -77,6 +77,7 @@ const FINANCE_GROUP: NavGroup = {
   items: [
     { key: 'invoices',          href: '/invoices',          icon: <FileText size={18} />,     labelAr: 'الفواتير',           labelEn: 'Invoices' },
     { key: 'payments',          href: '/payments',          icon: <Receipt size={18} />,      labelAr: 'المدفوعات',          labelEn: 'Payments' },
+    { key: 'receipt_vouchers',  href: '/receipt-vouchers',  icon: <TrendingUp size={18} />,   labelAr: 'سندات القبض',        labelEn: 'Receipt Vouchers' },
     { key: 'supplier_payments', href: '/supplier-payments', icon: <TrendingDown size={18} />, labelAr: 'سندات صرف الموردين', labelEn: 'Supplier Payments' },
     { key: 'cheques',           href: '/cheques',           icon: <Landmark size={18} />,     labelAr: 'الشيكات',            labelEn: 'Cheques' },
     { key: 'banking',           href: '/banking',           icon: <Wallet size={18} />,       labelAr: 'البنوك والصناديق',   labelEn: 'Banks & Cash' },

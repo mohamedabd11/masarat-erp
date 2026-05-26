@@ -80,21 +80,24 @@ export async function POST(request: Request) {
 
         // ── 5. إعداد المستندات ────────────────────────────────────────────
         const now = Timestamp.now();
-        const paymentRef = db.collection('bookings').doc(bookingId).collection('payments').doc();
+        const paymentRef = db.collection('payments').doc();
         const journalRef = db.collection('journal_entries').doc();
         const cashAc = METHOD_ACCOUNT[paymentMethod] ?? METHOD_ACCOUNT['bank_transfer']!;
 
         // ── 6. الكتابات ───────────────────────────────────────────────────
         tx.set(paymentRef, {
           id: paymentRef.id,
+          type: 'receipt',
           agencyId,
           bookingId,
           invoiceId,
+          invoiceNumber: invoice['invoiceNumber'] as string ?? '',
           customerId: booking['customerId'],
-          amount: amountHalalas,
-          amountSAR: amountHalalas / 100,
+          customerNameAr: (booking['customerName'] as Record<string, string>)?.['ar'] ?? (booking['customerName'] as string) ?? '',
+          customerNameEn: (booking['customerName'] as Record<string, string>)?.['en'] ?? '',
+          amountHalalas: amountHalalas,
           currency: 'SAR',
-          method: paymentMethod,
+          paymentMethod: paymentMethod,
           reference: reference ?? '',
           notes: notes ?? '',
           receiptNumber,

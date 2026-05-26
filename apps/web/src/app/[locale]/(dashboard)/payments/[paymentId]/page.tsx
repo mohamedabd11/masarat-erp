@@ -112,9 +112,7 @@ export default function ReceiptVoucherPage({
         if (cancelled) return;
 
         // ── 5. Build voucher number from paymentId ─────────────────────────
-        const year = new Date().getFullYear();
-        const seq = params.paymentId.slice(-6).toUpperCase();
-        const voucherNumber = `RV-${year}-${seq}`;
+        const voucherNumber = (pay.receiptNumber as string | undefined) ?? `RCT-${new Date().getFullYear()}-${params.paymentId.slice(-6).toUpperCase()}`;
 
         const receipt: ReceiptVoucherData = {
           voucherNumber,
