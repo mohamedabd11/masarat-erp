@@ -53,15 +53,13 @@ export function DashboardStats({ locale }: { locale: string }) {
             monthVat     += Number(totals?.totalVat        ?? 0);
           }
 
-          const grandTotal = Number(totals?.grandTotal ?? inv.amountDue ?? 0);
-          const paid       = Number((inv as Record<string, unknown>).paidHalalas ?? 0);
-          arOutstanding   += Math.max(0, grandTotal - paid);
+          arOutstanding += Math.max(0, Number(inv.amountDue ?? 0));
         }
 
         let activeBookings = 0, pendingBookings = 0;
         for (const d of bkSnap.docs) {
           const status = String((d.data() as Record<string, unknown>).status ?? '');
-          if (status === 'confirmed' || status === 'in_progress') activeBookings++;
+          if (status === 'confirmed' || status === 'ticketed') activeBookings++;
           if (status === 'pending_approval') pendingBookings++;
         }
 
