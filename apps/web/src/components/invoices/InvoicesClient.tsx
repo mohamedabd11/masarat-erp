@@ -171,14 +171,72 @@ export function InvoicesClient({ locale }: InvoicesClientProps) {
         </div>
       </div>
 
-      {/* Table */}
+      {/* List */}
       {filtered.length === 0 ? (
         <EmptyState icon={<FileText size={48} />}
           title={isAr ? 'لا توجد فواتير' : 'No invoices yet'}
           description={isAr ? 'ستظهر الفواتير هنا بعد تأكيد الحجوزات' : 'Invoices appear here after confirming bookings'} />
       ) : (
         <Card padding="none">
-          <div className="overflow-x-auto">
+
+          {/* ── Mobile cards (< sm) ───────────────────────────────────────── */}
+          <div className="sm:hidden divide-y divide-surface-border">
+            {filtered.map(inv => {
+              const customerName = isAr ? inv.buyer?.name?.ar ?? '' : inv.buyer?.name?.en ?? inv.buyer?.name?.ar ?? '';
+              const issueDate  = inv.issueDate?.toDate?.() ?? inv.createdAt?.toDate?.() ?? null;
+              const grandTotal = inv.totals?.grandTotal ?? 0;
+              const balance    = inv.amountDue ?? 0;
+              const overdue    = isOverdue(inv);
+              const isCreditNote = inv.type === 'credit_note';
+
+              return (
+                <Link key={inv.id} href={`/${locale}/invoices/${inv.id}`}
+                  className={cn('flex flex-col gap-2 px-4 py-3.5 hover:bg-slate-50 transition-colors active:bg-slate-100',
+                    overdue && 'bg-red-50/40')}>
+                  {/* Row 1: invoice number + badges + status */}
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-1.5 flex-wrap min-w-0">
+                      <span className="font-mono text-xs font-bold text-brand-700">
+                        {inv.invoiceNumber ?? inv.id.slice(0, 10)}
+                      </span>
+                      {isCreditNote && (
+                        <span className="text-[10px] bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-full font-semibold">
+                          {isAr ? 'إشعار دائن' : 'CN'}
+                        </span>
+                      )}
+                      {overdue && (
+                        <span className="text-[10px] bg-red-100 text-red-700 px-1.5 py-0.5 rounded-full font-semibold inline-flex items-center gap-0.5">
+                          <AlertTriangle size={9} />{isAr ? 'متأخر' : 'Overdue'}
+                        </span>
+                      )}
+                    </div>
+                    <InvoiceStatusBadge status={inv.paymentStatus} locale={locale} />
+                  </div>
+                  {/* Row 2: customer */}
+                  <p className="text-sm font-semibold text-slate-900 truncate">{customerName || '—'}</p>
+                  {/* Row 3: date + total + balance */}
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-xs text-slate-400">
+                      {issueDate ? formatDate(issueDate, fmtLocale) : '—'}
+                    </span>
+                    <div className="flex items-center gap-2">
+                      {balance > 0 && (
+                        <span className="text-xs font-semibold text-red-600">
+                          {isAr ? 'متبقي ' : 'Due '}{formatCurrency(balance, fmtLocale)}
+                        </span>
+                      )}
+                      <span className="text-sm font-bold text-slate-900 tabular-nums">
+                        {formatCurrency(grandTotal, fmtLocale)}
+                      </span>
+                    </div>
+                  </div>
+                </Link>
+              );
+            })}
+          </div>
+
+          {/* ── Desktop table (sm+) ───────────────────────────────────────── */}
+          <div className="hidden sm:block overflow-x-auto">
             <table className="w-full">
               <thead>
                 <tr className="border-b border-surface-border bg-slate-50/60">
@@ -195,8 +253,8 @@ export function InvoicesClient({ locale }: InvoicesClientProps) {
               <tbody className="divide-y divide-surface-border">
                 {filtered.map(inv => {
                   const customerName = isAr ? inv.buyer?.name?.ar ?? '' : inv.buyer?.name?.en ?? inv.buyer?.name?.ar ?? '';
-                  const issueDate = inv.issueDate?.toDate?.() ?? inv.createdAt?.toDate?.() ?? null;
-                  const dueDate   = inv.dueDate?.toDate?.() ?? null;
+                  const issueDate  = inv.issueDate?.toDate?.() ?? inv.createdAt?.toDate?.() ?? null;
+                  const dueDate    = inv.dueDate?.toDate?.() ?? null;
                   const grandTotal = inv.totals?.grandTotal ?? 0;
                   const balance    = inv.amountDue ?? 0;
                   const overdue    = isOverdue(inv);
@@ -215,9 +273,8 @@ export function InvoicesClient({ locale }: InvoicesClientProps) {
                           </span>
                         )}
                         {overdue && (
-                          <span className="ms-2 text-[10px] bg-red-100 text-red-700 px-1.5 py-0.5 rounded-full font-semibold flex-shrink-0 inline-flex items-center gap-0.5">
-                            <AlertTriangle size={9} />
-                            {isAr ? 'متأخر' : 'Overdue'}
+                          <span className="ms-2 text-[10px] bg-red-100 text-red-700 px-1.5 py-0.5 rounded-full font-semibold inline-flex items-center gap-0.5">
+                            <AlertTriangle size={9} />{isAr ? 'متأخر' : 'Overdue'}
                           </span>
                         )}
                       </td>
@@ -266,6 +323,7 @@ export function InvoicesClient({ locale }: InvoicesClientProps) {
               </tbody>
             </table>
           </div>
+
           <div className="px-6 py-3 border-t border-surface-border">
             <span className="text-xs text-slate-400">
               {isAr ? `${formatCount(filtered.length, fmtLocale)} فاتورة` : `${filtered.length} invoices`}

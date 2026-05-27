@@ -158,7 +158,7 @@ export function BookingsClient({ locale, bookingType, initialQuery = '' }: Booki
         })}
       </div>
 
-      {/* ── Table ────────────────────────────────────────────────────────── */}
+      {/* ── List ─────────────────────────────────────────────────────────── */}
       {filtered.length === 0 ? (
         <EmptyState
           icon={<BookOpen size={48} />}
@@ -167,7 +167,60 @@ export function BookingsClient({ locale, bookingType, initialQuery = '' }: Booki
         />
       ) : (
         <Card padding="none">
-          <div className="overflow-x-auto">
+
+          {/* ── Mobile cards (< sm) ───────────────────────────────────────── */}
+          <div className="sm:hidden divide-y divide-surface-border">
+            {filtered.map(b => {
+              const name     = isAr ? (b.customerName?.ar ?? b.customerName?.en ?? '') : (b.customerName?.en ?? b.customerName?.ar ?? '');
+              const typeMeta = TYPE_META[b.type] ?? { ar: b.type, en: b.type, bg: 'bg-slate-100', text: 'text-slate-600' };
+              const total    = b.grandTotalHalalas ?? b.pricing?.totalAmount ?? 0;
+              const paidAmt  = b.paidHalalas ?? b.totalPaid ?? 0;
+              const paidPct  = total > 0 ? Math.min(100, Math.round((paidAmt / total) * 100)) : 0;
+              const createdAt = b.createdAt?.toDate?.() ?? null;
+
+              return (
+                <Link key={b.id} href={`/${locale}/bookings/${b.id}`}
+                  className="flex flex-col gap-2 px-4 py-3.5 hover:bg-slate-50 transition-colors active:bg-slate-100">
+                  {/* Row 1: number + type + status */}
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span className="font-mono text-xs font-bold text-brand-700">
+                        {b.bookingNumber ?? b.id.slice(0, 10)}
+                      </span>
+                      <span className={cn('px-2 py-0.5 rounded-md text-[11px] font-bold', typeMeta.bg, typeMeta.text)}>
+                        {isAr ? typeMeta.ar : typeMeta.en}
+                      </span>
+                    </div>
+                    <BookingStatusBadge status={b.status} locale={locale} />
+                  </div>
+                  {/* Row 2: customer name */}
+                  <p className="text-sm font-semibold text-slate-900 truncate">{name}</p>
+                  {/* Row 3: date + payment bar + total */}
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="text-xs text-slate-400">
+                      {createdAt ? formatDate(createdAt, fmtLocale) : '—'}
+                    </span>
+                    <div className="flex items-center gap-2 flex-1 justify-end">
+                      {total > 0 && (
+                        <div className="w-16 h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                          <div
+                            className={cn('h-full rounded-full', paidPct === 100 ? 'bg-emerald-500' : 'bg-amber-400')}
+                            style={{ width: `${paidPct}%` }}
+                          />
+                        </div>
+                      )}
+                      <span className="text-sm font-bold text-slate-900 tabular-nums">
+                        {total > 0 ? formatCurrency(total, fmtLocale) : '—'}
+                      </span>
+                    </div>
+                  </div>
+                </Link>
+              );
+            })}
+          </div>
+
+          {/* ── Desktop table (sm+) ───────────────────────────────────────── */}
+          <div className="hidden sm:block overflow-x-auto">
             <table className="w-full">
               <thead>
                 <tr className="border-b border-surface-border bg-slate-50/60">
@@ -182,18 +235,18 @@ export function BookingsClient({ locale, bookingType, initialQuery = '' }: Booki
               </thead>
               <tbody className="divide-y divide-surface-border">
                 {filtered.map(b => {
-                  const name       = isAr ? (b.customerName?.ar ?? b.customerName?.en ?? '') : (b.customerName?.en ?? b.customerName?.ar ?? '');
-                  const typeMeta   = TYPE_META[b.type] ?? { ar: b.type, en: b.type, bg: 'bg-slate-100', text: 'text-slate-600' };
-                  const total      = b.grandTotalHalalas ?? b.pricing?.totalAmount ?? 0;
-                  const paidAmt    = b.paidHalalas ?? b.totalPaid ?? 0;
-                  const paidPct    = total > 0 ? Math.min(100, Math.round((paidAmt / total) * 100)) : 0;
-                  const createdAt  = b.createdAt?.toDate?.() ?? null;
+                  const name     = isAr ? (b.customerName?.ar ?? b.customerName?.en ?? '') : (b.customerName?.en ?? b.customerName?.ar ?? '');
+                  const typeMeta = TYPE_META[b.type] ?? { ar: b.type, en: b.type, bg: 'bg-slate-100', text: 'text-slate-600' };
+                  const total    = b.grandTotalHalalas ?? b.pricing?.totalAmount ?? 0;
+                  const paidAmt  = b.paidHalalas ?? b.totalPaid ?? 0;
+                  const paidPct  = total > 0 ? Math.min(100, Math.round((paidAmt / total) * 100)) : 0;
+                  const createdAt = b.createdAt?.toDate?.() ?? null;
 
                   return (
                     <tr key={b.id} className="hover:bg-slate-50/60 transition-colors group">
                       <td className="ps-6 pe-3 py-4">
                         <Link href={`/${locale}/bookings/${b.id}`} className="font-mono text-sm font-semibold text-brand-700 hover:text-brand-800 hover:underline">
-                          {b.id.slice(0, 12)}…
+                          {b.bookingNumber ?? b.id.slice(0, 12) + '…'}
                         </Link>
                       </td>
                       <td className="px-3 py-4">
@@ -230,10 +283,7 @@ export function BookingsClient({ locale, bookingType, initialQuery = '' }: Booki
                         <span className="text-sm font-bold tabular-nums text-slate-900">
                           {total > 0 ? formatCurrency(total, fmtLocale) : '—'}
                         </span>
-                        <Link
-                          href={`/${locale}/bookings/${b.id}`}
-                          className="ms-2 opacity-0 group-hover:opacity-100 transition-opacity inline-flex"
-                        >
+                        <Link href={`/${locale}/bookings/${b.id}`} className="ms-2 opacity-0 group-hover:opacity-100 transition-opacity inline-flex">
                           <ChevronRight size={14} className="text-brand-500" />
                         </Link>
                       </td>
@@ -252,11 +302,8 @@ export function BookingsClient({ locale, bookingType, initialQuery = '' }: Booki
                 : `${filtered.length} of ${bookings.length} bookings`}
             </span>
             {hasMore && (
-              <button
-                onClick={loadNextPage}
-                disabled={loadingMore}
-                className="flex items-center gap-1.5 text-xs text-brand-600 hover:text-brand-700 font-medium disabled:opacity-50"
-              >
+              <button onClick={loadNextPage} disabled={loadingMore}
+                className="flex items-center gap-1.5 text-xs text-brand-600 hover:text-brand-700 font-medium disabled:opacity-50">
                 {loadingMore ? <Spinner size="sm" /> : <ArrowUpRight size={13} />}
                 {isAr ? 'تحميل المزيد' : 'Load more'}
               </button>
