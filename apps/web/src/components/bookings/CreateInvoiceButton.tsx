@@ -48,7 +48,7 @@ export function CreateInvoiceButton({
     return () => { cancelled = true; };
   }, [agencyId]);
 
-  const canCreate = bookingStatus === 'confirmed' && !existingInvoiceId;
+  const canCreate = (bookingStatus === 'confirmed' || bookingStatus === 'ticketed') && !existingInvoiceId;
   const isLoading = isVatRegistered === null;
 
   async function handleClick() {
@@ -72,12 +72,12 @@ export function CreateInvoiceButton({
     );
   }
 
-  if (bookingStatus !== 'confirmed') {
+  if (bookingStatus !== 'confirmed' && bookingStatus !== 'ticketed') {
     return (
       <p className="text-xs text-slate-400 italic">
         {isAr
-          ? 'يجب تأكيد الحجز أولاً لإصدار الفاتورة'
-          : 'Confirm booking first to issue invoice'}
+          ? 'الفاتورة تُصدر للحجوزات المؤكدة فقط'
+          : 'Invoices can only be issued for confirmed bookings'}
       </p>
     );
   }

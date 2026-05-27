@@ -107,6 +107,20 @@ interface BookingDetailClientProps {
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type BookingData = Record<string, any>;
 
+const TYPE_LABELS: Record<string, { ar: string; en: string }> = {
+  flight:       { ar: 'طيران',        en: 'Flight' },
+  hotel:        { ar: 'فندق',         en: 'Hotel' },
+  flight_hotel: { ar: 'طيران + فندق', en: 'Flight + Hotel' },
+  package:      { ar: 'باقة سياحية',  en: 'Package' },
+  umrah:        { ar: 'عمرة',         en: 'Umrah' },
+  hajj:         { ar: 'حج',           en: 'Hajj' },
+  visa:         { ar: 'تأشيرة',       en: 'Visa' },
+  insurance:    { ar: 'تأمين سفر',    en: 'Insurance' },
+  transfer:     { ar: 'نقل',          en: 'Transfer' },
+  family_visit: { ar: 'زيارة عائلية', en: 'Family Visit' },
+  cruise:       { ar: 'رحلة بحرية',   en: 'Cruise' },
+};
+
 interface SupplierPayment {
   id: string;
   supplierName: string;
@@ -160,7 +174,9 @@ export function BookingDetailClient({ locale, bookingId }: BookingDetailClientPr
         if (!snap.exists()) {
           setNotFound(true);
         } else {
-          setBooking({ id: snap.id, ...snap.data() });
+          const data = snap.data() as BookingData;
+          if (data['agencyId'] !== user?.agencyId) { setNotFound(true); return; }
+          setBooking({ id: snap.id, ...data });
         }
       } catch {
         if (!cancelled) setNotFound(true);
@@ -222,8 +238,8 @@ export function BookingDetailClient({ locale, bookingId }: BookingDetailClientPr
     : (booking.customerName?.en ?? booking.customerName?.ar ?? booking.customerName ?? '');
 
   const pricing = booking.pricing ?? {};
-  const grandTotalHalalas = pricing.totalAmount ?? 0;
-  const paidHalalas = booking.totalPaid ?? 0;
+  const grandTotalHalalas = booking.grandTotalHalalas ?? pricing.totalAmount ?? 0;
+  const paidHalalas = booking.paidHalalas ?? booking.totalPaid ?? 0;
 
   const travelDate = booking.travelDate?.toDate?.() ?? null;
   const returnDate = booking.returnDate?.toDate?.() ?? null;
@@ -287,7 +303,7 @@ export function BookingDetailClient({ locale, bookingId }: BookingDetailClientPr
               <BookingStatusBadge status={booking.status} locale={locale} />
             </div>
             <p className="text-slate-500 text-sm mt-0.5">
-              {booking.type} · {booking.pricing?.revenueModel === 'agent'
+              {(TYPE_LABELS[booking.type]?.[isAr ? 'ar' : 'en'] ?? booking.type)} · {booking.pricing?.revenueModel === 'agent'
                 ? (isAr ? 'نموذج وكيل' : 'Agent Model')
                 : (isAr ? 'نموذج أصيل' : 'Principal Model')}
             </p>
