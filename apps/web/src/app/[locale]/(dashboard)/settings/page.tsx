@@ -1784,8 +1784,8 @@ export default function SettingsPage() {
                   </div>
                   <p className="text-xs text-slate-400 mt-3 text-center">
                     {isAr
-                      ? 'تواصل معنا عبر واتساب للاستفسار عن الأسعار'
-                      : 'Contact us via WhatsApp for pricing details'}
+                      ? 'تواصل معنا عبر واتساب للاستفسار عن الاشتراكات'
+                      : 'Contact us via WhatsApp for subscription details'}
                   </p>
                 </div>
 
