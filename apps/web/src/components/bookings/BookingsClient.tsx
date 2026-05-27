@@ -14,7 +14,7 @@ import {
   Clock, AlertCircle, ChevronRight, Wallet, ArrowUpRight,
   FileText, FileX, FileCheck,
 } from 'lucide-react';
-import type { BookingType } from '@masarat/firebase';
+import type { BookingType } from '@/lib/schema';
 
 // ─── Invoice status badge ─────────────────────────────────────────────────────
 

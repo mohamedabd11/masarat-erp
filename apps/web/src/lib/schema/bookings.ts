@@ -31,3 +31,7 @@ export const bookings = pgTable('bookings', {
 
 export type Booking    = typeof bookings.$inferSelect;
 export type NewBooking = typeof bookings.$inferInsert;
+
+export type BookingType =
+  | 'flight' | 'hotel' | 'package' | 'umrah' | 'hajj'
+  | 'insurance' | 'visa' | 'transport';

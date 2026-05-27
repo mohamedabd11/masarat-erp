@@ -4,8 +4,7 @@ import { useState, useEffect } from 'react';
 import { useLocale } from 'next-intl';
 import { useSearchParams } from 'next/navigation';
 import { useAuth } from '@masarat/firebase';
-import type { UserDoc } from '@masarat/firebase';
-import type { Agency } from '@/lib/schema';
+import type { Agency, User } from '@/lib/schema';
 import { Card, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Spinner } from '@/components/ui/Spinner';
 import { Button } from '@/components/ui/Button';
@@ -378,7 +377,7 @@ export default function SettingsPage() {
   const [editForm, setEditForm] = useState({ nameAr: '', nameEn: '', icon: 'layers', color: PRESET_COLORS[0] });
 
   // ── Agency users ────────────────────────────────────────────────────────
-  const [agencyUsers, setAgencyUsers]     = useState<UserDoc[]>([]);
+  const [agencyUsers, setAgencyUsers]     = useState<User[]>([]);
   const [loadingUsers, setLoadingUsers]   = useState(false);
   const [showInviteModal, setShowInviteModal] = useState(false);
 
@@ -392,7 +391,7 @@ export default function SettingsPage() {
 
     async function loadAgency() {
       const { apiFetch } = await import('@/lib/api-client');
-      const data = await apiFetch<{ agency: Agency; users: UserDoc[] }>('/api/settings');
+      const data = await apiFetch<{ agency: Agency; users: User[] }>('/api/settings');
       const d = data.agency;
       if (d.nameAr)        setNameAr(d.nameAr);
       if (d.nameEn)        setNameEn(d.nameEn);
@@ -416,7 +415,7 @@ export default function SettingsPage() {
     async function load() {
       setLoadingUsers(true);
       const { apiFetch } = await import('@/lib/api-client');
-      const data = await apiFetch<{ agency: unknown; users: UserDoc[] }>('/api/settings');
+      const data = await apiFetch<{ agency: unknown; users: User[] }>('/api/settings');
       setAgencyUsers(data.users);
       setLoadingUsers(false);
     }
@@ -1082,7 +1081,7 @@ export default function SettingsPage() {
                   </p>
                 ) : (
                   agencyUsers.map(u => {
-                    const displayName  = isAr ? (u.name?.ar || u.name?.en) : (u.name?.en || u.name?.ar);
+                    const displayName  = isAr ? (u.nameAr || u.nameEn) : (u.nameEn || u.nameAr);
                     const initials     = (displayName || u.email || '?').charAt(0).toUpperCase();
                     const isCurrentUser = user?.uid === u.id;
                     return (

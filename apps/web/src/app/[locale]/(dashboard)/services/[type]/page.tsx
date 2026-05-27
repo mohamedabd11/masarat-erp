@@ -5,7 +5,7 @@ import { useAuth } from '@masarat/firebase';
 import { BookingsClient } from '@/components/bookings/BookingsClient';
 import { Spinner } from '@/components/ui/Spinner';
 import { apiFetch } from '@/lib/api-client';
-import type { BookingType } from '@masarat/firebase';
+import type { BookingType } from '@/lib/schema';
 
 interface ServiceTypeMeta {
   nameAr: string;
