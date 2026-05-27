@@ -49,7 +49,10 @@ export async function POST(request: Request) {
 
     await auth.setCustomUserClaims(userRecord.uid, { agencyId, role: 'admin' });
 
-    const setupLink = await auth.generatePasswordResetLink(email);
+    const appUrl    = (process.env.NEXT_PUBLIC_APP_URL ?? 'https://masarat-erp.com').replace(/\/$/, '');
+    const setupLink = await auth.generatePasswordResetLink(email, {
+      url: `${appUrl}/ar/login`,
+    });
 
     const DEFAULT_COA = [
       { code: '1100', nameAr: 'النقدية',                     nameEn: 'Cash',                          type: 'asset',     side: 'debit'  },
