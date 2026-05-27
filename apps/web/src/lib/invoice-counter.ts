@@ -61,7 +61,11 @@ export async function getNextReceiptNumber(
   const current = (doc.data()?.['receipt'] as number) ?? 0;
   const next = current + 1;
 
-  transaction.update(counterRef, { receipt: FieldValue.increment(1) });
+  if (!doc.exists) {
+    transaction.set(counterRef, { taxInvoice: 0, creditNote: 0, debitNote: 0, receipt: 1, paymentVoucher: 0, booking: 0, createdAt: new Date() });
+  } else {
+    transaction.update(counterRef, { receipt: FieldValue.increment(1), lastUpdatedAt: new Date() });
+  }
   return `RCT-${year}-${String(next).padStart(6, '0')}`;
 }
 
@@ -81,7 +85,11 @@ export async function getNextPaymentVoucherNumber(
   const current = (doc.data()?.['paymentVoucher'] as number) ?? 0;
   const next = current + 1;
 
-  transaction.update(counterRef, { paymentVoucher: FieldValue.increment(1) });
+  if (!doc.exists) {
+    transaction.set(counterRef, { taxInvoice: 0, creditNote: 0, debitNote: 0, receipt: 0, paymentVoucher: 1, booking: 0, createdAt: new Date() });
+  } else {
+    transaction.update(counterRef, { paymentVoucher: FieldValue.increment(1), lastUpdatedAt: new Date() });
+  }
   return `PV-${year}-${String(next).padStart(6, '0')}`;
 }
 
@@ -100,7 +108,11 @@ export async function getNextBookingNumber(
     const snap = await tx.get(counterRef);
     const current = (snap.data()?.['booking'] as number) ?? 0;
     const next = current + 1;
-    tx.update(counterRef, { booking: FieldValue.increment(1) });
+    if (!snap.exists) {
+      tx.set(counterRef, { taxInvoice: 0, creditNote: 0, debitNote: 0, receipt: 0, paymentVoucher: 0, booking: 1, createdAt: new Date() });
+    } else {
+      tx.update(counterRef, { booking: FieldValue.increment(1), lastUpdatedAt: new Date() });
+    }
     return next;
   });
 

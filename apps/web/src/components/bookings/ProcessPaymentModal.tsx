@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -14,14 +14,16 @@ import Link from 'next/link';
 import { useLocale } from 'next-intl';
 import { X, CheckCircle2, AlertCircle, Receipt, Printer } from 'lucide-react';
 
-const paymentSchema = z.object({
-  amountSAR: z.coerce.number().min(0.01),
-  paymentMethod: z.enum(['cash', 'bank_transfer', 'card', 'online']),
-  reference: z.string().optional(),
-  notes: z.string().optional(),
-});
+function buildPaymentSchema(maxSAR: number) {
+  return z.object({
+    amountSAR: z.coerce.number().min(0.01).max(maxSAR, `لا يمكن تجاوز المبلغ المتبقي`),
+    paymentMethod: z.enum(['cash', 'bank_transfer', 'card', 'online']),
+    reference: z.string().optional(),
+    notes: z.string().optional(),
+  });
+}
 
-type PaymentFormData = z.infer<typeof paymentSchema>;
+type PaymentFormData = z.infer<ReturnType<typeof buildPaymentSchema>>;
 
 interface ProcessPaymentModalProps {
   bookingId: string;
@@ -43,6 +45,7 @@ export function ProcessPaymentModal({
   const locale = useLocale();
   const isAr = locale === 'ar';
   const { processPayment, loading, error } = useProcessPayment();
+  const paymentSchema = useMemo(() => buildPaymentSchema(remainingDueHalalas / 100), [remainingDueHalalas]);
   const [success, setSuccess] = useState(false);
   const [paymentId, setPaymentId] = useState<string | null>(null);
   const [receiptNumber, setReceiptNumber] = useState<string | null>(null);

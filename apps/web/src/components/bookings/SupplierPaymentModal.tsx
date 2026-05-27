@@ -78,16 +78,27 @@ export function SupplierPaymentModal({
     register,
     handleSubmit,
     watch,
+    reset,
     formState: { errors },
   } = useForm<FormData>({
     resolver: zodResolver(schema),
     defaultValues: {
-      payeeName:       defaultPayeeName,
+      payeeName:       '',
       expenseCategory: 'supplier',
       paymentMethod:   'bank_transfer',
-      amountSAR:       defaultAmountSAR || undefined,
+      amountSAR:       undefined,
     },
   });
+
+  useEffect(() => {
+    if (defaultPayeeName || defaultAmountSAR) {
+      reset((prev) => ({
+        ...prev,
+        payeeName: defaultPayeeName || prev.payeeName,
+        amountSAR: defaultAmountSAR || prev.amountSAR,
+      }));
+    }
+  }, [defaultPayeeName, defaultAmountSAR, reset]);
 
   const amountSAR     = watch('amountSAR') || 0;
   const amountHalalas = Math.round(amountSAR * 100);

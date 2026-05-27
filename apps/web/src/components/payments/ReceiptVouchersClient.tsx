@@ -58,12 +58,13 @@ export function ReceiptVouchersClient() {
   const { user }  = useAuth();
   const agencyId  = (user?.agencyId as string | undefined) ?? null;
 
-  const [payments,   setPayments]   = useState<ReceiptPayment[]>([]);
-  const [loading,    setLoading]    = useState(true);
-  const [search,     setSearch]     = useState('');
-  const [method,     setMethod]     = useState<MethodFilter>('all');
-  const [showModal,  setShowModal]  = useState(false);
-  const [showRefund, setShowRefund] = useState<ReceiptPayment | null>(null);
+  const [payments,    setPayments]   = useState<ReceiptPayment[]>([]);
+  const [loading,     setLoading]    = useState(true);
+  const [search,      setSearch]     = useState('');
+  const [method,      setMethod]     = useState<MethodFilter>('all');
+  const [showModal,   setShowModal]  = useState(false);
+  const [showRefund,  setShowRefund] = useState<ReceiptPayment | null>(null);
+  const [refreshKey,  setRefreshKey] = useState(0);
 
   useEffect(() => {
     if (!agencyId) { setLoading(false); return; }
@@ -102,7 +103,7 @@ export function ReceiptVouchersClient() {
 
     void load();
     return () => { cancelled = true; };
-  }, [agencyId, showModal]);
+  }, [agencyId, showModal, refreshKey]);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -385,7 +386,7 @@ export function ReceiptVouchersClient() {
           agencyId={agencyId}
           paidAmountHalalas={showRefund.amountHalalas}
           onClose={() => setShowRefund(null)}
-          onSuccess={() => setShowRefund(null)}
+          onSuccess={() => { setShowRefund(null); setRefreshKey(k => k + 1); }}
         />
       )}
     </div>

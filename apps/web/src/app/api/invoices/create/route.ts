@@ -53,7 +53,7 @@ export async function POST(request: Request) {
         if (booking['agencyId'] !== agencyId) {
           throw new Error(`الحجز ${bookingId} لا ينتمي لوكالتك`);
         }
-        if (booking['status'] !== 'confirmed') {
+        if (booking['status'] !== 'confirmed' && booking['status'] !== 'ticketed') {
           throw new Error(`لا يمكن إصدار فاتورة للحجز بحالة: ${booking['status'] as string}`);
         }
         if ((booking['invoiceIds'] as string[] | undefined)?.length) {
