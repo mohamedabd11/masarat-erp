@@ -316,6 +316,7 @@ export default function SettingsPage() {
   const [logoError, setLogoError] = useState('');
   const [logoPendingFile, setLogoPendingFile] = useState<File | null>(null);
   const [logoPendingPreview, setLogoPendingPreview] = useState('');
+  const [logoCropMode, setLogoCropMode] = useState<'fit' | 'square'>('fit');
   const [isVatRegistered, setIsVatRegistered] = useState(false);
   const [vatNumber, setVatNumber] = useState('');
   const [crNumber, setCrNumber] = useState('');
@@ -497,14 +498,14 @@ export default function SettingsPage() {
       setLogoError(isAr ? 'يجب أن يكون الملف صورة' : 'File must be an image');
       return;
     }
-    if (file.size > 2 * 1024 * 1024) {
-      setLogoError(isAr ? 'حجم الصورة يجب أن يكون أقل من 2MB' : 'Image must be under 2MB');
+    if (file.size > 10 * 1024 * 1024) {
+      setLogoError(isAr ? 'حجم الصورة يجب أن يكون أقل من 10MB' : 'Image must be under 10MB');
       return;
     }
-    // Show preview immediately without uploading yet
     const objectUrl = URL.createObjectURL(file);
     setLogoPendingPreview(objectUrl);
     setLogoPendingFile(file);
+    setLogoCropMode('fit');
   }
 
   function cancelLogoPending() {
@@ -514,41 +515,56 @@ export default function SettingsPage() {
     setLogoError('');
   }
 
+  function processLogoWithCanvas(file: File, mode: 'fit' | 'square'): Promise<string> {
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      const url = URL.createObjectURL(file);
+      img.onload = () => {
+        URL.revokeObjectURL(url);
+        const MAX = 400;
+        let sx = 0, sy = 0, sw = img.naturalWidth, sh = img.naturalHeight;
+        let dw: number, dh: number;
+
+        if (mode === 'square') {
+          const size = Math.min(sw, sh);
+          sx = Math.floor((sw - size) / 2);
+          sy = Math.floor((sh - size) / 2);
+          sw = size; sh = size;
+          dw = dh = Math.min(MAX, size);
+        } else {
+          const scale = Math.min(MAX / sw, MAX / sh);
+          dw = Math.round(sw * scale);
+          dh = Math.round(sh * scale);
+        }
+
+        const canvas = document.createElement('canvas');
+        canvas.width = dw; canvas.height = dh;
+        const ctx = canvas.getContext('2d')!;
+        ctx.drawImage(img, sx, sy, sw, sh, 0, 0, dw, dh);
+        resolve(canvas.toDataURL('image/jpeg', 0.82));
+      };
+      img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('load failed')); };
+      img.src = url;
+    });
+  }
+
   async function confirmLogoUpload() {
     if (!user?.agencyId || !logoPendingFile) return;
     setLogoError('');
-
-    const bucket = process.env['NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET'];
-    if (!bucket) {
-      setLogoError(isAr ? 'خدمة التخزين غير مهيأة' : 'Storage not configured');
-      return;
-    }
-
     setLogoUploading(true);
-    const timeoutId = setTimeout(() => {
-      setLogoUploading(false);
-      setLogoError(isAr ? 'انتهت مهلة الرفع — تحقق من اتصالك' : 'Upload timed out — check your connection');
-    }, 30_000);
-
     try {
-      const { getStorage, ref, uploadBytes, getDownloadURL } = await import('firebase/storage');
-      const { getApp } = await import('@masarat/firebase');
-      const storage = getStorage(getApp());
-      const logoRef = ref(storage, `agencies/${user.agencyId}/logo`);
-
-      await uploadBytes(logoRef, logoPendingFile, { contentType: logoPendingFile.type });
-      const url = await getDownloadURL(logoRef);
+      const base64 = await processLogoWithCanvas(logoPendingFile, logoCropMode);
 
       const { getFirestore, doc, updateDoc } = await import('firebase/firestore');
+      const { getApp } = await import('@masarat/firebase');
       const db = getFirestore(getApp());
-      await updateDoc(doc(db, 'agencies', user.agencyId), { logoUrl: url });
+      await updateDoc(doc(db, 'agencies', user.agencyId), { logoUrl: base64 });
 
-      setLogoUrl(url);
+      setLogoUrl(base64);
       cancelLogoPending();
     } catch {
-      setLogoError(isAr ? 'فشل رفع الشعار — تحقق من إعدادات Firebase Storage' : 'Upload failed — check Firebase Storage settings');
+      setLogoError(isAr ? 'فشل معالجة الصورة — حاول مرة أخرى' : 'Failed to process image — try again');
     } finally {
-      clearTimeout(timeoutId);
       setLogoUploading(false);
     }
   }
@@ -810,82 +826,139 @@ export default function SettingsPage() {
                   <p className="text-sm font-semibold text-slate-700 mb-3">
                     {isAr ? 'شعار الوكالة' : 'Agency Logo'}
                   </p>
-                  <div className="flex items-start gap-4">
 
-                    {/* Preview box */}
-                    <div className="w-20 h-20 rounded-xl bg-brand-50 border-2 border-dashed border-brand-200 flex items-center justify-center flex-shrink-0 overflow-hidden">
-                      {logoPendingPreview ? (
-                        <img src={logoPendingPreview} alt="preview" className="w-full h-full object-contain p-1" />
-                      ) : logoUrl ? (
-                        <img src={logoUrl} alt="logo" className="w-full h-full object-contain p-1" />
-                      ) : (
-                        <Building2 size={26} className="text-brand-300" />
-                      )}
+                  {/* ── Step 1: no pending file ── */}
+                  {!logoPendingPreview && (
+                    <div className="flex items-center gap-4">
+                      <div className="w-20 h-20 rounded-xl bg-brand-50 border-2 border-dashed border-brand-200 flex items-center justify-center flex-shrink-0 overflow-hidden">
+                        {logoUrl ? (
+                          <img src={logoUrl} alt="logo" className="w-full h-full object-contain p-1" />
+                        ) : (
+                          <Building2 size={26} className="text-brand-300" />
+                        )}
+                      </div>
+                      <div className="space-y-1.5">
+                        <input
+                          id="logo-file-input"
+                          type="file"
+                          accept="image/png,image/jpeg,image/webp,image/gif"
+                          className="hidden"
+                          onChange={e => {
+                            const file = e.target.files?.[0];
+                            if (file) handleLogoSelect(file);
+                            e.target.value = '';
+                          }}
+                        />
+                        <label
+                          htmlFor="logo-file-input"
+                          className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-brand-200 text-brand-700 bg-brand-50 hover:bg-brand-100 text-sm font-medium cursor-pointer transition-colors"
+                        >
+                          <ImagePlus size={15} />
+                          {isAr ? (logoUrl ? 'تغيير الشعار' : 'اختيار شعار') : (logoUrl ? 'Change Logo' : 'Choose Logo')}
+                        </label>
+                        <p className="text-xs text-slate-400">
+                          {isAr ? 'PNG · JPG · WebP · GIF — حد أقصى 10MB' : 'PNG · JPG · WebP · GIF — max 10MB'}
+                        </p>
+                      </div>
                     </div>
+                  )}
 
-                    <div className="space-y-2 flex-1">
-                      {/* Step 1: select file */}
-                      {!logoPendingPreview && (
-                        <>
-                          <input
-                            id="logo-file-input"
-                            type="file"
-                            accept="image/png,image/jpeg,image/webp,image/svg+xml"
-                            className="hidden"
-                            onChange={e => {
-                              const file = e.target.files?.[0];
-                              if (file) handleLogoSelect(file);
-                              e.target.value = '';
-                            }}
-                          />
-                          <label
-                            htmlFor="logo-file-input"
-                            className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-brand-200 text-brand-700 bg-brand-50 hover:bg-brand-100 text-sm font-medium cursor-pointer transition-colors"
-                          >
-                            <ImagePlus size={15} />
-                            {isAr ? (logoUrl ? 'تغيير الشعار' : 'اختيار شعار') : (logoUrl ? 'Change Logo' : 'Choose Logo')}
-                          </label>
-                          <p className="text-xs text-slate-400">
-                            {isAr ? 'PNG · JPG · SVG · WebP — حد أقصى 2MB' : 'PNG · JPG · SVG · WebP — max 2MB'}
-                          </p>
-                        </>
-                      )}
+                  {/* ── Step 2: crop selector ── */}
+                  {logoPendingPreview && (
+                    <div className="space-y-4 bg-slate-50 rounded-2xl p-4 border border-slate-200">
+                      <p className="text-sm font-semibold text-slate-700">
+                        {isAr ? 'اختر شكل الشعار' : 'Choose logo shape'}
+                      </p>
 
-                      {/* Step 2: confirm upload */}
-                      {logoPendingPreview && (
-                        <div className="space-y-2">
-                          <p className="text-xs text-slate-500">
-                            {isAr ? 'هل تريد رفع هذا الشعار؟' : 'Upload this logo?'}
-                          </p>
-                          <div className="flex gap-2">
-                            <button
-                              type="button"
-                              onClick={() => void confirmLogoUpload()}
-                              disabled={logoUploading}
-                              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 disabled:opacity-50 text-white text-sm font-medium transition-colors"
-                            >
-                              {logoUploading ? <Spinner size="sm" /> : <CheckCircle2 size={14} />}
-                              {logoUploading
-                                ? (isAr ? 'جارٍ الرفع...' : 'Uploading...')
-                                : (isAr ? 'رفع الشعار' : 'Upload')}
-                            </button>
-                            <button
-                              type="button"
-                              onClick={cancelLogoPending}
-                              disabled={logoUploading}
-                              className="px-3 py-2 rounded-lg border border-slate-200 text-slate-500 hover:bg-slate-50 disabled:opacity-50 text-sm transition-colors"
-                            >
-                              {isAr ? 'إلغاء' : 'Cancel'}
-                            </button>
+                      {/* Shape options */}
+                      <div className="flex gap-3">
+                        {/* Fit option */}
+                        <button
+                          type="button"
+                          onClick={() => setLogoCropMode('fit')}
+                          className={cn(
+                            'flex-1 flex flex-col items-center gap-2 p-3 rounded-xl border-2 transition-all',
+                            logoCropMode === 'fit'
+                              ? 'border-brand-500 bg-brand-50'
+                              : 'border-slate-200 bg-white hover:border-slate-300',
+                          )}
+                        >
+                          <div className="w-16 h-16 rounded-lg bg-slate-100 overflow-hidden flex items-center justify-center">
+                            <img
+                              src={logoPendingPreview}
+                              alt="fit"
+                              className="max-w-full max-h-full object-contain p-1"
+                            />
                           </div>
-                        </div>
-                      )}
+                          <span className="text-xs font-semibold text-slate-600">
+                            {isAr ? 'كامل الصورة' : 'Full image'}
+                          </span>
+                          {logoCropMode === 'fit' && (
+                            <span className="text-[10px] text-brand-600 font-bold">✓ {isAr ? 'مختار' : 'Selected'}</span>
+                          )}
+                        </button>
 
-                      {logoError && (
-                        <p className="text-xs text-red-500">{logoError}</p>
-                      )}
+                        {/* Square option */}
+                        <button
+                          type="button"
+                          onClick={() => setLogoCropMode('square')}
+                          className={cn(
+                            'flex-1 flex flex-col items-center gap-2 p-3 rounded-xl border-2 transition-all',
+                            logoCropMode === 'square'
+                              ? 'border-brand-500 bg-brand-50'
+                              : 'border-slate-200 bg-white hover:border-slate-300',
+                          )}
+                        >
+                          <div className="w-16 h-16 rounded-lg bg-slate-100 overflow-hidden">
+                            <img
+                              src={logoPendingPreview}
+                              alt="square"
+                              className="w-full h-full object-cover"
+                            />
+                          </div>
+                          <span className="text-xs font-semibold text-slate-600">
+                            {isAr ? 'قص مربع' : 'Square crop'}
+                          </span>
+                          {logoCropMode === 'square' && (
+                            <span className="text-[10px] text-brand-600 font-bold">✓ {isAr ? 'مختار' : 'Selected'}</span>
+                          )}
+                        </button>
+                      </div>
+
+                      <p className="text-xs text-slate-400">
+                        {isAr
+                          ? 'سيتم ضغط الصورة تلقائياً إلى 400×400 بكسل كحد أقصى'
+                          : 'Image will be automatically compressed to max 400×400 px'}
+                      </p>
+
+                      {/* Action buttons */}
+                      <div className="flex gap-2">
+                        <button
+                          type="button"
+                          onClick={() => void confirmLogoUpload()}
+                          disabled={logoUploading}
+                          className="flex-1 inline-flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-xl bg-brand-600 hover:bg-brand-700 disabled:opacity-50 text-white text-sm font-semibold transition-colors"
+                        >
+                          {logoUploading ? <Spinner size="sm" /> : <CheckCircle2 size={15} />}
+                          {logoUploading
+                            ? (isAr ? 'جارٍ الحفظ...' : 'Saving...')
+                            : (isAr ? 'حفظ الشعار' : 'Save Logo')}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={cancelLogoPending}
+                          disabled={logoUploading}
+                          className="px-4 py-2.5 rounded-xl border border-slate-200 text-slate-500 hover:bg-slate-100 disabled:opacity-50 text-sm font-medium transition-colors"
+                        >
+                          {isAr ? 'إلغاء' : 'Cancel'}
+                        </button>
+                      </div>
                     </div>
-                  </div>
+                  )}
+
+                  {logoError && (
+                    <p className="text-xs text-red-500 mt-2">{logoError}</p>
+                  )}
                 </div>
 
                 {/* Save button */}
