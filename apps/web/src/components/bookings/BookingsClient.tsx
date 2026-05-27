@@ -60,7 +60,7 @@ interface BookingsClientProps {
   initialQuery?: string;
 }
 
-type StatusFilter = 'all' | 'pending_approval' | 'confirmed' | 'in_progress' | 'completed' | 'cancelled';
+type StatusFilter = 'all' | 'pending_approval' | 'confirmed' | 'ticketed' | 'completed' | 'cancelled';
 
 const TYPE_META: Record<string, { ar: string; en: string; bg: string; text: string }> = {
   flight:       { ar: 'طيران',        en: 'Flight',        bg: 'bg-sky-100',     text: 'text-sky-700' },
@@ -76,12 +76,12 @@ const TYPE_META: Record<string, { ar: string; en: string; bg: string; text: stri
 };
 
 const STATUS_TABS: { id: StatusFilter; ar: string; en: string }[] = [
-  { id: 'all',              ar: 'الكل',            en: 'All' },
-  { id: 'pending_approval', ar: 'انتظار موافقة',   en: 'Pending' },
-  { id: 'confirmed',        ar: 'مؤكد',            en: 'Confirmed' },
-  { id: 'in_progress',      ar: 'جاري',            en: 'In Progress' },
-  { id: 'completed',        ar: 'مكتمل',           en: 'Completed' },
-  { id: 'cancelled',        ar: 'ملغي',            en: 'Cancelled' },
+  { id: 'all',              ar: 'الكل',           en: 'All' },
+  { id: 'pending_approval', ar: 'انتظار موافقة',  en: 'Pending' },
+  { id: 'confirmed',        ar: 'مؤكد',           en: 'Confirmed' },
+  { id: 'ticketed',         ar: 'صدرت التذاكر',   en: 'Ticketed' },
+  { id: 'completed',        ar: 'مكتمل',          en: 'Completed' },
+  { id: 'cancelled',        ar: 'ملغي',           en: 'Cancelled' },
 ];
 
 export function BookingsClient({ locale, bookingType, initialQuery = '' }: BookingsClientProps) {
@@ -97,7 +97,7 @@ export function BookingsClient({ locale, bookingType, initialQuery = '' }: Booki
   const revenue   = bookings.reduce((s, b) => s + (b.grandTotalHalalas ?? b.pricing?.totalAmount ?? 0), 0);
   const paid      = bookings.reduce((s, b) => s + (b.paidHalalas ?? b.totalPaid ?? 0), 0);
   const pending   = bookings.filter(b => b.status === 'pending_approval').length;
-  const active    = bookings.filter(b => b.status === 'confirmed' || (b.status as string) === 'in_progress').length;
+  const active    = bookings.filter(b => b.status === 'confirmed' || b.status === 'ticketed').length;
   const completed = bookings.filter(b => b.status === 'completed').length;
 
   // ── Filtered list ─────────────────────────────────────────────────────────
@@ -108,7 +108,8 @@ export function BookingsClient({ locale, bookingType, initialQuery = '' }: Booki
       const name = isAr ? (b.customerName?.ar ?? '') : (b.customerName?.en ?? '');
       const matchSearch = !q ||
         name.toLowerCase().includes(q) ||
-        b.id.toLowerCase().includes(q);
+        b.id.toLowerCase().includes(q) ||
+        (b.bookingNumber ?? '').toLowerCase().includes(q);
       return matchStatus && matchSearch;
     });
   }, [bookings, search, statusFilter, isAr]);
