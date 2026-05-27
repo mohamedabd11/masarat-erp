@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useMemo } from 'react';
 import { useAuth } from '@masarat/firebase';
+import { apiFetch } from '@/lib/api-client';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Spinner } from '@/components/ui/Spinner';
@@ -368,6 +369,7 @@ export function BankingClient({ locale }: BankingClientProps) {
   const [showTransfer, setShowTransfer] = useState(false);
   const [search, setSearch]           = useState('');
   const [txFilter, setTxFilter]       = useState<TxType | 'all'>('all');
+  const [tick, setTick]               = useState(0);
 
   const agencyId = user?.agencyId ?? '';
 
@@ -383,39 +385,18 @@ export function BankingClient({ locale }: BankingClientProps) {
       return;
     }
 
-    let unsubAccs: (() => void) | undefined;
-    let unsubTxs: (() => void) | undefined;
-
-    async function subscribe() {
-      const { getFirestore, collection, query, where, onSnapshot, orderBy } = await import('firebase/firestore');
-      const { getApp } = await import('@masarat/firebase');
-      const db = getFirestore(getApp());
-
-      unsubAccs = onSnapshot(
-        query(collection(db, 'bank_accounts'), where('agencyId', '==', agencyId)),
-        snap => {
-          const docs = snap.docs.map(d => ({ id: d.id, ...d.data() } as BankAccount & { id: string }));
-          docs.sort((a, b) => (b.balanceHalalas - a.balanceHalalas));
-          setAccounts(docs);
-          if (docs.length > 0 && !selectedId) setSelectedId(docs[0].id);
-          setLoading(false);
-        },
-        () => setLoading(false),
-      );
-
-      unsubTxs = onSnapshot(
-        query(collection(db, 'bank_transactions'), where('agencyId', '==', agencyId)),
-        snap => {
-          const docs = snap.docs.map(d => ({ id: d.id, ...d.data() } as BankTx & { id: string }));
-          docs.sort((a, b) => b.date - a.date);
-          setTxs(docs);
-        },
-      );
-    }
-    void subscribe();
-    return () => { unsubAccs?.(); unsubTxs?.(); };
+    setLoading(true);
+    apiFetch<{ accounts: (BankAccount & { id: string })[]; transactions: (BankTx & { id: string })[]; rates: unknown[] }>('/api/banking')
+      .then(({ accounts: accs, transactions }) => {
+        const sorted = [...accs].sort((a, b) => b.balanceHalalas - a.balanceHalalas);
+        setAccounts(sorted);
+        setTxs([...transactions].sort((a, b) => b.date - a.date));
+        if (sorted.length > 0 && !selectedId) setSelectedId(sorted[0].id);
+      })
+      .catch(() => { /* keep previous data on error */ })
+      .finally(() => setLoading(false));
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [agencyId]);
+  }, [agencyId, tick]);
 
   async function handleNewAccount(data: Omit<BankAccount, 'id' | 'agencyId'>) {
     if (!agencyId) {
@@ -424,9 +405,20 @@ export function BankingClient({ locale }: BankingClientProps) {
       if (!selectedId) setSelectedId(fakeId);
       return;
     }
-    const { getFirestore, collection, addDoc } = await import('firebase/firestore');
-    const { getApp } = await import('@masarat/firebase');
-    await addDoc(collection(getFirestore(getApp()), 'bank_accounts'), { ...data, agencyId });
+    await apiFetch('/api/banking/accounts', {
+      method: 'POST',
+      body: JSON.stringify({
+        nameAr: data.nameAr,
+        nameEn: data.nameEn,
+        type: data.type,
+        accountNumber: data.accountNumber,
+        bankName: data.bankNameAr,
+        iban: data.iban,
+        openingBalanceHalalas: data.balanceHalalas,
+        currency: data.currencyCode,
+      }),
+    });
+    setTick(t => t + 1);
   }
 
   async function handleTransfer(fromId: string, toId: string, amountH: number, desc: string) {
@@ -448,16 +440,18 @@ export function BankingClient({ locale }: BankingClientProps) {
       return;
     }
 
-    // Persist to Firestore
-    const { getFirestore, collection, doc, addDoc, updateDoc, increment } = await import('firebase/firestore');
-    const { getApp } = await import('@masarat/firebase');
-    const db = getFirestore(getApp());
+    const nowIso = new Date(now).toISOString();
     await Promise.all([
-      addDoc(collection(db, 'bank_transactions'), { agencyId, accountId: fromId, type: 'transfer_out', amountHalalas: amountH, balanceAfterHalalas: (fromAcc?.balanceHalalas ?? 0) - amountH, descAr: desc, descEn: desc, reference: ref, date: now, isReconciled: false, linkedAccountId: toId, createdAt: now }),
-      addDoc(collection(db, 'bank_transactions'), { agencyId, accountId: toId,   type: 'transfer_in',  amountHalalas: amountH, balanceAfterHalalas: (toAcc?.balanceHalalas  ?? 0) + amountH, descAr: desc, descEn: desc, reference: ref, date: now, isReconciled: false, linkedAccountId: fromId, createdAt: now }),
-      updateDoc(doc(db, 'bank_accounts', fromId), { balanceHalalas: increment(-amountH) }),
-      updateDoc(doc(db, 'bank_accounts', toId),   { balanceHalalas: increment(amountH) }),
+      apiFetch('/api/banking/transactions', {
+        method: 'POST',
+        body: JSON.stringify({ bankAccountId: fromId, type: 'transfer_out', amountHalalas: amountH, description: desc, reference: ref, date: nowIso }),
+      }),
+      apiFetch('/api/banking/transactions', {
+        method: 'POST',
+        body: JSON.stringify({ bankAccountId: toId, type: 'transfer_in', amountHalalas: amountH, description: desc, reference: ref, date: nowIso }),
+      }),
     ]);
+    setTick(t => t + 1);
   }
 
   const totalBalance = accounts.filter(a => a.isActive).reduce((s, a) => s + a.balanceHalalas, 0);
