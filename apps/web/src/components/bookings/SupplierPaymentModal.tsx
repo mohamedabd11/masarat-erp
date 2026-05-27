@@ -11,7 +11,6 @@ import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import { Card } from '@/components/ui/Card';
 import { formatCurrency } from '@/lib/utils';
-import { postJournalEntry, buildExpensePaymentLines, type ExpenseCategory } from '@/lib/postJournalEntry';
 import { X, CheckCircle2, AlertCircle, Printer, Banknote } from 'lucide-react';
 
 const schema = z.object({
@@ -48,6 +47,7 @@ export function SupplierPaymentModal({
   const [saving,            setSaving]             = useState(false);
   const [saveError,         setSaveError]          = useState('');
   const [recordId,          setRecordId]           = useState<string | null>(null);
+  const [voucherNumber,     setVoucherNumber]      = useState('');
 
   // Load booking data to pre-fill payee name + amount (only when bookingId provided)
   useEffect(() => {
@@ -96,43 +96,36 @@ export function SupplierPaymentModal({
     setSaving(true);
     setSaveError('');
     try {
-      const { getFirestore, collection, addDoc, Timestamp } = await import('firebase/firestore');
+      const { getAuth } = await import('firebase/auth');
       const { getApp } = await import('@masarat/firebase');
-      const db = getFirestore(getApp());
+      const token = await getAuth(getApp()).currentUser?.getIdToken();
 
-      const ref = await addDoc(collection(db, 'supplier_payments'), {
-        agencyId,
-        bookingId:       bookingId ?? null,
-        bookingNumber:   bookingNumber || null,
-        payeeName:       data.payeeName,
-        supplierName:    data.payeeName,       // backward-compat alias
-        expenseCategory: data.expenseCategory,
-        amountHalalas:   Math.round(data.amountSAR * 100),
-        paymentMethod:   data.paymentMethod,
-        reference:       data.reference ?? '',
-        notes:           data.notes     ?? '',
-        status:          'completed',
-        createdAt:       Timestamp.now(),
+      const res = await fetch('/api/supplier-payments/create', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          payeeName:       data.payeeName,
+          expenseCategory: data.expenseCategory,
+          amountHalalas:   Math.round(data.amountSAR * 100),
+          paymentMethod:   data.paymentMethod,
+          reference:       data.reference,
+          notes:           data.notes,
+          bookingId:       bookingId,
+          bookingNumber:   bookingNumber || undefined,
+        }),
       });
 
-      // ── قيد محاسبي ────────────────────────────────────────────────────────
-      try {
-        await postJournalEntry({
-          agencyId,
-          description:   `سند صرف - ${data.payeeName}`,
-          referenceId:   ref.id,
-          referenceType: 'expense_payment',
-          lines:         buildExpensePaymentLines(
-            Math.round(data.amountSAR * 100),
-            data.paymentMethod,
-            data.expenseCategory as ExpenseCategory,
-          ),
-        });
-      } catch (jeErr) {
-        console.warn('[Accounting] Expense JE failed:', jeErr);
+      if (!res.ok) {
+        const body = await res.json() as { error?: string };
+        throw new Error(body.error ?? (isAr ? 'حدث خطأ أثناء الحفظ' : 'Save error'));
       }
 
-      setRecordId(ref.id);
+      const result = await res.json() as { id: string; voucherNumber: string };
+      setRecordId(result.id);
+      setVoucherNumber(result.voucherNumber);
       onSuccess?.();
     } catch (err) {
       setSaveError(err instanceof Error ? err.message : (isAr ? 'حدث خطأ أثناء الحفظ' : 'Save error'));
@@ -186,6 +179,9 @@ export function SupplierPaymentModal({
               <p className="text-base font-semibold text-slate-900">
                 {isAr ? 'تم تسجيل سند الصرف بنجاح' : 'Payment Voucher Recorded Successfully'}
               </p>
+              {voucherNumber && (
+                <p className="text-sm font-mono text-slate-500 mt-0.5">{voucherNumber}</p>
+              )}
               <p className="text-2xl font-black text-red-700 tabular-nums mt-1">
                 {formatCurrency(amountHalalas, isAr ? 'ar-SA' : 'en-SA')}
               </p>

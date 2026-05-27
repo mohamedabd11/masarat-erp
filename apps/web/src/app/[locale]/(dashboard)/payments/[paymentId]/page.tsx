@@ -43,45 +43,50 @@ export default function ReceiptVoucherPage({
           setLoading(false);
           return;
         }
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const pay = paySnap.data() as Record<string, any>;
+        const pay = paySnap.data() as Record<string, unknown>;
 
         // ── 2. Load invoice (for invoiceNumber + customer) ────────────────
-        let invoiceNumber = pay.invoiceId ?? '';
+        let invoiceNumber = (pay['invoiceId'] as string | undefined) ?? '';
         let bookingNumber: string | undefined;
         let customerNameAr = '';
         let customerNameEn = '';
         let customerPhone = '';
 
-        if (pay.invoiceId) {
-          const invSnap = await getDoc(doc(db, 'invoices', pay.invoiceId));
+        if (pay['invoiceId']) {
+          const invSnap = await getDoc(doc(db, 'invoices', pay['invoiceId'] as string));
           if (invSnap.exists()) {
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            const inv = invSnap.data() as Record<string, any>;
-            invoiceNumber = inv.invoiceNumber ?? pay.invoiceId;
-            customerNameAr = inv.buyer?.name?.ar ?? '';
-            customerNameEn = inv.buyer?.name?.en ?? '';
-            customerPhone  = inv.buyer?.phone ?? '';
+            const inv = invSnap.data() as Record<string, unknown>;
+            invoiceNumber = (inv['invoiceNumber'] as string | undefined) ?? (pay['invoiceId'] as string);
+            const buyer = inv['buyer'] as Record<string, unknown> | undefined;
+            const buyerName = buyer?.['name'] as Record<string, unknown> | undefined;
+            customerNameAr = (buyerName?.['ar'] as string | undefined) ?? '';
+            customerNameEn = (buyerName?.['en'] as string | undefined) ?? '';
+            customerPhone  = (buyer?.['phone'] as string | undefined) ?? '';
           }
         }
 
         // ── 3. Load booking (for bookingNumber) ───────────────────────────
-        if (pay.bookingId) {
-          const bkSnap = await getDoc(doc(db, 'bookings', pay.bookingId));
+        if (pay['bookingId']) {
+          const bkSnap = await getDoc(doc(db, 'bookings', pay['bookingId'] as string));
           if (bkSnap.exists()) {
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            const bk = bkSnap.data() as Record<string, any>;
-            bookingNumber = bk.bookingNumber;
+            const bk = bkSnap.data() as Record<string, unknown>;
+            bookingNumber = bk['bookingNumber'] as string | undefined;
             if (!customerNameAr) {
-              customerNameAr = bk.customerName?.ar ?? bk.customerName ?? '';
-              customerNameEn = bk.customerName?.en ?? '';
+              const bkCustomer = bk['customerName'] as Record<string, unknown> | string | undefined;
+              customerNameAr = typeof bkCustomer === 'string' ? bkCustomer : ((bkCustomer?.['ar'] as string | undefined) ?? '');
+              customerNameEn = typeof bkCustomer === 'object' && bkCustomer ? ((bkCustomer['en'] as string | undefined) ?? '') : '';
             }
-            if (!customerPhone) customerPhone = bk.customerPhone ?? '';
+            if (!customerPhone) customerPhone = (bk['customerPhone'] as string | undefined) ?? '';
           }
         }
 
+        // Fallback for standalone receipts not tied to an invoice
+        if (!customerNameAr) customerNameAr = (pay['customerNameAr'] as string | undefined) ?? '';
+        if (!customerNameEn) customerNameEn = (pay['customerNameEn'] as string | undefined) ?? '';
+        if (!customerPhone)  customerPhone  = (pay['customerPhone']  as string | undefined) ?? '';
+
         // ── 4. Load agency (for seller info) ──────────────────────────────
-        const agencyId = pay.agencyId;
+        const agencyId = pay['agencyId'] as string | undefined;
         let agencyNameAr = '';
         let agencyNameEn = '';
         let agencyPhone  = '';
@@ -92,19 +97,18 @@ export default function ReceiptVoucherPage({
         if (agencyId) {
           const agSnap = await getDoc(doc(db, 'agencies', agencyId));
           if (agSnap.exists()) {
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            const ag = agSnap.data() as Record<string, any>;
-            agencyNameAr = ag.nameAr ?? '';
-            agencyNameEn = ag.nameEn ?? '';
-            agencyPhone  = ag.contactPhone ?? '';
-            agencyVat    = ag.vatNumber ?? '';
-            agencyCr     = ag.crNumber ?? '';
+            const ag = agSnap.data() as Record<string, unknown>;
+            agencyNameAr = (ag['nameAr'] as string | undefined)       ?? '';
+            agencyNameEn = (ag['nameEn'] as string | undefined)       ?? '';
+            agencyPhone  = (ag['contactPhone'] as string | undefined) ?? '';
+            agencyVat    = (ag['vatNumber'] as string | undefined)    ?? '';
+            agencyCr     = (ag['crNumber'] as string | undefined)     ?? '';
             agencyAddress = {
-              streetName:     ag.streetName ?? '',
-              buildingNumber: ag.buildingNumber ?? '',
-              district:       ag.district ?? '',
-              city:           ag.city ?? '',
-              postalCode:     ag.postalCode ?? '',
+              streetName:     (ag['streetName'] as string | undefined)     ?? '',
+              buildingNumber: (ag['buildingNumber'] as string | undefined) ?? '',
+              district:       (ag['district'] as string | undefined)       ?? '',
+              city:           (ag['city'] as string | undefined)           ?? '',
+              postalCode:     (ag['postalCode'] as string | undefined)     ?? '',
             };
           }
         }
@@ -112,16 +116,17 @@ export default function ReceiptVoucherPage({
         if (cancelled) return;
 
         // ── 5. Build voucher number from paymentId ─────────────────────────
-        const voucherNumber = (pay.receiptNumber as string | undefined) ?? `RCT-${new Date().getFullYear()}-${params.paymentId.slice(-6).toUpperCase()}`;
+        const voucherNumber = (pay['receiptNumber'] as string | undefined) ?? `RCT-${new Date().getFullYear()}-${params.paymentId.slice(-6).toUpperCase()}`;
 
+        const payCreatedAt = pay['createdAt'] as { toDate?: () => Date } | undefined;
         const receipt: ReceiptVoucherData = {
           voucherNumber,
           paymentId: params.paymentId,
-          issuedDate: pay.createdAt?.toDate?.() ?? new Date(),
-          amountHalalas: pay.amountHalalas ?? 0,
-          paymentMethod: pay.paymentMethod ?? 'cash',
-          reference: pay.reference || undefined,
-          notes: pay.notes || undefined,
+          issuedDate: payCreatedAt?.toDate?.() ?? new Date(),
+          amountHalalas: (pay['amountHalalas'] as number | undefined) ?? 0,
+          paymentMethod: (pay['paymentMethod'] as string | undefined) ?? 'cash',
+          reference: (pay['reference'] as string | undefined) || undefined,
+          notes: (pay['notes'] as string | undefined) || undefined,
           invoiceNumber,
           bookingNumber,
           customer: {

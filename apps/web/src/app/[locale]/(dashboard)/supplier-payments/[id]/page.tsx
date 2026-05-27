@@ -43,20 +43,19 @@ export default function SupplierPaymentVoucherPage({
           setLoading(false);
           return;
         }
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const rec = snap.data() as Record<string, any>;
+        const rec = snap.data() as Record<string, unknown>;
 
         // ── 2. Load booking (for bookingNumber if not stored on record) ───
-        let bookingNumber: string | undefined = rec.bookingNumber ?? undefined;
-        if (!bookingNumber && rec.bookingId) {
-          const bkSnap = await getDoc(doc(db, 'bookings', rec.bookingId));
+        let bookingNumber: string | undefined = (rec['bookingNumber'] as string | undefined) ?? undefined;
+        if (!bookingNumber && rec['bookingId']) {
+          const bkSnap = await getDoc(doc(db, 'bookings', rec['bookingId'] as string));
           if (bkSnap.exists()) {
-            bookingNumber = (bkSnap.data() as Record<string, string>).bookingNumber;
+            bookingNumber = (bkSnap.data() as Record<string, string>)['bookingNumber'];
           }
         }
 
         // ── 3. Load agency ─────────────────────────────────────────────────
-        const agencyId = rec.agencyId;
+        const agencyId = rec['agencyId'] as string | undefined;
         let agencyNameAr = '';
         let agencyNameEn = '';
         let agencyPhone  = '';
@@ -67,19 +66,18 @@ export default function SupplierPaymentVoucherPage({
         if (agencyId) {
           const agSnap = await getDoc(doc(db, 'agencies', agencyId));
           if (agSnap.exists()) {
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            const ag = agSnap.data() as Record<string, any>;
-            agencyNameAr  = ag.nameAr       ?? '';
-            agencyNameEn  = ag.nameEn       ?? '';
-            agencyPhone   = ag.contactPhone ?? '';
-            agencyVat     = ag.vatNumber    ?? '';
-            agencyCr      = ag.crNumber     ?? '';
+            const ag = agSnap.data() as Record<string, unknown>;
+            agencyNameAr  = (ag['nameAr'] as string | undefined)       ?? '';
+            agencyNameEn  = (ag['nameEn'] as string | undefined)       ?? '';
+            agencyPhone   = (ag['contactPhone'] as string | undefined) ?? '';
+            agencyVat     = (ag['vatNumber'] as string | undefined)    ?? '';
+            agencyCr      = (ag['crNumber'] as string | undefined)     ?? '';
             agencyAddress = {
-              streetName:     ag.streetName     ?? '',
-              buildingNumber: ag.buildingNumber ?? '',
-              district:       ag.district       ?? '',
-              city:           ag.city           ?? '',
-              postalCode:     ag.postalCode     ?? '',
+              streetName:     (ag['streetName'] as string | undefined)     ?? '',
+              buildingNumber: (ag['buildingNumber'] as string | undefined) ?? '',
+              district:       (ag['district'] as string | undefined)       ?? '',
+              city:           (ag['city'] as string | undefined)           ?? '',
+              postalCode:     (ag['postalCode'] as string | undefined)     ?? '',
             };
           }
         }
@@ -87,21 +85,21 @@ export default function SupplierPaymentVoucherPage({
         if (cancelled) return;
 
         // ── 4. Build voucher number ───────────────────────────────────────
-        const year = new Date().getFullYear();
-        const seq  = params.id.slice(-6).toUpperCase();
-        const voucherNumber = `PV-${year}-${seq}`;
+        const voucherNumber = (rec['voucherNumber'] as string | undefined)
+          ?? `PV-${new Date().getFullYear()}-${params.id.slice(-6).toUpperCase()}`;
 
+        const createdAtVal = rec['createdAt'] as { toDate?: () => Date } | undefined;
         const voucher: PaymentVoucherData = {
           voucherNumber,
           recordId:        params.id,
-          issuedDate:      rec.createdAt?.toDate?.() ?? new Date(),
-          amountHalalas:   rec.amountHalalas ?? 0,
-          paymentMethod:   rec.paymentMethod ?? 'cash',
-          reference:       rec.reference || undefined,
-          notes:           rec.notes     || undefined,
+          issuedDate:      createdAtVal?.toDate?.() ?? new Date(),
+          amountHalalas:   (rec['amountHalalas'] as number | undefined) ?? 0,
+          paymentMethod:   (rec['paymentMethod'] as string | undefined) ?? 'cash',
+          reference:       (rec['reference'] as string | undefined) || undefined,
+          notes:           (rec['notes'] as string | undefined)     || undefined,
           bookingNumber,
-          payeeName:       (rec.payeeName as string | undefined) ?? (rec.supplierName as string | undefined) ?? '',
-          expenseCategory: (rec.expenseCategory as string | undefined) ?? undefined,
+          payeeName:       (rec['payeeName'] as string | undefined) ?? (rec['supplierName'] as string | undefined) ?? '',
+          expenseCategory: (rec['expenseCategory'] as string | undefined) ?? undefined,
           agency: {
             nameAr:    agencyNameAr,
             nameEn:    agencyNameEn,

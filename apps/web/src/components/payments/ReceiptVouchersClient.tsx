@@ -4,14 +4,17 @@ import { useState, useEffect, useMemo } from 'react';
 import { useLocale } from 'next-intl';
 import { useAuth } from '@masarat/firebase';
 import { Card } from '@/components/ui/Card';
+import { Button } from '@/components/ui/Button';
 import { Spinner } from '@/components/ui/Spinner';
 import { formatCurrency, formatDate } from '@/lib/utils';
 import { cn } from '@/lib/utils';
 import {
   TrendingUp, Search, X, Banknote, CreditCard,
-  Building2, Globe, Printer, Receipt,
+  Building2, Globe, Printer, Receipt, Plus, RotateCcw,
 } from 'lucide-react';
 import Link from 'next/link';
+import { ReceiptVoucherModal } from './ReceiptVoucherModal';
+import { ProcessRefundModal } from '@/components/bookings/ProcessRefundModal';
 
 interface ReceiptPayment {
   id: string;
@@ -55,10 +58,12 @@ export function ReceiptVouchersClient() {
   const { user }  = useAuth();
   const agencyId  = (user?.agencyId as string | undefined) ?? null;
 
-  const [payments, setPayments] = useState<ReceiptPayment[]>([]);
-  const [loading, setLoading]   = useState(true);
-  const [search, setSearch]     = useState('');
-  const [method, setMethod]     = useState<MethodFilter>('all');
+  const [payments,   setPayments]   = useState<ReceiptPayment[]>([]);
+  const [loading,    setLoading]    = useState(true);
+  const [search,     setSearch]     = useState('');
+  const [method,     setMethod]     = useState<MethodFilter>('all');
+  const [showModal,  setShowModal]  = useState(false);
+  const [showRefund, setShowRefund] = useState<ReceiptPayment | null>(null);
 
   useEffect(() => {
     if (!agencyId) { setLoading(false); return; }
@@ -97,7 +102,7 @@ export function ReceiptVouchersClient() {
 
     void load();
     return () => { cancelled = true; };
-  }, [agencyId]);
+  }, [agencyId, showModal]);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -142,16 +147,22 @@ export function ReceiptVouchersClient() {
           </div>
         </div>
 
-        {!loading && (
-          <div className="flex-shrink-0 bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-2 text-end">
-            <p className="text-[10px] font-bold uppercase tracking-widest text-emerald-500">
-              {isAr ? 'إجمالي المعروض' : 'Showing Total'}
-            </p>
-            <p className="text-lg font-extrabold text-emerald-700 tabular-nums">
-              {formatCurrency(totalHalalas, fmtLocale)}
-            </p>
-          </div>
-        )}
+        <div className="flex items-center gap-3 flex-shrink-0">
+          {!loading && (
+            <div className="bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-2 text-end">
+              <p className="text-[10px] font-bold uppercase tracking-widest text-emerald-500">
+                {isAr ? 'إجمالي المعروض' : 'Showing Total'}
+              </p>
+              <p className="text-lg font-extrabold text-emerald-700 tabular-nums">
+                {formatCurrency(totalHalalas, fmtLocale)}
+              </p>
+            </div>
+          )}
+          <Button size="sm" onClick={() => setShowModal(true)} className="bg-emerald-600 hover:bg-emerald-700">
+            <Plus size={14} />
+            {isAr ? 'سند قبض جديد' : 'New Receipt'}
+          </Button>
+        </div>
       </div>
 
       {/* KPI */}
@@ -267,8 +278,11 @@ export function ReceiptVouchersClient() {
                   <th className="text-end px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">
                     {isAr ? 'المبلغ' : 'Amount'}
                   </th>
-                  <th className="text-end pe-5 px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">
+                  <th className="text-end px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">
                     {isAr ? 'سند القبض' : 'Voucher'}
+                  </th>
+                  <th className="text-end pe-5 px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">
+                    {isAr ? 'استرداد' : 'Refund'}
                   </th>
                 </tr>
               </thead>
@@ -307,7 +321,7 @@ export function ReceiptVouchersClient() {
                           {formatCurrency(p.amountHalalas, fmtLocale)}
                         </span>
                       </td>
-                      <td className="pe-5 px-3 py-3.5 text-end">
+                      <td className="px-3 py-3.5 text-end">
                         <Link
                           href={`/${locale}/payments/${p.id}`}
                           target="_blank"
@@ -317,6 +331,17 @@ export function ReceiptVouchersClient() {
                           <Printer size={13} />
                           {isAr ? 'طباعة' : 'Print'}
                         </Link>
+                      </td>
+                      <td className="pe-5 px-3 py-3.5 text-end">
+                        {p.invoiceId && p.bookingId && (
+                          <button
+                            onClick={() => setShowRefund(p)}
+                            className="inline-flex items-center gap-1 text-xs text-red-500 hover:text-red-700 font-medium transition-colors"
+                          >
+                            <RotateCcw size={13} />
+                            {isAr ? 'استرداد' : 'Refund'}
+                          </button>
+                        )}
                       </td>
                     </tr>
                   );
@@ -336,12 +361,32 @@ export function ReceiptVouchersClient() {
                       {formatCurrency(totalHalalas, fmtLocale)}
                     </span>
                   </td>
+                  <td className="px-3 py-3.5" />
                   <td className="pe-5 px-3 py-3.5" />
                 </tr>
               </tfoot>
             </table>
           </div>
         </Card>
+      )}
+
+      {showModal && agencyId && (
+        <ReceiptVoucherModal
+          agencyId={agencyId}
+          onClose={() => setShowModal(false)}
+          onSuccess={() => setShowModal(false)}
+        />
+      )}
+
+      {showRefund && agencyId && showRefund.invoiceId && showRefund.bookingId && (
+        <ProcessRefundModal
+          bookingId={showRefund.bookingId}
+          invoiceId={showRefund.invoiceId}
+          agencyId={agencyId}
+          paidAmountHalalas={showRefund.amountHalalas}
+          onClose={() => setShowRefund(null)}
+          onSuccess={() => setShowRefund(null)}
+        />
       )}
     </div>
   );

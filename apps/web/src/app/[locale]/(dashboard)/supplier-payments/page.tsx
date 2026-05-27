@@ -12,7 +12,8 @@ import { formatCurrency, formatDate } from '@/lib/utils';
 import { cn } from '@/lib/utils';
 import {
   ArrowUpRight, Search, X, Banknote, CreditCard,
-  Building2, Globe, FileCheck2, CheckCircle2, TrendingDown, Plus,
+  Building2, Globe, FileCheck2, CheckCircle2, TrendingDown, Plus, RotateCcw,
+  AlertTriangle, AlertCircle,
 } from 'lucide-react';
 import Link from 'next/link';
 import { SupplierPaymentModal } from '@/components/bookings/SupplierPaymentModal';
@@ -36,6 +37,156 @@ interface SupplierPayment {
 }
 
 type MethodFilter = 'all' | 'cash' | 'bank_transfer' | 'card' | 'online' | 'check';
+
+// ─── SupplierPaymentRefundModal ───────────────────────────────────────────────
+
+interface RefundModalProps {
+  payment: SupplierPayment;
+  onClose: () => void;
+  onSuccess: () => void;
+}
+
+function SupplierPaymentRefundModal({ payment, onClose, onSuccess }: RefundModalProps) {
+  const locale = useLocale();
+  const isAr   = locale === 'ar';
+  const [reason,   setReason]   = useState('');
+  const [saving,   setSaving]   = useState(false);
+  const [error,    setError]    = useState('');
+  const [success,  setSuccess]  = useState(false);
+  const [confirmed, setConfirmed] = useState(false);
+
+  const fmtLocale = isAr ? 'ar-SA' : 'en-SA';
+  const name = payment.payeeName ?? payment.supplierName ?? '—';
+
+  async function handleConfirm() {
+    if (!confirmed) { setConfirmed(true); return; }
+    setSaving(true);
+    setError('');
+    try {
+      const { getAuth } = await import('firebase/auth');
+      const { getApp } = await import('@masarat/firebase');
+      const token = await getAuth(getApp()).currentUser?.getIdToken();
+
+      const res = await fetch('/api/supplier-payments/reverse', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify({ supplierPaymentId: payment.id, reason }),
+      });
+
+      if (!res.ok) {
+        const body = await res.json() as { error?: string };
+        throw new Error(body.error ?? (isAr ? 'حدث خطأ' : 'Error'));
+      }
+
+      setSuccess(true);
+      onSuccess();
+      setTimeout(onClose, 2000);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : (isAr ? 'حدث خطأ' : 'Error'));
+      setConfirmed(false);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <div className="fixed inset-0 bg-black/50" onClick={onClose} />
+      <div className="relative z-10 w-full max-w-md bg-white rounded-2xl shadow-2xl p-6">
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-2">
+            <RotateCcw size={18} className="text-red-500" />
+            <h2 className="text-base font-bold text-slate-900">
+              {isAr ? 'تأكيد الاسترداد' : 'Confirm Reversal'}
+            </h2>
+          </div>
+          <button onClick={onClose} className="p-1.5 rounded-lg text-slate-400 hover:bg-slate-100 transition-colors">
+            <X size={16} />
+          </button>
+        </div>
+
+        {success ? (
+          <div className="flex flex-col items-center py-6 gap-3 text-center">
+            <CheckCircle2 size={40} className="text-emerald-500" />
+            <p className="font-semibold text-slate-900">{isAr ? 'تم الاسترداد بنجاح' : 'Reversal completed'}</p>
+          </div>
+        ) : (
+          <>
+            <div className="flex items-start gap-2 rounded-xl bg-red-50 border border-red-200 px-4 py-3 mb-4">
+              <AlertTriangle size={15} className="text-red-600 flex-shrink-0 mt-0.5" />
+              <p className="text-sm text-red-700">
+                {isAr
+                  ? 'سيتم عكس هذا الصرف وإنشاء قيد محاسبي معاكس.'
+                  : 'This payment will be reversed with a counter journal entry.'}
+              </p>
+            </div>
+
+            <div className="rounded-xl bg-slate-50 border border-slate-200 px-4 py-3 mb-4 space-y-1">
+              <div className="flex justify-between text-sm">
+                <span className="text-slate-500">{isAr ? 'صُرف لـ' : 'Payee'}</span>
+                <span className="font-semibold text-slate-900">{name}</span>
+              </div>
+              <div className="flex justify-between text-sm">
+                <span className="text-slate-500">{isAr ? 'المبلغ' : 'Amount'}</span>
+                <span className="font-bold text-red-600 tabular-nums">{formatCurrency(payment.amountHalalas, fmtLocale)}</span>
+              </div>
+            </div>
+
+            <div className="mb-4 space-y-1">
+              <label className="block text-sm font-medium text-slate-700">
+                {isAr ? 'سبب الاسترداد' : 'Reason'}
+                <span className="text-slate-400 ms-1 text-xs">{isAr ? '(اختياري)' : '(optional)'}</span>
+              </label>
+              <input
+                type="text"
+                value={reason}
+                onChange={e => setReason(e.target.value)}
+                placeholder={isAr ? 'سبب الاسترداد...' : 'Reason for reversal...'}
+                className="w-full rounded-lg border border-slate-300 text-sm px-3.5 py-2.5 focus:outline-none focus:ring-2 focus:ring-brand-500"
+              />
+            </div>
+
+            {confirmed && !error && (
+              <div className="flex items-start gap-2 rounded-lg bg-amber-50 border border-amber-200 px-4 py-3 text-sm text-amber-700 mb-4">
+                <AlertTriangle size={14} className="flex-shrink-0 mt-0.5" />
+                {isAr ? 'اضغط مرة أخرى لتأكيد الاسترداد النهائي' : 'Press again to confirm final reversal'}
+              </div>
+            )}
+
+            {error && (
+              <div className="flex items-start gap-2 rounded-lg bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700 mb-4">
+                <AlertCircle size={14} className="flex-shrink-0 mt-0.5" />
+                {error}
+              </div>
+            )}
+
+            <div className="flex gap-3">
+              <button
+                type="button"
+                onClick={onClose}
+                className="flex-1 px-4 py-2.5 rounded-lg border border-slate-200 text-sm font-semibold text-slate-700 hover:bg-slate-50 transition-colors"
+              >
+                {isAr ? 'إلغاء' : 'Cancel'}
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleConfirm()}
+                disabled={saving}
+                className="flex-1 px-4 py-2.5 rounded-lg bg-red-600 text-white text-sm font-semibold hover:bg-red-700 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+              >
+                {saving && <span className="h-3 w-3 rounded-full border-2 border-white/30 border-t-white animate-spin" />}
+                {isAr ? 'تأكيد الاسترداد' : 'Confirm Reversal'}
+              </button>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -68,11 +219,12 @@ export default function SupplierPaymentsPage() {
   const { user }  = useAuth();
   const agencyId  = (user?.agencyId as string | undefined) ?? null;
 
-  const [payments, setPayments]   = useState<SupplierPayment[]>([]);
-  const [loading, setLoading]     = useState(true);
-  const [search, setSearch]       = useState('');
-  const [method, setMethod]       = useState<MethodFilter>('all');
-  const [showModal, setShowModal] = useState(false);
+  const [payments,    setPayments]    = useState<SupplierPayment[]>([]);
+  const [loading,     setLoading]     = useState(true);
+  const [search,      setSearch]      = useState('');
+  const [method,      setMethod]      = useState<MethodFilter>('all');
+  const [showModal,   setShowModal]   = useState(false);
+  const [showRefund,  setShowRefund]  = useState<SupplierPayment | null>(null);
 
   useEffect(() => {
     if (!agencyId) { setLoading(false); return; }
@@ -108,7 +260,7 @@ export default function SupplierPaymentsPage() {
 
     void load();
     return () => { cancelled = true; };
-  }, [agencyId, showModal]);
+  }, [agencyId, showModal, showRefund]);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -242,8 +394,11 @@ export default function SupplierPaymentsPage() {
                   <th className="text-end px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">
                     {isAr ? 'المبلغ' : 'Amount'}
                   </th>
-                  <th className="text-end pe-5 px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">
+                  <th className="text-end px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">
                     {isAr ? 'سند' : 'Voucher'}
+                  </th>
+                  <th className="text-end pe-5 px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">
+                    {isAr ? 'استرداد' : 'Refund'}
                   </th>
                 </tr>
               </thead>
@@ -284,7 +439,7 @@ export default function SupplierPaymentsPage() {
                           {formatCurrency(p.amountHalalas, fmtLocale)}
                         </span>
                       </td>
-                      <td className="pe-5 px-3 py-3.5 text-end">
+                      <td className="px-3 py-3.5 text-end">
                         <Link
                           href={`/${locale}/supplier-payments/${p.id}`}
                           className="inline-flex items-center gap-1 text-xs text-brand-600 hover:text-brand-700 font-medium"
@@ -293,6 +448,20 @@ export default function SupplierPaymentsPage() {
                           {isAr ? 'عرض' : 'View'}
                           <ArrowUpRight size={12} />
                         </Link>
+                      </td>
+                      <td className="pe-5 px-3 py-3.5 text-end">
+                        {p.status !== 'reversed' && p.status !== 'reversal' && (
+                          <button
+                            onClick={() => setShowRefund(p)}
+                            className="inline-flex items-center gap-1 text-xs text-red-500 hover:text-red-700 font-medium transition-colors"
+                          >
+                            <RotateCcw size={13} />
+                            {isAr ? 'استرداد' : 'Refund'}
+                          </button>
+                        )}
+                        {(p.status === 'reversed') && (
+                          <span className="text-xs text-slate-400">{isAr ? '(مُسترد)' : '(reversed)'}</span>
+                        )}
                       </td>
                     </tr>
                   );
