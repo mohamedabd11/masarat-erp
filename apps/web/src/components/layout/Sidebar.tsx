@@ -6,6 +6,7 @@ import { usePathname } from 'next/navigation';
 import { useLocale } from 'next-intl';
 import { useAuth } from '@masarat/firebase';
 import { cn } from '@/lib/utils';
+import { MasaratLogo } from '@/components/ui/MasaratLogo';
 import {
   LayoutDashboard, ClipboardList, Users, Plane, Building2, Package,
   Moon, Shield, Stamp, FileText, Receipt, BarChart3, Truck, UserCog,
@@ -115,21 +116,15 @@ export function Sidebar({ collapsed = false, onToggle, onClose }: SidebarProps) 
   const { user } = useAuth();
   const agencyId = user?.agencyId ?? null;
   const [customTypes, setCustomTypes] = useState<CustomServiceType[]>([]);
-  const [logoUrl, setLogoUrl] = useState('');
 
   useEffect(() => {
     if (!agencyId) return;
     let unsub: (() => void) | undefined;
 
     async function load() {
-      const { getFirestore, collection, query, where, onSnapshot, doc } = await import('firebase/firestore');
+      const { getFirestore, collection, query, where, onSnapshot } = await import('firebase/firestore');
       const { getApp } = await import('@masarat/firebase');
       const db = getFirestore(getApp());
-
-      // Listen to agency logo changes
-      onSnapshot(doc(db, 'agencies', agencyId!), snap => {
-        setLogoUrl((snap.data()?.logoUrl as string) ?? '');
-      });
 
       const q = query(
         collection(db, 'service_types'),
@@ -192,23 +187,12 @@ export function Sidebar({ collapsed = false, onToggle, onClose }: SidebarProps) 
       {/* Logo */}
       <div className={cn(
         'flex items-center border-b border-surface-border flex-shrink-0',
-        collapsed ? 'h-16 justify-center px-2' : 'h-16 px-5 gap-3',
+        collapsed ? 'h-16 justify-center px-2' : 'h-16 px-4',
       )}>
-        <div className="flex items-center justify-center w-9 h-9 rounded-lg bg-brand-600 text-white font-bold text-lg flex-shrink-0 overflow-hidden">
-          {logoUrl
-            // eslint-disable-next-line @next/next/no-img-element
-            ? <img src={logoUrl} alt="logo" className="w-full h-full object-contain p-0.5" />
-            : 'م'
-          }
-        </div>
-        {!collapsed && (
-          <div className="min-w-0">
-            <div className="font-bold text-slate-900 text-base leading-tight">مسارات</div>
-            <div className="text-xs text-slate-400 font-light">
-              {isAr ? 'نظام إدارة الوكالات' : 'Travel Agency ERP'}
-            </div>
-          </div>
-        )}
+        {collapsed
+          ? <MasaratLogo size={36} variant="icon" />
+          : <MasaratLogo size={36} variant="full" />
+        }
       </div>
 
       {/* Navigation */}

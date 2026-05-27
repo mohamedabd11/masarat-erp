@@ -9,6 +9,7 @@ import { signInWithEmailAndPassword, sendPasswordResetEmail } from 'firebase/aut
 import { getAuth } from 'firebase/auth';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
+import { MasaratLogo } from '@/components/ui/MasaratLogo';
 import { cn } from '@/lib/utils';
 import { Eye, EyeOff, Mail, Lock, ArrowRight } from 'lucide-react';
 
@@ -83,14 +84,8 @@ export default function LoginPage() {
   return (
     <div className="w-full max-w-sm">
       {/* Mobile logo */}
-      <div className="flex flex-col items-center gap-2 mb-8 lg:hidden">
-        <div className="w-16 h-16 bg-brand-600 rounded-2xl flex items-center justify-center shadow-lg shadow-brand-200">
-          <span className="text-3xl font-bold text-white">م</span>
-        </div>
-        <div className="text-center">
-          <p className="text-xl font-bold text-slate-900">مسارات</p>
-          <p className="text-xs text-slate-500">نظام إدارة وكالات السفر</p>
-        </div>
+      <div className="flex justify-center mb-8 lg:hidden">
+        <MasaratLogo size={52} variant="full" />
       </div>
 
       {resetMode ? (

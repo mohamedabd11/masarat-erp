@@ -8,6 +8,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { Input } from '@/components/ui/Input';
 import { Button } from '@/components/ui/Button';
+import { MasaratLogo } from '@/components/ui/MasaratLogo';
 import { cn } from '@/lib/utils';
 import {
   Building2, Mail, User, Phone, Globe, CheckCircle2,
@@ -139,14 +140,8 @@ export default function RegisterPage() {
   return (
     <div className="w-full max-w-md">
       {/* Mobile logo + app name */}
-      <div className="flex flex-col items-center gap-2 mb-8 lg:hidden">
-        <div className="w-16 h-16 bg-brand-600 rounded-2xl flex items-center justify-center shadow-lg shadow-brand-200">
-          <span className="text-3xl font-bold text-white">م</span>
-        </div>
-        <div className="text-center">
-          <p className="text-xl font-bold text-slate-900">مسارات</p>
-          <p className="text-xs text-slate-500">نظام إدارة وكالات السفر</p>
-        </div>
+      <div className="flex justify-center mb-8 lg:hidden">
+        <MasaratLogo size={52} variant="full" />
       </div>
 
       <div className="mb-6">
