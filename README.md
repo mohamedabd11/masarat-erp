@@ -7,9 +7,11 @@
 
 - Node.js 20+
 - pnpm 9+
-- مشروع Firebase (Spark أو Blaze) مع تفعيل Firestore + Authentication
+- مشروع Firebase (Spark أو Blaze) مع تفعيل Authentication فقط (Firestore لم يعد مطلوباً)
+- قاعدة بيانات Neon Postgres (أو أي PostgreSQL 15+)
 
-> **ملاحظة:** النظام يعمل على **Vercel API Routes** وليس Cloud Functions، لذا خطة Spark المجانية كافية.
+> **ملاحظة:** البيانات تُخزَّن في **Neon Postgres**، والمصادقة عبر **Firebase Auth** فقط.  
+> النظام يعمل على **Vercel API Routes** وليس Cloud Functions، لذا خطة Spark المجانية كافية.
 
 ## التثبيت السريع
 
@@ -45,6 +47,7 @@ pnpm --filter @masarat/web dev
 
 | المتغير | الوصف |
 |---------|-------|
+| `DATABASE_URL` | رابط اتصال Neon Postgres: `postgresql://user:pass@host/db?sslmode=require` |
 | `FIREBASE_SERVICE_ACCOUNT_JSON` | كامل محتوى ملف Service Account JSON كـ string واحد (انظر أدناه) |
 | `SUPER_ADMIN_EMAIL` | بريد المشرف العام الذي يملك صلاحية تفعيل الوكالات |
 
@@ -65,9 +68,12 @@ pnpm --filter @masarat/web dev
 masarat-erp/
 ├── apps/
 │   └── web/            ← Next.js 14 — يُنشر على Vercel
+│       └── src/
+│           ├── app/api/    ← 45+ API Route Handlers (Drizzle ORM + Neon Postgres)
+│           └── lib/schema/ ← Drizzle schema (agencies, users, bookings, invoices, …)
 ├── packages/
 │   ├── accounting/     ← محرك المحاسبة (IFRS 15، هلالات، استراتيجيتا وكيل/أصيل)
-│   ├── firebase/       ← أنواع Firestore وـ Auth hooks
+│   ├── firebase/       ← Firebase Auth hooks فقط (Firestore مُزال)
 │   └── zatca/          ← فاتورة ZATCA المرحلة 2 (UBL 2.1 XML + QR)
 └── functions/          ← مرجعية فقط — لا تُنشر (المنطق انتقل إلى API Routes)
 ```
@@ -76,9 +82,12 @@ masarat-erp/
 
 | المسار | الوظيفة |
 |--------|---------|
-| `POST /api/auth/register` | تسجيل وكالة جديدة |
-| `POST /api/auth/invite` | دعوة مستخدم |
-| `POST /api/invoices/create` | إنشاء فاتورة مع قيد محاسبي |
+| `POST /api/auth/register` | تسجيل وكالة جديدة + إنشاء Chart of Accounts |
+| `POST /api/auth/invite` | دعوة مستخدم جديد |
+| `POST /api/auth/sync` | مزامنة Firebase Auth user ← Postgres (يُستدعى تلقائياً عند تسجيل الدخول) |
+| `GET /api/users/me` | بيانات المستخدم الحالي من Postgres |
+| `GET/POST /api/bookings` | قائمة الحجوزات / إنشاء حجز |
+| `GET/POST /api/invoices` | قائمة الفواتير / إنشاء فاتورة مع قيد محاسبي |
 | `POST /api/payments/record` | تسجيل دفعة |
 | `POST /api/refunds/process` | معالجة استرداد |
 | `POST /api/admin/action` | تفعيل / تعليق وكالة (SUPER_ADMIN فقط) |
@@ -127,10 +136,12 @@ vercel --prod
 
 أضف جميع متغيرات البيئة في: Vercel Dashboard → Settings → Environment Variables
 
-## نشر قواعد Firestore
+## ترحيل قاعدة البيانات (Drizzle)
 
 ```bash
-firebase deploy --only firestore:rules,firestore:indexes
+# تشغيل الـ migrations على Neon
+cd apps/web
+npx drizzle-kit push
 ```
 
 ## روابط
