@@ -216,17 +216,25 @@ export function CustomersClient({ locale }: CustomersClientProps) {
                           </div>
                           <div>
                             <p className="text-sm font-semibold text-slate-900">{name || '—'}</p>
-                            {c.email && <p className="text-xs text-slate-400 mt-0.5">{c.email}</p>}
+                            <p className="text-xs text-slate-400 mt-0.5 font-mono">{c.id.slice(0, 8)}…</p>
                           </div>
                         </div>
                       </td>
                       <td className="px-3 py-4 hidden sm:table-cell">
-                        {c.mobile && (
-                          <div className="flex items-center gap-1.5 text-sm text-slate-600">
-                            <Phone size={12} className="text-slate-400 flex-shrink-0" />
-                            <span>{c.mobile}</span>
-                          </div>
-                        )}
+                        <div className="space-y-1">
+                          {c.mobile && (
+                            <div className="flex items-center gap-1.5 text-sm text-slate-600">
+                              <Phone size={12} className="text-slate-400 flex-shrink-0" />
+                              <span dir="ltr">{c.mobile}</span>
+                            </div>
+                          )}
+                          {c.email && (
+                            <div className="flex items-center gap-1.5 text-xs text-slate-400">
+                              <Mail size={11} className="text-slate-300 flex-shrink-0" />
+                              <span className="truncate max-w-[140px]">{c.email}</span>
+                            </div>
+                          )}
+                        </div>
                       </td>
                       <td className="px-3 py-4 hidden md:table-cell">
                         <span className="text-sm text-slate-600">{c.nationality ?? '—'}</span>
@@ -249,7 +257,7 @@ export function CustomersClient({ locale }: CustomersClientProps) {
                       </td>
                       <td className="pe-5 px-3 py-4 text-end">
                         <div className="flex items-center justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                          <Link href={`/${locale}/bookings/new?customer=${c.id}`}
+                          <Link href={`/${locale}/bookings/new?customerId=${c.id}`}
                             className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-brand-50 text-brand-700 text-xs font-semibold hover:bg-brand-100 transition-colors">
                             <Plus size={11} />
                             {isAr ? 'حجز' : 'Book'}
