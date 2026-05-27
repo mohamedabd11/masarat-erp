@@ -298,6 +298,8 @@ export function ChartOfAccountsClient({ locale }: ChartOfAccountsClientProps) {
       type: data.type,
       side: data.side,
       balanceHalalas: data.balanceHalalas,
+      debitTotal: 0,
+      creditTotal: 0,
     };
     await addAccount(payload);
     setShowAddForm(false);

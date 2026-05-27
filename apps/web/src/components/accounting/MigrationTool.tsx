@@ -218,7 +218,7 @@ export function MigrationTool({ locale }: { locale: string }) {
       }
 
       const batch = writeBatch(db);
-      for (const [docId, ac] of accountMap.entries()) {
+      for (const [docId, ac] of Array.from(accountMap.entries())) {
         batch.set(doc(db, 'chart_of_accounts', docId), {
           agencyId,
           code:           ac.code,
@@ -371,7 +371,7 @@ export function MigrationTool({ locale }: { locale: string }) {
         }
       }
       const acBatch = writeBatch(db);
-      for (const [docId, ac] of accountMap.entries()) {
+      for (const [docId, ac] of Array.from(accountMap.entries())) {
         acBatch.set(doc(db, 'chart_of_accounts', docId), {
           agencyId,
           code: ac.code, nameAr: ac.nameAr, nameEn: ac.nameEn, type: ac.type,

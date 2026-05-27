@@ -102,7 +102,7 @@ export default function CustomerDetailPage({ params }: { params: { locale: strin
           setLoading(false);
           return;
         }
-        const cust = { id: custSnap.id, ...(custSnap.data() as Record<string, unknown>) };
+        const cust = custSnap.data() as Record<string, unknown>;
 
         // 2. Bookings for this customer
         const bookingsSnap = await getDocs(

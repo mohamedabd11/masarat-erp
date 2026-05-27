@@ -16,6 +16,7 @@ import type {
   BookingType,
   RevenueModel,
   RefundInput,
+  Halalas,
 } from './types';
 
 import {

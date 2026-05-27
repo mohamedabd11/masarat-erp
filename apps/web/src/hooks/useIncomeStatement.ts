@@ -116,8 +116,8 @@ export function useIncomeStatement(): IncomeStatementData {
   }, [agencyId, fromDate, toDate]);
 
   return useMemo(() => {
-    const revenueLines = [...revenueMap.values()].sort((a, b) => a.code.localeCompare(b.code));
-    const expenseLines = [...expenseMap.values()].sort((a, b) => a.code.localeCompare(b.code));
+    const revenueLines = Array.from(revenueMap.values()).sort((a, b) => a.code.localeCompare(b.code));
+    const expenseLines = Array.from(expenseMap.values()).sort((a, b) => a.code.localeCompare(b.code));
 
     const totalRevenue = revenueLines.reduce((s, l) => s + l.halalas, 0);
     const totalExpense = expenseLines.reduce((s, l) => s + l.halalas, 0);

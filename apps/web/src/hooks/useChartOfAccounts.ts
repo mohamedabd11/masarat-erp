@@ -28,7 +28,7 @@ export type UpdateAccountPayload = Partial<Omit<ChartAccount, 'id' | 'agencyId' 
 
 // ─── Default accounts ─────────────────────────────────────────────────────────
 
-const DEFAULT_ACCOUNTS: Omit<ChartAccount, 'id' | 'agencyId' | 'createdAt' | 'updatedAt'>[] = [
+const DEFAULT_ACCOUNTS: Omit<ChartAccount, 'id' | 'agencyId' | 'createdAt' | 'updatedAt' | 'debitTotal' | 'creditTotal'>[] = [
   // Assets
   { code: '1100', nameAr: 'النقدية',                     nameEn: 'Cash',                         type: 'asset',     side: 'debit',  balanceHalalas: 0 },
   { code: '1110', nameAr: 'البنك',                       nameEn: 'Bank',                         type: 'asset',     side: 'debit',  balanceHalalas: 0 },
@@ -118,6 +118,8 @@ export function useChartOfAccounts(): UseChartOfAccountsReturn {
                   const ref = doc(col, `${agencyId}_${acct.code}`);
                   batch.set(ref, {
                     ...acct,
+                    debitTotal: 0,
+                    creditTotal: 0,
                     agencyId,
                     createdAt: now,
                     updatedAt: now,

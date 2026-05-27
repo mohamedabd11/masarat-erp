@@ -451,13 +451,14 @@ function NewBookingContent() {
   useEffect(() => {
     const custId = params.get('customerId');
     if (!custId || !user) return;
+    const resolvedCustId = custId;
     let cancelled = false;
     async function loadPrefilledCustomer() {
       try {
         const { getFirestore, doc, getDoc } = await import('firebase/firestore');
         const { getApp } = await import('@masarat/firebase');
         const db   = getFirestore(getApp());
-        const snap = await getDoc(doc(db, 'customers', custId));
+        const snap = await getDoc(doc(db, 'customers', resolvedCustId));
         if (cancelled || !snap.exists()) return;
         const d    = snap.data() as Record<string, unknown>;
         const name = d['name'] as { ar?: string; en?: string } | undefined;
