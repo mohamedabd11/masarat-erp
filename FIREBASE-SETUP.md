@@ -26,10 +26,6 @@
 1. Authentication → Get started
 2. فعّل **Email/Password** provider
 
-### Cloud Functions
-1. Upgrade to **Blaze plan** (required for Cloud Functions)
-2. Functions → Get started → اختر TypeScript
-
 ### Storage (اختياري للمرفقات)
 1. Storage → Get started → Production mode → `me-central2`
 
@@ -40,10 +36,11 @@
 2. اسم التطبيق: `Masarat ERP Web`
 3. انسخ الـ config object
 
-### Service Account (للـ Cloud Functions)
+### Service Account (لـ Vercel API Routes)
 1. Project Settings → Service accounts → Generate new private key
-2. احفظ الملف كـ `functions/service-account.json`
-3. **لا ترفع هذا الملف إلى Git أبداً**
+2. انسخ كامل محتوى ملف JSON
+3. أضفه كمتغير بيئة `FIREBASE_SERVICE_ACCOUNT_JSON` في Vercel و`.env.local`
+4. **لا ترفع الملف أو قيمة المتغير إلى Git أبداً**
 
 ## 4. إعداد متغيرات البيئة / Environment Variables
 
@@ -94,33 +91,23 @@ cd apps/web && pnpm dev
 | Functions | http://localhost:5001 |
 | Storage | http://localhost:9199 |
 
-## 6. نشر Cloud Functions / Deploy Cloud Functions
-
-```bash
-cd functions
-pnpm build
-firebase deploy --only functions
-```
-
-## 7. نشر Firestore Rules and Indexes
+## 6. نشر Firestore Rules and Indexes
 
 ```bash
 firebase deploy --only firestore:rules,firestore:indexes
 ```
 
-## 8. إعداد Custom Claims (JWT) / Custom Claims Setup
+## 7. إعداد Custom Claims (JWT) / Custom Claims Setup
 
-مطلوب تشغيل هذا السكريبت مرة واحدة لإنشاء أول مستخدم admin:
+تُعيَّن الـ custom claims تلقائياً عند تسجيل وكالة جديدة عبر:
 
 ```bash
-cd functions
-node scripts/create-admin-user.js \
-  --email admin@youragency.sa \
-  --agencyId agency-001 \
-  --role admin
+POST /api/auth/register
 ```
 
-## 9. إعداد ZATCA / ZATCA Configuration
+انظر [README.md](./README.md#إعداد-أول-وكالة) للتفاصيل.
+
+## 8. إعداد ZATCA / ZATCA Configuration
 
 للبيئة الإنتاجية، احتاج إلى:
 1. شهادة ZATCA من بوابة ZATCA للفوترة الإلكترونية
@@ -130,7 +117,7 @@ node scripts/create-admin-user.js \
 
 في بيئة الاختبار، يعمل النظام بوضع `simulation` تلقائياً.
 
-## 10. نشر تطبيق الويب / Deploy Web App
+## 9. نشر تطبيق الويب / Deploy Web App
 
 ### Firebase Hosting
 ```bash
@@ -150,14 +137,13 @@ vercel --prod
 
 ```
 masarat-erp/
-├── apps/web/           # Next.js web app → Firebase Hosting / Vercel
-├── apps/mobile/        # Expo React Native → EAS Build
-├── functions/          # Firebase Cloud Functions → me-central2
+├── apps/web/           # Next.js web app → Vercel (API Routes بدلاً من Cloud Functions)
 ├── packages/
 │   ├── accounting/     # محرك المحاسبة — IFRS 15
 │   ├── firebase/       # Firebase client SDK helpers
 │   └── zatca/          # ZATCA Phase 2 — UBL 2.1 XML + QR
-├── firebase.json       # Emulator + deploy config
+├── functions/          # مرجعية فقط — لا تُنشر
+├── firebase.json       # Emulator + Firestore rules config
 └── firestore.indexes.json
 ```
 
