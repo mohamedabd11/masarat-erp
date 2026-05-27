@@ -1,37 +1,9 @@
-import { getFirestore, Timestamp } from 'firebase-admin/firestore';
+import { db } from './db';
+import type { Tx } from './db';
+import { idempotencyKeys } from './schema';
+import { eq } from 'drizzle-orm';
 
-const IDEMPOTENCY_TTL_MS = 24 * 60 * 60 * 1000;
-
-export interface IdempotencyRecord {
-  key: string;
-  agencyId: string;
-  operation: string;
-  status: 'completed' | 'failed';
-  result?: unknown;
-  createdAt: Timestamp;
-  expiresAt: Timestamp;
-}
-
-export async function checkIdempotency(
-  idempotencyKey: string,
-  agencyId: string,
-  operation: string,
-): Promise<IdempotencyRecord | null> {
-  const db = getFirestore();
-  const docRef = db
-    .collection('idempotency_keys')
-    .doc(`${agencyId}_${operation}_${idempotencyKey}`);
-
-  const doc = await docRef.get();
-  if (!doc.exists) return null;
-
-  const record = doc.data() as IdempotencyRecord;
-  if (record.expiresAt.toMillis() < Date.now()) {
-    await docRef.delete();
-    return null;
-  }
-  return record;
-}
+const TTL_MS = 24 * 60 * 60 * 1000;
 
 export async function withIdempotency<T>(
   key: string,
@@ -39,36 +11,33 @@ export async function withIdempotency<T>(
   operation: string,
   fn: () => Promise<T>,
 ): Promise<T> {
-  if (!key?.trim()) {
-    throw new Error(`idempotencyKey مطلوب لعملية "${operation}"`);
-  }
+  const id = `${agencyId}_${operation}_${key}`;
+  const [existing] = await db
+    .select()
+    .from(idempotencyKeys)
+    .where(eq(idempotencyKeys.id, id))
+    .limit(1);
 
-  const existing = await checkIdempotency(key, agencyId, operation);
-  if (existing?.status === 'completed') {
+  if (existing?.status === 'complete' && existing.expiresAt && existing.expiresAt > new Date()) {
     return existing.result as T;
   }
 
   return fn();
 }
 
-export function idempotencyDoc(
+export function buildIdempotencyInsert(
   agencyId: string,
   operation: string,
   key: string,
   result: unknown,
-): { ref: FirebaseFirestore.DocumentReference; data: IdempotencyRecord } {
-  const db = getFirestore();
-  const now = Timestamp.now();
+  tx?: Tx,
+): typeof idempotencyKeys.$inferInsert {
+  void tx; // accepted but not needed here — caller inserts via tx
   return {
-    ref: db.collection('idempotency_keys').doc(`${agencyId}_${operation}_${key}`),
-    data: {
-      key,
-      agencyId,
-      operation,
-      status: 'completed',
-      result,
-      createdAt: now,
-      expiresAt: Timestamp.fromMillis(Date.now() + IDEMPOTENCY_TTL_MS),
-    },
+    id:        `${agencyId}_${operation}_${key}`,
+    agencyId,
+    status:    'complete',
+    result,
+    expiresAt: new Date(Date.now() + TTL_MS),
   };
 }

@@ -1,45 +1,34 @@
 import { NextResponse } from 'next/server';
-import { getFirestore, Timestamp } from 'firebase-admin/firestore';
-import { ensureAdminApp } from '@/lib/firebase-admin';
+import { db } from '@/lib/db';
+import { receiptVouchers, journalEntries, journalLines } from '@/lib/schema';
 import { verifyAuth, ApiAuthError } from '@/lib/api-auth';
-import { getNextReceiptNumber } from '@/lib/invoice-counter';
+import { getNextReceiptNumber, getNextJournalNumber } from '@/lib/invoice-counter';
 
 interface StandaloneReceiptBody {
-  customerNameAr: string;
+  customerNameAr:  string;
   customerNameEn?: string;
-  customerPhone?: string;
-  amountHalalas: number;
-  paymentMethod: string;
-  description?: string;
-  reference?: string;
-  notes?: string;
+  customerPhone?:  string;
+  amountHalalas:   number;
+  paymentMethod:   string;
+  description?:    string;
+  reference?:      string;
+  notes?:          string;
 }
 
 const METHOD_ACCOUNT: Record<string, { code: string; ar: string; en: string }> = {
   cash:          { code: '1100', ar: 'الصندوق النقدي', en: 'Cash' },
-  bank_transfer: { code: '1110', ar: 'البنك',          en: 'Bank' },
-  card:          { code: '1115', ar: 'نقاط البيع',     en: 'POS / Card' },
-  online:        { code: '1115', ar: 'نقاط البيع',     en: 'POS / Card' },
+  bank_transfer: { code: '1110', ar: 'البنك',           en: 'Bank' },
+  card:          { code: '1115', ar: 'نقاط البيع',      en: 'POS / Card' },
+  online:        { code: '1115', ar: 'نقاط البيع',      en: 'POS / Card' },
 };
-
 const AC_DEPOSITS = { code: '2300', ar: 'ودائع العملاء', en: 'Customer Deposits' };
 
 export async function POST(request: Request) {
   try {
-    ensureAdminApp();
     const { uid, agencyId } = await verifyAuth(request);
 
     const body = await request.json() as StandaloneReceiptBody;
-    const {
-      customerNameAr,
-      customerNameEn,
-      customerPhone,
-      amountHalalas,
-      paymentMethod,
-      description,
-      reference,
-      notes,
-    } = body;
+    const { customerNameAr, customerNameEn, amountHalalas, paymentMethod, description, reference, notes } = body;
 
     if (!customerNameAr || !paymentMethod) {
       return NextResponse.json({ error: 'بيانات مطلوبة ناقصة' }, { status: 400 });
@@ -48,77 +37,50 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'مبلغ الدفعة غير صالح' }, { status: 400 });
     }
 
-    const db = getFirestore();
-    const result = await db.runTransaction(async (tx) => {
-      const year = new Date().getFullYear();
-      const receiptNumber = await getNextReceiptNumber(agencyId, year, tx);
+    const result = await db.transaction(async (tx) => {
+      const now   = new Date();
+      const year  = now.getFullYear();
+      const today = now.toISOString().split('T')[0]!;
 
-      const now = Timestamp.now();
-      const docRef = db.collection('payments').doc();
-      const journalRef = db.collection('journal_entries').doc();
+      const voucherNumber = await getNextReceiptNumber(agencyId, year, tx);
+      const jeNumber      = await getNextJournalNumber(agencyId, year, tx);
+      const voucherId     = crypto.randomUUID();
+      const jeId          = crypto.randomUUID();
+      const paymentAc     = METHOD_ACCOUNT[paymentMethod] ?? METHOD_ACCOUNT['cash']!;
 
-      const paymentAc = METHOD_ACCOUNT[paymentMethod] ?? METHOD_ACCOUNT['cash']!;
-
-      tx.set(docRef, {
+      await tx.insert(receiptVouchers).values({
+        id:           voucherId,
         agencyId,
-        receiptNumber,
-        customerNameAr,
-        customerNameEn: customerNameEn ?? customerNameAr,
-        customerPhone: customerPhone ?? '',
+        voucherNumber,
+        customerName: customerNameAr,
         amountHalalas,
-        paymentMethod,
-        description: description ?? '',
-        reference: reference ?? '',
-        notes: notes ?? '',
-        invoiceId: null,
-        bookingId: null,
-        standalone: true,
-        status: 'completed',
-        createdBy: uid,
-        createdAt: now,
+        method:       paymentMethod,
+        description:  description ?? null,
+        date:         today,
+        journalEntryId: jeId,
+        createdBy:    uid,
       });
 
-      const period = `${now.toDate().getFullYear()}-${String(now.toDate().getMonth() + 1).padStart(2, '0')}`;
-
-      tx.set(journalRef, {
-        id: journalRef.id,
+      await tx.insert(journalEntries).values({
+        id:                 jeId,
         agencyId,
-        description: `سند قبض ${receiptNumber} — ${customerNameAr}`,
-        status: 'posted',
-        postedAt: now,
-        createdAt: now,
-        createdBy: uid,
-        referenceId: docRef.id,
-        referenceType: 'receipt',
-        lines: [
-          {
-            lineNumber: 1,
-            accountCode: paymentAc.code,
-            accountName: { ar: paymentAc.ar, en: paymentAc.en },
-            debit: amountHalalas,
-            credit: 0,
-            debitSAR: amountHalalas / 100,
-            creditSAR: 0,
-          },
-          {
-            lineNumber: 2,
-            accountCode: AC_DEPOSITS.code,
-            accountName: { ar: AC_DEPOSITS.ar, en: AC_DEPOSITS.en },
-            debit: 0,
-            credit: amountHalalas,
-            debitSAR: 0,
-            creditSAR: amountHalalas / 100,
-          },
-        ],
-        totalDebitHalalas: amountHalalas,
+        entryNumber:        jeNumber,
+        date:               today,
+        descriptionAr:      `سند قبض ${voucherNumber} — ${customerNameAr}`,
+        source:             'receipt',
+        sourceId:           voucherId,
+        isPosted:           true,
+        totalDebitHalalas:  amountHalalas,
         totalCreditHalalas: amountHalalas,
-        period,
-        isBalanced: true,
-        isAuto: true,
-        entryDate: now,
+        createdBy:          uid,
       });
 
-      return { id: docRef.id, receiptNumber };
+      await tx.insert(journalLines).values([
+        { id: crypto.randomUUID(), entryId: jeId, agencyId, accountCode: paymentAc.code, accountNameAr: paymentAc.ar, accountNameEn: paymentAc.en, debitHalalas: amountHalalas, creditHalalas: 0, sortOrder: 1 },
+        { id: crypto.randomUUID(), entryId: jeId, agencyId, accountCode: AC_DEPOSITS.code, accountNameAr: AC_DEPOSITS.ar, accountNameEn: AC_DEPOSITS.en, debitHalalas: 0, creditHalalas: amountHalalas, sortOrder: 2 },
+      ]);
+
+      return { id: voucherId, voucherNumber };
     });
 
     return NextResponse.json({ success: true, ...result });

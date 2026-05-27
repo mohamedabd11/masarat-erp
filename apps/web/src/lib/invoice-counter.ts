@@ -1,121 +1,80 @@
-import { getFirestore, FieldValue } from 'firebase-admin/firestore';
+import { db } from './db';
+import type { Tx } from './db';
+import { agencyCounters } from './schema';
+import { sql } from 'drizzle-orm';
 
 export type InvoiceType = 'taxInvoice' | 'creditNote' | 'debitNote';
 
-const PREFIX: Record<InvoiceType, string> = {
-  taxInvoice: 'INV',
-  creditNote: 'CN',
-  debitNote: 'DN',
+const PREFIX: Record<string, string> = {
+  taxInvoice:     'INV',
+  creditNote:     'CN',
+  debitNote:      'DN',
+  receipt:        'RCT',
+  paymentVoucher: 'PV',
+  booking:        'BK',
+  journal:        'JE',
 };
+
+async function nextCounter(
+  agencyId: string,
+  counterType: string,
+  tx?: Tx,
+): Promise<number> {
+  const executor = tx ?? db;
+  const result = await executor
+    .insert(agencyCounters)
+    .values({ agencyId, counterType, currentValue: 1 })
+    .onConflictDoUpdate({
+      target: [agencyCounters.agencyId, agencyCounters.counterType],
+      set: { currentValue: sql`${agencyCounters.currentValue} + 1` },
+    })
+    .returning({ currentValue: agencyCounters.currentValue });
+  return result[0]!.currentValue;
+}
 
 export async function getNextInvoiceNumber(
   agencyId: string,
   invoiceType: InvoiceType,
   year: number,
-  transaction: FirebaseFirestore.Transaction,
+  tx?: Tx,
 ): Promise<string> {
-  const db = getFirestore();
-  const counterRef = db
-    .collection('agencies')
-    .doc(agencyId)
-    .collection('config')
-    .doc('invoice_counters');
-
-  const counterDoc = await transaction.get(counterRef);
-  let currentCounter = 0;
-
-  if (!counterDoc.exists) {
-    transaction.set(counterRef, {
-      taxInvoice: 0,
-      creditNote: 0,
-      debitNote: 0,
-      receipt: 0,
-      createdAt: new Date(),
-    });
-  } else {
-    currentCounter = (counterDoc.data()?.[invoiceType] as number) ?? 0;
-  }
-
-  const nextNumber = currentCounter + 1;
-  transaction.update(counterRef, {
-    [invoiceType]: FieldValue.increment(1),
-    lastUpdatedAt: new Date(),
-  });
-
-  return `${PREFIX[invoiceType]}-${year}-${String(nextNumber).padStart(6, '0')}`;
+  const n = await nextCounter(agencyId, invoiceType, tx);
+  return `${PREFIX[invoiceType]}-${year}-${String(n).padStart(6, '0')}`;
 }
 
 export async function getNextReceiptNumber(
   agencyId: string,
   year: number,
-  transaction: FirebaseFirestore.Transaction,
+  tx?: Tx,
 ): Promise<string> {
-  const db = getFirestore();
-  const counterRef = db
-    .collection('agencies')
-    .doc(agencyId)
-    .collection('config')
-    .doc('invoice_counters');
-
-  const doc = await transaction.get(counterRef);
-  const current = (doc.data()?.['receipt'] as number) ?? 0;
-  const next = current + 1;
-
-  if (!doc.exists) {
-    transaction.set(counterRef, { taxInvoice: 0, creditNote: 0, debitNote: 0, receipt: 1, paymentVoucher: 0, booking: 0, createdAt: new Date() });
-  } else {
-    transaction.update(counterRef, { receipt: FieldValue.increment(1), lastUpdatedAt: new Date() });
-  }
-  return `RCT-${year}-${String(next).padStart(6, '0')}`;
+  const n = await nextCounter(agencyId, 'receipt', tx);
+  return `RCT-${year}-${String(n).padStart(6, '0')}`;
 }
 
 export async function getNextPaymentVoucherNumber(
   agencyId: string,
   year: number,
-  transaction: FirebaseFirestore.Transaction,
+  tx?: Tx,
 ): Promise<string> {
-  const db = getFirestore();
-  const counterRef = db
-    .collection('agencies')
-    .doc(agencyId)
-    .collection('config')
-    .doc('invoice_counters');
+  const n = await nextCounter(agencyId, 'paymentVoucher', tx);
+  return `PV-${year}-${String(n).padStart(6, '0')}`;
+}
 
-  const doc = await transaction.get(counterRef);
-  const current = (doc.data()?.['paymentVoucher'] as number) ?? 0;
-  const next = current + 1;
-
-  if (!doc.exists) {
-    transaction.set(counterRef, { taxInvoice: 0, creditNote: 0, debitNote: 0, receipt: 0, paymentVoucher: 1, booking: 0, createdAt: new Date() });
-  } else {
-    transaction.update(counterRef, { paymentVoucher: FieldValue.increment(1), lastUpdatedAt: new Date() });
-  }
-  return `PV-${year}-${String(next).padStart(6, '0')}`;
+export async function getNextJournalNumber(
+  agencyId: string,
+  year: number,
+  tx?: Tx,
+): Promise<string> {
+  const n = await nextCounter(agencyId, 'journal', tx);
+  return `JE-${year}-${String(n).padStart(6, '0')}`;
 }
 
 export async function getNextBookingNumber(
   agencyId: string,
   year: number,
+  tx?: Tx,
 ): Promise<string> {
-  const db = getFirestore();
-  const counterRef = db
-    .collection('agencies')
-    .doc(agencyId)
-    .collection('config')
-    .doc('invoice_counters');
-
-  const newDoc = await db.runTransaction(async tx => {
-    const snap = await tx.get(counterRef);
-    const current = (snap.data()?.['booking'] as number) ?? 0;
-    const next = current + 1;
-    if (!snap.exists) {
-      tx.set(counterRef, { taxInvoice: 0, creditNote: 0, debitNote: 0, receipt: 0, paymentVoucher: 0, booking: 1, createdAt: new Date() });
-    } else {
-      tx.update(counterRef, { booking: FieldValue.increment(1), lastUpdatedAt: new Date() });
-    }
-    return next;
-  });
-
+  const n = await nextCounter(agencyId, 'booking', tx);
   const yy = String(year).slice(-2);
-  return `BK-${yy}-${String(newDoc).padStart(6, '0')}`;
+  return `BK-${yy}-${String(n).padStart(6, '0')}`;
 }

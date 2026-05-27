@@ -1,14 +1,15 @@
-import { pgTable, text, integer, timestamp, jsonb } from 'drizzle-orm/pg-core';
+import { pgTable, text, integer, timestamp, jsonb, primaryKey } from 'drizzle-orm/pg-core';
 import { agencies } from './agencies';
 
-// ── Atomic counters (replaces Firestore FieldValue.increment) ─────────────
-// One row per (agencyId, counterType). Use SQL UPDATE + RETURNING for atomicity.
+// ── Atomic counters (INSERT ... ON CONFLICT DO UPDATE RETURNING) ───────────
 
 export const agencyCounters = pgTable('agency_counters', {
   agencyId:     text('agency_id').notNull().references(() => agencies.id, { onDelete: 'cascade' }),
-  counterType:  text('counter_type').notNull(),              // invoice|booking|quote|receipt|payment|journal|employee
+  counterType:  text('counter_type').notNull(),
   currentValue: integer('current_value').notNull().default(0),
-});
+}, (t) => ({
+  pk: primaryKey({ columns: [t.agencyId, t.counterType] }),
+}));
 
 // ── Idempotency (prevents double-submits) ─────────────────────────────────
 

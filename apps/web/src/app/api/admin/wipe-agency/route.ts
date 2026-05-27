@@ -1,26 +1,15 @@
 import { NextResponse } from 'next/server';
+import { eq } from 'drizzle-orm';
 import { ensureAdminApp } from '@/lib/firebase-admin';
+import { db } from '@/lib/db';
+import {
+  agencies, users, bookings, invoices, payments, receiptVouchers,
+  supplierPayments, journalEntries, journalLines, chartOfAccounts,
+  agencyCounters, idempotencyKeys, customers, suppliers, employees,
+  bankAccounts, bankTransactions, cheques, exchangeRates,
+} from '@/lib/schema';
 
 const SUPER_ADMIN_EMAIL = process.env['SUPER_ADMIN_EMAIL'] ?? 'mohamedabdalazim1111@gmail.com';
-
-// Collections that hold per-agency operational data (filtered by agencyId field)
-const OPERATIONAL_COLLECTIONS = [
-  'bookings',
-  'customers',
-  'invoices',
-  'payments',
-  'supplier_payments',
-  'journal_entries',
-  'service_types',
-  'suppliers',
-  'employees',
-  'departments',
-  'bank_accounts',
-  'bank_transactions',
-  'cheques',
-  'exchange_rates',
-  'chart_of_accounts',
-] as const;
 
 async function verifySuperAdmin(request: Request) {
   const authHeader = request.headers.get('Authorization') ?? '';
@@ -33,47 +22,10 @@ async function verifySuperAdmin(request: Request) {
   return decoded;
 }
 
-// Firestore batch limit is 500 — delete in chunks
-async function deleteQueryInBatches(
-  db: FirebaseFirestore.Firestore,
-  query: FirebaseFirestore.Query,
-): Promise<number> {
-  let deleted = 0;
-  // eslint-disable-next-line no-constant-condition
-  while (true) {
-    const snap = await query.limit(400).get();
-    if (snap.empty) break;
-
-    const batch = db.batch();
-    snap.docs.forEach(d => batch.delete(d.ref));
-    await batch.commit();
-    deleted += snap.docs.length;
-  }
-  return deleted;
-}
-
-// Delete all docs in a subcollection (fetched as a collection reference)
-async function deleteCollection(
-  db: FirebaseFirestore.Firestore,
-  colRef: FirebaseFirestore.CollectionReference,
-): Promise<number> {
-  let deleted = 0;
-  // eslint-disable-next-line no-constant-condition
-  while (true) {
-    const snap = await colRef.limit(400).get();
-    if (snap.empty) break;
-    const batch = db.batch();
-    snap.docs.forEach(d => batch.delete(d.ref));
-    await batch.commit();
-    deleted += snap.docs.length;
-  }
-  return deleted;
-}
-
 export async function POST(request: Request) {
   try {
     ensureAdminApp();
-    const adminUser = await verifySuperAdmin(request);
+    await verifySuperAdmin(request);
 
     const body = await request.json() as { agencyId: string; confirmName: string };
     const { agencyId, confirmName } = body;
@@ -82,93 +34,64 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'agencyId و confirmName مطلوبان' }, { status: 400 });
     }
 
-    const { getFirestore, Timestamp } = await import('firebase-admin/firestore');
-    const db = getFirestore();
-
-    // Verify agency exists and confirmName matches
-    const agencySnap = await db.collection('agencies').doc(agencyId).get();
-    if (!agencySnap.exists) {
+    const [agency] = await db.select().from(agencies).where(eq(agencies.id, agencyId));
+    if (!agency) {
       return NextResponse.json({ error: 'الوكالة غير موجودة' }, { status: 404 });
     }
-
-    const agencyData = agencySnap.data()!;
-    if (agencyData['nameAr'] !== confirmName) {
+    if (agency.nameAr !== confirmName) {
       return NextResponse.json({ error: 'اسم الوكالة غير مطابق' }, { status: 422 });
     }
-
-    // Only allow wipe for trial agencies
-    if (agencyData['subscriptionStatus'] !== 'trial') {
+    if (agency.subscriptionStatus !== 'trial') {
       return NextResponse.json(
         { error: 'التصفير متاح فقط للوكالات في الفترة التجريبية' },
         { status: 403 },
       );
     }
 
-    const stats: Record<string, number> = {};
+    // Delete in dependency order (journal_lines first since they ref journal_entries)
+    // Most tables cascade from agencyId, but let's be explicit
+    await db.delete(journalLines).where(eq(journalLines.agencyId, agencyId));
+    await db.delete(journalEntries).where(eq(journalEntries.agencyId, agencyId));
+    await db.delete(payments).where(eq(payments.agencyId, agencyId));
+    await db.delete(receiptVouchers).where(eq(receiptVouchers.agencyId, agencyId));
+    await db.delete(supplierPayments).where(eq(supplierPayments.agencyId, agencyId));
+    await db.delete(invoices).where(eq(invoices.agencyId, agencyId));
+    await db.delete(bookings).where(eq(bookings.agencyId, agencyId));
+    await db.delete(customers).where(eq(customers.agencyId, agencyId));
+    await db.delete(suppliers).where(eq(suppliers.agencyId, agencyId));
+    await db.delete(employees).where(eq(employees.agencyId, agencyId));
+    await db.delete(bankTransactions).where(eq(bankTransactions.agencyId, agencyId));
+    await db.delete(cheques).where(eq(cheques.agencyId, agencyId));
+    await db.delete(bankAccounts).where(eq(bankAccounts.agencyId, agencyId));
+    await db.delete(exchangeRates).where(eq(exchangeRates.agencyId, agencyId));
+    await db.delete(chartOfAccounts).where(eq(chartOfAccounts.agencyId, agencyId));
+    await db.delete(agencyCounters).where(eq(agencyCounters.agencyId, agencyId));
+    await db.delete(idempotencyKeys).where(eq(idempotencyKeys.agencyId, agencyId));
 
-    // ── 1. Delete booking payment subcollections first ───────────────────────
-    const bookingsSnap = await db
-      .collection('bookings')
-      .where('agencyId', '==', agencyId)
-      .get();
+    // Re-seed default chart of accounts
+    const DEFAULT_COA = [
+      { code: '1100', nameAr: 'النقدية',                      nameEn: 'Cash',                         type: 'asset'     },
+      { code: '1110', nameAr: 'البنك',                        nameEn: 'Bank',                         type: 'asset'     },
+      { code: '1120', nameAr: 'ذمم مدينة - عملاء',           nameEn: 'Accounts Receivable',          type: 'asset'     },
+      { code: '2000', nameAr: 'ذمم دائنة - موردون',          nameEn: 'Accounts Payable - Suppliers', type: 'liability' },
+      { code: '2200', nameAr: 'ضريبة القيمة المضافة مستحقة', nameEn: 'VAT Payable',                  type: 'liability' },
+      { code: '2300', nameAr: 'ودائع العملاء',                nameEn: 'Customer Deposits',            type: 'liability' },
+      { code: '4000', nameAr: 'إيراد رسوم الوكالة',          nameEn: 'Revenue - Agency Fees',        type: 'revenue'   },
+      { code: '4100', nameAr: 'إيراد خدمات السفر',           nameEn: 'Revenue - Travel Services',    type: 'revenue'   },
+      { code: '5000', nameAr: 'تكلفة الخدمات',               nameEn: 'Cost of Services',             type: 'expense'   },
+    ];
 
-    let subPaymentsDeleted = 0;
-    for (const bookingDoc of bookingsSnap.docs) {
-      const payCol = bookingDoc.ref.collection('payments');
-      subPaymentsDeleted += await deleteCollection(db, payCol);
+    for (const ac of DEFAULT_COA) {
+      await db.insert(chartOfAccounts).values({
+        id: crypto.randomUUID(), agencyId,
+        code: ac.code, nameAr: ac.nameAr, nameEn: ac.nameEn,
+        type: ac.type, isSystem: true, level: 1,
+      });
     }
-    if (subPaymentsDeleted) stats['bookings/payments'] = subPaymentsDeleted;
-
-    // ── 2. Delete all operational collections ───────────────────────────────
-    for (const col of OPERATIONAL_COLLECTIONS) {
-      const q = db.collection(col).where('agencyId', '==', agencyId);
-      const count = await deleteQueryInBatches(db, q);
-      if (count) stats[col] = count;
-    }
-
-    // ── 3. Delete idempotency_keys prefixed with agencyId ───────────────────
-    const idempKeys = await db
-      .collection('idempotency_keys')
-      .where('agencyId', '==', agencyId)
-      .get();
-    if (!idempKeys.empty) {
-      const batch = db.batch();
-      idempKeys.docs.forEach(d => batch.delete(d.ref));
-      await batch.commit();
-      stats['idempotency_keys'] = idempKeys.size;
-    }
-
-    // ── 4. Reset agency config subcollections ───────────────────────────────
-    const configRef = db.collection('agencies').doc(agencyId).collection('config');
-
-    await configRef.doc('invoice_counters').set({ invoice: 0, receipt: 0, creditNote: 0 });
-
-    // Restore default accounting config (keep their existing mapping if set)
-    await configRef.doc('accounting').set({
-      arAccountCode:      '1120',
-      vatAccountCode:     '2200',
-      revenueAccountCode: '4000',
-      expenseAccountCode: '5000',
-      cashAccountCode:    '1100',
-      bankAccountCode:    '1110',
-    });
-
-    // ── 5. Write audit log ───────────────────────────────────────────────────
-    await db.collection('admin_audit_log').add({
-      action:        'wipe_agency_data',
-      agencyId,
-      agencyNameAr:  agencyData['nameAr'],
-      performedBy:   adminUser.email,
-      performedAt:   Timestamp.now(),
-      stats,
-    });
-
-    const totalDeleted = Object.values(stats).reduce((s, n) => s + n, 0);
 
     return NextResponse.json({
       success: true,
-      message: `تم تصفير بيانات وكالة "${agencyData['nameAr']}" — حُذف ${totalDeleted} سجل`,
-      stats,
+      message: `تم تصفير بيانات وكالة "${agency.nameAr}" بنجاح`,
     });
   } catch (err: unknown) {
     const msg = (err as Error).message ?? '';

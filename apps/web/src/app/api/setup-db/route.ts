@@ -201,20 +201,21 @@ CREATE INDEX IF NOT EXISTS idx_invoices_created  ON invoices(agency_id, created_
 
 -- ══ PAYMENTS ═════════════════════════════════════════════════════════════════
 CREATE TABLE IF NOT EXISTS payments (
-  id              TEXT PRIMARY KEY,
-  agency_id       TEXT NOT NULL REFERENCES agencies(id) ON DELETE CASCADE,
-  invoice_id      TEXT REFERENCES invoices(id),
-  booking_id      TEXT REFERENCES bookings(id),
-  customer_id     TEXT REFERENCES customers(id),
-  customer_name   TEXT,
-  amount_halalas  INTEGER NOT NULL,
-  method          TEXT NOT NULL,
-  reference       TEXT,
-  date            TEXT NOT NULL,
-  notes           TEXT,
+  id               TEXT PRIMARY KEY,
+  agency_id        TEXT NOT NULL REFERENCES agencies(id) ON DELETE CASCADE,
+  invoice_id       TEXT REFERENCES invoices(id),
+  booking_id       TEXT REFERENCES bookings(id),
+  customer_id      TEXT REFERENCES customers(id),
+  customer_name    TEXT,
+  amount_halalas   INTEGER NOT NULL,
+  method           TEXT NOT NULL,
+  reference        TEXT,
+  voucher_number   TEXT,
+  date             TEXT NOT NULL,
+  notes            TEXT,
   journal_entry_id TEXT,
-  created_by      TEXT,
-  created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  created_by       TEXT,
+  created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 CREATE INDEX IF NOT EXISTS idx_payments_agency  ON payments(agency_id);
 CREATE INDEX IF NOT EXISTS idx_payments_invoice ON payments(invoice_id);
@@ -251,8 +252,11 @@ CREATE TABLE IF NOT EXISTS supplier_payments (
   amount_halalas      INTEGER NOT NULL,
   method              TEXT NOT NULL,
   reference           TEXT,
+  voucher_number      TEXT,
+  expense_category    TEXT,
   booking_number      TEXT,
   date                TEXT NOT NULL,
+  status              TEXT NOT NULL DEFAULT 'completed',
   is_refund           TEXT DEFAULT 'false',
   original_payment_id TEXT,
   journal_entry_id    TEXT,
@@ -307,14 +311,16 @@ CREATE TABLE IF NOT EXISTS journal_lines (
   id              TEXT PRIMARY KEY,
   entry_id        TEXT NOT NULL REFERENCES journal_entries(id) ON DELETE CASCADE,
   agency_id       TEXT NOT NULL,
-  account_id      TEXT NOT NULL REFERENCES chart_of_accounts(id),
+  account_code    TEXT NOT NULL,
+  account_name_ar TEXT,
+  account_name_en TEXT,
   debit_halalas   INTEGER NOT NULL DEFAULT 0,
   credit_halalas  INTEGER NOT NULL DEFAULT 0,
   description     TEXT,
   sort_order      INTEGER NOT NULL DEFAULT 0
 );
-CREATE INDEX IF NOT EXISTS idx_journal_lines_entry   ON journal_lines(entry_id);
-CREATE INDEX IF NOT EXISTS idx_journal_lines_account ON journal_lines(account_id);
+CREATE INDEX IF NOT EXISTS idx_journal_lines_entry       ON journal_lines(entry_id);
+CREATE INDEX IF NOT EXISTS idx_journal_lines_agency_code ON journal_lines(agency_id, account_code);
 
 -- ══ BANK ACCOUNTS ════════════════════════════════════════════════════════════
 CREATE TABLE IF NOT EXISTS bank_accounts (

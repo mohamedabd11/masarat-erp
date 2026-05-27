@@ -1,32 +1,33 @@
 import { NextResponse } from 'next/server';
-import { getFirestore, Timestamp } from 'firebase-admin/firestore';
-import { ensureAdminApp } from '@/lib/firebase-admin';
+import { eq, and } from 'drizzle-orm';
+import { db } from '@/lib/db';
+import { supplierPayments, journalEntries, journalLines } from '@/lib/schema';
 import { verifyAuth, ApiAuthError } from '@/lib/api-auth';
+import { getNextJournalNumber } from '@/lib/invoice-counter';
 
 interface ReverseBody {
   supplierPaymentId: string;
-  reason?: string;
+  reason?:           string;
 }
 
 const EXPENSE_ACCOUNT: Record<string, { code: string; ar: string; en: string }> = {
   supplier:    { code: '5000', ar: 'تكلفة الخدمات',   en: 'Cost of Services' },
   operational: { code: '5100', ar: 'مصاريف تشغيلية',  en: 'Operating Expenses' },
-  salaries:    { code: '5200', ar: 'رواتب وأجور',      en: 'Salaries' },
-  office:      { code: '5300', ar: 'مصاريف مكتبية',   en: 'Office Expenses' },
-  other:       { code: '5900', ar: 'مصاريف أخرى',     en: 'Other Expenses' },
+  salaries:    { code: '5200', ar: 'رواتب وأجور',       en: 'Salaries' },
+  office:      { code: '5300', ar: 'مصاريف مكتبية',    en: 'Office Expenses' },
+  other:       { code: '5900', ar: 'مصاريف أخرى',      en: 'Other Expenses' },
 };
 
 const METHOD_ACCOUNT: Record<string, { code: string; ar: string; en: string }> = {
   cash:          { code: '1100', ar: 'الصندوق النقدي', en: 'Cash' },
-  bank_transfer: { code: '1110', ar: 'البنك',          en: 'Bank' },
-  card:          { code: '1115', ar: 'نقاط البيع',     en: 'POS / Card' },
-  online:        { code: '1115', ar: 'نقاط البيع',     en: 'POS / Card' },
-  check:         { code: '1110', ar: 'البنك',          en: 'Bank' },
+  bank_transfer: { code: '1110', ar: 'البنك',           en: 'Bank' },
+  card:          { code: '1115', ar: 'نقاط البيع',      en: 'POS / Card' },
+  online:        { code: '1115', ar: 'نقاط البيع',      en: 'POS / Card' },
+  check:         { code: '1110', ar: 'البنك',           en: 'Bank' },
 };
 
 export async function POST(request: Request) {
   try {
-    ensureAdminApp();
     const { uid, agencyId } = await verifyAuth(request);
 
     const body = await request.json() as ReverseBody;
@@ -36,100 +37,76 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'supplierPaymentId مطلوب' }, { status: 400 });
     }
 
-    const db = getFirestore();
-    const result = await db.runTransaction(async (tx) => {
-      const origRef = db.collection('supplier_payments').doc(supplierPaymentId);
-      const origSnap = await tx.get(origRef);
+    const result = await db.transaction(async (tx) => {
 
-      if (!origSnap.exists) {
-        throw new Error(`سند الصرف ${supplierPaymentId} غير موجود`);
-      }
+      const [orig] = await tx.select().from(supplierPayments).where(
+        and(eq(supplierPayments.id, supplierPaymentId), eq(supplierPayments.agencyId, agencyId)),
+      );
+      if (!orig) throw new Error(`سند الصرف ${supplierPaymentId} غير موجود`);
+      if (orig.isRefund === 'true') throw new Error('لا يمكن عكس سند استرداد');
+      if (orig.status === 'reversed') throw new Error('سند الصرف مُعكوس بالفعل');
 
-      const orig = origSnap.data()!;
-      if (orig['agencyId'] !== agencyId) {
-        throw new Error('سند الصرف لا ينتمي لوكالتك');
-      }
-      if (orig['type'] === 'reversal') {
-        throw new Error('لا يمكن عكس سند استرداد');
-      }
-      if (orig['status'] === 'reversed') {
-        throw new Error('سند الصرف مُعكوس بالفعل');
-      }
+      const now  = new Date();
+      const year = now.getFullYear();
 
-      const amountHalalas = orig['amountHalalas'] as number;
-      const paymentMethod = orig['paymentMethod'] as string;
-      const expenseCategory = orig['expenseCategory'] as string;
-      const payeeName = (orig['payeeName'] as string | undefined) ?? (orig['supplierName'] as string | undefined) ?? '';
-      const originalVoucherNumber = (orig['voucherNumber'] as string | undefined) ?? supplierPaymentId;
+      const amountHalalas       = orig.amountHalalas;
+      const paymentMethod       = orig.method;
+      const expenseCategory     = orig.expenseCategory ?? 'other';
+      const payeeName           = orig.payeeName ?? orig.supplierName ?? '';
+      const originalVoucherNumber = orig.voucherNumber ?? supplierPaymentId;
 
-      const now = Timestamp.now();
-      const reversalRef = db.collection('supplier_payments').doc();
-      const journalRef = db.collection('journal_entries').doc();
+      const jeNumber            = await getNextJournalNumber(agencyId, year, tx);
+      const reversalId          = crypto.randomUUID();
+      const jeId                = crypto.randomUUID();
+      const reversalVoucherNumber = `${originalVoucherNumber}-REV`;
+      const today               = now.toISOString().split('T')[0]!;
 
       const expenseAc = EXPENSE_ACCOUNT[expenseCategory] ?? EXPENSE_ACCOUNT['other']!;
-      const paymentAc = METHOD_ACCOUNT[paymentMethod] ?? METHOD_ACCOUNT['cash']!;
+      const paymentAc = METHOD_ACCOUNT[paymentMethod]    ?? METHOD_ACCOUNT['cash']!;
 
-      const reversalVoucherNumber = `${originalVoucherNumber}-REV`;
-
-      tx.set(reversalRef, {
+      await tx.insert(supplierPayments).values({
+        id:              reversalId,
         agencyId,
-        type: 'reversal',
-        originalId: supplierPaymentId,
-        voucherNumber: reversalVoucherNumber,
         payeeName,
-        supplierName: payeeName,
-        expenseCategory,
+        supplierName:    payeeName,
         amountHalalas,
-        paymentMethod,
-        reason: reason ?? '',
-        status: 'completed',
-        createdBy: uid,
-        createdAt: now,
+        method:          paymentMethod,
+        voucherNumber:   reversalVoucherNumber,
+        expenseCategory,
+        date:            today,
+        status:          'completed',
+        isRefund:        'true',
+        originalPaymentId: supplierPaymentId,
+        journalEntryId:  jeId,
+        createdBy:       uid,
+        ...(reason ? { reference: reason } : {}),
       });
 
-      const period = `${now.toDate().getFullYear()}-${String(now.toDate().getMonth() + 1).padStart(2, '0')}`;
-
-      tx.set(journalRef, {
-        id: journalRef.id,
+      await tx.insert(journalEntries).values({
+        id:                 jeId,
         agencyId,
-        description: `عكس سند صرف ${originalVoucherNumber} — ${payeeName}`,
-        status: 'posted',
-        postedAt: now,
-        createdAt: now,
-        createdBy: uid,
-        referenceId: reversalRef.id,
-        referenceType: 'expense_payment_reversal',
-        lines: [
-          {
-            lineNumber: 1,
-            accountCode: paymentAc.code,
-            accountName: { ar: paymentAc.ar, en: paymentAc.en },
-            debit: amountHalalas,
-            credit: 0,
-            debitSAR: amountHalalas / 100,
-            creditSAR: 0,
-          },
-          {
-            lineNumber: 2,
-            accountCode: expenseAc.code,
-            accountName: { ar: expenseAc.ar, en: expenseAc.en },
-            debit: 0,
-            credit: amountHalalas,
-            debitSAR: 0,
-            creditSAR: amountHalalas / 100,
-          },
-        ],
-        totalDebitHalalas: amountHalalas,
+        entryNumber:        jeNumber,
+        date:               today,
+        descriptionAr:      `عكس سند صرف ${originalVoucherNumber} — ${payeeName}`,
+        source:             'payment',
+        sourceId:           reversalId,
+        isPosted:           true,
+        totalDebitHalalas:  amountHalalas,
         totalCreditHalalas: amountHalalas,
-        period,
-        isBalanced: true,
-        isAuto: true,
-        entryDate: now,
+        createdBy:          uid,
       });
 
-      tx.update(origRef, { status: 'reversed', reversedAt: now, reversedBy: uid });
+      // Reversal: credit the payment account, debit the expense account (opposite of original)
+      await tx.insert(journalLines).values([
+        { id: crypto.randomUUID(), entryId: jeId, agencyId, accountCode: paymentAc.code, accountNameAr: paymentAc.ar, accountNameEn: paymentAc.en, debitHalalas: amountHalalas, creditHalalas: 0, sortOrder: 1 },
+        { id: crypto.randomUUID(), entryId: jeId, agencyId, accountCode: expenseAc.code, accountNameAr: expenseAc.ar, accountNameEn: expenseAc.en, debitHalalas: 0, creditHalalas: amountHalalas, sortOrder: 2 },
+      ]);
 
-      return { id: reversalRef.id, reversalVoucherNumber };
+      await tx.update(supplierPayments)
+        .set({ status: 'reversed' })
+        .where(eq(supplierPayments.id, supplierPaymentId));
+
+      return { id: reversalId, reversalVoucherNumber };
     });
 
     return NextResponse.json({ success: true, ...result });

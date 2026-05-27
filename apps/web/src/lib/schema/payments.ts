@@ -14,6 +14,7 @@ export const payments = pgTable('payments', {
   amountHalalas: integer('amount_halalas').notNull(),
   method:        text('method').notNull(),                    // cash|bank_transfer|card|check
   reference:     text('reference'),
+  voucherNumber: text('voucher_number'),                      // RCT-YYYY-NNNNNN
   date:          text('date').notNull(),                      // YYYY-MM-DD
   notes:         text('notes'),
   journalEntryId:text('journal_entry_id'),
@@ -60,8 +61,11 @@ export const supplierPayments = pgTable('supplier_payments', {
   amountHalalas:   integer('amount_halalas').notNull(),
   method:          text('method').notNull(),
   reference:       text('reference'),
+  voucherNumber:   text('voucher_number'),                    // PV-YYYY-NNNNNN
+  expenseCategory: text('expense_category'),
   bookingNumber:   text('booking_number'),
   date:            text('date').notNull(),
+  status:          text('status').notNull().default('completed'), // completed|reversed
   isRefund:        text('is_refund').default('false'),
   originalPaymentId: text('original_payment_id'),
   journalEntryId:  text('journal_entry_id'),

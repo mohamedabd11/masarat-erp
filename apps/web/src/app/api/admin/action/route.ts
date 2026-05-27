@@ -1,5 +1,8 @@
 import { NextResponse } from 'next/server';
+import { eq } from 'drizzle-orm';
 import { ensureAdminApp } from '@/lib/firebase-admin';
+import { db } from '@/lib/db';
+import { agencies } from '@/lib/schema';
 import { TRIAL_DAYS, SUBSCRIPTION_MONTHLY_DAYS, SUBSCRIPTION_YEARLY_DAYS } from '@masarat/accounting';
 
 const SUPER_ADMIN_EMAIL = process.env['SUPER_ADMIN_EMAIL'] ?? 'mohamedabdalazim1111@gmail.com';
@@ -29,17 +32,14 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'agencyId و action مطلوبان' }, { status: 400 });
     }
 
-    const { getFirestore, Timestamp } = await import('firebase-admin/firestore');
-    const db  = getFirestore();
-    const now = Timestamp.now();
-    const ref = db.collection('agencies').doc(agencyId);
-
-    const snap = await ref.get();
-    if (!snap.exists) {
+    const [agency] = await db.select({ id: agencies.id }).from(agencies).where(eq(agencies.id, agencyId));
+    if (!agency) {
       return NextResponse.json({ error: `الوكالة ${agencyId} غير موجودة` }, { status: 404 });
     }
 
-    let update: Record<string, unknown>;
+    const now = new Date();
+
+    let update: Partial<typeof agencies.$inferInsert>;
     let message: string;
 
     switch (action) {
@@ -47,8 +47,8 @@ export async function POST(request: Request) {
         update  = {
           subscriptionStatus:  'active',
           plan:                'starter',
-          subscriptionEndDate: new Timestamp(Math.floor(Date.now() / 1000) + SUBSCRIPTION_MONTHLY_DAYS * 24 * 3600, 0),
-          updatedAt: now,
+          subscriptionEndDate: new Date(Date.now() + SUBSCRIPTION_MONTHLY_DAYS * 24 * 3600 * 1000),
+          updatedAt:           now,
         };
         message = 'تم تفعيل الاشتراك لمدة شهر';
         break;
@@ -57,9 +57,8 @@ export async function POST(request: Request) {
         update  = {
           subscriptionStatus:  'active',
           plan:                'professional',
-          subscriptionEndDate: new Timestamp(Math.floor(Date.now() / 1000) + SUBSCRIPTION_YEARLY_DAYS * 24 * 3600, 0),
-          isLifetime:          false,
-          updatedAt: now,
+          subscriptionEndDate: new Date(Date.now() + SUBSCRIPTION_YEARLY_DAYS * 24 * 3600 * 1000),
+          updatedAt:           now,
         };
         message = 'تم تفعيل الاشتراك لمدة سنة';
         break;
@@ -68,10 +67,9 @@ export async function POST(request: Request) {
         update  = {
           subscriptionStatus:  'lifetime',
           plan:                'lifetime',
-          isLifetime:          true,
           subscriptionEndDate: null,
           trialEndDate:        null,
-          updatedAt: now,
+          updatedAt:           now,
         };
         message = 'تم تفعيل الاشتراك الدائم ♾';
         break;
@@ -84,8 +82,8 @@ export async function POST(request: Request) {
       case 'extend_trial':
         update  = {
           subscriptionStatus: 'trial',
-          trialEndDate: new Timestamp(Math.floor(Date.now() / 1000) + TRIAL_DAYS * 24 * 3600, 0),
-          updatedAt: now,
+          trialEndDate: new Date(Date.now() + TRIAL_DAYS * 24 * 3600 * 1000),
+          updatedAt:    now,
         };
         message = 'تم تمديد الفترة التجريبية 14 يوماً';
         break;
@@ -94,7 +92,8 @@ export async function POST(request: Request) {
         return NextResponse.json({ error: `إجراء غير معروف: ${action}` }, { status: 400 });
     }
 
-    await ref.update(update);
+    await db.update(agencies).set(update).where(eq(agencies.id, agencyId));
+
     return NextResponse.json({ success: true, message });
   } catch (err: unknown) {
     const msg = (err as Error).message ?? '';

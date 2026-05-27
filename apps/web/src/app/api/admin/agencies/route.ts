@@ -1,5 +1,8 @@
 import { NextResponse } from 'next/server';
+import { eq, count } from 'drizzle-orm';
 import { ensureAdminApp } from '@/lib/firebase-admin';
+import { db } from '@/lib/db';
+import { agencies, users } from '@/lib/schema';
 
 const SUPER_ADMIN_EMAIL = process.env['SUPER_ADMIN_EMAIL'] ?? 'mohamedabdalazim1111@gmail.com';
 
@@ -19,38 +22,32 @@ export async function GET(request: Request) {
     ensureAdminApp();
     await verifySuperAdmin(request);
 
-    const { getFirestore } = await import('firebase-admin/firestore');
-    const db = getFirestore();
+    const allAgencies = await db.select().from(agencies);
 
-    const snap = await db.collection('agencies').get();
-
-    const agencies = await Promise.all(
-      snap.docs.map(async d => {
-        const data = d.data();
-        const usersSnap = await db
-          .collection('users')
-          .where('agencyId', '==', d.id)
-          .count()
-          .get();
+    const result = await Promise.all(
+      allAgencies.map(async (a) => {
+        const [{ total }] = await db
+          .select({ total: count() })
+          .from(users)
+          .where(eq(users.agencyId, a.id));
 
         return {
-          id:                  d.id,
-          nameAr:              data['nameAr']             ?? '',
-          nameEn:              data['nameEn']             ?? '',
-          contactEmail:        data['contactEmail']       ?? '',
-          subscriptionStatus:  data['subscriptionStatus'] ?? 'trial',
-          plan:                data['plan']               ?? 'trial',
-          isLifetime:          data['isLifetime']         === true,
-          trialEndDate:        data['trialEndDate']?.toDate?.()?.toISOString()        ?? null,
-          subscriptionEndDate: data['subscriptionEndDate']?.toDate?.()?.toISOString() ?? null,
-          createdAt:           data['createdAt']?.toDate?.()?.toISOString()           ?? null,
-          isActive:            data['isActive'] ?? true,
-          userCount:           usersSnap.data().count,
+          id:                  a.id,
+          nameAr:              a.nameAr,
+          nameEn:              a.nameEn ?? '',
+          contactEmail:        a.email ?? '',
+          subscriptionStatus:  a.subscriptionStatus,
+          plan:                a.plan,
+          trialEndDate:        a.trialEndDate?.toISOString()        ?? null,
+          subscriptionEndDate: a.subscriptionEndDate?.toISOString() ?? null,
+          createdAt:           a.createdAt?.toISOString()           ?? null,
+          isActive:            a.isActive,
+          userCount:           total ?? 0,
         };
-      })
+      }),
     );
 
-    return NextResponse.json({ agencies });
+    return NextResponse.json({ agencies: result });
   } catch (err: unknown) {
     const msg = (err as Error).message ?? 'unknown';
     if (msg === 'NO_TOKEN' || msg === 'FORBIDDEN') {

@@ -1,4 +1,4 @@
-import { pgTable, text, integer, boolean, timestamp, uniqueIndex } from 'drizzle-orm/pg-core';
+import { pgTable, text, integer, boolean, timestamp } from 'drizzle-orm/pg-core';
 import { agencies } from './agencies';
 
 // ── Chart of Accounts ─────────────────────────────────────────────────────
@@ -52,7 +52,9 @@ export const journalLines = pgTable('journal_lines', {
   id:            text('id').primaryKey(),
   entryId:       text('entry_id').notNull().references(() => journalEntries.id, { onDelete: 'cascade' }),
   agencyId:      text('agency_id').notNull(),
-  accountId:     text('account_id').notNull().references(() => chartOfAccounts.id),
+  accountCode:   text('account_code').notNull(),   // e.g. '1120', '4000'
+  accountNameAr: text('account_name_ar'),
+  accountNameEn: text('account_name_en'),
   debitHalalas:  integer('debit_halalas').notNull().default(0),
   creditHalalas: integer('credit_halalas').notNull().default(0),
   description:   text('description'),

@@ -1,17 +1,22 @@
 import { NextResponse } from 'next/server';
 import { ensureAdminApp } from '@/lib/firebase-admin';
+import { db } from '@/lib/db';
+import { agencies, users } from '@/lib/schema';
+import { eq, count } from 'drizzle-orm';
 
 type UserRole = 'admin' | 'agent' | 'accountant' | 'viewer';
 
 interface InviteUserRequest {
-  email: string;
-  nameAr: string;
+  email:   string;
+  nameAr:  string;
   nameEn?: string;
   mobile?: string;
-  role: UserRole;
+  role:    UserRole;
 }
 
 export async function POST(request: Request) {
+  let firebaseUid: string | null = null;
+
   try {
     ensureAdminApp();
 
@@ -22,40 +27,37 @@ export async function POST(request: Request) {
     }
 
     const { getAuth } = await import('firebase-admin/auth');
-    const { getFirestore, Timestamp } = await import('firebase-admin/firestore');
     const auth = getAuth();
-    const db   = getFirestore();
 
-    const decoded = await auth.verifyIdToken(token);
-    const callerAgencyId = decoded['agencyId'] as string | undefined;
-    const callerRole     = decoded['role']     as string | undefined;
-    const callerUid      = decoded.uid;
+    const decoded      = await auth.verifyIdToken(token);
+    const callerAgency = decoded['agencyId'] as string | undefined;
+    const callerRole   = decoded['role']     as string | undefined;
+    const callerUid    = decoded.uid;
 
-    if (!callerAgencyId) {
+    if (!callerAgency) {
       return NextResponse.json({ error: 'يجب تسجيل الدخول أولاً' }, { status: 401 });
     }
     if (callerRole !== 'admin') {
       return NextResponse.json({ error: 'فقط مدير الوكالة يمكنه دعوة مستخدمين' }, { status: 403 });
     }
 
-    // التحقق من حد المستخدمين حسب الباقة
-    const agencySnap = await db.collection('agencies').doc(callerAgencyId).get();
-    const agencyPlan = (agencySnap.data()?.['plan'] ?? 'trial') as string;
+    // Check plan limits
+    const [agency] = await db.select({ plan: agencies.plan }).from(agencies).where(eq(agencies.id, callerAgency));
+    const agencyPlan = agency?.plan ?? 'trial';
     const userLimit  = agencyPlan === 'professional' ? Infinity : 3;
 
-    const usersCount = await db
-      .collection('users')
-      .where('agencyId', '==', callerAgencyId)
-      .count()
-      .get();
+    const [{ total }] = await db
+      .select({ total: count() })
+      .from(users)
+      .where(eq(users.agencyId, callerAgency));
 
-    if (usersCount.data().count >= userLimit) {
+    if ((total ?? 0) >= userLimit) {
       return NextResponse.json({
         error: `وصلت للحد الأقصى (${userLimit} مستخدمين) في باقتك الحالية. يرجى ترقية الباقة للمتابعة.`,
       }, { status: 403 });
     }
 
-    const body = await request.json() as InviteUserRequest;
+    const body  = await request.json() as InviteUserRequest;
     const { nameAr, nameEn, mobile, role } = body;
     const email = body.email?.trim().toLowerCase();
 
@@ -64,7 +66,6 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'بيانات مطلوبة ناقصة أو غير صالحة' }, { status: 400 });
     }
 
-    // التحقق من عدم تكرار البريد
     try {
       await auth.getUserByEmail(email);
       return NextResponse.json({ error: 'هذا البريد الإلكتروني مسجّل مسبقاً في النظام' }, { status: 409 });
@@ -72,33 +73,36 @@ export async function POST(request: Request) {
       if ((err as { code?: string }).code !== 'auth/user-not-found') throw err;
     }
 
-    const now = Timestamp.now();
-
     const userRecord = await auth.createUser({
       email,
       displayName: nameAr.trim(),
       emailVerified: false,
-      disabled: false,
     });
+    firebaseUid = userRecord.uid;
 
-    await auth.setCustomUserClaims(userRecord.uid, { agencyId: callerAgencyId, role });
+    // Map extended roles to db role (admin|staff)
+    const dbRole = role === 'admin' ? 'admin' : 'staff';
+    await auth.setCustomUserClaims(userRecord.uid, { agencyId: callerAgency, role });
 
     const setupLink = await auth.generatePasswordResetLink(email);
 
-    await db.collection('users').doc(userRecord.uid).set({
-      agencyId:    callerAgencyId,
-      name:        { ar: nameAr.trim(), en: nameEn?.trim() || nameAr.trim() },
+    await db.insert(users).values({
+      id:        userRecord.uid,
+      agencyId:  callerAgency,
       email,
-      mobile:      mobile?.trim() ?? '',
-      role,
-      preferences: { language: 'ar', theme: 'light' },
-      isActive:    true,
-      invitedBy:   callerUid,
-      createdAt:   now,
+      nameAr:    nameAr.trim(),
+      nameEn:    nameEn?.trim() || nameAr.trim(),
+      role:      dbRole,
+      isActive:  true,
+      invitedBy: callerUid,
     });
 
     return NextResponse.json({ userId: userRecord.uid, setupLink });
   } catch (err: unknown) {
+    if (firebaseUid) {
+      const { getAuth } = await import('firebase-admin/auth');
+      await getAuth().deleteUser(firebaseUid).catch(() => {});
+    }
     console.error('[auth/invite]', err);
     return NextResponse.json({ error: 'خطأ في الخادم' }, { status: 500 });
   }
