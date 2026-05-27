@@ -2,8 +2,8 @@
 
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
-import { useAuth } from '@masarat/firebase';
 import { Card, CardHeader, CardTitle } from '@/components/ui/Card';
+import { apiFetch } from '@/lib/api-client';
 import { Button } from '@/components/ui/Button';
 import { BookingStatusBadge } from '@/components/ui/StatusBadge';
 import { Spinner } from '@/components/ui/Spinner';
@@ -124,9 +124,9 @@ interface SupplierPayment {
   id: string;
   supplierName: string;
   amountHalalas: number;
-  paymentMethod: string;
+  method: string;
   reference?: string;
-  createdAt: { toDate?: () => Date } | null;
+  createdAt: string | null;
 }
 
 function methodIcon(method: string) {
@@ -151,32 +151,22 @@ function methodLabel(method: string, isAr: boolean) {
 
 export function BookingDetailClient({ locale, bookingId }: BookingDetailClientProps) {
   const isAr = locale === 'ar';
-  const { user } = useAuth();
   const [booking, setBooking] = useState<BookingData | null>(null);
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
   const [supplierPayments, setSupplierPayments] = useState<SupplierPayment[]>([]);
+  const [tick, setTick] = useState(0);
 
   const BackIcon = isAr ? ArrowRight : ArrowLeft;
 
   useEffect(() => {
-    if (!user) return;
     let cancelled = false;
 
     async function fetchBooking() {
       try {
-        const { getFirestore, doc, getDoc } = await import('firebase/firestore');
-        const { getApp } = await import('@masarat/firebase');
-        const db = getFirestore(getApp());
-        const snap = await getDoc(doc(db, 'bookings', bookingId));
+        const data = await apiFetch<{ booking: BookingData }>(`/api/bookings/${bookingId}`);
         if (cancelled) return;
-        if (!snap.exists()) {
-          setNotFound(true);
-        } else {
-          const data = snap.data() as BookingData;
-          if (data['agencyId'] !== user?.agencyId) { setNotFound(true); return; }
-          setBooking({ id: snap.id, ...data });
-        }
+        setBooking(data.booking);
       } catch {
         if (!cancelled) setNotFound(true);
       } finally {
@@ -186,30 +176,25 @@ export function BookingDetailClient({ locale, bookingId }: BookingDetailClientPr
 
     void fetchBooking();
     return () => { cancelled = true; };
-  }, [bookingId, user]);
+  }, [bookingId]);
 
   useEffect(() => {
-    if (!user) return;
-    let unsub: (() => void) | undefined;
+    let cancelled = false;
 
     async function loadSupplierPayments() {
-      const { getFirestore, collection, query, where, orderBy, onSnapshot } =
-        await import('firebase/firestore');
-      const { getApp } = await import('@masarat/firebase');
-      const db = getFirestore(getApp());
-      const q = query(
-        collection(db, 'supplier_payments'),
-        where('bookingId', '==', bookingId),
-        orderBy('createdAt', 'desc'),
-      );
-      unsub = onSnapshot(q, snap => {
-        setSupplierPayments(snap.docs.map(d => ({ id: d.id, ...d.data() } as SupplierPayment)));
-      });
+      try {
+        const data = await apiFetch<{ payments: SupplierPayment[] }>(
+          `/api/supplier-payments?bookingId=${bookingId}`,
+        );
+        if (!cancelled) setSupplierPayments(data.payments);
+      } catch {
+        // silently ignore — payments list is non-critical
+      }
     }
 
     void loadSupplierPayments();
-    return () => unsub?.();
-  }, [bookingId, user]);
+    return () => { cancelled = true; };
+  }, [bookingId, tick]);
 
   if (loading) {
     return (
@@ -240,8 +225,8 @@ export function BookingDetailClient({ locale, bookingId }: BookingDetailClientPr
   const grandTotalHalalas = booking.grandTotalHalalas ?? pricing.totalAmount ?? 0;
   const paidHalalas = booking.paidHalalas ?? booking.totalPaid ?? 0;
 
-  const travelDate = booking.travelDate?.toDate?.() ?? null;
-  const returnDate = booking.returnDate?.toDate?.() ?? null;
+  const travelDate = booking.travelDate ? new Date(booking.travelDate as string) : null;
+  const returnDate = booking.returnDate ? new Date(booking.returnDate as string) : null;
 
   const travelers: BookingData[] = booking.passengers ?? [];
   const invoiceIds: string[] = booking.invoiceIds ?? [];
@@ -471,7 +456,7 @@ export function BookingDetailClient({ locale, bookingId }: BookingDetailClientPr
               </CardHeader>
               <div className="space-y-2">
                 {supplierPayments.map(sp => {
-                  const date = sp.createdAt?.toDate?.() ?? null;
+                  const date = sp.createdAt ? new Date(sp.createdAt) : null;
                   return (
                     <div
                       key={sp.id}
@@ -481,8 +466,8 @@ export function BookingDetailClient({ locale, bookingId }: BookingDetailClientPr
                         <p className="text-sm font-medium text-slate-900 truncate">{sp.supplierName}</p>
                         <div className="flex items-center gap-2 mt-0.5">
                           <span className="inline-flex items-center gap-1 text-xs text-slate-500 bg-white px-2 py-0.5 rounded-full border border-slate-200">
-                            {methodIcon(sp.paymentMethod)}
-                            {methodLabel(sp.paymentMethod, isAr)}
+                            {methodIcon(sp.method)}
+                            {methodLabel(sp.method, isAr)}
                           </span>
                           {date && (
                             <span className="text-xs text-slate-400">
@@ -555,7 +540,7 @@ export function BookingDetailClient({ locale, bookingId }: BookingDetailClientPr
             </div>
             <BookingActions
               bookingId={booking.id}
-              agencyId={booking.agencyId ?? user?.agencyId ?? ''}
+              agencyId={booking.agencyId ?? ''}
               bookingStatus={booking.status}
               existingInvoiceId={existingInvoiceId}
               grandTotalHalalas={grandTotalHalalas}
@@ -574,8 +559,8 @@ export function BookingDetailClient({ locale, bookingId }: BookingDetailClientPr
                 <div>
                   <p className="text-sm font-medium text-slate-700">{isAr ? 'تم الإنشاء' : 'Created'}</p>
                   <p className="text-xs text-slate-400">
-                    {booking.createdAt?.toDate
-                      ? formatDate(booking.createdAt.toDate(), isAr ? 'ar-SA' : 'en-SA')
+                    {booking.createdAt
+                      ? formatDate(new Date(booking.createdAt as string), isAr ? 'ar-SA' : 'en-SA')
                       : '—'}
                   </p>
                 </div>
@@ -586,8 +571,8 @@ export function BookingDetailClient({ locale, bookingId }: BookingDetailClientPr
                   <div>
                     <p className="text-sm font-medium text-slate-700">{isAr ? 'تم التأكيد' : 'Confirmed'}</p>
                     <p className="text-xs text-slate-400">
-                      {booking.confirmedAt?.toDate
-                        ? formatDate(booking.confirmedAt.toDate(), isAr ? 'ar-SA' : 'en-SA')
+                      {booking.confirmedAt
+                        ? formatDate(new Date(booking.confirmedAt as string), isAr ? 'ar-SA' : 'en-SA')
                         : (isAr ? 'عند الإنشاء' : 'At creation')}
                     </p>
                   </div>

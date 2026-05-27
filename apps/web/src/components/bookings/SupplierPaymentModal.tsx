@@ -11,6 +11,7 @@ import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import { Card } from '@/components/ui/Card';
 import { formatCurrency } from '@/lib/utils';
+import { apiFetch } from '@/lib/api-client';
 import { X, CheckCircle2, AlertCircle, Printer, Banknote } from 'lucide-react';
 
 const schema = z.object({
@@ -55,17 +56,12 @@ export function SupplierPaymentModal({
     let cancelled = false;
     async function load() {
       try {
-        const { getFirestore, doc, getDoc } = await import('firebase/firestore');
-        const { getApp } = await import('@masarat/firebase');
-        const db = getFirestore(getApp());
-        const snap = await getDoc(doc(db, 'bookings', bookingId!));
-        if (cancelled || !snap.exists()) return;
-        const b = snap.data() as Record<string, unknown>;
-        if (!cancelled) {
-          setDefaultPayeeName((b['supplierName'] as string) ?? '');
-          setDefaultAmountSAR(((b['pricing'] as Record<string, number> | undefined)?.['totalCost'] ?? 0) / 100);
-          setBookingNumber((b['bookingNumber'] as string) ?? '');
-        }
+        const data = await apiFetch<{ booking: Record<string, unknown> }>(`/api/bookings/${bookingId}`);
+        if (cancelled) return;
+        const b = data.booking;
+        setDefaultPayeeName((b['supplierName'] as string) ?? '');
+        setDefaultAmountSAR(((b['costPriceHalalas'] as number) ?? 0) / 100);
+        setBookingNumber((b['bookingNumber'] as string) ?? '');
       } finally {
         if (!cancelled) setLoadingBooking(false);
       }
@@ -107,16 +103,8 @@ export function SupplierPaymentModal({
     setSaving(true);
     setSaveError('');
     try {
-      const { getAuth } = await import('firebase/auth');
-      const { getApp } = await import('@masarat/firebase');
-      const token = await getAuth(getApp()).currentUser?.getIdToken();
-
-      const res = await fetch('/api/supplier-payments/create', {
+      const result = await apiFetch<{ id: string; voucherNumber: string }>('/api/supplier-payments/create', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`,
-        },
         body: JSON.stringify({
           payeeName:       data.payeeName,
           expenseCategory: data.expenseCategory,
@@ -128,13 +116,6 @@ export function SupplierPaymentModal({
           bookingNumber:   bookingNumber || undefined,
         }),
       });
-
-      if (!res.ok) {
-        const body = await res.json() as { error?: string };
-        throw new Error(body.error ?? (isAr ? 'حدث خطأ أثناء الحفظ' : 'Save error'));
-      }
-
-      const result = await res.json() as { id: string; voucherNumber: string };
       setRecordId(result.id);
       setVoucherNumber(result.voucherNumber);
       onSuccess?.();
