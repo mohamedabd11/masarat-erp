@@ -52,12 +52,12 @@ type Tab = 'agency' | 'users' | 'modules' | 'zatca' | 'billing' | 'service_types
 
 // ─── Tab definitions ─────────────────────────────────────────────────────────
 
-const TABS: Array<{ key: Tab; ar: string; en: string; icon: React.ReactNode }> = [
+const ALL_TABS: Array<{ key: Tab; ar: string; en: string; icon: React.ReactNode; vatOnly?: boolean }> = [
   { key: 'agency',        ar: 'بيانات الوكالة',  en: 'Agency Info',    icon: <Building2 size={16} /> },
   { key: 'users',         ar: 'المستخدمون',       en: 'Users',          icon: <Users size={16} /> },
   { key: 'modules',       ar: 'الوحدات',          en: 'Modules',        icon: <Package size={16} /> },
   { key: 'service_types', ar: 'أنواع الخدمات',    en: 'Service Types',  icon: <Layers size={16} /> },
-  { key: 'zatca',         ar: 'ZATCA',            en: 'ZATCA',          icon: <Shield size={16} /> },
+  { key: 'zatca',         ar: 'ZATCA',            en: 'ZATCA',          icon: <Shield size={16} />, vatOnly: true },
   { key: 'billing',       ar: 'الاشتراك',         en: 'Billing',        icon: <CreditCard size={16} /> },
 ];
 
@@ -678,7 +678,7 @@ export default function SettingsPage() {
         <nav className="lg:w-52 flex-shrink-0">
           <Card padding="sm">
             <ul className="space-y-0.5">
-              {TABS.map(tab => (
+              {ALL_TABS.filter(t => !t.vatOnly || isVatRegistered).map(tab => (
                 <li key={tab.key}>
                   <button
                     onClick={() => setActiveTab(tab.key)}
@@ -733,46 +733,108 @@ export default function SettingsPage() {
                   />
                 </div>
 
-                {/* VAT registration toggle */}
-                <div className="border border-surface-border rounded-xl p-4 bg-slate-50 space-y-3">
-                  <div className="flex items-center justify-between gap-4">
-                    <div>
-                      <p className="text-sm font-semibold text-slate-800">
-                        {isAr
-                          ? 'هل المنشأة مسجّلة في ضريبة القيمة المضافة؟'
-                          : 'Is the agency VAT-registered?'}
-                      </p>
-                      <p className="text-xs text-slate-500 mt-0.5">
-                        {isAr
-                          ? 'يحدد نوع الوثائق المالية الصادرة: فاتورة ضريبية أو فاتورة تجارية'
-                          : 'Determines issued document type: tax invoice vs commercial invoice'}
-                      </p>
+                {/* VAT registration section */}
+                <div className="space-y-3">
+                  <div className={cn(
+                    'border-2 rounded-2xl p-4 transition-colors',
+                    isVatRegistered
+                      ? 'border-emerald-300 bg-emerald-50/60'
+                      : 'border-slate-200 bg-slate-50',
+                  )}>
+                    <div className="flex items-center justify-between gap-4 mb-3">
+                      <div>
+                        <p className="text-sm font-semibold text-slate-800">
+                          {isAr ? 'تسجيل ضريبة القيمة المضافة (VAT)' : 'VAT Registration'}
+                        </p>
+                        <p className="text-xs text-slate-500 mt-0.5">
+                          {isAr
+                            ? 'يحدد نوع الفواتير الصادرة والمعالجة المحاسبية'
+                            : 'Determines the type of issued invoices and accounting treatment'}
+                        </p>
+                      </div>
+                      <ToggleSwitch
+                        checked={isVatRegistered}
+                        onChange={() => {
+                          const next = !isVatRegistered;
+                          setIsVatRegistered(next);
+                          if (!next) setVatNumber('');
+                        }}
+                        label={isAr ? 'تسجيل ضريبة القيمة المضافة' : 'VAT Registration'}
+                      />
                     </div>
-                    <ToggleSwitch
-                      checked={isVatRegistered}
-                      onChange={() => {
-                        const next = !isVatRegistered;
-                        setIsVatRegistered(next);
-                        if (!next) setVatNumber('');
-                      }}
-                      label={isAr ? 'تسجيل ضريبة القيمة المضافة' : 'VAT Registration'}
-                    />
+
+                    {/* Feature comparison cards */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      {/* Non-VAT card */}
+                      <div className={cn(
+                        'rounded-xl p-3 border transition-all',
+                        !isVatRegistered
+                          ? 'border-brand-300 bg-white shadow-sm ring-2 ring-brand-100'
+                          : 'border-slate-200 bg-white/60 opacity-60',
+                      )}>
+                        <div className="flex items-center gap-2 mb-2">
+                          <div className="w-6 h-6 rounded-full bg-slate-100 flex items-center justify-center flex-shrink-0">
+                            <FileText size={13} className="text-slate-600" />
+                          </div>
+                          <p className="text-xs font-bold text-slate-800">
+                            {isAr ? 'سجل تجاري فقط' : 'CR Only'}
+                          </p>
+                          {!isVatRegistered && (
+                            <span className="ms-auto text-[10px] font-bold text-brand-600 bg-brand-50 px-1.5 py-0.5 rounded-full">
+                              {isAr ? 'نشط' : 'Active'}
+                            </span>
+                          )}
+                        </div>
+                        <ul className="space-y-1">
+                          {[
+                            isAr ? '✓ فاتورة تجارية بدون VAT' : '✓ Commercial invoice (no VAT)',
+                            isAr ? '✓ رقم السجل التجاري' : '✓ Commercial registration number',
+                            isAr ? '✓ قيد محاسبي مبسّط' : '✓ Simplified journal entry',
+                            isAr ? '✗ لا QR code زاتكا' : '✗ No ZATCA QR code',
+                            isAr ? '✗ لا تقرير ضريبي' : '✗ No tax report',
+                          ].map(f => (
+                            <li key={f} className={cn(
+                              'text-[11px]',
+                              f.startsWith('✓') ? 'text-slate-600' : 'text-slate-400',
+                            )}>{f}</li>
+                          ))}
+                        </ul>
+                      </div>
+
+                      {/* VAT card */}
+                      <div className={cn(
+                        'rounded-xl p-3 border transition-all',
+                        isVatRegistered
+                          ? 'border-emerald-300 bg-white shadow-sm ring-2 ring-emerald-100'
+                          : 'border-slate-200 bg-white/60 opacity-60',
+                      )}>
+                        <div className="flex items-center gap-2 mb-2">
+                          <div className="w-6 h-6 rounded-full bg-emerald-100 flex items-center justify-center flex-shrink-0">
+                            <Shield size={13} className="text-emerald-600" />
+                          </div>
+                          <p className="text-xs font-bold text-slate-800">
+                            {isAr ? 'مسجّل بضريبة القيمة المضافة' : 'VAT Registered'}
+                          </p>
+                          {isVatRegistered && (
+                            <span className="ms-auto text-[10px] font-bold text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded-full">
+                              {isAr ? 'نشط' : 'Active'}
+                            </span>
+                          )}
+                        </div>
+                        <ul className="space-y-1">
+                          {[
+                            isAr ? '✓ فاتورة ضريبية رسمية' : '✓ Official tax invoice',
+                            isAr ? '✓ QR code متوافق مع زاتكا' : '✓ ZATCA-compliant QR code',
+                            isAr ? '✓ قيد محاسبي مع ضريبة' : '✓ Journal entry with VAT',
+                            isAr ? '✓ تقرير ضريبة القيمة المضافة' : '✓ VAT report',
+                            isAr ? '✓ السجل التجاري + الرقم الضريبي' : '✓ CR + VAT numbers',
+                          ].map(f => (
+                            <li key={f} className="text-[11px] text-slate-600">{f}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    </div>
                   </div>
-                  {isVatRegistered ? (
-                    <div className="flex items-center gap-2 text-xs text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-2">
-                      <CheckCircle2 size={13} />
-                      {isAr
-                        ? 'سيتم إصدار فاتورة ضريبية مع QR code متوافق مع زاتكا'
-                        : 'Tax invoices with ZATCA-compliant QR code will be issued'}
-                    </div>
-                  ) : (
-                    <div className="flex items-center gap-2 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
-                      <AlertTriangle size={13} />
-                      {isAr
-                        ? 'سيتم إصدار فاتورة تجارية — لا تتضمن ضريبة القيمة المضافة'
-                        : 'Commercial invoices will be issued — no VAT applied'}
-                    </div>
-                  )}
                 </div>
 
                 {/* Registration numbers */}

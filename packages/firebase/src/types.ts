@@ -22,7 +22,7 @@ export type BookingType =
   | 'flight' | 'hotel' | 'package' | 'umrah' | 'hajj'
   | 'insurance' | 'visa' | 'transport';
 
-export type InvoiceType = 'tax_invoice' | 'credit_note' | 'debit_note';
+export type InvoiceType = 'tax_invoice' | 'commercial_invoice' | 'credit_note' | 'debit_note';
 
 // ─── Booking ──────────────────────────────────────────────────────────────────
 
@@ -111,18 +111,54 @@ export interface CustomerDoc {
 
 // ─── Invoice ──────────────────────────────────────────────────────────────────
 
+export interface AgencyDoc {
+  id: string;
+  nameAr: string;
+  nameEn: string;
+  logoUrl?: string;
+  isVatRegistered: boolean;
+  vatNumber?: string;
+  crNumber?: string;
+  streetName?: string;
+  buildingNumber?: string;
+  district?: string;
+  city?: string;
+  postalCode?: string;
+  contactEmail?: string;
+  contactPhone?: string;
+  contactHours?: string;
+  plan: 'trial' | 'starter' | 'professional' | 'lifetime';
+  subscriptionStatus: 'trial' | 'active' | 'expired' | 'cancelled';
+  trialEndDate?: Timestamp;
+  isActive: boolean;
+  createdAt: Timestamp;
+  updatedAt: Timestamp;
+}
+
 export interface InvoiceDoc {
   id: string;
   agencyId: string;
   type: InvoiceType;
+  isVatRegistered: boolean;
   invoiceNumber: string;
   bookingId: string;
+  bookingNumber?: string;
   originalInvoiceId?: string;
+  dueDate?: Timestamp;
   seller: {
+    isVatRegistered: boolean;
     name: { ar: string; en: string };
     vatNumber: string;
     crNumber: string;
-    address: Record<string, string>;
+    address: {
+      streetName?: string;
+      buildingNumber?: string;
+      district?: string;
+      city?: string;
+      postalCode?: string;
+    };
+    phone?: string;
+    email?: string;
   };
   buyer: {
     id: string;

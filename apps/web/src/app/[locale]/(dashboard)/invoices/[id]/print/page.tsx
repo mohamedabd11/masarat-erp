@@ -11,12 +11,14 @@ import type { ComponentProps } from 'react';
 interface InvoiceDoc {
   id: string;
   invoiceNumber?: string;
+  isVatRegistered?: boolean;
   issueDate?: { toDate?(): Date };
   dueDate?: { toDate?(): Date };
   createdAt?: { toDate?(): Date };
   totals?: { grandTotal?: number; subtotalExclVat?: number; totalVat?: number };
   lines?: Record<string, unknown>[];
   seller?: {
+    isVatRegistered?: boolean;
     name?: { ar?: string; en?: string };
     vatNumber?: string;
     crNumber?: string;
@@ -59,8 +61,12 @@ export default function PrintInvoicePage({
         if (!snap.exists()) { setError('الفاتورة غير موجودة'); setLoading(false); return; }
 
         const d: InvoiceDoc = { id: snap.id, ...(snap.data() as Omit<InvoiceDoc, 'id'>) };
-        // Always use the agency's CURRENT isVatRegistered setting — never trust what was stored on the invoice
-        const agencyIsVatRegistered = agencySnap?.exists() ? (agencySnap.data() as Record<string, unknown>)['isVatRegistered'] === true : false;
+        // Use the VAT status stored on the invoice at creation time (most reliable).
+        // Fall back to seller.isVatRegistered then agency's current setting.
+        const agencyIsVatRegistered =
+          d.isVatRegistered ??
+          d.seller?.isVatRegistered ??
+          (agencySnap?.exists() ? (agencySnap.data() as Record<string, unknown>)['isVatRegistered'] === true : false);
 
         const grandTotal: number = d.totals?.grandTotal ?? 0;
         const subtotalExclVat: number = d.totals?.subtotalExclVat ?? Math.round(grandTotal / 1.15);

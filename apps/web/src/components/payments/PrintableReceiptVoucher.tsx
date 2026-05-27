@@ -22,6 +22,7 @@ export interface ReceiptVoucherData {
   agency: {
     nameAr: string;
     nameEn: string;
+    isVatRegistered?: boolean;
     address?: {
       streetName?: string;
       buildingNumber?: string;
@@ -125,8 +126,11 @@ export function PrintableReceiptVoucher({ data }: { data: ReceiptVoucherData }) 
             <p className="text-xl font-bold text-slate-900 leading-snug">{data.agency.nameAr}</p>
             {addrLine && <p className="text-xs text-slate-500 mt-0.5">{addrLine}</p>}
             {data.agency.phone && <p className="text-xs text-slate-500">{data.agency.phone}</p>}
-            {data.agency.vatNumber && (
+            {data.agency.isVatRegistered && data.agency.vatNumber && (
               <p className="text-xs text-slate-500">الرقم الضريبي: {data.agency.vatNumber}</p>
+            )}
+            {!data.agency.isVatRegistered && data.agency.crNumber && (
+              <p className="text-xs text-slate-500">س.ت: {data.agency.crNumber}</p>
             )}
           </div>
 
@@ -144,6 +148,9 @@ export function PrintableReceiptVoucher({ data }: { data: ReceiptVoucherData }) 
             <p className="text-xl font-bold text-slate-900 leading-snug">{data.agency.nameEn}</p>
             {addrLine && <p className="text-xs text-slate-500 mt-0.5" dir="ltr">{addrLine}</p>}
             {data.agency.phone && <p className="text-xs text-slate-500" dir="ltr">{data.agency.phone}</p>}
+            {data.agency.isVatRegistered && data.agency.vatNumber && (
+              <p className="text-xs text-slate-500" dir="ltr">VAT: {data.agency.vatNumber}</p>
+            )}
             {data.agency.crNumber && (
               <p className="text-xs text-slate-500" dir="ltr">CR: {data.agency.crNumber}</p>
             )}

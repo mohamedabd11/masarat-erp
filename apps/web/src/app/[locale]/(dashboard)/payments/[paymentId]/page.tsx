@@ -87,11 +87,12 @@ export default function ReceiptVoucherPage({
 
         // ── 4. Load agency (for seller info) ──────────────────────────────
         const agencyId = pay['agencyId'] as string | undefined;
-        let agencyNameAr = '';
-        let agencyNameEn = '';
-        let agencyPhone  = '';
-        let agencyVat    = '';
-        let agencyCr     = '';
+        let agencyNameAr      = '';
+        let agencyNameEn      = '';
+        let agencyPhone       = '';
+        let agencyVat         = '';
+        let agencyCr          = '';
+        let agencyIsVat       = false;
         let agencyAddress: ReceiptVoucherData['agency']['address'] = {};
 
         if (agencyId) {
@@ -103,6 +104,7 @@ export default function ReceiptVoucherPage({
             agencyPhone  = (ag['contactPhone'] as string | undefined) ?? '';
             agencyVat    = (ag['vatNumber'] as string | undefined)    ?? '';
             agencyCr     = (ag['crNumber'] as string | undefined)     ?? '';
+            agencyIsVat  = (ag['isVatRegistered'] as boolean | undefined) === true;
             agencyAddress = {
               streetName:     (ag['streetName'] as string | undefined)     ?? '',
               buildingNumber: (ag['buildingNumber'] as string | undefined) ?? '',
@@ -137,6 +139,7 @@ export default function ReceiptVoucherPage({
           agency: {
             nameAr: agencyNameAr,
             nameEn: agencyNameEn,
+            isVatRegistered: agencyIsVat,
             phone: agencyPhone || undefined,
             vatNumber: agencyVat || undefined,
             crNumber: agencyCr || undefined,
