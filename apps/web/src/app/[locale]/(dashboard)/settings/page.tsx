@@ -266,29 +266,65 @@ function ToggleSwitch({
 
 const WA_NUMBER = '249969837823';
 
-const PLAN_META: Record<string, { ar: string; en: string; price: string; features: { ar: string[]; en: string[] } }> = {
-  trial: {
-    ar: 'تجريبي', en: 'Trial', price: '0',
+interface PlanDef {
+  key: string;
+  ar: string; en: string;
+  priceMonthly: number | null;
+  priceYearly: number | null;
+  priceLifetime: number | null;
+  badge: { ar: string; en: string } | null;
+  highlighted: boolean;
+  features: { ar: string[]; en: string[] };
+  limits: { users: number | null; bookings: number | null };
+}
+
+const PLANS: PlanDef[] = [
+  {
+    key: 'starter',
+    ar: 'المبتدئ', en: 'Starter',
+    priceMonthly: 199, priceYearly: 1990, priceLifetime: null,
+    badge: null, highlighted: false,
     features: {
-      ar: ['حتى 3 مستخدمين', 'حتى 500 حجز شهرياً', 'الوحدات الأساسية', 'دعم بالبريد الإلكتروني'],
-      en: ['Up to 3 users', 'Up to 500 bookings / month', 'Core modules', 'Email support'],
+      ar: ['حتى 3 مستخدمين', 'حتى 500 حجز شهرياً', 'الوحدات الأساسية (حجوزات، فواتير، محاسبة)', 'دعم عبر واتساب'],
+      en: ['Up to 3 users', 'Up to 500 bookings / month', 'Core modules (bookings, invoices, accounting)', 'WhatsApp support'],
     },
+    limits: { users: 3, bookings: 500 },
   },
-  starter: {
-    ar: 'المبتدئ', en: 'Starter', price: '199',
+  {
+    key: 'professional',
+    ar: 'الاحترافي', en: 'Professional',
+    priceMonthly: 399, priceYearly: 3990, priceLifetime: null,
+    badge: { ar: 'الأكثر شيوعاً', en: 'Most Popular' }, highlighted: true,
     features: {
-      ar: ['حتى 3 مستخدمين', 'حتى 500 حجز شهرياً', 'الوحدات الأساسية', 'دعم بالبريد الإلكتروني'],
-      en: ['Up to 3 users', 'Up to 500 bookings / month', 'Core modules', 'Email support'],
+      ar: ['مستخدمون غير محدودين', 'حجوزات غير محدودة', 'جميع الوحدات + ZATCA', 'تقارير متقدمة', 'دعم ذو أولوية عبر واتساب'],
+      en: ['Unlimited users', 'Unlimited bookings', 'All modules + ZATCA', 'Advanced reports', 'Priority WhatsApp support'],
     },
+    limits: { users: null, bookings: null },
   },
-  professional: {
-    ar: 'الاحترافي', en: 'Professional', price: '399',
+  {
+    key: 'lifetime',
+    ar: 'مدى الحياة', en: 'Lifetime',
+    priceMonthly: null, priceYearly: null, priceLifetime: 1999,
+    badge: { ar: 'قيمة كبرى', en: 'Best Value' }, highlighted: false,
     features: {
-      ar: ['مستخدمون غير محدودين', 'حجوزات غير محدودة', 'جميع الوحدات + ZATCA', 'دعم ذو أولوية'],
-      en: ['Unlimited users', 'Unlimited bookings', 'All modules + ZATCA', 'Priority support'],
+      ar: ['كل مميزات الاحترافي', 'دفعة واحدة للأبد', 'تحديثات مجانية مدى الحياة', 'دعم مدى الحياة'],
+      en: ['Everything in Professional', 'One-time payment forever', 'Free lifetime updates', 'Lifetime support'],
     },
+    limits: { users: null, bookings: null },
   },
-};
+];
+
+// Map Firestore plan key → display plan key
+function resolveDisplayPlan(plan: string, status: string): string {
+  if (plan === 'lifetime') return 'lifetime';
+  if (plan === 'professional') return 'professional';
+  if (plan === 'starter') return 'starter';
+  if (status === 'trial') return 'trial';
+  return 'starter';
+}
+
+// Firestore plan keys that match a paid plan
+const PAID_PLAN_KEYS = new Set(['starter', 'professional', 'lifetime']);
 
 export default function SettingsPage() {
   const locale = useLocale();
@@ -345,6 +381,10 @@ export default function SettingsPage() {
   const [loadingUsers, setLoadingUsers]   = useState(false);
   const [showInviteModal, setShowInviteModal] = useState(false);
 
+  // ── Billing usage stats ─────────────────────────────────────────────────
+  const [usersCount, setUsersCount]       = useState<number | null>(null);
+  const [bookingsCount, setBookingsCount] = useState<number | null>(null);
+
   // Load all agency info from Firestore
   useEffect(() => {
     if (!user?.agencyId) return;
@@ -395,6 +435,23 @@ export default function SettingsPage() {
 
     void load();
     return () => unsub?.();
+  }, [user?.agencyId, activeTab]);
+
+  // Load usage stats when billing tab is active
+  useEffect(() => {
+    if (!user?.agencyId || activeTab !== 'billing') return;
+    async function load() {
+      const { getFirestore, collection, query, where, getDocs } = await import('firebase/firestore');
+      const { getApp } = await import('@masarat/firebase');
+      const db = getFirestore(getApp());
+      const [usersSnap, bookingsSnap] = await Promise.all([
+        getDocs(query(collection(db, 'users'), where('agencyId', '==', user!.agencyId))),
+        getDocs(query(collection(db, 'bookings'), where('agencyId', '==', user!.agencyId))),
+      ]);
+      setUsersCount(usersSnap.size);
+      setBookingsCount(bookingsSnap.size);
+    }
+    void load();
   }, [user?.agencyId, activeTab]);
 
   // Load custom service types from Firestore
@@ -1516,105 +1573,242 @@ export default function SettingsPage() {
 
           {/* ── Billing ──────────────────────────────────────────────────── */}
           {activeTab === 'billing' && (() => {
-            const planKey   = subPlan && PLAN_META[subPlan] ? subPlan : (subStatus === 'trial' ? 'trial' : 'starter');
-            const planMeta  = PLAN_META[planKey] ?? PLAN_META['starter']!;
-            const planName  = isAr ? planMeta.ar : planMeta.en;
-            const planPrice = planMeta.price;
-            const planFeats = isAr ? planMeta.features.ar : planMeta.features.en;
+            const displayPlan = resolveDisplayPlan(subPlan, subStatus);
+            const isTrial = subStatus === 'trial';
+            const isActive = subStatus === 'active' || subStatus === 'lifetime';
+            const isPaidPlan = PAID_PLAN_KEYS.has(subPlan) && isActive;
 
+            // Status badge
             const statusBadge = (() => {
               if (subStatus === 'trial')     return <Badge variant="info">{isAr ? 'تجريبي' : 'Trial'}</Badge>;
               if (subStatus === 'active')    return <Badge variant="success">{isAr ? 'نشط' : 'Active'}</Badge>;
+              if (subStatus === 'lifetime')  return <Badge variant="success">{isAr ? 'مدى الحياة' : 'Lifetime'}</Badge>;
               if (subStatus === 'past_due')  return <Badge variant="warning">{isAr ? 'متأخر' : 'Past Due'}</Badge>;
               if (subStatus === 'cancelled') return <Badge variant="danger">{isAr ? 'ملغى' : 'Cancelled'}</Badge>;
               return null;
             })();
 
+            // Current plan display name
+            const currentPlanDef = PLANS.find(p => p.key === displayPlan);
+            const currentPlanName = isTrial
+              ? (isAr ? 'تجريبي' : 'Trial')
+              : (currentPlanDef ? (isAr ? currentPlanDef.ar : currentPlanDef.en) : (isAr ? 'مجاني' : 'Free'));
+
+            // Status line
             const statusLine = (() => {
-              if (subStatus === 'trial' && daysRemaining !== null) {
+              if (isTrial && daysRemaining !== null) {
                 return isAr
                   ? `متبقي ${daysRemaining} ${daysRemaining === 1 ? 'يوم' : 'أيام'} على انتهاء الفترة التجريبية`
-                  : `${daysRemaining} day${daysRemaining === 1 ? '' : 's'} remaining in free trial`;
+                  : `${daysRemaining} day${daysRemaining === 1 ? '' : 's'} left in free trial`;
               }
-              return isAr ? 'يُجدَّد بالتواصل مع فريق المبيعات' : 'Renewed via sales team';
+              if (subStatus === 'lifetime') return isAr ? 'اشتراك مدى الحياة — لا تنتهي صلاحيته' : 'Lifetime subscription — never expires';
+              if (isActive) return isAr ? 'اشتراك نشط — يُجدَّد بالتواصل مع فريق المبيعات' : 'Active — renewed via sales team';
+              return isAr ? 'يرجى التواصل مع فريق المبيعات' : 'Contact our sales team';
             })();
 
-            const waMsg = subAgencyName
-              ? `مرحباً فريق مسارات، أرغب في ترقية اشتراك وكالتي (${subAgencyName}) إلى باقة الاحترافي.`
-              : 'مرحباً فريق مسارات، أرغب في الاشتراك في باقة الاحترافي.';
-            const waUrl = `https://wa.me/${WA_NUMBER}?text=${encodeURIComponent(waMsg)}`;
+            // Usage limits for current plan
+            const userLimit = (isPaidPlan && displayPlan === 'professional') || displayPlan === 'lifetime' ? null : 3;
+            const bookingLimit = (isPaidPlan && displayPlan === 'professional') || displayPlan === 'lifetime' ? null : 500;
 
-            const isProfessional = planKey === 'professional';
+            // WhatsApp message helper
+            function waUrl(planAr: string) {
+              const msg = subAgencyName
+                ? `مرحباً فريق مسارات، أرغب في ترقية اشتراك وكالتي (${subAgencyName}) إلى باقة ${planAr}.`
+                : `مرحباً فريق مسارات، أرغب في الاشتراك في باقة ${planAr}.`;
+              return `https://wa.me/${WA_NUMBER}?text=${encodeURIComponent(msg)}`;
+            }
 
             return (
-              <div className="space-y-4">
-                {/* Current plan */}
+              <div className="space-y-6">
+
+                {/* ── Current status ─────────────────────────────────────── */}
                 <Card>
                   <CardHeader>
-                    <CardTitle>{isAr ? 'خطة الاشتراك الحالية' : 'Current Plan'}</CardTitle>
+                    <CardTitle>{isAr ? 'اشتراكك الحالي' : 'Your Current Plan'}</CardTitle>
                   </CardHeader>
-
-                  <div className="flex items-start justify-between gap-6 flex-wrap">
-                    {/* Plan details */}
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 mb-2 flex-wrap">
-                        <span className="text-2xl font-bold text-slate-900">{planName}</span>
+                  <div className="flex items-start gap-4 flex-wrap">
+                    {/* Plan name + status */}
+                    <div className="flex-1 min-w-[180px]">
+                      <div className="flex items-center gap-2 flex-wrap mb-1">
+                        <span className="text-2xl font-bold text-slate-900">{currentPlanName}</span>
                         {statusBadge}
                       </div>
-                      <p className="text-sm text-slate-500 mb-5">{statusLine}</p>
-                      <ul className="space-y-2">
-                        {planFeats.map(f => (
-                          <li key={f} className="flex items-center gap-2 text-sm text-slate-700">
-                            <CheckCircle2 size={15} className="text-emerald-500 flex-shrink-0" />
-                            {f}
-                          </li>
-                        ))}
-                      </ul>
+                      <p className="text-sm text-slate-500">{statusLine}</p>
                     </div>
-
-                    {/* Price */}
-                    <div className="text-end flex-shrink-0">
-                      {planKey === 'trial' ? (
-                        <>
-                          <p className="text-3xl font-bold text-slate-900">{isAr ? 'مجاناً' : 'Free'}</p>
-                          <p className="text-xs text-slate-400 mt-1">{isAr ? 'فترة تجريبية' : 'Trial period'}</p>
-                        </>
-                      ) : (
-                        <>
-                          <p className="text-4xl font-bold text-slate-900">{planPrice}</p>
-                          <p className="text-sm text-slate-500 mt-1">{isAr ? 'ريال سعودي / شهر' : 'SAR / month'}</p>
-                        </>
-                      )}
-                    </div>
+                    {/* Trial countdown */}
+                    {isTrial && daysRemaining !== null && (
+                      <div className={cn(
+                        'rounded-xl px-5 py-3 text-center flex-shrink-0',
+                        daysRemaining <= 3
+                          ? 'bg-red-50 border border-red-200'
+                          : 'bg-amber-50 border border-amber-200',
+                      )}>
+                        <p className={cn('text-3xl font-bold', daysRemaining <= 3 ? 'text-red-600' : 'text-amber-600')}>{daysRemaining}</p>
+                        <p className={cn('text-xs mt-0.5', daysRemaining <= 3 ? 'text-red-500' : 'text-amber-500')}>
+                          {isAr ? 'يوم متبقي' : 'days left'}
+                        </p>
+                      </div>
+                    )}
                   </div>
 
-                  {/* Upgrade CTA — only when not already on professional */}
-                  {!isProfessional && (
-                    <div className="border-t border-surface-border pt-5 mt-5">
-                      <div className="rounded-xl bg-gradient-to-br from-brand-50 to-sky-50 border border-brand-100 p-5">
-                        <p className="text-sm font-semibold text-slate-900 mb-1">
-                          {isAr ? 'هل تريد المزيد؟' : 'Need more?'}
-                        </p>
-                        <p className="text-xs text-slate-600 mb-4">
-                          {isAr
-                            ? 'خطة الاحترافي تدعم مستخدمين غير محدودين، حجوزات غير محدودة، ووصولاً كاملاً لجميع الوحدات.'
-                            : 'The Professional plan includes unlimited users, unlimited bookings, and full access to all modules.'}
-                        </p>
-                        <a
-                          href={waUrl}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="flex items-center justify-center gap-2 w-full py-2.5 rounded-xl text-sm font-bold bg-brand-600 hover:bg-brand-700 text-white transition-colors"
-                        >
-                          <MessageCircle size={16} />
-                          {isAr ? 'تواصل للترقية إلى الاحترافي' : 'Contact to Upgrade to Professional'}
-                        </a>
+                  {/* Usage meters */}
+                  {(usersCount !== null || bookingsCount !== null) && (
+                    <div className="mt-5 pt-5 border-t border-surface-border grid grid-cols-2 gap-4">
+                      {/* Users */}
+                      <div>
+                        <div className="flex items-center justify-between mb-1.5">
+                          <span className="text-xs font-medium text-slate-600">{isAr ? 'المستخدمون' : 'Users'}</span>
+                          <span className="text-xs text-slate-500">
+                            {usersCount ?? '…'} {userLimit !== null ? `/ ${userLimit}` : (isAr ? '(غير محدود)' : '(unlimited)')}
+                          </span>
+                        </div>
+                        {userLimit !== null ? (
+                          <div className="h-1.5 rounded-full bg-slate-100 overflow-hidden">
+                            <div
+                              className={cn('h-full rounded-full transition-all', (usersCount ?? 0) >= userLimit ? 'bg-red-500' : 'bg-emerald-500')}
+                              style={{ width: `${Math.min(100, ((usersCount ?? 0) / userLimit) * 100)}%` }}
+                            />
+                          </div>
+                        ) : (
+                          <div className="h-1.5 rounded-full bg-emerald-100">
+                            <div className="h-full w-full rounded-full bg-emerald-400 opacity-40" />
+                          </div>
+                        )}
+                      </div>
+                      {/* Bookings */}
+                      <div>
+                        <div className="flex items-center justify-between mb-1.5">
+                          <span className="text-xs font-medium text-slate-600">{isAr ? 'الحجوزات' : 'Bookings'}</span>
+                          <span className="text-xs text-slate-500">
+                            {bookingsCount ?? '…'} {bookingLimit !== null ? `/ ${bookingLimit}` : (isAr ? '(غير محدود)' : '(unlimited)')}
+                          </span>
+                        </div>
+                        {bookingLimit !== null ? (
+                          <div className="h-1.5 rounded-full bg-slate-100 overflow-hidden">
+                            <div
+                              className={cn('h-full rounded-full transition-all', (bookingsCount ?? 0) >= bookingLimit ? 'bg-red-500' : 'bg-brand-500')}
+                              style={{ width: `${Math.min(100, ((bookingsCount ?? 0) / bookingLimit) * 100)}%` }}
+                            />
+                          </div>
+                        ) : (
+                          <div className="h-1.5 rounded-full bg-brand-100">
+                            <div className="h-full w-full rounded-full bg-brand-400 opacity-40" />
+                          </div>
+                        )}
                       </div>
                     </div>
                   )}
                 </Card>
 
-                {/* Billing history placeholder */}
+                {/* ── Pricing plans ──────────────────────────────────────── */}
+                <div>
+                  <h3 className="text-sm font-semibold text-slate-700 mb-3">
+                    {isAr ? 'خطط الاشتراك' : 'Subscription Plans'}
+                  </h3>
+                  <div className="grid gap-4 sm:grid-cols-3">
+                    {PLANS.map(plan => {
+                      const isCurrent = displayPlan === plan.key && isPaidPlan;
+                      const feats = isAr ? plan.features.ar : plan.features.en;
+                      const name = isAr ? plan.ar : plan.en;
+
+                      return (
+                        <div
+                          key={plan.key}
+                          className={cn(
+                            'relative rounded-2xl border p-5 flex flex-col',
+                            plan.highlighted
+                              ? 'border-brand-400 bg-gradient-to-b from-brand-50 to-white shadow-md'
+                              : 'border-surface-border bg-white',
+                          )}
+                        >
+                          {/* Badge */}
+                          {plan.badge && (
+                            <div className={cn(
+                              'absolute -top-3 left-1/2 -translate-x-1/2 px-3 py-0.5 rounded-full text-xs font-bold whitespace-nowrap',
+                              plan.highlighted ? 'bg-brand-600 text-white' : 'bg-slate-700 text-white',
+                            )}>
+                              {isAr ? plan.badge.ar : plan.badge.en}
+                            </div>
+                          )}
+
+                          {/* Plan name + current indicator */}
+                          <div className="mb-3">
+                            <div className="flex items-center gap-2">
+                              <span className="font-bold text-slate-900">{name}</span>
+                              {isCurrent && (
+                                <span className="text-[10px] bg-emerald-100 text-emerald-700 font-semibold px-2 py-0.5 rounded-full">
+                                  {isAr ? 'خطتك الحالية' : 'Current'}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+
+                          {/* Price */}
+                          <div className="mb-4">
+                            {plan.priceLifetime !== null ? (
+                              <>
+                                <span className="text-3xl font-bold text-slate-900">{plan.priceLifetime.toLocaleString()}</span>
+                                <span className="text-sm text-slate-500 ms-1">{isAr ? 'ريال (مرة واحدة)' : 'SAR (one-time)'}</span>
+                              </>
+                            ) : (
+                              <>
+                                <span className="text-3xl font-bold text-slate-900">{plan.priceMonthly}</span>
+                                <span className="text-sm text-slate-500 ms-1">{isAr ? 'ريال / شهر' : 'SAR / mo'}</span>
+                                {plan.priceYearly && (
+                                  <p className="text-xs text-emerald-600 mt-0.5">
+                                    {isAr
+                                      ? `${plan.priceYearly.toLocaleString()} ريال سنوياً (شهران مجاناً)`
+                                      : `${plan.priceYearly.toLocaleString()} SAR / year (2 months free)`}
+                                  </p>
+                                )}
+                              </>
+                            )}
+                          </div>
+
+                          {/* Features */}
+                          <ul className="space-y-2 mb-5 flex-1">
+                            {feats.map(f => (
+                              <li key={f} className="flex items-start gap-2 text-xs text-slate-700">
+                                <CheckCircle2 size={13} className="text-emerald-500 flex-shrink-0 mt-0.5" />
+                                {f}
+                              </li>
+                            ))}
+                          </ul>
+
+                          {/* CTA */}
+                          {isCurrent ? (
+                            <div className="flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                              <CheckCircle2 size={14} />
+                              {isAr ? 'خطتك الحالية' : 'Your current plan'}
+                            </div>
+                          ) : (
+                            <a
+                              href={waUrl(isAr ? plan.ar : plan.en)}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className={cn(
+                                'flex items-center justify-center gap-2 py-2.5 rounded-xl text-xs font-bold transition-colors',
+                                plan.highlighted
+                                  ? 'bg-brand-600 hover:bg-brand-700 text-white'
+                                  : 'bg-slate-800 hover:bg-slate-900 text-white',
+                              )}
+                            >
+                              <MessageCircle size={14} />
+                              {isAr ? 'تواصل للاشتراك' : 'Contact to Subscribe'}
+                            </a>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                  <p className="text-xs text-slate-400 mt-3 text-center">
+                    {isAr
+                      ? 'جميع الخطط تشمل ضريبة القيمة المضافة · الدفع عبر واتساب'
+                      : 'All prices include VAT · Payment via WhatsApp'}
+                  </p>
+                </div>
+
+                {/* ── Billing history ────────────────────────────────────── */}
                 <Card>
                   <CardHeader>
                     <CardTitle>{isAr ? 'سجل الفواتير' : 'Billing History'}</CardTitle>
@@ -1626,8 +1820,8 @@ export default function SettingsPage() {
                     </p>
                     <p className="text-xs text-slate-400 mt-1">
                       {isAr
-                        ? 'ستظهر هنا فواتير الاشتراك بعد أول دفعة'
-                        : 'Subscription invoices will appear here after the first payment'}
+                        ? 'ستظهر هنا فواتير اشتراكك'
+                        : 'Your subscription invoices will appear here'}
                     </p>
                   </div>
                 </Card>
