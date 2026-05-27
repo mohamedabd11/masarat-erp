@@ -84,18 +84,29 @@ export function useIncomeStatement(): IncomeStatementData {
           const lines = (entry['lines'] as Record<string, unknown>[]) ?? [];
 
           for (const line of lines) {
-            const code    = String(line['accountCode']    ?? '');
-            const type    = String(line['accountType']    ?? '');
-            const nameAr  = String(line['accountNameAr']  ?? code);
-            const nameEn  = String(line['accountNameEn']  ?? code);
-            const debit   = Number(line['debitHalalas']   ?? 0);
-            const credit  = Number(line['creditHalalas']  ?? 0);
+            const code    = String(line['accountCode'] ?? '');
+            // Support both client-side format (debitHalalas/creditHalalas) and
+            // server API format (debit/credit)
+            const debit   = Number(line['debitHalalas']  ?? line['debit']  ?? 0);
+            const credit  = Number(line['creditHalalas'] ?? line['credit'] ?? 0);
+            // Support both accountNameAr and accountName.{ar,en}
+            const accName = line['accountName'] as { ar?: string; en?: string } | undefined;
+            const nameAr  = String(line['accountNameAr'] ?? accName?.['ar'] ?? code);
+            const nameEn  = String(line['accountNameEn'] ?? accName?.['en'] ?? code);
+            // Infer account type from code prefix if accountType is not stored
+            const storedType = String(line['accountType'] ?? '');
+            const inferredType = storedType || (() => {
+              const c = code.charAt(0);
+              if (c === '4') return 'revenue';
+              if (c === '5') return 'expense';
+              return '';
+            })();
 
-            if (type === 'revenue' && credit > 0) {
+            if (inferredType === 'revenue' && credit > 0) {
               const existing = rev.get(code);
               rev.set(code, { code, nameAr, nameEn, halalas: (existing?.halalas ?? 0) + credit });
             }
-            if (type === 'expense' && debit > 0) {
+            if (inferredType === 'expense' && debit > 0) {
               const existing = exp.get(code);
               exp.set(code, { code, nameAr, nameEn, halalas: (existing?.halalas ?? 0) + debit });
             }
