@@ -10,8 +10,9 @@ import { formatCurrency, formatDate } from '@/lib/utils';
 import { cn } from '@/lib/utils';
 import {
   ArrowRight, ArrowLeft, Printer, Building2, User,
-  CalendarDays, Hash, ShieldCheck,
+  CalendarDays, Hash, ShieldCheck, Receipt, CheckCircle2,
 } from 'lucide-react';
+import { ProcessPaymentModal } from '@/components/bookings/ProcessPaymentModal';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -89,6 +90,9 @@ export function InvoiceDetailClient({ locale, invoiceId }: InvoiceDetailClientPr
   const [notFound, setNotFound] = useState(false);
   const [isVatRegistered, setIsVatRegistered] = useState(false);
   const [resolvedBookingNumber, setResolvedBookingNumber] = useState<string | null>(null);
+  const [amountDue, setAmountDue]   = useState(0);
+  const [amountPaid, setAmountPaid] = useState(0);
+  const [showPayment, setShowPayment] = useState(false);
 
   const BackIcon = isAr ? ArrowRight : ArrowLeft;
 
@@ -112,7 +116,10 @@ export function InvoiceDetailClient({ locale, invoiceId }: InvoiceDetailClientPr
           setNotFound(true);
         } else {
           const inv = { id: snap.id, ...snap.data() } as FirestoreInvoice;
+          if (inv.agencyId !== user?.agencyId) { setNotFound(true); return; }
           setInvoice(inv);
+          setAmountDue(inv.amountDue ?? 0);
+          setAmountPaid(inv.amountPaid ?? 0);
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           setIsVatRegistered(agencySnap?.exists() ? (agencySnap.data() as Record<string, unknown>)['isVatRegistered'] === true : false);
 
@@ -521,10 +528,55 @@ export function InvoiceDetailClient({ locale, invoiceId }: InvoiceDetailClientPr
                   </p>
                 )}
               </div>
+
+              {/* Payment summary */}
+              {amountPaid > 0 && (
+                <div className="flex items-center justify-between text-sm text-emerald-700 font-medium">
+                  <span>{isAr ? 'المدفوع' : 'Paid'}</span>
+                  <span className="tabular-nums">{formatCurrency(amountPaid, fmtLocale)}</span>
+                </div>
+              )}
+              {amountDue > 0 && (
+                <div className="flex items-center justify-between text-sm text-red-600 font-bold">
+                  <span>{isAr ? 'المتبقي' : 'Balance Due'}</span>
+                  <span className="tabular-nums">{formatCurrency(amountDue, fmtLocale)}</span>
+                </div>
+              )}
+
+              {/* Payment action */}
+              {amountDue > 0 ? (
+                <button
+                  onClick={() => setShowPayment(true)}
+                  className="mt-3 w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-brand-600 text-white text-sm font-semibold hover:bg-brand-700 transition-colors"
+                >
+                  <Receipt size={15} />
+                  {isAr ? 'تسجيل دفعة' : 'Record Payment'}
+                </button>
+              ) : grandTotal > 0 ? (
+                <div className="mt-3 flex items-center justify-center gap-2 text-sm text-emerald-700 font-medium">
+                  <CheckCircle2 size={15} />
+                  {isAr ? 'مدفوعة بالكامل' : 'Fully Paid'}
+                </div>
+              ) : null}
             </div>
           </div>
         </div>
       </Card>
+
+      {/* ── Payment modal ──────────────────────────────────────────────────────── */}
+      {showPayment && invoice && (
+        <ProcessPaymentModal
+          bookingId={invoice.bookingId}
+          invoiceId={invoice.id}
+          agencyId={invoice.agencyId}
+          remainingDueHalalas={amountDue}
+          onClose={() => setShowPayment(false)}
+          onSuccess={(remaining) => {
+            setAmountPaid(grandTotal - remaining);
+            setAmountDue(remaining);
+          }}
+        />
+      )}
 
       {/* ── ZATCA compliance footer — only shown for VAT-registered agencies ──── */}
       {isVatRegistered && <Card className={cn(
