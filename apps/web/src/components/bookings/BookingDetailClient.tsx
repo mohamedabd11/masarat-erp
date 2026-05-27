@@ -12,7 +12,92 @@ import { BookingActions } from './BookingActions';
 import {
   ArrowRight, ArrowLeft, FileText, User, MapPin, Users, Receipt,
   TrendingDown, Banknote, CreditCard, Building2, Globe, FileCheck2, ArrowUpRight,
+  CheckCircle2, Circle, Clock, BadgeCheck,
 } from 'lucide-react';
+
+// ─── Booking Progress Stepper ─────────────────────────────────────────────────
+
+type StepStatus = 'done' | 'current' | 'partial' | 'pending';
+
+interface Step {
+  labelAr: string;
+  labelEn: string;
+  status:  StepStatus;
+  subAr?:  string;
+  subEn?:  string;
+}
+
+function BookingProgressStepper({
+  steps, isAr,
+}: { steps: Step[]; isAr: boolean }) {
+  return (
+    <div className="relative flex items-start justify-between gap-0">
+      {steps.map((step, idx) => {
+        const isLast = idx === steps.length - 1;
+        const { status } = step;
+
+        const circleClass =
+          status === 'done'    ? 'bg-emerald-500 border-emerald-500 text-white' :
+          status === 'partial' ? 'bg-amber-400   border-amber-400   text-white' :
+          status === 'current' ? 'bg-brand-600   border-brand-600   text-white' :
+                                 'bg-white        border-slate-200   text-slate-400';
+
+        const lineClass =
+          status === 'done' || (idx > 0 && steps[idx - 1]?.status === 'done')
+            ? 'bg-emerald-400'
+            : 'bg-slate-200';
+
+        const labelClass =
+          status === 'done'    ? 'text-emerald-700 font-semibold' :
+          status === 'partial' ? 'text-amber-600 font-semibold' :
+          status === 'current' ? 'text-brand-700 font-semibold' :
+                                 'text-slate-400';
+
+        const Icon =
+          status === 'done'    ? CheckCircle2 :
+          status === 'partial' ? Clock :
+          status === 'current' ? Circle :
+                                 Circle;
+
+        return (
+          <div key={idx} className="flex-1 flex flex-col items-center relative">
+            {/* Connector line (before circle) */}
+            {idx > 0 && (
+              <div className={`absolute top-4 h-0.5 w-full -translate-x-1/2 ${
+                steps[idx - 1]?.status === 'done' ? 'bg-emerald-400' : 'bg-slate-200'
+              }`}
+                style={{ left: 0, right: '50%', width: '50%' }}
+              />
+            )}
+            {/* Connector line (after circle) */}
+            {!isLast && (
+              <div className={`absolute top-4 h-0.5 ${lineClass}`}
+                style={{ left: '50%', right: 0, width: '50%' }}
+              />
+            )}
+
+            {/* Circle */}
+            <div className={`relative z-10 w-8 h-8 rounded-full border-2 flex items-center justify-center flex-shrink-0 ${circleClass}`}>
+              <Icon size={14} strokeWidth={2.5} />
+            </div>
+
+            {/* Label */}
+            <div className="mt-2 text-center px-1">
+              <p className={`text-[11px] leading-tight ${labelClass}`}>
+                {isAr ? step.labelAr : step.labelEn}
+              </p>
+              {(step.subAr || step.subEn) && (
+                <p className="text-[10px] text-slate-400 mt-0.5 leading-tight">
+                  {isAr ? step.subAr : step.subEn}
+                </p>
+              )}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
 
 interface BookingDetailClientProps {
   locale: string;
@@ -147,6 +232,42 @@ export function BookingDetailClient({ locale, bookingId }: BookingDetailClientPr
   const invoiceIds: string[] = booking.invoiceIds ?? [];
   const existingInvoiceId = invoiceIds[0];
 
+  const isCompleted = booking.status === 'completed';
+  const isPaid      = grandTotalHalalas > 0 && paidHalalas >= grandTotalHalalas;
+  const isPartial   = paidHalalas > 0 && !isPaid;
+  const hasInvoice  = !!existingInvoiceId;
+
+  const progressSteps: Step[] = [
+    {
+      labelAr: 'تم الحجز',
+      labelEn: 'Booked',
+      status:  'done',
+      subAr:   booking.bookingNumber ?? undefined,
+      subEn:   booking.bookingNumber ?? undefined,
+    },
+    {
+      labelAr: 'إصدار فاتورة',
+      labelEn: 'Invoiced',
+      status:  hasInvoice ? 'done' : 'current',
+    },
+    {
+      labelAr: isPaid ? 'مدفوع بالكامل' : isPartial ? 'دفع جزئي' : 'الدفع',
+      labelEn: isPaid ? 'Fully Paid'    : isPartial ? 'Partial'   : 'Payment',
+      status:  isPaid ? 'done' : isPartial ? 'partial' : hasInvoice ? 'current' : 'pending',
+      subAr:   isPartial
+        ? `${formatCurrency(paidHalalas, 'ar-SA')} / ${formatCurrency(grandTotalHalalas, 'ar-SA')}`
+        : undefined,
+      subEn:   isPartial
+        ? `${formatCurrency(paidHalalas, 'en-SA')} / ${formatCurrency(grandTotalHalalas, 'en-SA')}`
+        : undefined,
+    },
+    {
+      labelAr: 'مكتمل',
+      labelEn: 'Completed',
+      status:  isCompleted ? 'done' : isPaid ? 'current' : 'pending',
+    },
+  ];
+
   return (
     <div className="max-w-4xl mx-auto space-y-6">
       {/* Header */}
@@ -182,6 +303,22 @@ export function BookingDetailClient({ locale, bookingId }: BookingDetailClientPr
             </Link>
           )}
         </div>
+      </div>
+
+      {/* ── Progress stepper ─────────────────────────────────────────────── */}
+      <div className="bg-white rounded-2xl border border-surface-border shadow-sm px-6 py-5">
+        <div className="flex items-center justify-between mb-4">
+          <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">
+            {isAr ? 'مراحل الحجز' : 'Booking Progress'}
+          </p>
+          {isCompleted && (
+            <span className="inline-flex items-center gap-1 text-xs font-bold text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-full border border-emerald-200">
+              <BadgeCheck size={12} />
+              {isAr ? 'مكتمل' : 'Completed'}
+            </span>
+          )}
+        </div>
+        <BookingProgressStepper steps={progressSteps} isAr={isAr} />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
