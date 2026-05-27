@@ -479,6 +479,7 @@ export default function SupplierPaymentsPage() {
                       {formatCurrency(totalHalalas, fmtLocale)}
                     </span>
                   </td>
+                  <td className="px-3 py-3.5" />
                   <td className="pe-5 px-3 py-3.5" />
                 </tr>
               </tfoot>
@@ -490,6 +491,14 @@ export default function SupplierPaymentsPage() {
         <SupplierPaymentModal
           agencyId={agencyId}
           onClose={() => setShowModal(false)}
+        />
+      )}
+
+      {showRefund && agencyId && (
+        <SupplierPaymentRefundModal
+          payment={showRefund}
+          onClose={() => setShowRefund(null)}
+          onSuccess={() => setShowRefund(null)}
         />
       )}
     </div>
