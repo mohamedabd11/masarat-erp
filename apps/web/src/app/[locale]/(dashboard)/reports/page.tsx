@@ -10,6 +10,7 @@ import { cn } from '@/lib/utils';
 import { useReportsData, type MonthlyRow, type TypeMixRow, type VatInvoice } from '@/hooks/useReportsData';
 import { useChartOfAccounts, type ChartAccount } from '@/hooks/useChartOfAccounts';
 import { useIncomeStatement } from '@/hooks/useIncomeStatement';
+import { ArAgingTab } from '@/components/reports/ArAgingTab';
 import {
   TrendingUp, TrendingDown, BarChart3, Download,
   FileText, CheckCircle2, AlertCircle, Printer,
@@ -1223,7 +1224,7 @@ function ProfitabilityTab({ monthly, typeMix, loading, isAr, fmtLocale }: {
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
-type TabId = 'overview' | 'trial' | 'pl' | 'vat' | 'bs' | 'profit';
+type TabId = 'overview' | 'trial' | 'pl' | 'ar' | 'vat' | 'bs' | 'profit';
 
 export default function ReportsPage() {
   const locale    = useLocale();
@@ -1282,6 +1283,7 @@ export default function ReportsPage() {
     { id: 'overview', labelAr: 'نظرة عامة',           labelEn: 'Overview',           icon: <BarChart3  size={16} /> },
     { id: 'trial',    labelAr: 'ميزان المراجعة',       labelEn: 'Trial Balance',      icon: <Scale      size={16} /> },
     { id: 'pl',       labelAr: 'قائمة الدخل',          labelEn: 'Income Statement',   icon: <ListTree   size={16} /> },
+    { id: 'ar',       labelAr: 'الذمم المدينة',         labelEn: 'AR Aging',           icon: <Receipt    size={16} /> },
     { id: 'bs',       labelAr: 'الميزانية العمومية',   labelEn: 'Balance Sheet',      icon: <Building2  size={16} /> },
     { id: 'profit',   labelAr: 'تحليل الربحية',        labelEn: 'Profitability',      icon: <PieChart   size={16} /> },
     { id: 'vat',      labelAr: 'الإقرار الضريبي',      labelEn: 'VAT Return',         icon: <Stamp      size={16} />, badge: 'ZATCA' },
@@ -1373,6 +1375,9 @@ export default function ReportsPage() {
         )}
         {activeTab === 'pl' && (
           <IncomeStatementTab isAr={isAr} fmtLocale={fmtLocale} />
+        )}
+        {activeTab === 'ar' && (
+          <ArAgingTab />
         )}
         {activeTab === 'bs' && (
           <BalanceSheetTab accounts={accounts} loadingAccounts={loadingAccounts} isAr={isAr} fmtLocale={fmtLocale} />
