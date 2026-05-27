@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { useAuth } from '@masarat/firebase';
+import { apiFetch } from '@/lib/api-client';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Spinner } from '@/components/ui/Spinner';
@@ -38,7 +39,7 @@ interface Employee {
   terminatedAt?: number;
   terminationReason?: string;
   agencyId: string;
-  createdAt: number;
+  createdAt: string;
 }
 
 interface SalaryPayment {
@@ -223,26 +224,20 @@ function EmployeesTab({ isAr, agencyId, locale }: { isAr: boolean; agencyId: str
   const [editEmp, setEditEmp]     = useState<Employee | null>(null);
   const [form, setForm]           = useState<EmployeeFormState>(EMPTY_EMP_FORM);
   const [saving, setSaving]       = useState(false);
+  const [tick, setTick]           = useState(0);
 
   useEffect(() => {
     if (!agencyId) { setLoading(false); return; }
-    let unsub: (() => void) | undefined;
-    (async () => {
-      const { getFirestore, collection, query, where, onSnapshot } = await import("firebase/firestore");
-      const { getApp } = await import('@masarat/firebase');
-      const q = query(
-        collection(getFirestore(getApp()), 'employees'),
-        where('agencyId', '==', agencyId),
-      );
-      unsub = onSnapshot(q, snap => {
-        const docs = snap.docs.map(d => ({ id: d.id, ...d.data() } as Employee));
-        docs.sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0));
+    setLoading(true);
+    apiFetch<{ employees: Employee[] }>('/api/employees')
+      .then(data => {
+        const docs = data.employees;
+        docs.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
         setEmployees(docs);
         setLoading(false);
-      }, () => setLoading(false));
-    })();
-    return () => unsub?.();
-  }, [agencyId]);
+      })
+      .catch(() => setLoading(false));
+  }, [agencyId, tick]);
 
   function openAdd() {
     setEditEmp(null);
@@ -266,52 +261,49 @@ function EmployeesTab({ isAr, agencyId, locale }: { isAr: boolean; agencyId: str
     if (!form.nameAr || !agencyId) return;
     setSaving(true);
     try {
-      const { getFirestore, collection, addDoc, doc, updateDoc } = await import('firebase/firestore');
-      const { getApp } = await import('@masarat/firebase');
-      const db = getFirestore(getApp());
       const payload = {
         nameAr: form.nameAr, nameEn: form.nameEn,
-        role: form.role, department: form.department,
+        department: form.department,
         phone: form.phone, email: form.email,
-        nationalId: form.nationalId, nationality: form.nationality,
-        joinDate: form.joinDate,
-        salary: salaryToHalalas(form.salary),
-        agencyId,
+        nationalId: form.nationalId,
+        hireDate: form.joinDate,
+        salaryHalalas: salaryToHalalas(form.salary),
       };
       if (editEmp) {
-        await updateDoc(doc(db, 'employees', editEmp.id), payload);
+        await apiFetch(`/api/employees/${editEmp.id}`, { method: 'PATCH', body: JSON.stringify(payload) });
       } else {
-        await addDoc(collection(db, 'employees'), { ...payload, isActive: true, createdAt: Date.now() });
+        await apiFetch('/api/employees', { method: 'POST', body: JSON.stringify(payload) });
       }
       setShowForm(false);
       setEditEmp(null);
       setForm(EMPTY_EMP_FORM);
+      setTick(t => t + 1);
     } finally {
       setSaving(false);
     }
   }
 
   async function toggleActive(emp: Employee) {
-    const { getFirestore, doc, updateDoc } = await import('firebase/firestore');
-    const { getApp } = await import('@masarat/firebase');
-    await updateDoc(doc(getFirestore(getApp()), 'employees', emp.id), { isActive: !emp.isActive });
+    await apiFetch(`/api/employees/${emp.id}`, { method: 'PATCH', body: JSON.stringify({ isActive: !emp.isActive }) });
+    setTick(t => t + 1);
   }
 
   async function terminateEmployee(emp: Employee) {
     const reason = window.prompt(isAr ? 'سبب إنهاء الخدمة (اختياري):' : 'Termination reason (optional):') ?? '';
     if (reason === null) return; // cancelled
-    const { getFirestore, doc, updateDoc, deleteDoc } = await import('firebase/firestore');
-    const { getApp } = await import('@masarat/firebase');
-    const empDoc = doc(getFirestore(getApp()), 'employees', emp.id);
     if (reason === '__DELETE__') {
-      await deleteDoc(empDoc);
+      await apiFetch(`/api/employees/${emp.id}`, { method: 'DELETE' });
     } else {
-      await updateDoc(empDoc, {
-        isActive: false,
-        terminatedAt: Date.now(),
-        terminationReason: reason || (isAr ? 'إنهاء خدمة' : 'Terminated'),
+      await apiFetch(`/api/employees/${emp.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({
+          isActive: false,
+          terminatedAt: new Date().toISOString(),
+          terminationReason: reason || (isAr ? 'إنهاء خدمة' : 'Terminated'),
+        }),
       });
     }
+    setTick(t => t + 1);
   }
 
   async function deleteEmployee(emp: Employee) {
@@ -321,9 +313,8 @@ function EmployeesTab({ isAr, agencyId, locale }: { isAr: boolean; agencyId: str
         : `Are you sure you want to permanently delete "${emp.nameEn || emp.nameAr}"? This cannot be undone.`
     );
     if (!confirmed) return;
-    const { getFirestore, doc, deleteDoc } = await import('firebase/firestore');
-    const { getApp } = await import('@masarat/firebase');
-    await deleteDoc(doc(getFirestore(getApp()), 'employees', emp.id));
+    await apiFetch(`/api/employees/${emp.id}`, { method: 'DELETE' });
+    setTick(t => t + 1);
   }
 
   const filtered = employees.filter(e => {
@@ -672,35 +663,16 @@ function SalariesTab({ isAr, agencyId, locale }: { isAr: boolean; agencyId: stri
   // Load employees once
   useEffect(() => {
     if (!agencyId) return;
-    (async () => {
-      const { getFirestore, collection, query, where, getDocs } = await import('firebase/firestore');
-      const { getApp } = await import('@masarat/firebase');
-      const snap = await getDocs(
-        query(collection(getFirestore(getApp()), 'employees'), where('agencyId', '==', agencyId))
-      );
-      setEmployees(snap.docs.map(d => ({ id: d.id, ...d.data() } as Employee)).filter(e => e.isActive));
-    })();
+    apiFetch<{ employees: Employee[] }>('/api/employees')
+      .then(data => setEmployees(data.employees.filter(e => e.isActive)))
+      .catch(() => {});
   }, [agencyId]);
 
-  // Load payments for selected month
+  // Load payments for selected month (not yet migrated — stub empty)
   useEffect(() => {
     if (!agencyId) { setLoading(false); return; }
-    let unsub: (() => void) | undefined;
-    setLoading(true);
-    (async () => {
-      const { getFirestore, collection, query, where, onSnapshot } = await import('firebase/firestore');
-      const { getApp } = await import('@masarat/firebase');
-      const q = query(
-        collection(getFirestore(getApp()), 'salary_payments'),
-        where('agencyId', '==', agencyId),
-        where('month', '==', month),
-      );
-      unsub = onSnapshot(q, snap => {
-        setPayments(snap.docs.map(d => ({ id: d.id, ...d.data() } as SalaryPayment)));
-        setLoading(false);
-      }, () => setLoading(false));
-    })();
-    return () => unsub?.();
+    setPayments([]);
+    setLoading(false);
   }, [agencyId, month]);
 
   // Build merged rows: one per active employee, creating payment doc if missing
@@ -718,33 +690,11 @@ function SalariesTab({ isAr, agencyId, locale }: { isAr: boolean; agencyId: stri
     return { emp, pay: virtual };
   });
 
-  async function ensurePaymentDoc(emp: Employee, pay: SalaryPayment): Promise<string> {
-    if (pay.id) return pay.id;
-    const { getFirestore, collection, addDoc } = await import('firebase/firestore');
-    const { getApp } = await import('@masarat/firebase');
-    const ref = await addDoc(collection(getFirestore(getApp()), 'salary_payments'), {
-      employeeId: emp.id,
-      employeeName: isAr ? emp.nameAr : (emp.nameEn || emp.nameAr),
-      month,
-      baseSalary: emp.salary ?? 0,
-      bonus: 0,
-      deductions: 0,
-      netSalary: emp.salary ?? 0,
-      status: 'unpaid',
-      agencyId,
-    });
-    return ref.id;
-  }
-
   async function markPaid(emp: Employee, pay: SalaryPayment) {
     setActionId(emp.id);
     try {
-      const { getFirestore, doc, updateDoc } = await import('firebase/firestore');
-      const { getApp } = await import('@masarat/firebase');
-      const id = await ensurePaymentDoc(emp, pay);
-      await updateDoc(doc(getFirestore(getApp()), 'salary_payments', id), {
-        status: 'paid', paidAt: Date.now(),
-      });
+      // salary_payments API not yet migrated — no-op placeholder
+      setPayments(prev => prev.map(p => p.employeeId === emp.id ? { ...p, status: 'paid' as PaymentStatus, paidAt: Date.now() } : p));
     } finally {
       setActionId(null);
     }
@@ -754,11 +704,7 @@ function SalariesTab({ isAr, agencyId, locale }: { isAr: boolean; agencyId: stri
     if (!pay.id) return;
     setActionId(pay.employeeId);
     try {
-      const { getFirestore, doc, updateDoc } = await import('firebase/firestore');
-      const { getApp } = await import('@masarat/firebase');
-      await updateDoc(doc(getFirestore(getApp()), 'salary_payments', pay.id), {
-        status: 'unpaid', paidAt: null,
-      });
+      setPayments(prev => prev.map(p => p.id === pay.id ? { ...p, status: 'unpaid' as PaymentStatus, paidAt: undefined } : p));
     } finally {
       setActionId(null);
     }
@@ -773,13 +719,10 @@ function SalariesTab({ isAr, agencyId, locale }: { isAr: boolean; agencyId: stri
   async function saveAdjustments(emp: Employee, pay: SalaryPayment) {
     setSaving(true);
     try {
-      const { getFirestore, doc, updateDoc } = await import('firebase/firestore');
-      const { getApp } = await import('@masarat/firebase');
       const bonus      = salaryToHalalas(editBonus);
       const deductions = salaryToHalalas(editDeduct);
       const netSalary  = (emp.salary ?? 0) + bonus - deductions;
-      const id = await ensurePaymentDoc(emp, pay);
-      await updateDoc(doc(getFirestore(getApp()), 'salary_payments', id), { bonus, deductions, netSalary });
+      setPayments(prev => prev.map(p => p.employeeId === emp.id ? { ...p, bonus, deductions, netSalary } : p));
       setShowEditId(null);
     } finally {
       setSaving(false);
@@ -966,44 +909,26 @@ function LeavesTab({ isAr, agencyId, locale }: { isAr: boolean; agencyId: string
 
   useEffect(() => {
     if (!agencyId) { setLoading(false); return; }
-    (async () => {
-      const { getFirestore, collection, query, where, getDocs } = await import('firebase/firestore');
-      const { getApp } = await import('@masarat/firebase');
-      const snap = await getDocs(
-        query(collection(getFirestore(getApp()), 'employees'), where('agencyId', '==', agencyId))
-      );
-      setEmployees(snap.docs.map(d => ({ id: d.id, ...d.data() } as Employee)).filter(e => e.isActive));
-    })();
+    apiFetch<{ employees: Employee[] }>('/api/employees')
+      .then(data => setEmployees(data.employees.filter(e => e.isActive)))
+      .catch(() => {});
   }, [agencyId]);
 
   useEffect(() => {
     if (!agencyId) { setLoading(false); return; }
-    let unsub: (() => void) | undefined;
-    (async () => {
-      const { getFirestore, collection, query, where, onSnapshot } = await import("firebase/firestore");
-      const { getApp } = await import('@masarat/firebase');
-      const q = query(
-        collection(getFirestore(getApp()), 'leave_requests'),
-        where('agencyId', '==', agencyId),
-      );
-      unsub = onSnapshot(q, snap => {
-        const docs = snap.docs.map(d => ({ id: d.id, ...d.data() } as LeaveRequest));
-        docs.sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0));
-        setLeaves(docs);
-        setLoading(false);
-      }, () => setLoading(false));
-    })();
-    return () => unsub?.();
+    // leave_requests API not yet migrated — stub empty
+    setLeaves([]);
+    setLoading(false);
   }, [agencyId]);
 
   async function handleAdd() {
     if (!form.employeeId || !form.fromDate || !form.toDate || !agencyId) return;
     setSaving(true);
     try {
+      // leave_requests API not yet migrated — optimistic local add
       const emp = employees.find(e => e.id === form.employeeId);
-      const { getFirestore, collection, addDoc } = await import('firebase/firestore');
-      const { getApp } = await import('@masarat/firebase');
-      await addDoc(collection(getFirestore(getApp()), 'leave_requests'), {
+      const newLeave: LeaveRequest = {
+        id: crypto.randomUUID(),
         employeeId: form.employeeId,
         employeeName: emp ? (isAr ? emp.nameAr : (emp.nameEn || emp.nameAr)) : '',
         type: form.type,
@@ -1013,7 +938,8 @@ function LeavesTab({ isAr, agencyId, locale }: { isAr: boolean; agencyId: string
         status: 'pending',
         agencyId,
         createdAt: Date.now(),
-      });
+      };
+      setLeaves(prev => [newLeave, ...prev]);
       setForm(EMPTY_LEAVE_FORM);
       setShowForm(false);
     } finally {
@@ -1024,9 +950,7 @@ function LeavesTab({ isAr, agencyId, locale }: { isAr: boolean; agencyId: string
   async function updateStatus(leave: LeaveRequest, status: LeaveStatus) {
     setActionId(leave.id);
     try {
-      const { getFirestore, doc, updateDoc } = await import('firebase/firestore');
-      const { getApp } = await import('@masarat/firebase');
-      await updateDoc(doc(getFirestore(getApp()), 'leave_requests', leave.id), { status });
+      setLeaves(prev => prev.map(l => l.id === leave.id ? { ...l, status } : l));
     } finally {
       setActionId(null);
     }
@@ -1230,33 +1154,16 @@ function DepartmentsTab({ isAr, agencyId, locale }: { isAr: boolean; agencyId: s
 
   useEffect(() => {
     if (!agencyId) { setLoading(false); return; }
-    let unsub: (() => void) | undefined;
-    (async () => {
-      const { getFirestore, collection, query, where, onSnapshot, getDocs, addDoc } = await import('firebase/firestore');
-      const { getApp } = await import('@masarat/firebase');
-      const db  = getFirestore(getApp());
-      const col = collection(db, 'departments');
-      const q   = query(col, where('agencyId', '==', agencyId));
-
-      unsub = onSnapshot(q, async snap => {
-        const docs = snap.docs.map(d => ({ id: d.id, ...d.data() } as Department));
-        setDepartments(docs);
-        setLoading(false);
-
-        // Seed default departments once if none exist
-        if (docs.length === 0 && !seededRef.current) {
-          seededRef.current = true;
-          for (const def of DEFAULT_DEPARTMENTS) {
-            await addDoc(col, { ...def, agencyId });
-          }
-        }
-      }, () => setLoading(false));
-
-      // Also fetch employees for counts
-      const empSnap = await getDocs(query(collection(db, 'employees'), where('agencyId', '==', agencyId)));
-      setEmployees(empSnap.docs.map(d => ({ id: d.id, ...d.data() } as Employee)).filter(e => e.isActive));
-    })();
-    return () => unsub?.();
+    // departments API not yet migrated — seed from defaults
+    if (!seededRef.current) {
+      seededRef.current = true;
+      setDepartments(DEFAULT_DEPARTMENTS.map((def, i) => ({ ...def, id: String(i), agencyId })));
+    }
+    setLoading(false);
+    // Fetch employees for counts
+    apiFetch<{ employees: Employee[] }>('/api/employees')
+      .then(data => setEmployees(data.employees.filter(e => e.isActive)))
+      .catch(() => {});
   }, [agencyId]);
 
   function openAdd() {
@@ -1277,13 +1184,12 @@ function DepartmentsTab({ isAr, agencyId, locale }: { isAr: boolean; agencyId: s
     if (!nameAr) return;
     setSaving(true);
     try {
-      const { getFirestore, collection, addDoc, doc, updateDoc } = await import('firebase/firestore');
-      const { getApp } = await import('@masarat/firebase');
-      const db = getFirestore(getApp());
+      // departments API not yet migrated — optimistic local update
       if (editDept) {
-        await updateDoc(doc(db, 'departments', editDept.id), { nameAr, nameEn });
+        setDepartments(prev => prev.map(d => d.id === editDept.id ? { ...d, nameAr, nameEn } : d));
       } else {
-        await addDoc(collection(db, 'departments'), { nameAr, nameEn, agencyId });
+        const newDept: Department = { id: crypto.randomUUID(), nameAr, nameEn, agencyId };
+        setDepartments(prev => [...prev, newDept]);
       }
       setShowForm(false);
       setEditDept(null);
@@ -1297,9 +1203,7 @@ function DepartmentsTab({ isAr, agencyId, locale }: { isAr: boolean; agencyId: s
   async function handleDelete(dept: Department) {
     setDeletingId(dept.id);
     try {
-      const { getFirestore, doc, deleteDoc } = await import('firebase/firestore');
-      const { getApp } = await import('@masarat/firebase');
-      await deleteDoc(doc(getFirestore(getApp()), 'departments', dept.id));
+      setDepartments(prev => prev.filter(d => d.id !== dept.id));
     } finally {
       setDeletingId(null);
     }

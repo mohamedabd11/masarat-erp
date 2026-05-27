@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useMemo } from 'react';
 import { useAuth } from '@masarat/firebase';
+import { apiFetch } from '@/lib/api-client';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Spinner } from '@/components/ui/Spinner';
@@ -43,7 +44,7 @@ interface Quote {
   notes: string;
   terms: string;
   convertedToBookingId?: string;
-  createdAt: number;
+  createdAt: string;
 }
 
 interface QuotesClientProps { locale: string }
@@ -489,35 +490,30 @@ export function QuotesClient({ locale }: QuotesClientProps) {
 
   const agencyId = user?.agencyId ?? '';
 
+  const [tick, setTick] = useState(0);
+
   useEffect(() => {
     if (!agencyId) { setLoading(false); return; }
-    let unsub: (() => void) | undefined;
-    async function subscribe() {
-      const { getFirestore, collection, query, where, onSnapshot } = await import('firebase/firestore');
-      const { getApp } = await import('@masarat/firebase');
-      const q = query(collection(getFirestore(getApp()), 'quotes'), where('agencyId', '==', agencyId));
-      unsub = onSnapshot(q, snap => {
-        const docs = snap.docs.map(d => ({ id: d.id, ...d.data() } as Quote));
-        docs.sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0));
+    setLoading(true);
+    apiFetch<{ quotes: Quote[] }>('/api/quotes')
+      .then(data => {
+        const docs = data.quotes;
+        docs.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
         setQuotes(docs);
         setLoading(false);
-      }, () => setLoading(false));
-    }
-    void subscribe();
-    return () => unsub?.();
-  }, [agencyId]);
+      })
+      .catch(() => setLoading(false));
+  }, [agencyId, tick]);
 
   async function handleSave(data: Omit<Quote, 'id'>) {
     if (!agencyId) return;
-    const { getFirestore, collection, addDoc } = await import('firebase/firestore');
-    const { getApp } = await import('@masarat/firebase');
-    await addDoc(collection(getFirestore(getApp()), 'quotes'), { ...data, agencyId });
+    await apiFetch('/api/quotes', { method: 'POST', body: JSON.stringify(data) });
+    setTick(t => t + 1);
   }
 
   async function handleStatusChange(id: string, status: QuoteStatus) {
-    const { getFirestore, doc, updateDoc } = await import('firebase/firestore');
-    const { getApp } = await import('@masarat/firebase');
-    await updateDoc(doc(getFirestore(getApp()), 'quotes', id), { status, updatedAt: Date.now() });
+    await apiFetch(`/api/quotes/${id}`, { method: 'PATCH', body: JSON.stringify({ status }) });
+    setTick(t => t + 1);
   }
 
   const now = Date.now();
