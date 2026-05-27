@@ -80,7 +80,7 @@ export function ArAgingTab() {
       return (
         name.includes(q) ||
         r.invoiceNumber.toLowerCase().includes(q) ||
-        (r.bookingNumber ?? '').toLowerCase().includes(q)
+        (r.bookingId ?? '').toLowerCase().includes(q)
       );
     });
   }, [rows, bucket, search, isAr]);
@@ -96,7 +96,7 @@ export function ArAgingTab() {
        isAr ? 'الفئة' : 'Bucket'],
       ...filtered.map(r => [
         isAr ? r.customerNameAr : r.customerNameEn,
-        r.invoiceNumber, r.bookingNumber ?? '',
+        r.invoiceNumber, r.bookingId ?? '',
         formatDate(r.issueDate, fmtLocale),
         r.daysOutstanding,
         r.grandTotalHalalas / 100,
@@ -304,8 +304,8 @@ export function ArAgingTab() {
                         <p className="text-sm font-semibold text-slate-900 truncate max-w-[160px]">
                           {custName || (isAr ? '(غير محدد)' : '(unknown)')}
                         </p>
-                        {r.bookingNumber && (
-                          <p className="text-xs text-slate-400 font-mono mt-0.5">{r.bookingNumber}</p>
+                        {r.bookingId && (
+                          <p className="text-xs text-slate-400 font-mono mt-0.5">{r.bookingId}</p>
                         )}
                       </td>
                       <td className="px-3 py-3.5 hidden md:table-cell">

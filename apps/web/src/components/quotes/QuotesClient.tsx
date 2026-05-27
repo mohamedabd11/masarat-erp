@@ -306,7 +306,7 @@ function NewQuoteModal({ isAr, onClose, onSave }: {
       grandTotalHalalas,
       notes: notes.trim(),
       terms: terms.trim(),
-      createdAt: Date.now(),
+      createdAt: new Date().toISOString(),
     });
     setSaving(false);
     onClose();

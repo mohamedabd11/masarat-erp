@@ -153,7 +153,7 @@ export function InvoiceDetailClient({ locale, invoiceId }: InvoiceDetailClientPr
   // ── Extract data ──────────────────────────────────────────────────────────
 
   const isCreditNote = invoice.type === 'credit_note' || invoice.type === '381';
-  const zatcaStatus: ZatcaStatus = 'not_submitted';
+  const zatcaStatus = 'not_submitted' as ZatcaStatus;
   const zStyle = ZATCA_STYLE[zatcaStatus] ?? ZATCA_STYLE.not_submitted;
   const uuid = invoice.zatcaUuid ?? '';
   const issueDate = invoice.issueDate ? new Date(invoice.issueDate) : (invoice.createdAt ? new Date(invoice.createdAt) : new Date());
@@ -286,7 +286,7 @@ export function InvoiceDetailClient({ locale, invoiceId }: InvoiceDetailClientPr
           {isVatRegistered && (
             <div className="flex flex-col items-center gap-2 flex-shrink-0">
               <div className="w-28 h-28 rounded-lg border-2 border-dashed border-slate-200 bg-slate-50 flex items-center justify-center">
-                {invoice.zatca?.qrCodeData ? (
+                {false ? (
                   <span className="text-[10px] text-slate-400 text-center px-2 break-all font-mono">
                     QR
                   </span>
