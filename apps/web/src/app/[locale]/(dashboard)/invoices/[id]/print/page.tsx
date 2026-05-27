@@ -8,6 +8,26 @@ import { Spinner } from '@/components/ui/Spinner';
 import { PrintableInvoice } from '@/components/invoices/PrintableInvoice';
 import type { ComponentProps } from 'react';
 
+interface InvoiceDoc {
+  id: string;
+  invoiceNumber?: string;
+  issueDate?: { toDate?(): Date };
+  dueDate?: { toDate?(): Date };
+  createdAt?: { toDate?(): Date };
+  totals?: { grandTotal?: number; subtotalExclVat?: number; totalVat?: number };
+  lines?: Record<string, unknown>[];
+  seller?: {
+    name?: { ar?: string; en?: string };
+    vatNumber?: string;
+    crNumber?: string;
+    address?: { streetName?: string; buildingNumber?: string; district?: string; city?: string; postalCode?: string };
+    phone?: string;
+    email?: string;
+  };
+  buyer?: { name?: { ar?: string; en?: string }; phone?: string; vatNumber?: string };
+  zatca?: { invoiceUUID?: string; invoiceTypeCode?: string; qrCodeData?: string; submissionStatus?: string };
+}
+
 type PrintableInvoiceData = ComponentProps<typeof PrintableInvoice>['invoice'];
 
 export default function PrintInvoicePage({
@@ -38,8 +58,7 @@ export default function PrintInvoicePage({
         if (cancelled) return;
         if (!snap.exists()) { setError('الفاتورة غير موجودة'); setLoading(false); return; }
 
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const d = { id: snap.id, ...snap.data() } as Record<string, any>;
+        const d: InvoiceDoc = { id: snap.id, ...(snap.data() as Omit<InvoiceDoc, 'id'>) };
         // Always use the agency's CURRENT isVatRegistered setting — never trust what was stored on the invoice
         const agencyIsVatRegistered = agencySnap?.exists() ? (agencySnap.data() as Record<string, unknown>)['isVatRegistered'] === true : false;
 
