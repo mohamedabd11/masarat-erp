@@ -104,5 +104,6 @@ export async function getNextBookingNumber(
     return next;
   });
 
-  return `BK-${year}-${String(newDoc).padStart(6, '0')}`;
+  const yy = String(year).slice(-2);
+  return `BK-${yy}-${String(newDoc).padStart(6, '0')}`;
 }
