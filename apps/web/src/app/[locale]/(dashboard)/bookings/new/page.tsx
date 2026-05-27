@@ -565,9 +565,10 @@ function NewBookingContent() {
     setSubmitting(true);
     setFormError('');
     try {
-      const { getFirestore, collection, addDoc, Timestamp } = await import('firebase/firestore');
-      const { getApp } = await import('@masarat/firebase');
-      const db = getFirestore(getApp());
+      const { getAuth } = await import('firebase/auth');
+      const { getApp }  = await import('@masarat/firebase');
+      const token = await getAuth(getApp()).currentUser?.getIdToken();
+      if (!token) throw new Error('no token');
 
       const costH  = toH(data.costPriceSAR ?? 0);
       const feeH   = toH(data.serviceFeeSAR ?? 0);
@@ -576,56 +577,52 @@ function NewBookingContent() {
       const vatH   = agencyIsVatRegistered ? Math.round(vBase * 0.15) : 0;
       const totalH = sell + vatH;
 
-      const year = new Date().getFullYear();
-      const bookingNumber = `BK-${year}-${String(Date.now()).slice(-6)}`;
-
-      const ref = await addDoc(collection(db, 'bookings'), {
-        agencyId,
-        bookingNumber,
-        type:         selType,
-        status:       'confirmed',
-        customerName: { ar: data.customerName, en: data.customerName },
-        customerPhone: data.customerPhone,
-        customerEmail: data.customerEmail ?? '',
-        customerId:    data.customerId ?? '',
-        agentId:      user.uid,
-        agentName:    user.displayName ?? '',
-        passengers: data.travelers.map((t, i) => ({
-          order: i + 1, type: 'adult',
-          nameAr: t.nameAr ?? '', nameEn: t.nameEn ?? t.nameAr ?? '',
-          passportNumber: t.passportNumber ?? '',
-          passportExpiry: t.passportExpiry ?? '',
-          nationality:    t.nationality ?? 'SA',
-          dateOfBirth:    t.dateOfBirth ?? '',
-          gender:         t.gender ?? 'male',
-          customerId: '',
-        })),
-        pricing: {
-          revenueModel: data.revenueModel, currency: 'SAR',
-          totalCost: costH, serviceFee: feeH, vatAmount: vatH,
-          totalAmount: totalH, commission: feeH,
-        },
-        paymentStatus: 'unpaid', totalPaid: 0, totalDue: totalH, invoiceIds: [],
-        supplierName:  data.supplierName ?? '',
-        supplierRef:   data.supplierRef  ?? '',
-        destination:   data.destination  ?? data.visaCountry ?? data.toCity ?? '',
-        travelDate:    data.departureDate ? Timestamp.fromDate(new Date(data.departureDate)) : Timestamp.now(),
-        returnDate:    data.returnDate    ? Timestamp.fromDate(new Date(data.returnDate))    : null,
-        notes:         data.notes ?? '',
-        details: {
-          fromCity: data.fromCity ?? null, toCity: data.toCity ?? null,
-          airline: data.airline ?? null, flightClass: data.flightClass ?? null, pnr: data.pnr ?? null,
-          hotelName: data.hotelName ?? null, roomType: data.roomType ?? null, boardType: data.boardType ?? null,
-          makkahHotel: data.makkahHotel ?? null, makkahNights: data.makkahNights ?? null,
-          madinahHotel: data.madinahHotel ?? null, madinahNights: data.madinahNights ?? null,
-          visaCountry: data.visaCountry ?? null, visaType: data.visaType ?? null,
-          visaProcessing: data.visaProcessing ?? null, visaEntries: data.visaEntries ?? null,
-        },
-        customFields: {}, source: 'web',
-        createdAt: Timestamp.now(), updatedAt: Timestamp.now(), createdBy: user.uid,
+      const res = await fetch('/api/bookings/create', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          type:         selType,
+          customerName: { ar: data.customerName, en: data.customerName },
+          customerPhone: data.customerPhone,
+          customerEmail: data.customerEmail ?? '',
+          customerId:    data.customerId ?? '',
+          passengers: data.travelers.map((t, i) => ({
+            order: i + 1, type: 'adult',
+            nameAr: t.nameAr ?? '', nameEn: t.nameEn ?? t.nameAr ?? '',
+            passportNumber: t.passportNumber ?? '',
+            passportExpiry: t.passportExpiry ?? '',
+            nationality:    t.nationality ?? 'SA',
+            dateOfBirth:    t.dateOfBirth ?? '',
+            gender:         t.gender ?? 'male',
+            customerId: '',
+          })),
+          pricing: {
+            revenueModel: data.revenueModel, currency: 'SAR',
+            totalCost: costH, serviceFee: feeH, vatAmount: vatH,
+            totalAmount: totalH, commission: feeH,
+          },
+          supplierName:  data.supplierName ?? '',
+          supplierRef:   data.supplierRef  ?? '',
+          destination:   data.destination  ?? data.visaCountry ?? data.toCity ?? '',
+          travelDate:    data.departureDate ?? null,
+          returnDate:    data.returnDate    ?? null,
+          notes:         data.notes ?? '',
+          details: {
+            fromCity: data.fromCity ?? null, toCity: data.toCity ?? null,
+            airline: data.airline ?? null, flightClass: data.flightClass ?? null, pnr: data.pnr ?? null,
+            hotelName: data.hotelName ?? null, roomType: data.roomType ?? null, boardType: data.boardType ?? null,
+            makkahHotel: data.makkahHotel ?? null, makkahNights: data.makkahNights ?? null,
+            madinahHotel: data.madinahHotel ?? null, madinahNights: data.madinahNights ?? null,
+            visaCountry: data.visaCountry ?? null, visaType: data.visaType ?? null,
+            visaProcessing: data.visaProcessing ?? null, visaEntries: data.visaEntries ?? null,
+          },
+        }),
       });
 
-      router.push(`/${locale}/bookings/${ref.id}`);
+      const json = await res.json() as { bookingId?: string; error?: string };
+      if (!res.ok) throw new Error(json.error ?? 'server error');
+
+      router.push(`/${locale}/bookings/${json.bookingId}`);
     } catch (err) {
       console.error('Booking save error:', err);
       setFormError(isAr ? 'حدث خطأ أثناء الحفظ، حاول مرة أخرى' : 'Error saving, please try again');
