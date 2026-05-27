@@ -17,6 +17,7 @@ import {
   Plane, Building2, Package, Moon, Shield, Stamp, Car, Anchor, Users, Layers,
   X, Check, Search, UserPlus, FileText,
 } from 'lucide-react';
+import { CustomerSearch } from '@/components/customers/CustomerSearch';
 
 // ─── Service Types Catalog ─────────────────────────────────────────────────────
 
@@ -116,102 +117,7 @@ const formSchema = z.object({
 
 type FormData = z.infer<typeof formSchema>;
 
-// ─── Customer Search ───────────────────────────────────────────────────────────
-
-interface CustomerRecord {
-  id: string;
-  nameAr: string;
-  nameEn?: string;
-  phone: string;
-  email?: string;
-}
-
-function CustomerSearch({
-  isAr,
-  agencyId,
-  onSelect,
-}: {
-  isAr: boolean;
-  agencyId: string;
-  onSelect: (c: CustomerRecord) => void;
-}) {
-  const [query, setQuery]       = useState('');
-  const [results, setResults]   = useState<CustomerRecord[]>([]);
-  const [loading, setLoading]   = useState(false);
-  const [open, setOpen]         = useState(false);
-
-  useEffect(() => {
-    if (query.trim().length < 2) { setResults([]); return; }
-    let cancelled = false;
-    setLoading(true);
-
-    async function search() {
-      const { getFirestore, collection, query: fsQuery, where, limit, getDocs } =
-        await import('firebase/firestore');
-      const { getApp } = await import('@masarat/firebase');
-      const db = getFirestore(getApp());
-
-      const snap = await getDocs(
-        fsQuery(collection(db, 'customers'), where('agencyId', '==', agencyId), limit(200))
-      );
-
-      if (cancelled) return;
-      const q = query.toLowerCase();
-      const filtered = snap.docs
-        .map(d => ({ id: d.id, ...d.data() } as CustomerRecord))
-        .filter(c =>
-          (c.nameAr ?? '').includes(q) ||
-          (c.nameEn ?? '').toLowerCase().includes(q) ||
-          (c.phone ?? '').includes(q)
-        )
-        .slice(0, 8);
-
-      setResults(filtered);
-      setLoading(false);
-    }
-
-    void search();
-    return () => { cancelled = true; };
-  }, [query, agencyId]);
-
-  return (
-    <div className="relative">
-      <div className="relative">
-        <Search size={15} className="absolute start-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
-        <input
-          type="search"
-          value={query}
-          onFocus={() => setOpen(true)}
-          onBlur={() => setTimeout(() => setOpen(false), 200)}
-          onChange={e => { setQuery(e.target.value); setOpen(true); }}
-          placeholder={isAr ? 'ابحث بالاسم أو رقم الجوال...' : 'Search by name or phone...'}
-          className="w-full rounded-lg border border-slate-200 bg-white ps-9 pe-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
-        />
-        {loading && <Spinner size="sm" className="absolute end-3 top-1/2 -translate-y-1/2" />}
-      </div>
-
-      {open && results.length > 0 && (
-        <div className="absolute z-50 top-full mt-1 start-0 end-0 bg-white border border-slate-200 rounded-xl shadow-lg overflow-hidden">
-          {results.map(c => (
-            <button
-              key={c.id}
-              onMouseDown={() => { onSelect(c); setQuery(''); setOpen(false); }}
-              className="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-brand-50 transition-colors text-start"
-            >
-              <div className="w-8 h-8 rounded-full bg-brand-100 text-brand-700 flex items-center justify-center text-xs font-bold flex-shrink-0">
-                {(c.nameAr ?? c.nameEn ?? '?')[0]}
-              </div>
-              <div className="min-w-0">
-                <p className="text-sm font-medium text-slate-900 truncate">{c.nameAr ?? c.nameEn}</p>
-                <p className="text-xs text-slate-400">{c.phone}</p>
-              </div>
-            </button>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
+// CustomerSearch is imported from @/components/customers/CustomerSearch
 
 // ─── Service Grid ─────────────────────────────────────────────────────────────
 
@@ -720,7 +626,6 @@ function NewBookingContent() {
                   </CardTitle>
                 </CardHeader>
                 <CustomerSearch
-                  isAr={isAr}
                   agencyId={agencyId}
                   onSelect={c => {
                     setValue('customerId',    c.id);
