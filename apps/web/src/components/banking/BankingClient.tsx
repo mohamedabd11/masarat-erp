@@ -429,33 +429,35 @@ export function BankingClient({ locale }: BankingClientProps) {
     await addDoc(collection(getFirestore(getApp()), 'bank_accounts'), { ...data, agencyId });
   }
 
-  function handleTransfer(fromId: string, toId: string, amountH: number, desc: string) {
+  async function handleTransfer(fromId: string, toId: string, amountH: number, desc: string) {
     const ref = `TRF-${Date.now()}`;
     const now = Date.now();
-    setAccounts(prev => prev.map(a => {
-      if (a.id === fromId) return { ...a, balanceHalalas: a.balanceHalalas - amountH };
-      if (a.id === toId)   return { ...a, balanceHalalas: a.balanceHalalas + amountH };
-      return a;
-    }));
     const fromAcc = accounts.find(a => a.id === fromId);
     const toAcc   = accounts.find(a => a.id === toId);
-    const outTx: BankTx & { id: string } = {
-      id: `tx-out-${Date.now()}`, agencyId: agencyId || 'demo',
-      accountId: fromId, type: 'transfer_out', amountHalalas: amountH,
-      balanceAfterHalalas: (fromAcc?.balanceHalalas ?? 0) - amountH,
-      descAr: desc, descEn: desc, reference: ref,
-      date: now, isReconciled: false,
-      linkedAccountId: toId, createdAt: now,
-    };
-    const inTx: BankTx & { id: string } = {
-      id: `tx-in-${Date.now()}`, agencyId: agencyId || 'demo',
-      accountId: toId, type: 'transfer_in', amountHalalas: amountH,
-      balanceAfterHalalas: (toAcc?.balanceHalalas ?? 0) + amountH,
-      descAr: desc, descEn: desc, reference: ref,
-      date: now, isReconciled: false,
-      linkedAccountId: fromId, createdAt: now,
-    };
-    setTxs(prev => [outTx, inTx, ...prev]);
+
+    if (!agencyId) {
+      // Demo mode: local state only
+      setAccounts(prev => prev.map(a => {
+        if (a.id === fromId) return { ...a, balanceHalalas: a.balanceHalalas - amountH };
+        if (a.id === toId)   return { ...a, balanceHalalas: a.balanceHalalas + amountH };
+        return a;
+      }));
+      const outTx: BankTx & { id: string } = { id: `tx-out-${now}`, agencyId: 'demo', accountId: fromId, type: 'transfer_out', amountHalalas: amountH, balanceAfterHalalas: (fromAcc?.balanceHalalas ?? 0) - amountH, descAr: desc, descEn: desc, reference: ref, date: now, isReconciled: false, linkedAccountId: toId, createdAt: now };
+      const inTx:  BankTx & { id: string } = { id: `tx-in-${now}`,  agencyId: 'demo', accountId: toId,   type: 'transfer_in',  amountHalalas: amountH, balanceAfterHalalas: (toAcc?.balanceHalalas  ?? 0) + amountH, descAr: desc, descEn: desc, reference: ref, date: now, isReconciled: false, linkedAccountId: fromId, createdAt: now };
+      setTxs(prev => [outTx, inTx, ...prev]);
+      return;
+    }
+
+    // Persist to Firestore
+    const { getFirestore, collection, doc, addDoc, updateDoc, increment } = await import('firebase/firestore');
+    const { getApp } = await import('@masarat/firebase');
+    const db = getFirestore(getApp());
+    await Promise.all([
+      addDoc(collection(db, 'bank_transactions'), { agencyId, accountId: fromId, type: 'transfer_out', amountHalalas: amountH, balanceAfterHalalas: (fromAcc?.balanceHalalas ?? 0) - amountH, descAr: desc, descEn: desc, reference: ref, date: now, isReconciled: false, linkedAccountId: toId, createdAt: now }),
+      addDoc(collection(db, 'bank_transactions'), { agencyId, accountId: toId,   type: 'transfer_in',  amountHalalas: amountH, balanceAfterHalalas: (toAcc?.balanceHalalas  ?? 0) + amountH, descAr: desc, descEn: desc, reference: ref, date: now, isReconciled: false, linkedAccountId: fromId, createdAt: now }),
+      updateDoc(doc(db, 'bank_accounts', fromId), { balanceHalalas: increment(-amountH) }),
+      updateDoc(doc(db, 'bank_accounts', toId),   { balanceHalalas: increment(amountH) }),
+    ]);
   }
 
   const totalBalance = accounts.filter(a => a.isActive).reduce((s, a) => s + a.balanceHalalas, 0);
