@@ -8,7 +8,7 @@ import { Spinner } from '@/components/ui/Spinner';
 import { formatCurrency, formatCount } from '@/lib/utils';
 import { cn } from '@/lib/utils';
 import { useReportsData, type MonthlyRow, type TypeMixRow, type VatInvoice } from '@/hooks/useReportsData';
-import { useChartOfAccounts, type ChartAccount } from '@/hooks/useChartOfAccounts';
+import { useChartOfAccounts, type ChartAccountWithBalance as ChartAccount } from '@/hooks/useChartOfAccounts';
 import { useIncomeStatement } from '@/hooks/useIncomeStatement';
 import { ArAgingTab } from '@/components/reports/ArAgingTab';
 import { UpgradeGate } from '@/components/ui/UpgradeGate';
@@ -110,8 +110,8 @@ function accountToTrial(a: ChartAccount): TrialAccount {
   return {
     code: a.code,
     nameAr: a.nameAr,
-    nameEn: a.nameEn || a.nameAr,
-    category: a.type,
+    nameEn: (a.nameEn ?? '') || a.nameAr,
+    category: a.type as TrialAccount['category'],
     openDebit: 0,
     openCredit: 0,
     mvtDebit:  a.debitTotal  ?? 0,

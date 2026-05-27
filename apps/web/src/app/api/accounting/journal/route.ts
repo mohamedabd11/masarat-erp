@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { eq, and, desc, gte, lte } from 'drizzle-orm';
+import { eq, and, desc, gte, lte, inArray } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { journalEntries, journalLines } from '@/lib/schema';
 import { verifyAuth, ApiAuthError } from '@/lib/api-auth';
@@ -95,7 +95,7 @@ export async function GET(request: Request) {
     const lines = await db
       .select()
       .from(journalLines)
-      .where(eq(journalLines.agencyId, agencyId));
+      .where(and(eq(journalLines.agencyId, agencyId), inArray(journalLines.entryId, entryIds)));
 
     const linesMap = new Map<string, typeof lines>();
     for (const l of lines) {

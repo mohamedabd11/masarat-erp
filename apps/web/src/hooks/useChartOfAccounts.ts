@@ -8,8 +8,13 @@ import type { ChartAccount } from '@/lib/schema';
 export type AccountType = 'asset' | 'liability' | 'equity' | 'revenue' | 'expense';
 export type AccountSide = 'debit' | 'credit';
 
-// Re-export schema type aliased to the hook's legacy name
-export type { ChartAccount };
+// Extend with computed balance fields returned by the API
+export type ChartAccountWithBalance = ChartAccount & {
+  side: AccountSide;
+  debitTotal: number;
+  creditTotal: number;
+  balanceHalalas: number;
+};
 
 export type NewAccountPayload = {
   code: string; nameAr: string; nameEn?: string; type: AccountType;
@@ -17,7 +22,7 @@ export type NewAccountPayload = {
 export type UpdateAccountPayload = Partial<NewAccountPayload>;
 
 export interface UseChartOfAccountsReturn {
-  accounts: ChartAccount[];
+  accounts: ChartAccountWithBalance[];
   loading: boolean;
   error: string | null;
   addAccount: (payload: NewAccountPayload) => Promise<void>;
@@ -28,7 +33,7 @@ export interface UseChartOfAccountsReturn {
 
 export function useChartOfAccounts(): UseChartOfAccountsReturn {
   const { user } = useAuth();
-  const [accounts, setAccounts] = useState<ChartAccount[]>([]);
+  const [accounts, setAccounts] = useState<ChartAccountWithBalance[]>([]);
   const [loading, setLoading]   = useState(true);
   const [error, setError]       = useState<string | null>(null);
   const [tick, setTick]         = useState(0);
@@ -39,7 +44,7 @@ export function useChartOfAccounts(): UseChartOfAccountsReturn {
     if (!user?.agencyId) { setLoading(false); return; }
     let cancelled = false;
     setLoading(true);
-    apiFetch<{ accounts: ChartAccount[] }>('/api/accounting/coa')
+    apiFetch<{ accounts: ChartAccountWithBalance[] }>('/api/accounting/coa')
       .then(d => { if (!cancelled) { setAccounts(d.accounts); setError(null); } })
       .catch(e => { if (!cancelled) setError(e.message); })
       .finally(() => { if (!cancelled) setLoading(false); });

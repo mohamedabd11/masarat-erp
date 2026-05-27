@@ -3,11 +3,13 @@
 import { useState, useMemo, type FormEvent } from 'react';
 import {
   useChartOfAccounts,
-  type ChartAccount,
+  type ChartAccountWithBalance,
   type AccountType,
   type AccountSide,
   type NewAccountPayload,
 } from '@/hooks/useChartOfAccounts';
+
+type ChartAccount = ChartAccountWithBalance;
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Spinner } from '@/components/ui/Spinner';
@@ -284,7 +286,7 @@ export function ChartOfAccountsClient({ locale }: ChartOfAccountsClientProps) {
       return (
         a.code.includes(q) ||
         a.nameAr.includes(q) ||
-        a.nameEn.toLowerCase().includes(q)
+        (a.nameEn ?? '').toLowerCase().includes(q)
       );
     });
   }, [accounts, search, typeFilter]);
@@ -296,10 +298,6 @@ export function ChartOfAccountsClient({ locale }: ChartOfAccountsClientProps) {
       nameAr: data.nameAr.trim(),
       nameEn: data.nameEn.trim(),
       type: data.type,
-      side: data.side,
-      balanceHalalas: data.balanceHalalas,
-      debitTotal: 0,
-      creditTotal: 0,
     };
     await addAccount(payload);
     setShowAddForm(false);
@@ -311,9 +309,6 @@ export function ChartOfAccountsClient({ locale }: ChartOfAccountsClientProps) {
       nameAr: data.nameAr.trim(),
       nameEn: data.nameEn.trim(),
       type: data.type,
-      side: data.side,
-      balanceHalalas: data.balanceHalalas,
-      updatedAt: Date.now(),
     });
     setEditingId(null);
   }
@@ -327,8 +322,8 @@ export function ChartOfAccountsClient({ locale }: ChartOfAccountsClientProps) {
     return {
       code: a.code,
       nameAr: a.nameAr,
-      nameEn: a.nameEn,
-      type: a.type,
+      nameEn: a.nameEn ?? '',
+      type: a.type as AccountType,
       side: a.side,
       balanceHalalas: a.balanceHalalas,
     };
@@ -519,7 +514,7 @@ export function ChartOfAccountsClient({ locale }: ChartOfAccountsClientProps) {
                   </tr>
                 ) : (
                   filtered.map((account) => {
-                    const meta = ACCOUNT_TYPE_META[account.type];
+                    const meta = ACCOUNT_TYPE_META[account.type as AccountType] ?? ACCOUNT_TYPE_META['asset'];
                     const isEditing = editingId === account.id;
 
                     return (

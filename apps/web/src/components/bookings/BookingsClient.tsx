@@ -94,8 +94,8 @@ export function BookingsClient({ locale, bookingType, initialQuery = '' }: Booki
   const fmtLocale = isAr ? 'ar-SA' : 'en-SA';
 
   // ── KPIs ────────────────────────────────────────────────────────────────────
-  const revenue   = bookings.reduce((s, b) => s + (b.grandTotalHalalas ?? b.pricing?.totalAmount ?? 0), 0);
-  const paid      = bookings.reduce((s, b) => s + (b.paidHalalas ?? b.totalPaid ?? 0), 0);
+  const revenue   = bookings.reduce((s, b) => s + (b.totalPriceHalalas ?? 0), 0);
+  const paid      = bookings.reduce((s, b) => s + (b.paidHalalas ?? 0), 0);
   const pending   = bookings.filter(b => b.status === 'pending_approval').length;
   const active    = bookings.filter(b => b.status === 'confirmed' || b.status === 'ticketed').length;
   const completed = bookings.filter(b => b.status === 'completed').length;
@@ -105,7 +105,7 @@ export function BookingsClient({ locale, bookingType, initialQuery = '' }: Booki
     const q = search.toLowerCase();
     return bookings.filter(b => {
       const matchStatus = statusFilter === 'all' || b.status === statusFilter;
-      const name = isAr ? (b.customerName?.ar ?? '') : (b.customerName?.en ?? '');
+      const name = isAr ? (b.customerNameAr ?? b.customerNameEn ?? '') : (b.customerNameEn ?? b.customerNameAr ?? '');
       const matchSearch = !q ||
         name.toLowerCase().includes(q) ||
         b.id.toLowerCase().includes(q) ||
@@ -211,13 +211,14 @@ export function BookingsClient({ locale, bookingType, initialQuery = '' }: Booki
           {/* ── Mobile cards (< sm) ───────────────────────────────────────── */}
           <div className="sm:hidden divide-y divide-surface-border">
             {filtered.map(b => {
-              const name      = isAr ? (b.customerName?.ar ?? b.customerName?.en ?? '') : (b.customerName?.en ?? b.customerName?.ar ?? '');
-              const typeMeta  = TYPE_META[b.type] ?? { ar: b.type, en: b.type, bg: 'bg-slate-100', text: 'text-slate-600' };
-              const total     = b.grandTotalHalalas ?? b.pricing?.totalAmount ?? 0;
-              const paidAmt   = b.paidHalalas ?? b.totalPaid ?? 0;
+              const name      = isAr ? (b.customerNameAr ?? b.customerNameEn ?? '') : (b.customerNameEn ?? b.customerNameAr ?? '');
+              const typeMeta  = TYPE_META[b.serviceType] ?? { ar: b.serviceType, en: b.serviceType, bg: 'bg-slate-100', text: 'text-slate-600' };
+              const total     = b.totalPriceHalalas ?? 0;
+              const paidAmt   = b.paidHalalas ?? 0;
               const paidPct   = total > 0 ? Math.min(100, Math.round((paidAmt / total) * 100)) : 0;
-              const createdAt = b.createdAt?.toDate?.() ?? null;
-              const hasInvoice = (b.invoiceIds?.length ?? 0) > 0;
+              const createdAt = b.createdAt ? new Date(b.createdAt as unknown as string) : null;
+              const hasInvoice = false;
+              const bPaymentStatus = paidAmt >= total && total > 0 ? 'fully_paid' : paidAmt > 0 ? 'partial' : 'unpaid';
 
               return (
                 <Link key={b.id} href={`/${locale}/bookings/${b.id}`}
@@ -231,7 +232,7 @@ export function BookingsClient({ locale, bookingType, initialQuery = '' }: Booki
                       <span className={cn('px-2 py-0.5 rounded-md text-[11px] font-bold', typeMeta.bg, typeMeta.text)}>
                         {isAr ? typeMeta.ar : typeMeta.en}
                       </span>
-                      <InvoiceBadge hasInvoice={hasInvoice} paymentStatus={b.paymentStatus ?? 'unpaid'} isAr={isAr} />
+                      <InvoiceBadge hasInvoice={hasInvoice} paymentStatus={bPaymentStatus} isAr={isAr} />
                     </div>
                     <BookingStatusBadge status={b.status} locale={locale} />
                   </div>
@@ -278,13 +279,14 @@ export function BookingsClient({ locale, bookingType, initialQuery = '' }: Booki
               </thead>
               <tbody className="divide-y divide-surface-border">
                 {filtered.map(b => {
-                  const name       = isAr ? (b.customerName?.ar ?? b.customerName?.en ?? '') : (b.customerName?.en ?? b.customerName?.ar ?? '');
-                  const typeMeta   = TYPE_META[b.type] ?? { ar: b.type, en: b.type, bg: 'bg-slate-100', text: 'text-slate-600' };
-                  const total      = b.grandTotalHalalas ?? b.pricing?.totalAmount ?? 0;
-                  const paidAmt    = b.paidHalalas ?? b.totalPaid ?? 0;
+                  const name       = isAr ? (b.customerNameAr ?? b.customerNameEn ?? '') : (b.customerNameEn ?? b.customerNameAr ?? '');
+                  const typeMeta   = TYPE_META[b.serviceType] ?? { ar: b.serviceType, en: b.serviceType, bg: 'bg-slate-100', text: 'text-slate-600' };
+                  const total      = b.totalPriceHalalas ?? 0;
+                  const paidAmt    = b.paidHalalas ?? 0;
                   const paidPct    = total > 0 ? Math.min(100, Math.round((paidAmt / total) * 100)) : 0;
-                  const createdAt  = b.createdAt?.toDate?.() ?? null;
-                  const hasInvoice = (b.invoiceIds?.length ?? 0) > 0;
+                  const createdAt  = b.createdAt ? new Date(b.createdAt as unknown as string) : null;
+                  const hasInvoice = false;
+                  const bPaymentStatus = paidAmt >= total && total > 0 ? 'fully_paid' : paidAmt > 0 ? 'partial' : 'unpaid';
 
                   return (
                     <tr key={b.id} className="hover:bg-slate-50/60 transition-colors group">
@@ -302,7 +304,7 @@ export function BookingsClient({ locale, bookingType, initialQuery = '' }: Booki
                         </span>
                       </td>
                       <td className="px-3 py-4 hidden md:table-cell">
-                        <InvoiceBadge hasInvoice={hasInvoice} paymentStatus={b.paymentStatus ?? 'unpaid'} isAr={isAr} />
+                        <InvoiceBadge hasInvoice={hasInvoice} paymentStatus={bPaymentStatus} isAr={isAr} />
                       </td>
                       <td className="px-3 py-4 hidden lg:table-cell">
                         <span className="text-sm text-slate-500">{createdAt ? formatDate(createdAt, fmtLocale) : '—'}</span>
