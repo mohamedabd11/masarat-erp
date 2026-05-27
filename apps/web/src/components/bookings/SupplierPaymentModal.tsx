@@ -58,7 +58,7 @@ export function SupplierPaymentModal({
         const { getFirestore, doc, getDoc } = await import('firebase/firestore');
         const { getApp } = await import('@masarat/firebase');
         const db = getFirestore(getApp());
-        const snap = await getDoc(doc(db, 'bookings', bookingId));
+        const snap = await getDoc(doc(db, 'bookings', bookingId!));
         if (cancelled || !snap.exists()) return;
         const b = snap.data() as Record<string, unknown>;
         if (!cancelled) {
