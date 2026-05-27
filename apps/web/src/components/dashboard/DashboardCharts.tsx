@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useAuth } from '@masarat/firebase';
+import { apiFetch } from '@/lib/api-client';
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
   PieChart, Pie, Cell, Legend,
@@ -69,17 +70,11 @@ export function DashboardCharts({ locale }: { locale: string }) {
     if (!agencyId) { setLoading(false); return; }
     let cancelled = false;
 
-    async function load() {
-      try {
-        const { getFirestore, collection, query, where, getDocs } = await import('firebase/firestore');
-        const { getApp } = await import('@masarat/firebase');
-        const db = getFirestore(getApp());
-
-        const [invSnap, bkSnap] = await Promise.all([
-          getDocs(query(collection(db, 'invoices'), where('agencyId', '==', agencyId))),
-          getDocs(query(collection(db, 'bookings'), where('agencyId', '==', agencyId))),
-        ]);
-
+    Promise.all([
+      apiFetch<{ invoices: Record<string, unknown>[] }>('/api/invoices'),
+      apiFetch<{ bookings: Record<string, unknown>[] }>('/api/bookings'),
+    ])
+      .then(([invData, bkData]) => {
         if (cancelled) return;
 
         // ── Revenue: last 6 months ───────────────────────────────────────────
@@ -90,15 +85,12 @@ export function DashboardCharts({ locale }: { locale: string }) {
           revenueMap[`${d.getFullYear()}-${d.getMonth()}`] = 0;
         }
 
-        for (const doc of invSnap.docs) {
-          const inv  = doc.data() as Record<string, unknown>;
-          const ts   = inv.createdAt as { toDate?: () => Date } | undefined;
-          const date = ts?.toDate?.() ?? null;
+        for (const inv of invData.invoices) {
+          const date = inv.createdAt ? new Date(inv.createdAt as string) : null;
           if (!date) continue;
           const key = `${date.getFullYear()}-${date.getMonth()}`;
           if (!(key in revenueMap)) continue;
-          const totals = inv.totals as Record<string, number> | undefined;
-          const grand  = Number(totals?.grandTotal ?? inv.amountDue ?? 0);
+          const grand = Number(inv.totalHalalas ?? inv.subtotalHalalas ?? 0);
           revenueMap[key] = (revenueMap[key] ?? 0) + grand;
         }
 
@@ -113,8 +105,8 @@ export function DashboardCharts({ locale }: { locale: string }) {
 
         // ── Booking types ────────────────────────────────────────────────────
         const typeCount: Record<string, number> = {};
-        for (const doc of bkSnap.docs) {
-          const t = String((doc.data() as Record<string, unknown>).type ?? 'other');
+        for (const bk of bkData.bookings) {
+          const t = String(bk.serviceType ?? bk.type ?? 'other');
           typeCount[t] = (typeCount[t] ?? 0) + 1;
         }
 
@@ -129,12 +121,10 @@ export function DashboardCharts({ locale }: { locale: string }) {
 
         setRevenue(revenuePoints);
         setTypes(typePoints);
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    }
+      })
+      .catch(() => {})
+      .finally(() => { if (!cancelled) setLoading(false); });
 
-    void load();
     return () => { cancelled = true; };
   }, [agencyId, isAr, months]);
 

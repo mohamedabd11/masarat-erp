@@ -2,6 +2,7 @@
 
 import { useState, useMemo } from 'react';
 import { useFirestoreBookings } from '@/hooks/useFirestoreBookings';
+import type { Booking } from '@/lib/schema';
 import { Card } from '@/components/ui/Card';
 import { Spinner } from '@/components/ui/Spinner';
 import { EmptyState } from '@/components/ui/EmptyState';
@@ -14,14 +15,19 @@ import {
 import Link from 'next/link';
 
 interface PaymentsClientProps { locale: string }
-type PaymentFilter = 'all' | 'unpaid' | 'partial' | 'fully_paid';
+type PaymentFilter = 'all' | 'unpaid' | 'partial' | 'paid';
+
+function paymentStatus(b: Booking): string {
+  if (b.paidHalalas <= 0) return 'unpaid';
+  if (b.paidHalalas >= b.totalPriceHalalas) return 'paid';
+  return 'partial';
+}
 
 function PaymentStatusBadge({ status, isAr }: { status: string; isAr: boolean }) {
   const map: Record<string, { ar: string; en: string; cls: string; icon: typeof AlertCircle }> = {
-    unpaid:     { ar: 'غير مدفوع', en: 'Unpaid',   cls: 'bg-red-100 text-red-700',         icon: AlertCircle },
-    partial:    { ar: 'دفع جزئي',  en: 'Partial',  cls: 'bg-amber-100 text-amber-700',      icon: Clock },
-    fully_paid: { ar: 'مكتمل',     en: 'Paid',     cls: 'bg-emerald-100 text-emerald-700',  icon: CheckCircle2 },
-    refunded:   { ar: 'مسترد',     en: 'Refunded', cls: 'bg-slate-100 text-slate-600',      icon: Receipt },
+    unpaid:  { ar: 'غير مدفوع', en: 'Unpaid',   cls: 'bg-red-100 text-red-700',        icon: AlertCircle },
+    partial: { ar: 'دفع جزئي',  en: 'Partial',  cls: 'bg-amber-100 text-amber-700',     icon: Clock },
+    paid:    { ar: 'مكتمل',     en: 'Paid',     cls: 'bg-emerald-100 text-emerald-700', icon: CheckCircle2 },
   };
   const m = map[status] ?? { ar: status, en: status, cls: 'bg-slate-100 text-slate-600', icon: Clock };
   const Icon = m.icon;
@@ -41,51 +47,43 @@ export function PaymentsClient({ locale }: PaymentsClientProps) {
   const [filter, setFilter] = useState<PaymentFilter>('all');
   const [search, setSearch] = useState('');
 
-  // ── Aggregates ────────────────────────────────────────────────────────────
-  const totalPaid    = bookings.reduce((s, b) => s + (b.paidHalalas ?? b.totalPaid ?? 0), 0);
-  const totalDue     = bookings.reduce((s, b) => {
-    const total = b.grandTotalHalalas ?? b.pricing?.totalAmount ?? 0;
-    const paid  = b.paidHalalas ?? b.totalPaid ?? 0;
-    return s + Math.max(0, total - paid);
-  }, 0);
+  const totalPaid = bookings.reduce((s, b) => s + b.paidHalalas, 0);
+  const totalDue  = bookings.reduce((s, b) => s + Math.max(0, b.totalPriceHalalas - b.paidHalalas), 0);
   const collectionRate = (totalPaid + totalDue) > 0 ? Math.round((totalPaid / (totalPaid + totalDue)) * 100) : 0;
 
-  // ── Aging buckets ─────────────────────────────────────────────────────────
-  const now    = Date.now();
-  const aging  = useMemo(() => {
-    const current: number[] = [0, 0, 0, 0, 0]; // [current, 1-30, 31-60, 61-90, 90+]
+  const now   = Date.now();
+  const aging = useMemo(() => {
+    const buckets: number[] = [0, 0, 0, 0, 0];
     bookings.forEach(b => {
-      const due = b.grandTotalHalalas ?? b.pricing?.totalAmount ?? 0;
-      const paid = b.paidHalalas ?? b.totalPaid ?? 0;
-      const outstanding = Math.max(0, due - paid);
+      const outstanding = Math.max(0, b.totalPriceHalalas - b.paidHalalas);
       if (outstanding <= 0) return;
-      const created = b.createdAt?.toDate?.()?.getTime() ?? now;
+      const created = new Date(b.createdAt as unknown as string).getTime();
       const ageDays = Math.floor((now - created) / 86_400_000);
-      if      (ageDays <= 0)  current[0] += outstanding;
-      else if (ageDays <= 30) current[1] += outstanding;
-      else if (ageDays <= 60) current[2] += outstanding;
-      else if (ageDays <= 90) current[3] += outstanding;
-      else                    current[4] += outstanding;
+      if      (ageDays <= 0)  buckets[0] += outstanding;
+      else if (ageDays <= 30) buckets[1] += outstanding;
+      else if (ageDays <= 60) buckets[2] += outstanding;
+      else if (ageDays <= 90) buckets[3] += outstanding;
+      else                    buckets[4] += outstanding;
     });
-    return current;
+    return buckets;
   }, [bookings, now]);
 
-  // ── Filtered list ─────────────────────────────────────────────────────────
   const filtered = useMemo(() => {
     const q = search.toLowerCase();
     return bookings.filter(b => {
-      const matchFilter = filter === 'all' || b.paymentStatus === filter;
-      const name = isAr ? (b.customerName?.ar ?? '') : (b.customerName?.en ?? '');
-      const matchSearch = !q || name.toLowerCase().includes(q) || b.id.toLowerCase().includes(q);
+      const status = paymentStatus(b);
+      const matchFilter = filter === 'all' || status === filter;
+      const name = isAr ? (b.customerNameAr ?? '') : (b.customerNameEn ?? b.customerNameAr ?? '');
+      const matchSearch = !q || name.toLowerCase().includes(q) || b.bookingNumber.toLowerCase().includes(q);
       return matchFilter && matchSearch;
     });
   }, [bookings, filter, search, isAr]);
 
   const FILTERS: { key: PaymentFilter; ar: string; en: string }[] = [
-    { key: 'all',        ar: 'الكل',       en: 'All' },
-    { key: 'unpaid',     ar: 'غير مدفوع',  en: 'Unpaid' },
-    { key: 'partial',    ar: 'دفع جزئي',   en: 'Partial' },
-    { key: 'fully_paid', ar: 'مكتمل',      en: 'Paid' },
+    { key: 'all',     ar: 'الكل',      en: 'All' },
+    { key: 'unpaid',  ar: 'غير مدفوع', en: 'Unpaid' },
+    { key: 'partial', ar: 'دفع جزئي',  en: 'Partial' },
+    { key: 'paid',    ar: 'مكتمل',     en: 'Paid' },
   ];
 
   if (loading) return <div className="flex items-center justify-center py-24"><Spinner size="lg" /></div>;
@@ -94,19 +92,17 @@ export function PaymentsClient({ locale }: PaymentsClientProps) {
   return (
     <div className="space-y-5">
 
-      {/* Header */}
       <div>
         <h1 className="text-2xl font-bold text-slate-900">{isAr ? 'المدفوعات والتحصيل' : 'Payments & Collections'}</h1>
         <p className="text-slate-500 text-sm mt-0.5">{isAr ? 'متابعة المدفوعات والمستحقات وتقرير التقادم' : 'Track payments, outstanding balances, and aging report'}</p>
       </div>
 
-      {/* KPIs */}
       <div className="grid grid-cols-2 xl:grid-cols-4 gap-4">
         {[
-          { icon: Wallet,     bg: 'bg-emerald-50', color: 'text-emerald-600', accent: 'border-emerald-500', label: isAr ? 'إجمالي المحصّل' : 'Total Collected',      value: formatCurrency(totalPaid,  fmtLocale) },
-          { icon: AlertCircle,bg: 'bg-red-50',     color: 'text-red-600',     accent: 'border-red-500',     label: isAr ? 'إجمالي المستحق' : 'Total Outstanding',    value: formatCurrency(totalDue,   fmtLocale) },
-          { icon: TrendingUp, bg: 'bg-brand-50',   color: 'text-brand-600',   accent: 'border-brand-500',   label: isAr ? 'نسبة التحصيل' : 'Collection Rate',        value: `${collectionRate}%` },
-          { icon: BarChart3,  bg: 'bg-amber-50',   color: 'text-amber-600',   accent: 'border-amber-500',   label: isAr ? 'دفع جزئي' : 'Partial Payments',           value: formatCount(bookings.filter(b => b.paymentStatus === 'partial').length, fmtLocale) },
+          { icon: Wallet,     bg: 'bg-emerald-50', color: 'text-emerald-600', accent: 'border-emerald-500', label: isAr ? 'إجمالي المحصّل' : 'Total Collected',   value: formatCurrency(totalPaid,  fmtLocale) },
+          { icon: AlertCircle,bg: 'bg-red-50',     color: 'text-red-600',     accent: 'border-red-500',     label: isAr ? 'إجمالي المستحق' : 'Total Outstanding', value: formatCurrency(totalDue,   fmtLocale) },
+          { icon: TrendingUp, bg: 'bg-brand-50',   color: 'text-brand-600',   accent: 'border-brand-500',   label: isAr ? 'نسبة التحصيل' : 'Collection Rate',    value: `${collectionRate}%` },
+          { icon: BarChart3,  bg: 'bg-amber-50',   color: 'text-amber-600',   accent: 'border-amber-500',   label: isAr ? 'دفع جزئي' : 'Partial Payments',       value: formatCount(bookings.filter(b => paymentStatus(b) === 'partial').length, fmtLocale) },
         ].map(k => (
           <div key={k.label} className={cn('bg-white rounded-xl border border-slate-200 shadow-sm p-4 border-s-4', k.accent)}>
             <div className="flex items-center justify-between">
@@ -122,7 +118,6 @@ export function PaymentsClient({ locale }: PaymentsClientProps) {
         ))}
       </div>
 
-      {/* Aging Report */}
       <Card>
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-sm font-bold text-slate-900">{isAr ? 'تقرير تقادم الديون (Aging Report)' : 'Aging Report — Outstanding by Age'}</h2>
@@ -130,31 +125,30 @@ export function PaymentsClient({ locale }: PaymentsClientProps) {
         </div>
         <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
           {[
-            { label: isAr ? 'حالي' : 'Current',     labelEn: '0 days',   amount: aging[0], color: 'bg-emerald-500', textColor: 'text-emerald-700', bg: 'bg-emerald-50' },
-            { label: isAr ? '1–30 يوم' : '1–30 days', labelEn: '1-30d', amount: aging[1], color: 'bg-amber-400',   textColor: 'text-amber-700',   bg: 'bg-amber-50' },
-            { label: isAr ? '31–60 يوم' : '31–60d',  labelEn: '31-60d', amount: aging[2], color: 'bg-orange-500',  textColor: 'text-orange-700',  bg: 'bg-orange-50' },
-            { label: isAr ? '61–90 يوم' : '61–90d',  labelEn: '61-90d', amount: aging[3], color: 'bg-red-500',     textColor: 'text-red-700',     bg: 'bg-red-50' },
-            { label: isAr ? '90+ يوم' : '90+ days',  labelEn: '90+d',   amount: aging[4], color: 'bg-red-800',     textColor: 'text-red-900',     bg: 'bg-red-100' },
+            { label: isAr ? 'حالي' : 'Current',      amount: aging[0], color: 'bg-emerald-500', textColor: 'text-emerald-700', bg: 'bg-emerald-50' },
+            { label: isAr ? '1–30 يوم' : '1–30 days', amount: aging[1], color: 'bg-amber-400',   textColor: 'text-amber-700',   bg: 'bg-amber-50' },
+            { label: isAr ? '31–60 يوم' : '31–60d',   amount: aging[2], color: 'bg-orange-500',  textColor: 'text-orange-700',  bg: 'bg-orange-50' },
+            { label: isAr ? '61–90 يوم' : '61–90d',   amount: aging[3], color: 'bg-red-500',     textColor: 'text-red-700',     bg: 'bg-red-50' },
+            { label: isAr ? '90+ يوم' : '90+ days',   amount: aging[4], color: 'bg-red-800',     textColor: 'text-red-900',     bg: 'bg-red-100' },
           ].map((bucket, i) => (
             <div key={i} className={cn('rounded-xl p-3 border border-slate-200', bucket.bg)}>
               <p className="text-[11px] font-bold text-slate-500 mb-1">{bucket.label}</p>
               <p className={cn('text-sm font-black tabular-nums', bucket.textColor)}>
-                {formatCurrency(bucket.amount, fmtLocale)}
+                {formatCurrency(bucket.amount ?? 0, fmtLocale)}
               </p>
               <div className="mt-2 h-1.5 bg-white/60 rounded-full overflow-hidden">
                 <div className={cn('h-full rounded-full', bucket.color)}
-                  style={{ width: totalDue > 0 ? `${Math.min(100, Math.round((bucket.amount / totalDue) * 100))}%` : '0%' }} />
+                  style={{ width: totalDue > 0 ? `${Math.min(100, Math.round(((bucket.amount ?? 0) / totalDue) * 100))}%` : '0%' }} />
               </div>
             </div>
           ))}
         </div>
       </Card>
 
-      {/* Filter + Search */}
       <div className="flex flex-col sm:flex-row gap-3">
         <div className="flex gap-1 flex-1">
           {FILTERS.map(f => {
-            const count = f.key === 'all' ? bookings.length : bookings.filter(b => b.paymentStatus === f.key).length;
+            const count = f.key === 'all' ? bookings.length : bookings.filter(b => paymentStatus(b) === f.key).length;
             return (
               <button key={f.key} onClick={() => setFilter(f.key)}
                 className={cn(
@@ -177,7 +171,6 @@ export function PaymentsClient({ locale }: PaymentsClientProps) {
         </div>
       </div>
 
-      {/* Table */}
       {filtered.length === 0 ? (
         <EmptyState icon={<Receipt size={48} />}
           title={isAr ? 'لا توجد نتائج' : 'No results'}
@@ -199,29 +192,28 @@ export function PaymentsClient({ locale }: PaymentsClientProps) {
               </thead>
               <tbody className="divide-y divide-surface-border">
                 {filtered.map(b => {
-                  const name     = isAr ? (b.customerName?.ar ?? '') : (b.customerName?.en ?? '');
-                  const total    = b.grandTotalHalalas ?? b.pricing?.totalAmount ?? 0;
-                  const paidAmt  = b.paidHalalas ?? b.totalPaid ?? 0;
-                  const dueAmt   = Math.max(0, total - paidAmt);
-                  const pct      = total > 0 ? Math.min(100, Math.round((paidAmt / total) * 100)) : 0;
-                  const createdAt = b.createdAt?.toDate?.() ?? null;
+                  const name    = isAr ? (b.customerNameAr ?? '') : (b.customerNameEn ?? b.customerNameAr ?? '');
+                  const paidAmt = b.paidHalalas;
+                  const dueAmt  = Math.max(0, b.totalPriceHalalas - paidAmt);
+                  const pct     = b.totalPriceHalalas > 0 ? Math.min(100, Math.round((paidAmt / b.totalPriceHalalas) * 100)) : 0;
+                  const status  = paymentStatus(b);
 
                   return (
                     <tr key={b.id} className="hover:bg-slate-50/60 transition-colors group">
                       <td className="ps-6 pe-3 py-4">
                         <Link href={`/${locale}/bookings/${b.id}`}
                           className="font-mono text-sm font-semibold text-brand-700 hover:underline">
-                          {b.id.slice(0, 12)}…
+                          {b.bookingNumber}
                         </Link>
                       </td>
                       <td className="px-3 py-4">
                         <p className="text-sm font-semibold text-slate-900">{name}</p>
                       </td>
                       <td className="px-3 py-4 hidden sm:table-cell">
-                        <span className="text-sm text-slate-500">{createdAt ? formatDate(createdAt, fmtLocale) : '—'}</span>
+                        <span className="text-sm text-slate-500">{formatDate(b.createdAt as unknown as string, fmtLocale)}</span>
                       </td>
                       <td className="px-3 py-4">
-                        <PaymentStatusBadge status={b.paymentStatus} isAr={isAr} />
+                        <PaymentStatusBadge status={status} isAr={isAr} />
                       </td>
                       <td className="px-3 py-4 hidden md:table-cell">
                         <div className="w-36">

@@ -124,25 +124,17 @@ export function Sidebar({ collapsed = false, onToggle, onClose }: SidebarProps) 
 
   useEffect(() => {
     if (!agencyId) return;
-    let unsub: (() => void) | undefined;
 
+    let cancelled = false;
     async function load() {
-      const { getFirestore, collection, query, where, onSnapshot } = await import('firebase/firestore');
-      const { getApp } = await import('@masarat/firebase');
-      const db = getFirestore(getApp());
-
-      const q = query(
-        collection(db, 'service_types'),
-        where('agencyId', '==', agencyId),
-        where('isActive', '==', true),
-      );
-      unsub = onSnapshot(q, snap => {
-        setCustomTypes(snap.docs.map(d => ({ id: d.id, ...d.data() } as CustomServiceType)));
-      });
+      try {
+        const { apiFetch } = await import('@/lib/api-client');
+        const data = await apiFetch<{ serviceTypes: CustomServiceType[] }>('/api/service-types');
+        if (!cancelled) setCustomTypes(data.serviceTypes);
+      } catch { /* silently ignore */ }
     }
-
     void load();
-    return () => unsub?.();
+    return () => { cancelled = true; };
   }, [agencyId]);
 
   function isActive(href: string): boolean {

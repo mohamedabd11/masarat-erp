@@ -54,44 +54,33 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
     const agencyId = user?.agencyId as string | undefined;
     if (!agencyId) { setIsLoading(false); return; }
 
-    let unsub: (() => void) | undefined;
+    let cancelled = false;
 
     async function load() {
-      const { getFirestore, doc, onSnapshot } = await import('firebase/firestore');
-      const { getApp }                        = await import('@masarat/firebase');
-      const db = getFirestore(getApp());
-
-      unsub = onSnapshot(doc(db, 'agencies', agencyId!), snap => {
-        if (!snap.exists()) {
-          setStatus('cancelled');
-          setIsLoading(false);
-          return;
-        }
-
-        const d   = snap.data() as Record<string, any>; // Firestore raw data
-        const sub = (d.subscriptionStatus ?? 'active') as SubscriptionStatus;
+      try {
+        const { apiFetch } = await import('@/lib/api-client');
+        const data = await apiFetch<{ agency: { subscriptionStatus: string; plan: string; nameAr: string; nameEn?: string; trialEndDate?: string } }>('/api/settings');
+        if (cancelled) return;
+        const { agency } = data;
+        const sub = (agency.subscriptionStatus ?? 'active') as SubscriptionStatus;
         setStatus(sub);
-        setPlan(d.plan ?? '');
-        setAgencyName(d.nameAr ?? d.nameEn ?? '');
-
-        if (sub === 'trial') {
-          const trialEnd: Date | null = d.trialEndDate?.toDate?.() ?? null;
-          if (trialEnd) {
-            const days = Math.ceil((trialEnd.getTime() - Date.now()) / 86_400_000);
-            setDaysRemaining(Math.max(0, days));
-          } else {
-            setDaysRemaining(14);
-          }
+        setPlan(agency.plan ?? '');
+        setAgencyName(agency.nameAr ?? agency.nameEn ?? '');
+        if (sub === 'trial' && agency.trialEndDate) {
+          const days = Math.ceil((new Date(agency.trialEndDate).getTime() - Date.now()) / 86_400_000);
+          setDaysRemaining(Math.max(0, days));
         } else {
           setDaysRemaining(null);
         }
-
-        setIsLoading(false);
-      });
+      } catch {
+        if (!cancelled) setStatus('cancelled');
+      } finally {
+        if (!cancelled) setIsLoading(false);
+      }
     }
 
     void load();
-    return () => unsub?.();
+    return () => { cancelled = true; };
   }, [user?.agencyId, isSuperAdmin]);
 
   const isLifetime = status === 'lifetime';

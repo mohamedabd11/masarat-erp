@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { useAuth } from '@masarat/firebase';
 import { BookingsClient } from '@/components/bookings/BookingsClient';
 import { Spinner } from '@/components/ui/Spinner';
+import { apiFetch } from '@/lib/api-client';
 import type { BookingType } from '@masarat/firebase';
 
 interface ServiceTypeMeta {
@@ -26,16 +27,8 @@ export default function CustomServicePage({
     if (!user) return;
     async function fetchMeta() {
       try {
-        const { getFirestore, doc, getDoc } = await import('firebase/firestore');
-        const { getApp } = await import('@masarat/firebase');
-        const db = getFirestore(getApp());
-        const snap = await getDoc(doc(db, 'service_types', type));
-        if (snap.exists()) {
-          const d = snap.data() as ServiceTypeMeta;
-          setMeta(d);
-        } else {
-          setMeta({ nameAr: type, nameEn: type });
-        }
+        const data = await apiFetch<{ serviceType: ServiceTypeMeta }>(`/api/service-types/${type}`);
+        setMeta(data.serviceType);
       } catch {
         setMeta({ nameAr: type, nameEn: type });
       } finally {

@@ -2,8 +2,7 @@
 
 import { useState, useEffect, useMemo } from 'react';
 import { useAuth } from '@masarat/firebase';
-
-// ─── Types ────────────────────────────────────────────────────────────────────
+import { apiFetch } from '@/lib/api-client';
 
 export interface AccountLine {
   code:    string;
@@ -17,20 +16,31 @@ export interface IncomeStatementData {
   expenseLines:  AccountLine[];
   totalRevenue:  number;
   totalExpense:  number;
-  grossProfit:   number;  // revenue - cost of services only (5000)
-  netProfit:     number;  // revenue - all expenses
-  grossMargin:   number;  // %
-  netMargin:     number;  // %
+  grossProfit:   number;
+  netProfit:     number;
+  grossMargin:   number;
+  netMargin:     number;
   loading:       boolean;
   year:          number;
-  quarter:       0 | 1 | 2 | 3 | 4;  // 0 = full year
+  quarter:       0 | 1 | 2 | 3 | 4;
   setYear:       (y: number) => void;
   setQuarter:    (q: 0 | 1 | 2 | 3 | 4) => void;
   fromDate:      Date;
   toDate:        Date;
 }
 
-// ─── Date helpers ─────────────────────────────────────────────────────────────
+interface JournalLineRow {
+  accountCode:   string;
+  accountNameAr: string | null;
+  accountNameEn: string | null;
+  debitHalalas:  number;
+  creditHalalas: number;
+}
+
+interface JournalEntryRow {
+  date:  string;
+  lines: JournalLineRow[];
+}
 
 function quarterRange(year: number, quarter: 0 | 1 | 2 | 3 | 4): [Date, Date] {
   if (quarter === 0) return [new Date(year, 0, 1), new Date(year + 1, 0, 1)];
@@ -38,7 +48,9 @@ function quarterRange(year: number, quarter: 0 | 1 | 2 | 3 | 4): [Date, Date] {
   return [new Date(year, startMonth, 1), new Date(year, startMonth + 3, 1)];
 }
 
-// ─── Hook ────────────────────────────────────────────────────────────────────
+function toISODate(d: Date): string {
+  return d.toISOString().split('T')[0]!;
+}
 
 export function useIncomeStatement(): IncomeStatementData {
   const { user } = useAuth();
@@ -48,7 +60,6 @@ export function useIncomeStatement(): IncomeStatementData {
   const [quarter, setQuarter] = useState<0 | 1 | 2 | 3 | 4>(0);
   const [loading, setLoading] = useState(true);
 
-  // Aggregated by accountCode: { nameAr, nameEn, type, halalas }
   const [revenueMap, setRevenueMap] = useState<Map<string, AccountLine>>(new Map());
   const [expenseMap, setExpenseMap] = useState<Map<string, AccountLine>>(new Map());
 
@@ -59,92 +70,58 @@ export function useIncomeStatement(): IncomeStatementData {
     let cancelled = false;
     setLoading(true);
 
-    async function load() {
-      try {
-        const { getFirestore, collection, query, where, getDocs, Timestamp } =
-          await import('firebase/firestore');
-        const { getApp } = await import('@masarat/firebase');
-        const db = getFirestore(getApp());
+    const params = new URLSearchParams({
+      from:  toISODate(fromDate),
+      to:    toISODate(toDate),
+      lines: '1',
+    });
 
-        const snap = await getDocs(query(
-          collection(db, 'journal_entries'),
-          where('agencyId', '==', agencyId),
-          where('status',   '==', 'posted'),
-          where('postedAt', '>=', Timestamp.fromDate(fromDate)),
-          where('postedAt', '<',  Timestamp.fromDate(toDate)),
-        ));
-
+    apiFetch<{ entries: JournalEntryRow[] }>(`/api/accounting/journal?${params}`)
+      .then(data => {
         if (cancelled) return;
-
         const rev = new Map<string, AccountLine>();
         const exp = new Map<string, AccountLine>();
 
-        for (const d of snap.docs) {
-          const entry = d.data() as Record<string, unknown>;
-          const lines = (entry['lines'] as Record<string, unknown>[]) ?? [];
-
-          for (const line of lines) {
-            const code    = String(line['accountCode'] ?? '');
-            // Support both client-side format (debitHalalas/creditHalalas) and
-            // server API format (debit/credit)
-            const debit   = Number(line['debitHalalas']  ?? line['debit']  ?? 0);
-            const credit  = Number(line['creditHalalas'] ?? line['credit'] ?? 0);
-            // Support both accountNameAr and accountName.{ar,en}
-            const accName = line['accountName'] as { ar?: string; en?: string } | undefined;
-            const nameAr  = String(line['accountNameAr'] ?? accName?.['ar'] ?? code);
-            const nameEn  = String(line['accountNameEn'] ?? accName?.['en'] ?? code);
-            // Infer account type from code prefix if accountType is not stored
-            const storedType = String(line['accountType'] ?? '');
-            const inferredType = storedType || (() => {
-              const c = code.charAt(0);
-              if (c === '4') return 'revenue';
-              if (c === '5') return 'expense';
-              return '';
-            })();
-
-            if (inferredType === 'revenue' && credit > 0) {
-              const existing = rev.get(code);
-              rev.set(code, { code, nameAr, nameEn, halalas: (existing?.halalas ?? 0) + credit });
+        for (const entry of data.entries) {
+          for (const line of (entry.lines ?? [])) {
+            const code   = line.accountCode;
+            const debit  = line.debitHalalas;
+            const credit = line.creditHalalas;
+            const nameAr = line.accountNameAr ?? code;
+            const nameEn = line.accountNameEn ?? code;
+            const c = code.charAt(0);
+            if (c === '4' && credit > 0) {
+              const ex = rev.get(code);
+              rev.set(code, { code, nameAr, nameEn, halalas: (ex?.halalas ?? 0) + credit });
             }
-            if (inferredType === 'expense' && debit > 0) {
-              const existing = exp.get(code);
-              exp.set(code, { code, nameAr, nameEn, halalas: (existing?.halalas ?? 0) + debit });
+            if (c === '5' && debit > 0) {
+              const ex = exp.get(code);
+              exp.set(code, { code, nameAr, nameEn, halalas: (ex?.halalas ?? 0) + debit });
             }
           }
         }
-
         setRevenueMap(rev);
         setExpenseMap(exp);
-      } catch (err) {
-        console.error('[useIncomeStatement]', err);
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    }
+      })
+      .catch(() => {})
+      .finally(() => { if (!cancelled) setLoading(false); });
 
-    void load();
     return () => { cancelled = true; };
   }, [agencyId, fromDate, toDate]);
 
   return useMemo(() => {
     const revenueLines = Array.from(revenueMap.values()).sort((a, b) => a.code.localeCompare(b.code));
     const expenseLines = Array.from(expenseMap.values()).sort((a, b) => a.code.localeCompare(b.code));
-
-    const totalRevenue = revenueLines.reduce((s, l) => s + l.halalas, 0);
-    const totalExpense = expenseLines.reduce((s, l) => s + l.halalas, 0);
-
-    // Gross profit = revenue - cost of services (5000) only
+    const totalRevenue   = revenueLines.reduce((s, l) => s + l.halalas, 0);
+    const totalExpense   = expenseLines.reduce((s, l) => s + l.halalas, 0);
     const costOfServices = expenseLines.find(l => l.code === '5000')?.halalas ?? 0;
     const grossProfit    = totalRevenue - costOfServices;
     const netProfit      = totalRevenue - totalExpense;
     const grossMargin    = totalRevenue > 0 ? Math.round((grossProfit / totalRevenue) * 100) : 0;
     const netMargin      = totalRevenue > 0 ? Math.round((netProfit  / totalRevenue) * 100) : 0;
-
     return {
-      revenueLines, expenseLines,
-      totalRevenue, totalExpense,
-      grossProfit, netProfit,
-      grossMargin, netMargin,
+      revenueLines, expenseLines, totalRevenue, totalExpense,
+      grossProfit, netProfit, grossMargin, netMargin,
       loading, year, quarter, setYear,
       setQuarter: setQuarter as (q: 0 | 1 | 2 | 3 | 4) => void,
       fromDate, toDate,

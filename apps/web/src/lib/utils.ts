@@ -17,9 +17,10 @@ export function formatCurrency(halalas: number, locale: string = 'ar-SA'): strin
 }
 
 /** تنسيق التاريخ — يستخدم أرقام لاتينية دائماً */
-export function formatDate(date: Date | { toDate(): Date } | null | undefined, locale: string = 'ar-SA'): string {
+export function formatDate(date: Date | { toDate(): Date } | string | null | undefined, locale: string = 'ar-SA'): string {
   if (!date) return '';
-  const d = 'toDate' in date ? date.toDate() : date;
+  const d = typeof date === 'string' ? new Date(date) : 'toDate' in date ? date.toDate() : date;
+  if (isNaN(d.getTime())) return '';
   const dateLocale = locale.startsWith('ar') ? 'ar-SA-u-nu-latn' : locale;
   return new Intl.DateTimeFormat(dateLocale, {
     year: 'numeric',
@@ -29,9 +30,10 @@ export function formatDate(date: Date | { toDate(): Date } | null | undefined, l
 }
 
 /** تنسيق التاريخ والوقت — يستخدم أرقام لاتينية دائماً */
-export function formatDateTime(date: Date | { toDate(): Date } | null | undefined, locale: string = 'ar-SA'): string {
+export function formatDateTime(date: Date | { toDate(): Date } | string | null | undefined, locale: string = 'ar-SA'): string {
   if (!date) return '';
-  const d = 'toDate' in date ? date.toDate() : date;
+  const d = typeof date === 'string' ? new Date(date) : 'toDate' in date ? date.toDate() : date;
+  if (isNaN(d.getTime())) return '';
   const dateLocale = locale.startsWith('ar') ? 'ar-SA-u-nu-latn' : locale;
   return new Intl.DateTimeFormat(dateLocale, {
     year: 'numeric',

@@ -4,6 +4,19 @@ import { db } from '@/lib/db';
 import { serviceTypes } from '@/lib/schema';
 import { verifyAuth, ApiAuthError } from '@/lib/api-auth';
 
+export async function GET(request: Request, { params }: { params: { id: string } }) {
+  try {
+    const { agencyId } = await verifyAuth(request);
+    const [row] = await db.select().from(serviceTypes)
+      .where(and(eq(serviceTypes.id, params.id), eq(serviceTypes.agencyId, agencyId)));
+    if (!row) return NextResponse.json({ error: 'نوع الخدمة غير موجود' }, { status: 404 });
+    return NextResponse.json({ serviceType: row });
+  } catch (err) {
+    if (err instanceof ApiAuthError) return NextResponse.json({ error: err.message }, { status: err.status });
+    return NextResponse.json({ error: 'خطأ في الخادم' }, { status: 500 });
+  }
+}
+
 export async function PATCH(request: Request, { params }: { params: { id: string } }) {
   try {
     const { agencyId } = await verifyAuth(request);

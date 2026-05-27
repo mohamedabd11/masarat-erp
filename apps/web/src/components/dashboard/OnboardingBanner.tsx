@@ -47,23 +47,20 @@ export function OnboardingBanner() {
 
     async function load() {
       try {
-        const { getFirestore, doc, getDoc, collection, query, where, getDocs } = await import('firebase/firestore');
-        const { getApp } = await import('@masarat/firebase');
-        const db = getFirestore(getApp());
-
-        const [agSnap, usersSnap] = await Promise.all([
-          getDoc(doc(db, 'agencies', agencyId!)),
-          getDocs(query(collection(db, 'users'), where('agencyId', '==', agencyId))),
-        ]);
+        const { apiFetch } = await import('@/lib/api-client');
+        const data = await apiFetch<{
+          agency: { nameAr?: string; crNumber?: string; city?: string; contactPhone?: string; contactEmail?: string; isVatRegistered?: boolean; vatNumber?: string };
+          users: unknown[];
+        }>('/api/settings');
 
         if (cancelled) return;
 
-        const ag = agSnap.exists() ? (agSnap.data() as Record<string, unknown>) : {};
-        const hasName      = !!ag['nameAr'];
-        const hasCR        = !!ag['crNumber'];
-        const hasCity      = !!ag['city'];
-        const hasContact   = !!(ag['contactPhone'] || ag['contactEmail']);
-        const hasMoreUsers = usersSnap.size > 1;
+        const ag           = data.agency;
+        const hasName      = !!ag.nameAr;
+        const hasCR        = !!ag.crNumber;
+        const hasCity      = !!ag.city;
+        const hasContact   = !!(ag.contactPhone || ag.contactEmail);
+        const hasMoreUsers = data.users.length > 1;
 
         const built: Step[] = [
           {
@@ -80,15 +77,15 @@ export function OnboardingBanner() {
             id:     'invoice',
             ar:     'حدد نوع الفواتير',
             en:     'Configure Invoice Type',
-            descAr: ag['isVatRegistered']
+            descAr: ag.isVatRegistered
               ? 'أنت مسجّل بضريبة القيمة المضافة — تأكد من الرقم الضريبي'
               : 'اختر: فاتورة تجارية (سجل تجاري) أو فاتورة ضريبية (VAT)',
-            descEn: ag['isVatRegistered']
+            descEn: ag.isVatRegistered
               ? 'VAT registered — verify your VAT number is entered'
               : 'Choose: commercial invoice (CR only) or tax invoice (VAT)',
             href:   `/${locale}/settings?tab=agency`,
             icon:   <FileText size={16} />,
-            done:   hasCR && (ag['isVatRegistered'] ? !!(ag['vatNumber']) : true),
+            done:   hasCR && (ag.isVatRegistered ? !!ag.vatNumber : true),
           },
           {
             id:     'team',

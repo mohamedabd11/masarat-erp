@@ -12,6 +12,7 @@ import { Card, CardHeader, CardTitle } from '@/components/ui/Card';
 import { cn } from '@/lib/utils';
 import { ArrowRight, ArrowLeft, UserPlus, Building2, User } from 'lucide-react';
 import { useAuth } from '@masarat/firebase';
+import { apiFetch } from '@/lib/api-client';
 
 // ─── Schema ───────────────────────────────────────────────────────────────────
 
@@ -92,35 +93,21 @@ export default function NewCustomerPage() {
     setSubmitting(true);
     setServerError('');
     try {
-      const { getFirestore, collection, addDoc, Timestamp } = await import('firebase/firestore');
-      const { getApp } = await import('@masarat/firebase');
-      const db = getFirestore(getApp());
-
-      const ref = await addDoc(collection(db, 'customers'), {
-        agencyId:       user.agencyId,
-        type:           data.type,
-        name:           { ar: data.nameAr, en: data.nameEn || data.nameAr },
-        mobile:         data.phone,
-        email:          data.email ?? '',
-        gender:         data.gender ?? (isCompany ? undefined : 'male'),
-        nationality:    data.nationality,
-        nationalId:     data.nationalId ?? '',
-        passportNumber: data.passportNumber ?? '',
-        passportExpiry: data.passportExpiry ?? '',
-        dateOfBirth:    data.dateOfBirth ?? '',
-        vatNumber:      data.vatNumber ?? '',
-        notes:          data.notes ?? '',
-        tags:           [],
-        tier:           'standard',
-        loyalty:        { points: 0, totalEarned: 0 },
-        stats:          { totalBookings: 0, totalSpent: 0 },
-        flags:          { hasUnpaidBalance: false, isBlacklisted: false },
-        isActive:       true,
-        createdAt:      Timestamp.now(),
-        updatedAt:      Timestamp.now(),
+      const result = await apiFetch<{ id: string }>('/api/customers', {
+        method: 'POST',
+        body: JSON.stringify({
+          nameAr:         data.nameAr,
+          nameEn:         data.nameEn || data.nameAr,
+          phone:          data.phone,
+          email:          data.email || null,
+          nationality:    data.nationality,
+          nationalId:     data.nationalId || null,
+          passportNumber: data.passportNumber || null,
+          dateOfBirth:    data.dateOfBirth || null,
+          notes:          data.notes || null,
+        }),
       });
-
-      router.push(`/${locale}/customers/${ref.id}`);
+      router.push(`/${locale}/customers/${result.id}`);
     } catch {
       setServerError(isAr ? 'حدث خطأ أثناء الحفظ، حاول مرة أخرى' : 'Error saving, please try again');
       setSubmitting(false);

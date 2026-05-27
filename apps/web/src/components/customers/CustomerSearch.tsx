@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useLocale } from 'next-intl';
 import { Search, UserPlus, Clock, X, Check, Phone, ChevronRight, Loader2 } from 'lucide-react';
+import { apiFetch } from '@/lib/api-client';
 import { cn } from '@/lib/utils';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -110,30 +111,12 @@ function QuickCreateModal({ agencyId, initialName, isAr, onCreated, onClose }: Q
 
     setSaving(true);
     try {
-      const { getFirestore, collection, addDoc, Timestamp } = await import('firebase/firestore');
-      const { getApp } = await import('@masarat/firebase');
-      const db = getFirestore(getApp());
-
-      const ref = await addDoc(collection(db, 'customers'), {
-        agencyId,
-        type: 'individual',
-        name: { ar: nameAr.trim(), en: nameAr.trim() },
-        mobile: phone.trim(),
-        email: email.trim(),
-        nationality: nat,
-        nationalId: '', passportNumber: '', passportExpiry: '',
-        dateOfBirth: '', vatNumber: '', notes: '', tags: [],
-        tier: 'standard',
-        loyalty: { points: 0, totalEarned: 0 },
-        stats: { totalBookings: 0, totalSpent: 0 },
-        flags: { hasUnpaidBalance: false, isBlacklisted: false },
-        isActive: true,
-        createdAt: Timestamp.now(),
-        updatedAt: Timestamp.now(),
+      const data = await apiFetch<{ id: string }>('/api/customers', {
+        method: 'POST',
+        body: JSON.stringify({ nameAr: nameAr.trim(), phone: phone.trim(), email: email.trim() || undefined, nationality: nat }),
       });
-
       const created: CustomerRecord = {
-        id: ref.id, nameAr: nameAr.trim(), phone: phone.trim(),
+        id: data.id, nameAr: nameAr.trim(), phone: phone.trim(),
         email: email.trim() || undefined, nationality: nat, tier: 'standard',
       };
       saveRecent(created);
@@ -301,41 +284,37 @@ export function CustomerSearch({ agencyId, onSelect, placeholder, className }: C
     return () => document.removeEventListener('mousedown', handler);
   }, []);
 
-  // Search Firestore
+  const allCustomersRef = useRef<CustomerRecord[] | null>(null);
+
   const search = useCallback(async (q: string) => {
     if (!q.trim() || q.trim().length < 2) { setResults([]); setLoading(false); return; }
     setLoading(true);
     try {
-      const { getFirestore, collection, query: fsQuery, where, limit, getDocs } = await import('firebase/firestore');
-      const { getApp } = await import('@masarat/firebase');
-      const db = getFirestore(getApp());
-      const snap = await getDocs(
-        fsQuery(collection(db, 'customers'), where('agencyId', '==', agencyId), limit(200))
-      );
+      if (!allCustomersRef.current) {
+        const data = await apiFetch<{ customers: Array<{ id: string; nameAr: string; nameEn?: string | null; phone?: string | null; email?: string | null; nationality?: string | null; tier?: string | null }> }>('/api/customers');
+        allCustomersRef.current = data.customers.map(c => ({
+          id:          c.id,
+          nameAr:      c.nameAr,
+          nameEn:      c.nameEn ?? undefined,
+          phone:       c.phone ?? '',
+          email:       c.email ?? undefined,
+          nationality: c.nationality ?? undefined,
+          tier:        (c.tier as CustomerRecord['tier']) ?? 'standard',
+        }));
+      }
       const lower = q.toLowerCase();
-      const filtered = snap.docs
-        .map(d => ({ id: d.id, ...d.data() } as CustomerRecord & { name?: { ar?: string; en?: string }; mobile?: string })
-        )
-        .map(d => ({
-          id:          d.id,
-          nameAr:      (d.name?.ar ?? d.nameAr ?? ''),
-          nameEn:      (d.name?.en ?? d.nameEn ?? ''),
-          phone:       (d.mobile ?? d.phone ?? ''),
-          email:       d.email,
-          nationality: d.nationality,
-          tier:        d.tier,
-        } as CustomerRecord))
+      const filtered = allCustomersRef.current
         .filter(c =>
-          c.nameAr.includes(lower) ||
+          c.nameAr.toLowerCase().includes(lower) ||
           (c.nameEn ?? '').toLowerCase().includes(lower) ||
-          c.phone.includes(lower)
+          (c.phone ?? '').includes(lower)
         )
         .slice(0, 8);
       setResults(filtered);
     } finally {
       setLoading(false);
     }
-  }, [agencyId]);
+  }, []);
 
   useEffect(() => {
     const t = setTimeout(() => void search(query), 250);

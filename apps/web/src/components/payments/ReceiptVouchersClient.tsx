@@ -15,6 +15,7 @@ import {
 import Link from 'next/link';
 import { ReceiptVoucherModal } from './ReceiptVoucherModal';
 import { ProcessRefundModal } from '@/components/bookings/ProcessRefundModal';
+import { apiFetch } from '@/lib/api-client';
 
 interface ReceiptPayment {
   id: string;
@@ -28,7 +29,7 @@ interface ReceiptPayment {
   paymentMethod: string;
   reference?: string;
   receiptNumber?: string;
-  createdAt: { toDate?: () => Date } | null;
+  createdAt: string | null;
 }
 
 type MethodFilter = 'all' | 'cash' | 'bank_transfer' | 'card' | 'online';
@@ -70,38 +71,19 @@ export function ReceiptVouchersClient() {
     if (!agencyId) { setLoading(false); return; }
     let cancelled = false;
 
-    async function load() {
-      try {
-        const { getFirestore, collection, query, where, getDocs } =
-          await import('firebase/firestore');
-        const { getApp } = await import('@masarat/firebase');
-        const db = getFirestore(getApp());
-
-        const q = query(
-          collection(db, 'payments'),
-          where('agencyId', '==', agencyId),
-        );
-
-        const snap = await getDocs(q);
+    apiFetch<{ payments: ReceiptPayment[] }>('/api/payments')
+      .then(d => {
         if (cancelled) return;
+        const sorted = [...d.payments].sort((a, b) => {
+          const aTime = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+          const bTime = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+          return bTime - aTime;
+        });
+        setPayments(sorted);
+      })
+      .catch(() => {})
+      .finally(() => { if (!cancelled) setLoading(false); });
 
-        const docs = snap.docs
-          .map(d => ({ id: d.id, ...d.data() } as ReceiptPayment))
-          .sort((a, b) => {
-            const aTime = a.createdAt?.toDate?.()?.getTime() ?? 0;
-            const bTime = b.createdAt?.toDate?.()?.getTime() ?? 0;
-            return bTime - aTime;
-          });
-
-        setPayments(docs);
-      } catch {
-        // silently handle permission errors on empty collection
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    }
-
-    void load();
     return () => { cancelled = true; };
   }, [agencyId, showModal, refreshKey]);
 
@@ -289,7 +271,7 @@ export function ReceiptVouchersClient() {
               </thead>
               <tbody className="divide-y divide-surface-border">
                 {filtered.map(p => {
-                  const date        = p.createdAt?.toDate?.() ?? null;
+                  const date        = p.createdAt ? new Date(p.createdAt) : null;
                   const customerName = isAr
                     ? (p.customerNameAr || p.customerNameEn || '—')
                     : (p.customerNameEn || p.customerNameAr || '—');

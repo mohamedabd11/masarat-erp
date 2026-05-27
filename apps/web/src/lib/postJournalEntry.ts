@@ -1,7 +1,5 @@
-// Double-entry journal entry helper — posts entries and updates account running balances.
-// All amounts are in halalas (1 SAR = 100 halalas).
-
-// ─── Types ────────────────────────────────────────────────────────────────────
+// Journal entries are now created server-side within API route transactions.
+// This module is kept for compatibility with MigrationTool and exposes builder helpers.
 
 export interface JELine {
   accountCode:   string;
@@ -21,16 +19,14 @@ export interface JEPayload {
 }
 
 export interface InvoicePricing {
-  revenueModel:    string;  // 'agent' | 'principal'
+  revenueModel:    string;
   isVatRegistered: boolean;
-  grandTotal:      number;  // finalGrandTotal  (DR Receivable)
-  totalCost:       number;  // storedTotalCost  (CR Payable — agent only)
-  serviceFee:      number;  // storedServiceFee (CR Revenue — agent only)
-  vatAmount:       number;  // totalVat         (CR VAT Payable)
-  subtotalExclVat: number;  // excl-VAT revenue (CR Revenue — principal)
+  grandTotal:      number;
+  totalCost:       number;
+  serviceFee:      number;
+  vatAmount:       number;
+  subtotalExclVat: number;
 }
-
-// ─── Standard Chart of Accounts ──────────────────────────────────────────────
 
 export const AC = {
   cash:              { code: '1100', nameAr: 'الصندوق النقدي',                nameEn: 'Cash on Hand',                  type: 'asset'     as const },
@@ -48,7 +44,6 @@ export const AC = {
   otherExpenses:     { code: '5900', nameAr: 'مصاريف أخرى',                   nameEn: 'Other Expenses',                type: 'expense'   as const },
 } as const;
 
-// Maps a payment method string to the correct cash/bank/POS account
 export type PaymentMethod = 'cash' | 'bank_transfer' | 'card' | 'online' | 'check';
 
 export function resolvePaymentAccount(method: PaymentMethod | string) {
@@ -62,124 +57,53 @@ export function resolvePaymentAccount(method: PaymentMethod | string) {
   }
 }
 
-// ─── Internal helpers ─────────────────────────────────────────────────────────
-
 type AcDef = typeof AC[keyof typeof AC];
 
 function jl(ac: AcDef, dr: number, cr: number): JELine {
-  return {
-    accountCode:   ac.code,
-    accountNameAr: ac.nameAr,
-    accountNameEn: ac.nameEn,
-    accountType:   ac.type,
-    debitHalalas:  dr,
-    creditHalalas: cr,
-  };
+  return { accountCode: ac.code, accountNameAr: ac.nameAr, accountNameEn: ac.nameEn, accountType: ac.type, debitHalalas: dr, creditHalalas: cr };
 }
-
-function computeBalance(type: string, dr: number, cr: number): number {
-  return (type === 'asset' || type === 'expense') ? dr - cr : cr - dr;
-}
-
-// ─── Journal line builders ────────────────────────────────────────────────────
 
 export function buildInvoiceLines(p: InvoicePricing): JELine[] {
   const { revenueModel, isVatRegistered, grandTotal, totalCost, serviceFee, vatAmount, subtotalExclVat } = p;
   if (grandTotal === 0) return [];
-
   if (revenueModel === 'agent') {
     const hasBreakdown = totalCost > 0 || serviceFee > 0;
-
     if (hasBreakdown) {
-      // Normal agent: customer pays cost + fee + VAT on fee
-      if (isVatRegistered && vatAmount > 0) {
-        return [
-          jl(AC.receivable,      grandTotal, 0),
-          jl(AC.payableSupplier, 0, totalCost),
-          jl(AC.revenueAgent,    0, serviceFee),
-          jl(AC.vatPayable,      0, vatAmount),
-        ];
-      }
-      return [
-        jl(AC.receivable,      grandTotal, 0),
-        jl(AC.payableSupplier, 0, totalCost),
-        jl(AC.revenueAgent,    0, serviceFee),
-      ];
+      const lines = [jl(AC.receivable, grandTotal, 0), jl(AC.payableSupplier, 0, totalCost), jl(AC.revenueAgent, 0, serviceFee)];
+      if (isVatRegistered && vatAmount > 0) lines.push(jl(AC.vatPayable, 0, vatAmount));
+      return lines;
     }
-
-    // Fallback: no cost/fee breakdown available — post full amount as revenue
     if (isVatRegistered && vatAmount > 0) {
-      return [
-        jl(AC.receivable,   grandTotal,            0),
-        jl(AC.revenueAgent, 0, grandTotal - vatAmount),
-        jl(AC.vatPayable,   0, vatAmount),
-      ];
+      return [jl(AC.receivable, grandTotal, 0), jl(AC.revenueAgent, 0, grandTotal - vatAmount), jl(AC.vatPayable, 0, vatAmount)];
     }
-    return [
-      jl(AC.receivable,   grandTotal, 0),
-      jl(AC.revenueAgent, 0, grandTotal),
-    ];
+    return [jl(AC.receivable, grandTotal, 0), jl(AC.revenueAgent, 0, grandTotal)];
   }
-
-  // Principal model: revenue = full selling price
   if (isVatRegistered && vatAmount > 0) {
-    return [
-      jl(AC.receivable,       grandTotal,     0),
-      jl(AC.revenuePrincipal, 0, subtotalExclVat),
-      jl(AC.vatPayable,       0, vatAmount),
-    ];
+    return [jl(AC.receivable, grandTotal, 0), jl(AC.revenuePrincipal, 0, subtotalExclVat), jl(AC.vatPayable, 0, vatAmount)];
   }
-  return [
-    jl(AC.receivable,       grandTotal, 0),
-    jl(AC.revenuePrincipal, 0, grandTotal),
-  ];
+  return [jl(AC.receivable, grandTotal, 0), jl(AC.revenuePrincipal, 0, grandTotal)];
 }
 
-export function buildPaymentReceivedLines(
-  amountHalalas: number,
-  paymentMethod: PaymentMethod | string = 'bank_transfer',
-): JELine[] {
+export function buildPaymentReceivedLines(amountHalalas: number, paymentMethod: PaymentMethod | string = 'bank_transfer'): JELine[] {
   const payAc = resolvePaymentAccount(paymentMethod);
-  return [
-    jl(payAc,         amountHalalas, 0),
-    jl(AC.receivable, 0, amountHalalas),
-  ];
+  return [jl(payAc, amountHalalas, 0), jl(AC.receivable, 0, amountHalalas)];
 }
 
-export function buildRefundLines(
-  refundAmountHalalas: number,
-  isVatRegistered:     boolean,
-  revenueModel:        string,
-  paymentMethod:       PaymentMethod | string = 'bank_transfer',
-): JELine[] {
+export function buildRefundLines(refundAmountHalalas: number, isVatRegistered: boolean, revenueModel: string, paymentMethod: PaymentMethod | string = 'bank_transfer'): JELine[] {
   if (refundAmountHalalas === 0) return [];
   const revenueAc = revenueModel === 'agent' ? AC.revenueAgent : AC.revenuePrincipal;
-  const payAc     = resolvePaymentAccount(paymentMethod);
-
+  const payAc = resolvePaymentAccount(paymentMethod);
   if (isVatRegistered) {
     const exclVat = Math.round(refundAmountHalalas / 1.15);
     const vat     = refundAmountHalalas - exclVat;
-    return [
-      jl(revenueAc,    exclVat, 0),
-      jl(AC.vatPayable, vat,    0),
-      jl(payAc,         0,      refundAmountHalalas),
-    ];
+    return [jl(revenueAc, exclVat, 0), jl(AC.vatPayable, vat, 0), jl(payAc, 0, refundAmountHalalas)];
   }
-  return [
-    jl(revenueAc, refundAmountHalalas, 0),
-    jl(payAc,     0, refundAmountHalalas),
-  ];
+  return [jl(revenueAc, refundAmountHalalas, 0), jl(payAc, 0, refundAmountHalalas)];
 }
 
-export function buildSupplierPaymentLines(
-  amountHalalas: number,
-  paymentMethod: PaymentMethod | string = 'bank_transfer',
-): JELine[] {
+export function buildSupplierPaymentLines(amountHalalas: number, paymentMethod: PaymentMethod | string = 'bank_transfer'): JELine[] {
   const payAc = resolvePaymentAccount(paymentMethod);
-  return [
-    jl(AC.payableSupplier, amountHalalas, 0),
-    jl(payAc,              0, amountHalalas),
-  ];
+  return [jl(AC.payableSupplier, amountHalalas, 0), jl(payAc, 0, amountHalalas)];
 }
 
 export type ExpenseCategory = 'supplier' | 'operational' | 'salaries' | 'office' | 'other';
@@ -194,99 +118,13 @@ export function resolveExpenseAccount(category: ExpenseCategory) {
   }
 }
 
-export function buildExpensePaymentLines(
-  amountHalalas: number,
-  paymentMethod: PaymentMethod | string = 'bank_transfer',
-  category: ExpenseCategory = 'other',
-): JELine[] {
+export function buildExpensePaymentLines(amountHalalas: number, paymentMethod: PaymentMethod | string = 'bank_transfer', category: ExpenseCategory = 'other'): JELine[] {
   const expenseAc = resolveExpenseAccount(category);
   const payAc     = resolvePaymentAccount(paymentMethod);
-  return [
-    jl(expenseAc, amountHalalas, 0),
-    jl(payAc,     0, amountHalalas),
-  ];
+  return [jl(expenseAc, amountHalalas, 0), jl(payAc, 0, amountHalalas)];
 }
 
-// ─── Core: post entry + update account balances ───────────────────────────────
-
-export async function postJournalEntry(payload: JEPayload): Promise<void> {
-  const {
-    getFirestore, collection, doc, runTransaction, Timestamp,
-  } = await import('firebase/firestore');
-  const { getApp } = await import('@masarat/firebase');
-  const db = getFirestore(getApp());
-
-  const { lines, agencyId } = payload;
-
-  // Validate: debits must equal credits
-  const totalDR = lines.reduce((s, l) => s + l.debitHalalas,  0);
-  const totalCR = lines.reduce((s, l) => s + l.creditHalalas, 0);
-  if (totalDR !== totalCR) {
-    throw new Error(`Journal entry not balanced: DR ${totalDR} ≠ CR ${totalCR}`);
-  }
-  if (totalDR === 0) return;
-
-  const year     = new Date().getFullYear();
-  const jeNumber = `JE-${year}-${String(Date.now()).slice(-8)}`;
-  const jeRef    = doc(collection(db, 'journal_entries'));  // pre-generate ID
-
-  const activeLines = lines.filter(l => l.debitHalalas > 0 || l.creditHalalas > 0);
-  const accountRefs = activeLines.map(l =>
-    doc(db, 'chart_of_accounts', `${agencyId}_${l.accountCode}`),
-  );
-
-  // Single atomic transaction: JE document + all account balance updates
-  await runTransaction(db, async (tx) => {
-    // Read all account docs first (required before writes in a transaction)
-    const accountSnaps = await Promise.all(accountRefs.map(ref => tx.get(ref)));
-
-    // Write the immutable journal entry
-    tx.set(jeRef, {
-      agencyId,
-      jeNumber,
-      description:        payload.description,
-      referenceId:        payload.referenceId,
-      referenceType:      payload.referenceType,
-      status:             'posted',
-      lines,
-      totalDebitHalalas:  totalDR,
-      totalCreditHalalas: totalCR,
-      isBalanced:         true,
-      postedAt:           Timestamp.now(),
-      createdAt:          Timestamp.now(),
-    });
-
-    // Update or create each account balance
-    for (let i = 0; i < activeLines.length; i++) {
-      const l    = activeLines[i]!;
-      const ref  = accountRefs[i]!;
-      const snap = accountSnaps[i]!;
-
-      if (!snap.exists()) {
-        tx.set(ref, {
-          agencyId,
-          code:           l.accountCode,
-          nameAr:         l.accountNameAr,
-          nameEn:         l.accountNameEn,
-          type:           l.accountType,
-          side:           (l.accountType === 'asset' || l.accountType === 'expense') ? 'debit' : 'credit',
-          debitTotal:     l.debitHalalas,
-          creditTotal:    l.creditHalalas,
-          balanceHalalas: computeBalance(l.accountType, l.debitHalalas, l.creditHalalas),
-          createdAt:      Date.now(),
-          updatedAt:      Date.now(),
-        });
-      } else {
-        const d     = snap.data() as Record<string, number>;
-        const newDR = (d['debitTotal']  ?? 0) + l.debitHalalas;
-        const newCR = (d['creditTotal'] ?? 0) + l.creditHalalas;
-        tx.update(ref, {
-          debitTotal:     newDR,
-          creditTotal:    newCR,
-          balanceHalalas: computeBalance(l.accountType, newDR, newCR),
-          updatedAt:      Date.now(),
-        });
-      }
-    }
-  });
+// No-op: journal entries are now created server-side in API routes
+export async function postJournalEntry(_payload: JEPayload): Promise<void> {
+  return;
 }

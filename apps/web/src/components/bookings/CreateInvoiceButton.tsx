@@ -33,15 +33,12 @@ export function CreateInvoiceButton({
     if (!agencyId) return;
     let cancelled = false;
     async function loadAgency() {
-      const { getFirestore, doc, getDoc } = await import('firebase/firestore');
-      const { getApp } = await import('@masarat/firebase');
-      const snap = await getDoc(doc(getFirestore(getApp()), 'agencies', agencyId));
-      if (cancelled) return;
-      if (snap.exists()) {
-        const d = snap.data() as Record<string, unknown>;
-        setIsVatRegistered((d['isVatRegistered'] as boolean) ?? false);
-      } else {
-        setIsVatRegistered(false);
+      try {
+        const { apiFetch } = await import('@/lib/api-client');
+        const data = await apiFetch<{ agency: { isVatRegistered: boolean } }>('/api/settings');
+        if (!cancelled) setIsVatRegistered(data.agency.isVatRegistered ?? false);
+      } catch {
+        if (!cancelled) setIsVatRegistered(false);
       }
     }
     void loadAgency();
