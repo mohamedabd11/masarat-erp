@@ -2,17 +2,19 @@
 
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import { useLocale } from 'next-intl';
 import { useAuth } from '@masarat/firebase';
 import { cn } from '@/lib/utils';
 import { MasaratLogo } from '@/components/ui/MasaratLogo';
+import { useSubscription } from '@/providers/SubscriptionProvider';
+import { type FeatureKey } from '@/lib/plan-features';
 import {
   LayoutDashboard, ClipboardList, Users, Plane, Building2, Package,
   Moon, Shield, Stamp, FileText, Receipt, BarChart3, Truck, UserCog,
   Settings, HelpCircle, ChevronLeft, ChevronRight, Calculator,
   Anchor, Car, Train, Camera, Mountain, Plus, Layers, Landmark, Send, Wallet,
-  TrendingDown, TrendingUp,
+  TrendingDown, TrendingUp, Lock,
 } from 'lucide-react';
 
 // ─── Icon map for custom service types ────────────────────────────────────────
@@ -46,6 +48,7 @@ interface NavItem {
   icon: React.ReactNode;
   labelAr: string;
   labelEn: string;
+  feature?: FeatureKey;
 }
 
 interface NavGroup {
@@ -76,13 +79,13 @@ const FINANCE_GROUP: NavGroup = {
   labelAr: 'المالية',
   labelEn: 'Finance',
   items: [
-    { key: 'invoices',          href: '/invoices',          icon: <FileText size={18} />,     labelAr: 'الفواتير',           labelEn: 'Invoices' },
-    { key: 'payments',          href: '/payments',          icon: <Receipt size={18} />,      labelAr: 'المدفوعات',          labelEn: 'Payments' },
-    { key: 'receipt_vouchers',  href: '/receipt-vouchers',  icon: <TrendingUp size={18} />,   labelAr: 'سندات القبض',        labelEn: 'Receipt Vouchers' },
-    { key: 'supplier_payments', href: '/supplier-payments', icon: <TrendingDown size={18} />, labelAr: 'سندات الصرف',        labelEn: 'Payment Vouchers' },
-    { key: 'cheques',           href: '/cheques',           icon: <Landmark size={18} />,     labelAr: 'الشيكات',            labelEn: 'Cheques' },
-    { key: 'banking',           href: '/banking',           icon: <Wallet size={18} />,       labelAr: 'البنوك والصناديق',   labelEn: 'Banks & Cash' },
-    { key: 'accounting',        href: '/accounting',        icon: <Calculator size={18} />,   labelAr: 'المحاسبة',           labelEn: 'Accounting' },
+    { key: 'invoices',          href: '/invoices',          icon: <FileText size={18} />,     labelAr: 'الفواتير',           labelEn: 'Invoices',          feature: 'invoices' },
+    { key: 'payments',          href: '/payments',          icon: <Receipt size={18} />,      labelAr: 'المدفوعات',          labelEn: 'Payments',          feature: 'payments' },
+    { key: 'receipt_vouchers',  href: '/receipt-vouchers',  icon: <TrendingUp size={18} />,   labelAr: 'سندات القبض',        labelEn: 'Receipt Vouchers',  feature: 'receipt_vouchers' },
+    { key: 'supplier_payments', href: '/supplier-payments', icon: <TrendingDown size={18} />, labelAr: 'سندات الصرف',        labelEn: 'Payment Vouchers',  feature: 'supplier_payments' },
+    { key: 'cheques',           href: '/cheques',           icon: <Landmark size={18} />,     labelAr: 'الشيكات',            labelEn: 'Cheques',           feature: 'cheques' },
+    { key: 'banking',           href: '/banking',           icon: <Wallet size={18} />,       labelAr: 'البنوك والصناديق',   labelEn: 'Banks & Cash',      feature: 'banking' },
+    { key: 'accounting',        href: '/accounting',        icon: <Calculator size={18} />,   labelAr: 'المحاسبة',           labelEn: 'Accounting',        feature: 'accounting' },
   ],
 };
 
@@ -91,10 +94,10 @@ const MANAGEMENT_GROUP: NavGroup = {
   labelAr: 'الإدارة',
   labelEn: 'Management',
   items: [
-    { key: 'customers', href: '/customers', icon: <Users size={18} />,    labelAr: 'العملاء',   labelEn: 'Customers' },
-    { key: 'suppliers', href: '/suppliers', icon: <Truck size={18} />,    labelAr: 'الموردين',          labelEn: 'Suppliers' },
-    { key: 'employees', href: '/employees', icon: <UserCog size={18} />,  labelAr: 'إدارة الموظفين',    labelEn: 'Employees' },
-    { key: 'reports',   href: '/reports',   icon: <BarChart3 size={18} />, labelAr: 'التقارير',  labelEn: 'Reports' },
+    { key: 'customers', href: '/customers', icon: <Users size={18} />,    labelAr: 'العملاء',         labelEn: 'Customers',  feature: 'customers' },
+    { key: 'suppliers', href: '/suppliers', icon: <Truck size={18} />,    labelAr: 'الموردين',        labelEn: 'Suppliers',  feature: 'suppliers' },
+    { key: 'employees', href: '/employees', icon: <UserCog size={18} />,  labelAr: 'إدارة الموظفين', labelEn: 'Employees',  feature: 'employees' },
+    { key: 'reports',   href: '/reports',   icon: <BarChart3 size={18} />, labelAr: 'التقارير',       labelEn: 'Reports',    feature: 'reports' },
   ],
 };
 
@@ -112,9 +115,11 @@ interface SidebarProps {
 export function Sidebar({ collapsed = false, onToggle, onClose }: SidebarProps) {
   const locale = useLocale();
   const pathname = usePathname();
+  const router = useRouter();
   const isAr = locale === 'ar';
   const { user } = useAuth();
   const agencyId = user?.agencyId ?? null;
+  const { canAccess } = useSubscription();
   const [customTypes, setCustomTypes] = useState<CustomServiceType[]>([]);
 
   useEffect(() => {
@@ -155,21 +160,40 @@ export function Sidebar({ collapsed = false, onToggle, onClose }: SidebarProps) 
     : collapsed ? ChevronRight : ChevronLeft;
 
   function NavLink({ item, active }: { item: NavItem; active: boolean }) {
+    const locked = item.feature ? !canAccess(item.feature) : false;
+
+    function handleClick(e: React.MouseEvent) {
+      if (locked) {
+        e.preventDefault();
+        router.push(buildHref('/settings?tab=billing'));
+        return;
+      }
+      onClose?.();
+    }
+
     return (
       <Link
         href={buildHref(item.href)}
         title={collapsed ? (isAr ? item.labelAr : item.labelEn) : undefined}
-        onClick={onClose}
+        onClick={handleClick}
         className={cn(
           'flex items-center rounded-lg transition-colors duration-150 text-sm font-medium',
           collapsed ? 'justify-center px-2 py-2.5' : 'gap-3 px-3 py-2',
-          active
-            ? 'bg-brand-50 text-brand-700'
-            : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900',
+          locked
+            ? 'text-slate-400 hover:bg-slate-50 cursor-pointer'
+            : active
+              ? 'bg-brand-50 text-brand-700'
+              : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900',
         )}
       >
-        <span className={cn('flex-shrink-0', active ? 'text-brand-600' : '')}>{item.icon}</span>
-        {!collapsed && <span className="truncate">{isAr ? item.labelAr : item.labelEn}</span>}
+        <span className={cn('flex-shrink-0', locked ? 'opacity-40' : active ? 'text-brand-600' : '')}>{item.icon}</span>
+        {!collapsed && (
+          <>
+            <span className="truncate flex-1">{isAr ? item.labelAr : item.labelEn}</span>
+            {locked && <Lock size={12} className="flex-shrink-0 text-slate-300" />}
+          </>
+        )}
+        {/* In collapsed mode, locked items appear at reduced opacity */}
       </Link>
     );
   }

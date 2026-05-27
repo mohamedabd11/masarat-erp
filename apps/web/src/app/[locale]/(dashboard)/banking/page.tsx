@@ -1,10 +1,12 @@
 export const dynamic = 'force-dynamic';
 import { BankingClient } from '@/components/banking/BankingClient';
+import { UpgradeGate } from '@/components/ui/UpgradeGate';
 import { Landmark, CreditCard, Wallet, RefreshCw } from 'lucide-react';
 
 export default function BankingPage({ params }: { params: { locale: string } }) {
   const isAr = params.locale === 'ar';
   return (
+    <UpgradeGate feature="banking">
     <div className="space-y-6">
       <div className="flex items-start gap-4">
         <div className="p-3 bg-brand-50 rounded-2xl border border-brand-100">
@@ -35,5 +37,6 @@ export default function BankingPage({ params }: { params: { locale: string } }) 
       </div>
       <BankingClient locale={params.locale} />
     </div>
+    </UpgradeGate>
   );
 }

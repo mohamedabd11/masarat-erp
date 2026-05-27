@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 import Link from 'next/link';
 import { SupplierPaymentModal } from '@/components/bookings/SupplierPaymentModal';
+import { UpgradeGate } from '@/components/ui/UpgradeGate';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -287,6 +288,7 @@ export default function SupplierPaymentsPage() {
   ];
 
   return (
+    <UpgradeGate feature="supplier_payments">
     <div className="space-y-6">
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center gap-4">
@@ -502,5 +504,6 @@ export default function SupplierPaymentsPage() {
         />
       )}
     </div>
+    </UpgradeGate>
   );
 }

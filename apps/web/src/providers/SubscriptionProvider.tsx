@@ -2,6 +2,7 @@
 
 import { createContext, useContext, useState, useEffect, type ReactNode } from 'react';
 import { useAuth } from '@masarat/firebase';
+import { planCanAccess, type FeatureKey } from '@/lib/plan-features';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -15,6 +16,7 @@ interface SubscriptionContextValue {
   isExpired:     boolean;
   isLifetime:    boolean;
   isLoading:     boolean;
+  canAccess:     (feature: FeatureKey) => boolean;
 }
 
 const SubscriptionContext = createContext<SubscriptionContextValue>({
@@ -25,6 +27,7 @@ const SubscriptionContext = createContext<SubscriptionContextValue>({
   isExpired:     false,
   isLifetime:    false,
   isLoading:     true,
+  canAccess:     () => true,
 });
 
 export function useSubscription() {
@@ -99,8 +102,14 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
     status === 'cancelled'
   );
 
+  // Optimistic while loading; super-admin always passes
+  function canAccess(feature: FeatureKey): boolean {
+    if (isLoading || isSuperAdmin) return true;
+    return planCanAccess(plan, feature);
+  }
+
   return (
-    <SubscriptionContext.Provider value={{ status, plan, agencyName, daysRemaining, isExpired, isLifetime, isLoading }}>
+    <SubscriptionContext.Provider value={{ status, plan, agencyName, daysRemaining, isExpired, isLifetime, isLoading, canAccess }}>
       {children}
     </SubscriptionContext.Provider>
   );

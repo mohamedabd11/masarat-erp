@@ -11,6 +11,7 @@ import { useReportsData, type MonthlyRow, type TypeMixRow, type VatInvoice } fro
 import { useChartOfAccounts, type ChartAccount } from '@/hooks/useChartOfAccounts';
 import { useIncomeStatement } from '@/hooks/useIncomeStatement';
 import { ArAgingTab } from '@/components/reports/ArAgingTab';
+import { UpgradeGate } from '@/components/ui/UpgradeGate';
 import {
   TrendingUp, TrendingDown, BarChart3, Download,
   FileText, CheckCircle2, AlertCircle, Printer,
@@ -1290,6 +1291,7 @@ export default function ReportsPage() {
   ];
 
   return (
+    <UpgradeGate feature="reports">
     <div className="space-y-6">
       {/* Page header */}
       <div className="flex flex-col sm:flex-row sm:items-center gap-4">
@@ -1391,5 +1393,6 @@ export default function ReportsPage() {
         )}
       </div>
     </div>
+    </UpgradeGate>
   );
 }

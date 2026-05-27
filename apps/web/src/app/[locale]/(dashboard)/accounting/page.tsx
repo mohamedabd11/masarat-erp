@@ -14,6 +14,7 @@ import { MigrationTool } from '@/components/accounting/MigrationTool';
 import { CurrenciesClient } from '@/components/currencies/CurrenciesClient';
 import { formatCurrency, formatDate, formatCount } from '@/lib/utils';
 import { cn } from '@/lib/utils';
+import { UpgradeGate } from '@/components/ui/UpgradeGate';
 import {
   BarChart3,
   Download,
@@ -840,6 +841,7 @@ export default function AccountingPage() {
   ];
 
   return (
+    <UpgradeGate feature="accounting">
     <div className="space-y-6">
 
       {/* ── Page header ────────────────────────────────────────────────────── */}
@@ -975,5 +977,6 @@ export default function AccountingPage() {
         />
       )}
     </div>
+    </UpgradeGate>
   );
 }
