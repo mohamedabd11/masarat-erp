@@ -32,81 +32,43 @@ export default function SupplierPaymentVoucherPage({
 
     async function load() {
       try {
-        const { getFirestore, doc, getDoc } = await import('firebase/firestore');
-        const { getApp } = await import('@masarat/firebase');
-        const db = getFirestore(getApp());
+        const { apiFetch } = await import('@/lib/api-client');
 
         // ── 1. Load supplier payment record ────────────────────────────────
-        const snap = await getDoc(doc(db, 'supplier_payments', params.id));
-        if (!snap.exists()) {
-          setError(isAr ? 'سند الصرف غير موجود' : 'Voucher not found');
-          setLoading(false);
-          return;
-        }
-        const rec = snap.data() as Record<string, unknown>;
+        const result = await apiFetch<{ payment: Record<string, unknown> }>(`/api/supplier-payments/${params.id}`);
+        const rec = result.payment;
 
-        // ── 2. Load booking (for bookingNumber if not stored on record) ───
-        let bookingNumber: string | undefined = (rec['bookingNumber'] as string | undefined) ?? undefined;
-        if (!bookingNumber && rec['bookingId']) {
-          const bkSnap = await getDoc(doc(db, 'bookings', rec['bookingId'] as string));
-          if (bkSnap.exists()) {
-            bookingNumber = (bkSnap.data() as Record<string, string>)['bookingNumber'];
-          }
-        }
-
-        // ── 3. Load agency ─────────────────────────────────────────────────
-        const agencyId = rec['agencyId'] as string | undefined;
-        let agencyNameAr = '';
-        let agencyNameEn = '';
-        let agencyPhone  = '';
-        let agencyVat    = '';
-        let agencyCr     = '';
-        let agencyAddress: PaymentVoucherData['agency']['address'] = {};
-
-        if (agencyId) {
-          const agSnap = await getDoc(doc(db, 'agencies', agencyId));
-          if (agSnap.exists()) {
-            const ag = agSnap.data() as Record<string, unknown>;
-            agencyNameAr  = (ag['nameAr'] as string | undefined)       ?? '';
-            agencyNameEn  = (ag['nameEn'] as string | undefined)       ?? '';
-            agencyPhone   = (ag['contactPhone'] as string | undefined) ?? '';
-            agencyVat     = (ag['vatNumber'] as string | undefined)    ?? '';
-            agencyCr      = (ag['crNumber'] as string | undefined)     ?? '';
-            agencyAddress = {
-              streetName:     (ag['streetName'] as string | undefined)     ?? '',
-              buildingNumber: (ag['buildingNumber'] as string | undefined) ?? '',
-              district:       (ag['district'] as string | undefined)       ?? '',
-              city:           (ag['city'] as string | undefined)           ?? '',
-              postalCode:     (ag['postalCode'] as string | undefined)     ?? '',
-            };
-          }
-        }
+        // ── 2. Load agency info ────────────────────────────────────────────
+        const settingsData = await apiFetch<{ agency: Record<string, unknown> }>('/api/settings');
+        const ag = settingsData.agency;
 
         if (cancelled) return;
 
-        // ── 4. Build voucher number ───────────────────────────────────────
+        // ── 3. Build voucher number ────────────────────────────────────────
         const voucherNumber = (rec['voucherNumber'] as string | undefined)
           ?? `PV-${new Date().getFullYear()}-${params.id.slice(-6).toUpperCase()}`;
 
-        const createdAtVal = rec['createdAt'] as { toDate?: () => Date } | undefined;
+        const createdAtVal = rec['createdAt'] as string | undefined;
         const voucher: PaymentVoucherData = {
           voucherNumber,
           recordId:        params.id,
-          issuedDate:      createdAtVal?.toDate?.() ?? new Date(),
+          issuedDate:      createdAtVal ? new Date(createdAtVal) : new Date(),
           amountHalalas:   (rec['amountHalalas'] as number | undefined) ?? 0,
-          paymentMethod:   (rec['paymentMethod'] as string | undefined) ?? 'cash',
+          paymentMethod:   (rec['method'] as string | undefined) ?? (rec['paymentMethod'] as string | undefined) ?? 'cash',
           reference:       (rec['reference'] as string | undefined) || undefined,
           notes:           (rec['notes'] as string | undefined)     || undefined,
-          bookingNumber,
+          bookingNumber:   (rec['bookingNumber'] as string | undefined) ?? undefined,
           payeeName:       (rec['payeeName'] as string | undefined) ?? (rec['supplierName'] as string | undefined) ?? '',
           expenseCategory: (rec['expenseCategory'] as string | undefined) ?? undefined,
           agency: {
-            nameAr:    agencyNameAr,
-            nameEn:    agencyNameEn,
-            phone:     agencyPhone  || undefined,
-            vatNumber: agencyVat    || undefined,
-            crNumber:  agencyCr     || undefined,
-            address:   agencyAddress,
+            nameAr:    (ag['nameAr'] as string | undefined)       ?? '',
+            nameEn:    (ag['nameEn'] as string | undefined)       ?? '',
+            phone:     (ag['contactPhone'] as string | undefined) || undefined,
+            vatNumber: (ag['vatNumber'] as string | undefined)    || undefined,
+            crNumber:  (ag['crNumber'] as string | undefined)     || undefined,
+            address:   {
+              city: (ag['city'] as string | undefined) ?? '',
+            },
           },
         };
 

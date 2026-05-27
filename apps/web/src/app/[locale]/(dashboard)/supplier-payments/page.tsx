@@ -31,10 +31,12 @@ interface SupplierPayment {
   expenseCategory?: string;
   amountHalalas: number;
   paymentMethod: string;
+  method?: string;
   reference?: string;
   notes?: string;
   status: string;
-  createdAt: { toDate?: () => Date } | null;
+  createdAt: { toDate?: () => Date } | string | null;
+  date?: string;
 }
 
 type MethodFilter = 'all' | 'cash' | 'bank_transfer' | 'card' | 'online' | 'check';
@@ -233,22 +235,19 @@ export default function SupplierPaymentsPage() {
 
     async function load() {
       try {
-        const { getFirestore, collection, query, where, getDocs } =
-          await import('firebase/firestore');
-        const { getApp } = await import('@masarat/firebase');
-        const db = getFirestore(getApp());
-
-        const snap = await getDocs(query(
-          collection(db, 'supplier_payments'),
-          where('agencyId', '==', agencyId),
-        ));
+        const { apiFetch } = await import('@/lib/api-client');
+        const data = await apiFetch<{ payments: SupplierPayment[] }>('/api/supplier-payments');
 
         if (cancelled) return;
-        const docs = snap.docs
-          .map(d => ({ id: d.id, ...d.data() } as SupplierPayment))
+        const docs = data.payments
+          .map(p => ({
+            ...p,
+            // normalize method → paymentMethod for UI compatibility
+            paymentMethod: p.method ?? p.paymentMethod ?? 'cash',
+          }))
           .sort((a, b) => {
-            const ta = a.createdAt?.toDate?.()?.getTime() ?? 0;
-            const tb = b.createdAt?.toDate?.()?.getTime() ?? 0;
+            const ta = a.date ? new Date(a.date).getTime() : 0;
+            const tb = b.date ? new Date(b.date).getTime() : 0;
             return tb - ta;
           });
         setPayments(docs);
@@ -406,7 +405,7 @@ export default function SupplierPaymentsPage() {
               </thead>
               <tbody className="divide-y divide-surface-border">
                 {filtered.map(p => {
-                  const date = p.createdAt?.toDate?.() ?? null;
+                  const date = p.date ? new Date(p.date) : (typeof p.createdAt === 'string' ? new Date(p.createdAt) : (p.createdAt as { toDate?: () => Date } | null)?.toDate?.() ?? null);
                   return (
                     <tr key={p.id} className="hover:bg-slate-50/60 transition-colors">
                       <td className="ps-5 pe-3 py-3.5 text-sm text-slate-600 whitespace-nowrap">

@@ -5,6 +5,7 @@ import { useLocale } from 'next-intl';
 import { useSearchParams } from 'next/navigation';
 import { useAuth } from '@masarat/firebase';
 import type { UserDoc } from '@masarat/firebase';
+import type { Agency } from '@/lib/schema';
 import { Card, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Spinner } from '@/components/ui/Spinner';
 import { Button } from '@/components/ui/Button';
@@ -365,6 +366,7 @@ export default function SettingsPage() {
   const [contactHours, setContactHours] = useState('');
 
   // ── Service Types state ─────────────────────────────────────────────────
+  const [tick, setTick] = useState(0);
   const [customTypes, setCustomTypes] = useState<CustomServiceType[]>([]);
   const [defaultToggles, setDefaultToggles] = useState<Record<string, boolean>>(
     Object.fromEntries(DEFAULT_SERVICE_TYPES.map(d => [d.id, true]))
@@ -384,116 +386,86 @@ export default function SettingsPage() {
   const [usersCount, setUsersCount]       = useState<number | null>(null);
   const [bookingsCount, setBookingsCount] = useState<number | null>(null);
 
-  // Load all agency info from Firestore
+  // Load all agency info from REST API
   useEffect(() => {
     if (!agencyId) return;
 
     async function loadAgency() {
-      const { getFirestore, doc, getDoc } = await import('firebase/firestore');
-      const { getApp } = await import('@masarat/firebase');
-      const db = getFirestore(getApp());
-      const snap = await getDoc(doc(db, 'agencies', agencyId!));
-      if (snap.exists()) {
-        const d = snap.data();
-        if (d.nameAr)        setNameAr(d.nameAr);
-        if (d.nameEn)        setNameEn(d.nameEn);
-        if (d.logoUrl)       setLogoUrl(d.logoUrl);
-        setIsVatRegistered(d.isVatRegistered ?? (d.vatNumber ?? '').trim().length > 0);
-        if (d.vatNumber)     setVatNumber(d.vatNumber);
-        if (d.crNumber)      setCrNumber(d.crNumber);
-        if (d.streetName)    setStreetName(d.streetName);
-        if (d.buildingNumber) setBuildingNumber(d.buildingNumber);
-        if (d.district)      setDistrict(d.district);
-        if (d.city)          setCity(d.city);
-        if (d.postalCode)    setPostalCode(d.postalCode);
-        setContactEmail(d.contactEmail ?? '');
-        setContactPhone(d.contactPhone ?? '');
-        setContactHours(d.contactHours ?? '');
-      }
+      const { apiFetch } = await import('@/lib/api-client');
+      const data = await apiFetch<{ agency: Agency; users: UserDoc[] }>('/api/settings');
+      const d = data.agency;
+      if (d.nameAr)        setNameAr(d.nameAr);
+      if (d.nameEn)        setNameEn(d.nameEn);
+      if (d.logoUrl)       setLogoUrl(d.logoUrl);
+      setIsVatRegistered(d.isVatRegistered ?? (d.vatNumber ?? '').trim().length > 0);
+      if (d.vatNumber)     setVatNumber(d.vatNumber);
+      if (d.crNumber)      setCrNumber(d.crNumber);
+      if (d.city)          setCity(d.city);
+      setContactEmail(d.contactEmail ?? '');
+      setContactPhone(d.contactPhone ?? '');
+      setContactHours(d.contactHours ?? '');
     }
 
     void loadAgency();
   }, [agencyId]);
 
-  // Load agency users from Firestore when on users tab
+  // Load agency users from REST API when on users tab
   useEffect(() => {
     if (!agencyId || activeTab !== 'users') return;
-    let unsub: (() => void) | undefined;
 
     async function load() {
       setLoadingUsers(true);
-      const { getFirestore, collection, query, where, onSnapshot } = await import('firebase/firestore');
-      const { getApp } = await import('@masarat/firebase');
-      const db = getFirestore(getApp());
-      const q = query(collection(db, 'users'), where('agencyId', '==', agencyId));
-      unsub = onSnapshot(q, snap => {
-        setAgencyUsers(snap.docs.map(d => ({ id: d.id, ...d.data() } as UserDoc)));
-        setLoadingUsers(false);
-      }, () => setLoadingUsers(false));
+      const { apiFetch } = await import('@/lib/api-client');
+      const data = await apiFetch<{ agency: unknown; users: UserDoc[] }>('/api/settings');
+      setAgencyUsers(data.users);
+      setLoadingUsers(false);
     }
 
     void load();
-    return () => unsub?.();
   }, [agencyId, activeTab]);
 
   // Load usage stats when billing tab is active
   useEffect(() => {
     if (!agencyId || activeTab !== 'billing') return;
     async function load() {
-      const { getFirestore, collection, query, where, getDocs } = await import('firebase/firestore');
-      const { getApp } = await import('@masarat/firebase');
-      const db = getFirestore(getApp());
-      const [usersSnap, bookingsSnap] = await Promise.all([
-        getDocs(query(collection(db, 'users'), where('agencyId', '==', agencyId))),
-        getDocs(query(collection(db, 'bookings'), where('agencyId', '==', agencyId))),
+      const { apiFetch } = await import('@/lib/api-client');
+      const [usersData, bookingsData] = await Promise.all([
+        apiFetch<{ agency: unknown; users: unknown[] }>('/api/settings'),
+        apiFetch<{ bookings: unknown[] }>('/api/bookings'),
       ]);
-      setUsersCount(usersSnap.size);
-      setBookingsCount(bookingsSnap.size);
+      setUsersCount(usersData.users.length);
+      setBookingsCount(bookingsData.bookings.length);
     }
     void load();
   }, [agencyId, activeTab]);
 
-  // Load custom service types from Firestore
+  // Load custom service types from REST API
   useEffect(() => {
     if (!agencyId || activeTab !== 'service_types') return;
-    let unsub: (() => void) | undefined;
 
     async function load() {
-      const { getFirestore, collection, query, where, onSnapshot } = await import('firebase/firestore');
-      const { getApp } = await import('@masarat/firebase');
-      const db = getFirestore(getApp());
-      const q = query(
-        collection(db, 'service_types'),
-        where('agencyId', '==', agencyId),
-      );
-      unsub = onSnapshot(q, snap => {
-        setCustomTypes(snap.docs.map(d => ({ id: d.id, ...d.data() } as CustomServiceType)));
-      });
+      const { apiFetch } = await import('@/lib/api-client');
+      const data = await apiFetch<{ serviceTypes: CustomServiceType[] }>('/api/service-types');
+      setCustomTypes(data.serviceTypes);
     }
 
     void load();
-    return () => unsub?.();
-  }, [agencyId, activeTab]);
+  }, [agencyId, activeTab, tick]);
 
   // Service type handlers
   async function handleAddServiceType() {
     if (!user?.agencyId || !addForm.nameAr.trim()) return;
     setAddSaving(true);
     try {
-      const { getFirestore, collection, addDoc, Timestamp } = await import('firebase/firestore');
-      const { getApp } = await import('@masarat/firebase');
-      const db = getFirestore(getApp());
-      await addDoc(collection(db, 'service_types'), {
-        agencyId: user.agencyId,
+      const { apiFetch } = await import('@/lib/api-client');
+      await apiFetch('/api/service-types', { method: 'POST', body: JSON.stringify({
         nameAr: addForm.nameAr.trim(),
         nameEn: addForm.nameEn.trim() || addForm.nameAr.trim(),
         icon: addForm.icon,
-        color: addForm.color,
-        isActive: true,
-        createdAt: Timestamp.now(),
-      });
+      }) });
       setAddForm({ nameAr: '', nameEn: '', icon: 'layers', color: PRESET_COLORS[0] });
       setShowAddForm(false);
+      setTick(t => t + 1);
     } catch (err) {
       console.error('Error adding service type:', err);
     } finally {
@@ -503,10 +475,9 @@ export default function SettingsPage() {
 
   async function handleDeleteServiceType(id: string) {
     try {
-      const { getFirestore, doc, deleteDoc } = await import('firebase/firestore');
-      const { getApp } = await import('@masarat/firebase');
-      const db = getFirestore(getApp());
-      await deleteDoc(doc(db, 'service_types', id));
+      const { apiFetch } = await import('@/lib/api-client');
+      await apiFetch(`/api/service-types/${id}`, { method: 'DELETE' });
+      setTick(t => t + 1);
     } catch (err) {
       console.error('Error deleting service type:', err);
     }
@@ -514,16 +485,14 @@ export default function SettingsPage() {
 
   async function handleEditSave(id: string) {
     try {
-      const { getFirestore, doc, updateDoc } = await import('firebase/firestore');
-      const { getApp } = await import('@masarat/firebase');
-      const db = getFirestore(getApp());
-      await updateDoc(doc(db, 'service_types', id), {
+      const { apiFetch } = await import('@/lib/api-client');
+      await apiFetch(`/api/service-types/${id}`, { method: 'PATCH', body: JSON.stringify({
         nameAr: editForm.nameAr.trim(),
         nameEn: editForm.nameEn.trim() || editForm.nameAr.trim(),
         icon: editForm.icon,
-        color: editForm.color,
-      });
+      }) });
       setEditingId(null);
+      setTick(t => t + 1);
     } catch (err) {
       console.error('Error updating service type:', err);
     }
@@ -531,12 +500,13 @@ export default function SettingsPage() {
 
   async function handleToggleServiceType(id: string) {
     try {
-      const { getFirestore, doc, updateDoc } = await import('firebase/firestore');
-      const { getApp } = await import('@masarat/firebase');
-      const db = getFirestore(getApp());
       const current = customTypes.find(t => t.id === id);
       if (!current) return;
-      await updateDoc(doc(db, 'service_types', id), { isActive: !current.isActive });
+      const { apiFetch } = await import('@/lib/api-client');
+      await apiFetch(`/api/service-types/${id}`, { method: 'PATCH', body: JSON.stringify({
+        isActive: !current.isActive,
+      }) });
+      setTick(t => t + 1);
     } catch (err) {
       console.error('Error toggling service type:', err);
     }
@@ -611,10 +581,8 @@ export default function SettingsPage() {
     try {
       const base64 = await processLogoWithCanvas(logoPendingFile, logoCropMode);
 
-      const { getFirestore, doc, updateDoc } = await import('firebase/firestore');
-      const { getApp } = await import('@masarat/firebase');
-      const db = getFirestore(getApp());
-      await updateDoc(doc(db, 'agencies', user.agencyId), { logoUrl: base64 });
+      const { apiFetch } = await import('@/lib/api-client');
+      await apiFetch('/api/settings', { method: 'PATCH', body: JSON.stringify({ logoUrl: base64 }) });
 
       setLogoUrl(base64);
       cancelLogoPending();
@@ -630,28 +598,21 @@ export default function SettingsPage() {
     setSaving(true);
     setSaved(false);
     try {
-      const { getFirestore, doc, setDoc } = await import('firebase/firestore');
-      const { getApp } = await import('@masarat/firebase');
-      const db = getFirestore(getApp());
-      await setDoc(
-        doc(db, 'agencies', user.agencyId),
-        {
+      const { apiFetch } = await import('@/lib/api-client');
+      await apiFetch('/api/settings', {
+        method: 'PATCH',
+        body: JSON.stringify({
           nameAr:          nameAr.trim(),
           nameEn:          nameEn.trim(),
           isVatRegistered,
           vatNumber:       isVatRegistered ? vatNumber.trim() : '',
           crNumber:        crNumber.trim(),
-          streetName:      streetName.trim(),
-          buildingNumber:  buildingNumber.trim(),
-          district:        district.trim(),
           city:            city.trim(),
-          postalCode:      postalCode.trim(),
           contactEmail:    contactEmail.trim(),
           contactPhone:    contactPhone.trim(),
           contactHours:    contactHours.trim(),
-        },
-        { merge: true },
-      );
+        }),
+      });
       setSaved(true);
       setTimeout(() => setSaved(false), 3000);
     } catch {

@@ -93,17 +93,23 @@ function fsDocToEntry(docId: string, data: Record<string, unknown>): JournalEntr
     ? (data.lines as Record<string, unknown>[]).map(fsLineToLocal)
     : [];
   let date = new Date();
-  const ca = data.createdAt as { toDate?: () => Date } | undefined;
-  if (ca?.toDate) date = ca.toDate();
+  // Support Postgres ISO string date field or Firestore Timestamp
+  if (data.date && typeof data.date === 'string') {
+    date = new Date(data.date);
+  } else {
+    const ca = data.createdAt as { toDate?: () => Date } | string | undefined;
+    if (typeof ca === 'string') date = new Date(ca);
+    else if (ca?.toDate) date = ca.toDate();
+  }
   return {
-    id:        String(data.jeNumber ?? docId),
+    id:        String(data.entryNumber ?? data.jeNumber ?? docId),
     date,
-    type:      referenceTypeToEntryType(String(data.referenceType ?? '')),
-    descAr:    String(data.description ?? ''),
-    descEn:    String(data.description ?? ''),
+    type:      referenceTypeToEntryType(String(data.source ?? data.referenceType ?? '')),
+    descAr:    String(data.descriptionAr ?? data.description ?? ''),
+    descEn:    String(data.descriptionEn ?? data.description ?? ''),
     lines,
-    status:    data.isBalanced === true ? 'balanced' : 'draft',
-    reference: data.referenceId ? String(data.referenceId) : undefined,
+    status:    (data.isPosted === true || data.isBalanced === true) ? 'balanced' : 'draft',
+    reference: data.sourceId ? String(data.sourceId) : (data.referenceId ? String(data.referenceId) : undefined),
   };
 }
 
@@ -569,22 +575,21 @@ function NewEntryModal({
     if (agencyId) {
       setSaving(true);
       try {
-        const { getFirestore, collection, addDoc, Timestamp } = await import('firebase/firestore');
-        const { getApp } = await import('@masarat/firebase');
-        const db = getFirestore(getApp());
-        await addDoc(collection(db, 'journal_entries'), {
-          agencyId,
-          jeNumber,
-          description:        descAr.trim(),
-          referenceId:        reference.trim() || null,
-          referenceType:      'manual',
-          status:             'posted',
-          lines:              mappedLines,
-          totalDebitHalalas:  totalDR,
-          totalCreditHalalas: totalCR,
-          isBalanced:         true,
-          postedAt:           Timestamp.now(),
-          createdAt:          Timestamp.now(),
+        const { apiFetch } = await import('@/lib/api-client');
+        await apiFetch('/api/accounting/journal', {
+          method: 'POST',
+          body: JSON.stringify({
+            entryNumber:        jeNumber,
+            date,
+            descriptionAr:      descAr.trim(),
+            descriptionEn:      descEn.trim() || descAr.trim(),
+            reference:          reference.trim() || null,
+            source:             'manual',
+            totalDebitHalalas:  totalDR,
+            totalCreditHalalas: totalCR,
+            isPosted:           true,
+            lines:              mappedLines,
+          }),
         });
       } catch (err) {
         setError(err instanceof Error ? err.message : (isAr ? 'خطأ في الحفظ' : 'Save error'));
@@ -811,17 +816,11 @@ export default function AccountingPage() {
     async function load() {
       setLoadingEntries(true);
       try {
-        const { getFirestore, collection, query, where, getDocs } = await import('firebase/firestore');
-        const { getApp } = await import('@masarat/firebase');
-        const db = getFirestore(getApp());
-        const q = query(
-          collection(db, 'journal_entries'),
-          where('agencyId', '==', agencyId),
-        );
-        const snap = await getDocs(q);
+        const { apiFetch } = await import('@/lib/api-client');
+        const data = await apiFetch<{ entries: Record<string, unknown>[] }>('/api/accounting/journal?lines=1');
         if (cancelled) return;
-        const sorted = snap.docs
-          .map(d => fsDocToEntry(d.id, d.data() as Record<string, unknown>))
+        const sorted = data.entries
+          .map(d => fsDocToEntry(String(d['entryNumber'] ?? d['id']), d))
           .sort((a, b) => b.date.getTime() - a.date.getTime());
         setEntries(sorted);
       } finally {
