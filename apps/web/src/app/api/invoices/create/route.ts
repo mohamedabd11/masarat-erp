@@ -3,6 +3,7 @@ import { getFirestore, Timestamp, FieldValue } from 'firebase-admin/firestore';
 import { ensureAdminApp } from '@/lib/firebase-admin';
 import { verifyAuth, ApiAuthError } from '@/lib/api-auth';
 import { withIdempotency, idempotencyDoc } from '@/lib/idempotency';
+import { VAT_RATE } from '@masarat/accounting';
 import { getNextInvoiceNumber } from '@/lib/invoice-counter';
 
 // ─── Account codes (standard chart of accounts) ──────────────────────────────
@@ -112,7 +113,7 @@ export async function POST(request: Request) {
           unitCode: 'PCE',
           unitPriceExclVatHalalas: subtotalExclVat,
           totalExclVatHalalas: subtotalExclVat,
-          vatRate: totalVat > 0 ? 0.15 : 0,
+          vatRate: totalVat > 0 ? VAT_RATE : 0,
           vatAmountHalalas: totalVat,
           totalInclVatHalalas: finalGrandTotal,
         }];

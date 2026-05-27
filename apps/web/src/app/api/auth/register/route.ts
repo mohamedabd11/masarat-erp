@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { ensureAdminApp } from '@/lib/firebase-admin';
+import { TRIAL_DAYS } from '@masarat/accounting';
 
 interface RegisterAgencyRequest {
   agencyNameAr: string;
@@ -86,7 +87,7 @@ export async function POST(request: Request) {
       isActive:           true,
       plan:               'trial',
       subscriptionStatus: 'trial',
-      trialEndDate:       new Timestamp(Math.floor(Date.now() / 1000) + 14 * 24 * 60 * 60, 0),
+      trialEndDate:       new Timestamp(Math.floor(Date.now() / 1000) + TRIAL_DAYS * 24 * 60 * 60, 0),
       createdAt:          now,
       updatedAt:          now,
     });

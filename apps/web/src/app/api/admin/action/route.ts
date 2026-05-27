@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { ensureAdminApp } from '@/lib/firebase-admin';
+import { TRIAL_DAYS, SUBSCRIPTION_MONTHLY_DAYS, SUBSCRIPTION_YEARLY_DAYS } from '@masarat/accounting';
 
 const SUPER_ADMIN_EMAIL = process.env['SUPER_ADMIN_EMAIL'] ?? 'mohamedabdalazim1111@gmail.com';
 
@@ -46,7 +47,7 @@ export async function POST(request: Request) {
         update  = {
           subscriptionStatus:  'active',
           plan:                'starter',
-          subscriptionEndDate: new Timestamp(Math.floor(Date.now() / 1000) + 30 * 24 * 3600, 0),
+          subscriptionEndDate: new Timestamp(Math.floor(Date.now() / 1000) + SUBSCRIPTION_MONTHLY_DAYS * 24 * 3600, 0),
           updatedAt: now,
         };
         message = 'تم تفعيل الاشتراك لمدة شهر';
@@ -56,7 +57,7 @@ export async function POST(request: Request) {
         update  = {
           subscriptionStatus:  'active',
           plan:                'professional',
-          subscriptionEndDate: new Timestamp(Math.floor(Date.now() / 1000) + 365 * 24 * 3600, 0),
+          subscriptionEndDate: new Timestamp(Math.floor(Date.now() / 1000) + SUBSCRIPTION_YEARLY_DAYS * 24 * 3600, 0),
           isLifetime:          false,
           updatedAt: now,
         };
@@ -83,7 +84,7 @@ export async function POST(request: Request) {
       case 'extend_trial':
         update  = {
           subscriptionStatus: 'trial',
-          trialEndDate: new Timestamp(Math.floor(Date.now() / 1000) + 14 * 24 * 3600, 0),
+          trialEndDate: new Timestamp(Math.floor(Date.now() / 1000) + TRIAL_DAYS * 24 * 3600, 0),
           updatedAt: now,
         };
         message = 'تم تمديد الفترة التجريبية 14 يوماً';
