@@ -403,6 +403,9 @@ function NewBookingContent() {
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError]   = useState('');
   const [agencyIsVatRegistered, setAgencyIsVatRegistered] = useState(false);
+  const [selectedCustomer, setSelectedCustomer] = useState<{
+    id: string; nameAr: string; nameEn: string; phone: string; email: string;
+  } | null>(null);
 
   // Load agency VAT registration status
   useEffect(() => {
@@ -443,6 +446,38 @@ function NewBookingContent() {
     const found = BUILT_IN.find(s => s.value === t);
     if (found) { setSelType(t); setSelNames({ ar: found.ar, en: found.en }); setStep(1); }
   }, [params]);
+
+  // Pre-fill customer when navigated from customer detail page
+  useEffect(() => {
+    const custId = params.get('customerId');
+    if (!custId || !user) return;
+    let cancelled = false;
+    async function loadPrefilledCustomer() {
+      try {
+        const { getFirestore, doc, getDoc } = await import('firebase/firestore');
+        const { getApp } = await import('@masarat/firebase');
+        const db   = getFirestore(getApp());
+        const snap = await getDoc(doc(db, 'customers', custId));
+        if (cancelled || !snap.exists()) return;
+        const d    = snap.data() as Record<string, unknown>;
+        const name = d['name'] as { ar?: string; en?: string } | undefined;
+        const cust = {
+          id:     snap.id,
+          nameAr: name?.ar ?? (d['nameAr'] as string) ?? '',
+          nameEn: name?.en ?? (d['nameEn'] as string) ?? '',
+          phone:  (d['mobile'] as string) ?? (d['phone'] as string) ?? '',
+          email:  (d['email']  as string) ?? '',
+        };
+        setSelectedCustomer(cust);
+        setValue('customerId',    cust.id);
+        setValue('customerName',  cust.nameAr || cust.nameEn);
+        setValue('customerPhone', cust.phone);
+        setValue('customerEmail', cust.email);
+      } catch { /* non-critical — user can search manually */ }
+    }
+    void loadPrefilledCustomer();
+    return () => { cancelled = true; };
+  }, [params, user, setValue]);
 
   // ── Pricing (fixed: use Number() to avoid string concatenation) ──
   const costSAR    = Number(watch('costPriceSAR'))  || 0;
@@ -616,7 +651,7 @@ function NewBookingContent() {
         {/* ── Step 1: Customer ────────────────────────────────────────────── */}
         {formStep === 0 && (
           <div className="space-y-4">
-            {/* Customer search */}
+            {/* Customer search / selected customer */}
             {agencyId && (
               <Card>
                 <CardHeader>
@@ -625,15 +660,55 @@ function NewBookingContent() {
                     {isAr ? 'ابحث عن عميل موجود' : 'Search Existing Customer'}
                   </CardTitle>
                 </CardHeader>
-                <CustomerSearch
-                  agencyId={agencyId}
-                  onSelect={c => {
-                    setValue('customerId',    c.id);
-                    setValue('customerName',  c.nameAr ?? c.nameEn ?? '');
-                    setValue('customerPhone', c.phone ?? '');
-                    setValue('customerEmail', c.email ?? '');
-                  }}
-                />
+
+                {/* Selected customer chip */}
+                {selectedCustomer ? (
+                  <div className="flex items-center gap-3 p-3 bg-brand-50 border border-brand-200 rounded-xl mb-2">
+                    <div className="w-9 h-9 rounded-full bg-brand-600 flex items-center justify-center text-white text-sm font-bold flex-shrink-0">
+                      {selectedCustomer.nameAr[0] ?? '؟'}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-bold text-slate-900 truncate">{selectedCustomer.nameAr}</p>
+                      {selectedCustomer.nameEn && (
+                        <p className="text-xs text-slate-400 truncate">{selectedCustomer.nameEn}</p>
+                      )}
+                      <p className="text-xs text-slate-500" dir="ltr">{selectedCustomer.phone}</p>
+                    </div>
+                    <button
+                      type="button"
+                      title={isAr ? 'تغيير العميل' : 'Change customer'}
+                      onClick={() => {
+                        setSelectedCustomer(null);
+                        setValue('customerId',    '');
+                        setValue('customerName',  '');
+                        setValue('customerPhone', '');
+                        setValue('customerEmail', '');
+                      }}
+                      className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+                    >
+                      <X size={15} />
+                    </button>
+                  </div>
+                ) : (
+                  <CustomerSearch
+                    agencyId={agencyId}
+                    onSelect={c => {
+                      const cust = {
+                        id:     c.id,
+                        nameAr: c.nameAr ?? c.nameEn ?? '',
+                        nameEn: c.nameEn ?? '',
+                        phone:  c.phone  ?? '',
+                        email:  c.email  ?? '',
+                      };
+                      setSelectedCustomer(cust);
+                      setValue('customerId',    cust.id);
+                      setValue('customerName',  cust.nameAr || cust.nameEn);
+                      setValue('customerPhone', cust.phone);
+                      setValue('customerEmail', cust.email);
+                    }}
+                  />
+                )}
+
                 <p className="text-xs text-slate-400 mt-2">
                   {isAr ? 'أو أدخل بيانات عميل جديد أدناه' : 'Or enter new customer details below'}
                 </p>
