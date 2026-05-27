@@ -7,6 +7,7 @@ import { useForm, useFieldArray } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { useAuth } from '@masarat/firebase';
+import { apiFetch } from '@/lib/api-client';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Card, CardHeader, CardTitle } from '@/components/ui/Card';
@@ -117,7 +118,23 @@ const formSchema = z.object({
 
 type FormData = z.infer<typeof formSchema>;
 
-// CustomerSearch is imported from @/components/customers/CustomerSearch
+// ─── API response types ────────────────────────────────────────────────────────
+
+interface ApiCustomer {
+  id: string;
+  nameAr: string;
+  nameEn: string | null;
+  phone: string | null;
+  email: string | null;
+}
+
+interface ApiServiceType {
+  id: string;
+  nameAr: string;
+  nameEn: string;
+  icon: string;
+  isActive: boolean;
+}
 
 // ─── Service Grid ─────────────────────────────────────────────────────────────
 
@@ -127,26 +144,20 @@ function ServiceGrid({ isAr, onSelect, onAddNew }: {
   onAddNew: () => void;
 }) {
   const { user } = useAuth();
-  const agencyId = user?.agencyId ?? null;
-  const [customTypes, setCustomTypes] = useState<
-    Array<{ id: string; nameAr: string; nameEn: string; icon: string }>
-  >([]);
+  const [customTypes, setCustomTypes] = useState<ApiServiceType[]>([]);
 
   useEffect(() => {
-    if (!agencyId) return;
-    let unsub: (() => void) | undefined;
+    if (!user) return;
+    let cancelled = false;
     async function load() {
-      const { getFirestore, collection, query, where, onSnapshot } = await import('firebase/firestore');
-      const { getApp } = await import('@masarat/firebase');
-      const db = getFirestore(getApp());
-      const q = query(collection(db, 'service_types'), where('agencyId', '==', agencyId), where('isActive', '==', true));
-      unsub = onSnapshot(q, snap => {
-        setCustomTypes(snap.docs.map(d => ({ id: d.id, ...d.data() } as { id: string; nameAr: string; nameEn: string; icon: string })));
-      });
+      try {
+        const res = await apiFetch<{ serviceTypes: ApiServiceType[] }>('/api/service-types');
+        if (!cancelled) setCustomTypes(res.serviceTypes.filter(t => t.isActive));
+      } catch { /* non-critical — built-in types still shown */ }
     }
     void load();
-    return () => unsub?.();
-  }, [agencyId]);
+    return () => { cancelled = true; };
+  }, [user]);
 
   return (
     <div className="max-w-4xl mx-auto space-y-6">
@@ -408,22 +419,22 @@ function NewBookingContent() {
     id: string; nameAr: string; nameEn: string; phone: string; email: string;
   } | null>(null);
 
-  // Load agency VAT registration status
+  // Load agency VAT registration status from REST API
   useEffect(() => {
     if (!agencyId) return;
+    let cancelled = false;
     async function loadVatStatus() {
       try {
-        const { getFirestore, doc, getDoc } = await import('firebase/firestore');
-        const { getApp } = await import('@masarat/firebase');
-        const db = getFirestore(getApp());
-        const snap = await getDoc(doc(db, 'agencies', agencyId));
-        if (snap.exists()) {
-          const d = snap.data();
-          setAgencyIsVatRegistered(d.isVatRegistered ?? (d.vatNumber ?? '').trim().length > 0);
+        const res = await apiFetch<{ agency: { isVatRegistered: boolean; vatNumber?: string } }>('/api/settings');
+        if (!cancelled) {
+          setAgencyIsVatRegistered(
+            res.agency.isVatRegistered ?? (res.agency.vatNumber ?? '').trim().length > 0,
+          );
         }
       } catch { /* default to false */ }
     }
     void loadVatStatus();
+    return () => { cancelled = true; };
   }, [agencyId]);
 
   const {
@@ -452,23 +463,18 @@ function NewBookingContent() {
   useEffect(() => {
     const custId = params.get('customerId');
     if (!custId || !user) return;
-    const resolvedCustId = custId;
     let cancelled = false;
     async function loadPrefilledCustomer() {
       try {
-        const { getFirestore, doc, getDoc } = await import('firebase/firestore');
-        const { getApp } = await import('@masarat/firebase');
-        const db   = getFirestore(getApp());
-        const snap = await getDoc(doc(db, 'customers', resolvedCustId));
-        if (cancelled || !snap.exists()) return;
-        const d    = snap.data() as Record<string, unknown>;
-        const name = d['name'] as { ar?: string; en?: string } | undefined;
+        const res = await apiFetch<{ customer: ApiCustomer }>(`/api/customers/${custId}`);
+        if (cancelled) return;
+        const d = res.customer;
         const cust = {
-          id:     snap.id,
-          nameAr: name?.ar ?? (d['nameAr'] as string) ?? '',
-          nameEn: name?.en ?? (d['nameEn'] as string) ?? '',
-          phone:  (d['mobile'] as string) ?? (d['phone'] as string) ?? '',
-          email:  (d['email']  as string) ?? '',
+          id:     d.id,
+          nameAr: d.nameAr ?? '',
+          nameEn: d.nameEn ?? '',
+          phone:  d.phone  ?? '',
+          email:  d.email  ?? '',
         };
         setSelectedCustomer(cust);
         setValue('customerId',    cust.id);

@@ -8,6 +8,7 @@ import { Spinner } from '@/components/ui/Spinner';
 import { formatCurrency, formatDate } from '@/lib/utils';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@masarat/firebase';
+import { apiFetch } from '@/lib/api-client';
 import {
   ArrowRight, ArrowLeft, User, Phone, Mail, BookOpen, TrendingUp,
   Calendar, Printer, AlertCircle, CheckCircle2,
@@ -68,6 +69,44 @@ const METHOD_AR: Record<string, string> = {
   online:        'دفع إلكتروني',
 };
 
+// ─── API response types ────────────────────────────────────────────────────────
+
+interface ApiCustomer {
+  id: string;
+  nameAr: string;
+  nameEn: string | null;
+  phone: string | null;
+  email: string | null;
+  nationality: string | null;
+  nationalId: string | null;
+  createdAt: string;
+}
+
+interface ApiBooking {
+  id: string;
+  totalPriceHalalas: number;
+  paidHalalas: number;
+}
+
+interface ApiInvoice {
+  id: string;
+  invoiceNumber: string;
+  totalHalalas: number;
+  paidHalalas: number;
+  issueDate: string | null;
+  createdAt: string;
+}
+
+interface ApiPayment {
+  id: string;
+  amountHalalas: number;
+  method: string;
+  receiptNumber: string | null;
+  type: string;
+  receivedAt: string | null;
+  createdAt: string;
+}
+
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function CustomerDetailPage({ params }: { params: { locale: string; id: string } }) {
@@ -88,93 +127,56 @@ export default function CustomerDetailPage({ params }: { params: { locale: strin
 
     async function load() {
       try {
-        const { getFirestore, doc, getDoc, collection, query, where, getDocs } =
-          await import('firebase/firestore');
-        const { getApp } = await import('@masarat/firebase');
-        const db       = getFirestore(getApp());
-        const agencyId = user?.agencyId as string;
-
-        // 1. Customer doc
-        const custSnap = await getDoc(doc(db, 'customers', id));
+        // 1. Customer
+        const custRes = await apiFetch<{ customer: ApiCustomer }>(`/api/customers/${id}`);
         if (cancelled) return;
-        if (!custSnap.exists() || (custSnap.data() as Record<string, unknown>)['agencyId'] !== agencyId) {
-          setError(isAr ? 'العميل غير موجود' : 'Customer not found');
-          setLoading(false);
-          return;
-        }
-        const cust = custSnap.data() as Record<string, unknown>;
+        const cust = custRes.customer;
 
-        // 2. Bookings for this customer
-        const bookingsSnap = await getDocs(
-          query(
-            collection(db, 'bookings'),
-            where('customerId', '==', id),
-            where('agencyId',   '==', agencyId),
-          ),
-        );
-        if (cancelled) return;
-        const bookingIds = bookingsSnap.docs.map(d => d.id);
-
-        // 3. Invoices + payments in parallel (Firestore 'in' max = 30)
-        const [invoicesSnap, paymentsSnap] = await Promise.all([
-          bookingIds.length > 0
-            ? getDocs(
-                query(
-                  collection(db, 'invoices'),
-                  where('agencyId',  '==', agencyId),
-                  where('bookingId', 'in', bookingIds.slice(0, 30)),
-                ),
-              )
-            : Promise.resolve({ docs: [] as typeof bookingsSnap.docs }),
-          getDocs(
-            query(
-              collection(db, 'payments'),
-              where('customerId', '==', id),
-              where('agencyId',   '==', agencyId),
-            ),
-          ),
+        // 2. Bookings, invoices, and payments in parallel
+        const [bookingsRes, invoicesRes, paymentsRes] = await Promise.all([
+          apiFetch<{ bookings: ApiBooking[] }>(`/api/bookings?customerId=${id}`),
+          apiFetch<{ invoices: ApiInvoice[] }>(`/api/invoices?customerId=${id}`),
+          apiFetch<{ payments: ApiPayment[] }>(`/api/payments?customerId=${id}`),
         ]);
         if (cancelled) return;
 
-        // 4. Build statement entries
+        const bookingList = bookingsRes.bookings;
+        const invoiceList = invoicesRes.invoices;
+        const paymentList = paymentsRes.payments;
+
+        // 3. Build statement entries
         const statement: StatementEntry[] = [];
 
-        for (const invDoc of invoicesSnap.docs) {
-          const inv        = invDoc.data() as Record<string, unknown>;
-          const totals     = inv['totals'] as Record<string, number> | undefined;
-          const grandTotal = totals?.['grandTotal'] ?? 0;
-          const issueDate  =
-            (inv['issueDate'] as { toDate?: () => Date } | undefined)?.toDate?.() ??
-            (inv['createdAt'] as { toDate?: () => Date } | undefined)?.toDate?.() ??
-            new Date();
-          const invNumber = (inv['invoiceNumber'] as string) ?? invDoc.id;
+        for (const inv of invoiceList) {
+          const issueDate = inv.issueDate
+            ? new Date(inv.issueDate)
+            : new Date(inv.createdAt);
+          const invNumber = inv.invoiceNumber ?? inv.id;
 
           statement.push({
-            id:       `inv-${invDoc.id}`,
-            date:     issueDate,
-            type:     'invoice',
-            descAr:   `فاتورة — ${invNumber}`,
-            descEn:   `Invoice — ${invNumber}`,
+            id:        `inv-${inv.id}`,
+            date:      issueDate,
+            type:      'invoice',
+            descAr:    `فاتورة — ${invNumber}`,
+            descEn:    `Invoice — ${invNumber}`,
             reference: invNumber,
-            debitH:   grandTotal,
-            creditH:  0,
+            debitH:    inv.totalHalalas ?? 0,
+            creditH:   0,
           });
         }
 
-        for (const payDoc of paymentsSnap.docs) {
-          const pay         = payDoc.data() as Record<string, unknown>;
-          const amount      = (pay['amountHalalas'] as number) ?? 0;
-          const receivedAt  =
-            (pay['receivedAt'] as { toDate?: () => Date } | undefined)?.toDate?.() ??
-            (pay['createdAt']  as { toDate?: () => Date } | undefined)?.toDate?.() ??
-            new Date();
-          const method        = (pay['paymentMethod'] as string) ?? 'cash';
+        for (const pay of paymentList) {
+          const amount      = pay.amountHalalas ?? 0;
+          const receivedAt  = pay.receivedAt
+            ? new Date(pay.receivedAt)
+            : new Date(pay.createdAt);
+          const method        = pay.method ?? 'cash';
           const methodAr      = METHOD_AR[method] ?? 'دفعة';
-          const receiptNumber = (pay['receiptNumber'] as string) ?? payDoc.id;
-          const isRefund      = pay['isRefund'] === true;
+          const receiptNumber = pay.receiptNumber ?? pay.id;
+          const isRefund      = pay.type === 'refund';
 
           statement.push({
-            id:       `pay-${payDoc.id}`,
+            id:       `pay-${pay.id}`,
             date:     receivedAt,
             type:     isRefund ? 'refund' : 'payment',
             descAr:   isRefund
@@ -189,39 +191,33 @@ export default function CustomerDetailPage({ params }: { params: { locale: strin
           });
         }
 
-        // 5. KPIs
-        const totalSpentHalalas = invoicesSnap.docs.reduce((s, d) => {
-          const t = (d.data() as Record<string, unknown>)['totals'] as Record<string, number> | undefined;
-          return s + (t?.['grandTotal'] ?? 0);
-        }, 0);
-        const outstandingHalalas = invoicesSnap.docs.reduce((s, d) => {
-          return s + (((d.data() as Record<string, unknown>)['amountDue'] as number) ?? 0);
-        }, 0);
-
-        // 6. Map CustomerDoc fields
-        const nameField  = cust['name'] as { ar?: string; en?: string } | undefined;
-        const createdAt  =
-          (cust['createdAt'] as { toDate?: () => Date } | undefined)?.toDate?.() ?? new Date();
-        const rawTier    = (cust['tier'] as string) ?? 'standard';
-        const tier       = (TIER_META[rawTier] ? rawTier : 'standard') as CustomerData['tier'];
+        // 4. KPIs
+        const totalSpentHalalas  = invoiceList.reduce((s, inv) => s + (inv.totalHalalas ?? 0), 0);
+        const totalPaidHalalas   = invoiceList.reduce((s, inv) => s + (inv.paidHalalas ?? 0), 0);
+        const outstandingHalalas = Math.max(0, totalSpentHalalas - totalPaidHalalas);
 
         setCustomer({
-          id:                custSnap.id,
-          nameAr:            nameField?.ar ?? (cust['nameAr'] as string) ?? '',
-          nameEn:            nameField?.en ?? (cust['nameEn'] as string) ?? '',
-          phone:             (cust['mobile'] as string) ?? (cust['phone'] as string) ?? '',
-          email:             (cust['email'] as string) ?? '',
-          nationality:       (cust['nationality'] as string) ?? '',
-          nationalId:        (cust['nationalId'] as string) ?? '',
-          tier,
-          totalBookings:     bookingIds.length,
+          id:                cust.id,
+          nameAr:            cust.nameAr ?? '',
+          nameEn:            cust.nameEn ?? '',
+          phone:             cust.phone ?? '',
+          email:             cust.email ?? '',
+          nationality:       cust.nationality ?? '',
+          nationalId:        cust.nationalId ?? '',
+          tier:              'standard',
+          totalBookings:     bookingList.length,
           totalSpentHalalas,
           outstandingHalalas,
-          createdAt,
+          createdAt:         new Date(cust.createdAt),
           statement,
         });
       } catch (err) {
-        if (!cancelled) setError(err instanceof Error ? err.message : 'حدث خطأ');
+        if (!cancelled) {
+          const msg = err instanceof Error ? err.message : 'حدث خطأ';
+          setError(msg.includes('404') || msg.includes('غير موجود')
+            ? (isAr ? 'العميل غير موجود' : 'Customer not found')
+            : msg);
+        }
       } finally {
         if (!cancelled) setLoading(false);
       }
