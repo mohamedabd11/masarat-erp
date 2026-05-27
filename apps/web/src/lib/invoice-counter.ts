@@ -64,3 +64,45 @@ export async function getNextReceiptNumber(
   transaction.update(counterRef, { receipt: FieldValue.increment(1) });
   return `RCT-${year}-${String(next).padStart(6, '0')}`;
 }
+
+export async function getNextPaymentVoucherNumber(
+  agencyId: string,
+  year: number,
+  transaction: FirebaseFirestore.Transaction,
+): Promise<string> {
+  const db = getFirestore();
+  const counterRef = db
+    .collection('agencies')
+    .doc(agencyId)
+    .collection('config')
+    .doc('invoice_counters');
+
+  const doc = await transaction.get(counterRef);
+  const current = (doc.data()?.['paymentVoucher'] as number) ?? 0;
+  const next = current + 1;
+
+  transaction.update(counterRef, { paymentVoucher: FieldValue.increment(1) });
+  return `PV-${year}-${String(next).padStart(6, '0')}`;
+}
+
+export async function getNextBookingNumber(
+  agencyId: string,
+  year: number,
+): Promise<string> {
+  const db = getFirestore();
+  const counterRef = db
+    .collection('agencies')
+    .doc(agencyId)
+    .collection('config')
+    .doc('invoice_counters');
+
+  const newDoc = await db.runTransaction(async tx => {
+    const snap = await tx.get(counterRef);
+    const current = (snap.data()?.['booking'] as number) ?? 0;
+    const next = current + 1;
+    tx.update(counterRef, { booking: FieldValue.increment(1) });
+    return next;
+  });
+
+  return `BK-${year}-${String(newDoc).padStart(6, '0')}`;
+}

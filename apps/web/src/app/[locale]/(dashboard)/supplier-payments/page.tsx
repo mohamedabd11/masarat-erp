@@ -76,33 +76,39 @@ export default function SupplierPaymentsPage() {
 
   useEffect(() => {
     if (!agencyId) { setLoading(false); return; }
-    let unsub: (() => void) | undefined;
+    let cancelled = false;
 
     async function load() {
-      const { getFirestore, collection, query, where, orderBy, onSnapshot } =
-        await import('firebase/firestore');
-      const { getApp } = await import('@masarat/firebase');
-      const db = getFirestore(getApp());
+      try {
+        const { getFirestore, collection, query, where, getDocs } =
+          await import('firebase/firestore');
+        const { getApp } = await import('@masarat/firebase');
+        const db = getFirestore(getApp());
 
-      const q = query(
-        collection(db, 'supplier_payments'),
-        where('agencyId', '==', agencyId),
-        orderBy('createdAt', 'desc'),
-      );
+        const snap = await getDocs(query(
+          collection(db, 'supplier_payments'),
+          where('agencyId', '==', agencyId),
+        ));
 
-      unsub = onSnapshot(
-        q,
-        snap => {
-          setPayments(snap.docs.map(d => ({ id: d.id, ...d.data() } as SupplierPayment)));
-          setLoading(false);
-        },
-        () => setLoading(false),
-      );
+        if (cancelled) return;
+        const docs = snap.docs
+          .map(d => ({ id: d.id, ...d.data() } as SupplierPayment))
+          .sort((a, b) => {
+            const ta = a.createdAt?.toDate?.()?.getTime() ?? 0;
+            const tb = b.createdAt?.toDate?.()?.getTime() ?? 0;
+            return tb - ta;
+          });
+        setPayments(docs);
+      } catch (err) {
+        console.error('[supplier-payments]', err);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
     }
 
     void load();
-    return () => unsub?.();
-  }, [agencyId]);
+    return () => { cancelled = true; };
+  }, [agencyId, showModal]);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
