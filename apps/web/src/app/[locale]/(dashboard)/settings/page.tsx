@@ -269,9 +269,7 @@ const WA_NUMBER = '249969837823';
 interface PlanDef {
   key: string;
   ar: string; en: string;
-  priceMonthly: number | null;
-  priceYearly: number | null;
-  priceLifetime: number | null;
+  billing: { ar: string; en: string };
   badge: { ar: string; en: string } | null;
   highlighted: boolean;
   features: { ar: string[]; en: string[] };
@@ -282,7 +280,7 @@ const PLANS: PlanDef[] = [
   {
     key: 'starter',
     ar: 'المبتدئ', en: 'Starter',
-    priceMonthly: 199, priceYearly: 1990, priceLifetime: null,
+    billing: { ar: 'اشتراك شهري / سنوي', en: 'Monthly / Yearly' },
     badge: null, highlighted: false,
     features: {
       ar: ['حتى 3 مستخدمين', 'حتى 500 حجز شهرياً', 'الوحدات الأساسية (حجوزات، فواتير، محاسبة)', 'دعم عبر واتساب'],
@@ -293,7 +291,7 @@ const PLANS: PlanDef[] = [
   {
     key: 'professional',
     ar: 'الاحترافي', en: 'Professional',
-    priceMonthly: 399, priceYearly: 3990, priceLifetime: null,
+    billing: { ar: 'اشتراك شهري / سنوي', en: 'Monthly / Yearly' },
     badge: { ar: 'الأكثر شيوعاً', en: 'Most Popular' }, highlighted: true,
     features: {
       ar: ['مستخدمون غير محدودين', 'حجوزات غير محدودة', 'جميع الوحدات + ZATCA', 'تقارير متقدمة', 'دعم ذو أولوية عبر واتساب'],
@@ -304,11 +302,11 @@ const PLANS: PlanDef[] = [
   {
     key: 'lifetime',
     ar: 'مدى الحياة', en: 'Lifetime',
-    priceMonthly: null, priceYearly: null, priceLifetime: 1999,
+    billing: { ar: 'دفعة واحدة للأبد', en: 'One-time payment' },
     badge: { ar: 'قيمة كبرى', en: 'Best Value' }, highlighted: false,
     features: {
-      ar: ['كل مميزات الاحترافي', 'دفعة واحدة للأبد', 'تحديثات مجانية مدى الحياة', 'دعم مدى الحياة'],
-      en: ['Everything in Professional', 'One-time payment forever', 'Free lifetime updates', 'Lifetime support'],
+      ar: ['كل مميزات الاحترافي', 'دفعة واحدة فقط', 'تحديثات مجانية مدى الحياة', 'دعم مدى الحياة'],
+      en: ['Everything in Professional', 'One-time payment only', 'Free lifetime updates', 'Lifetime support'],
     },
     limits: { users: null, bookings: null },
   },
@@ -1743,26 +1741,9 @@ export default function SettingsPage() {
                             </div>
                           </div>
 
-                          {/* Price */}
+                          {/* Billing type */}
                           <div className="mb-4">
-                            {plan.priceLifetime !== null ? (
-                              <>
-                                <span className="text-3xl font-bold text-slate-900">{plan.priceLifetime.toLocaleString()}</span>
-                                <span className="text-sm text-slate-500 ms-1">{isAr ? 'ريال (مرة واحدة)' : 'SAR (one-time)'}</span>
-                              </>
-                            ) : (
-                              <>
-                                <span className="text-3xl font-bold text-slate-900">{plan.priceMonthly}</span>
-                                <span className="text-sm text-slate-500 ms-1">{isAr ? 'ريال / شهر' : 'SAR / mo'}</span>
-                                {plan.priceYearly && (
-                                  <p className="text-xs text-emerald-600 mt-0.5">
-                                    {isAr
-                                      ? `${plan.priceYearly.toLocaleString()} ريال سنوياً (شهران مجاناً)`
-                                      : `${plan.priceYearly.toLocaleString()} SAR / year (2 months free)`}
-                                  </p>
-                                )}
-                              </>
-                            )}
+                            <span className="text-sm text-slate-500">{isAr ? plan.billing.ar : plan.billing.en}</span>
                           </div>
 
                           {/* Features */}
@@ -1803,8 +1784,8 @@ export default function SettingsPage() {
                   </div>
                   <p className="text-xs text-slate-400 mt-3 text-center">
                     {isAr
-                      ? 'جميع الخطط تشمل ضريبة القيمة المضافة · الدفع عبر واتساب'
-                      : 'All prices include VAT · Payment via WhatsApp'}
+                      ? 'تواصل معنا عبر واتساب للاستفسار عن الأسعار'
+                      : 'Contact us via WhatsApp for pricing details'}
                   </p>
                 </div>
 
