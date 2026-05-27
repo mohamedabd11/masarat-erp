@@ -4,9 +4,10 @@ import { useTranslations, useLocale } from 'next-intl';
 import { useAuth } from '@masarat/firebase';
 import { LanguageSwitcher } from './LanguageSwitcher';
 import { cn } from '@/lib/utils';
-import { Bell, Search, Menu, LogOut, User, X } from 'lucide-react';
+import { Search, Menu, LogOut, User, X } from 'lucide-react';
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { NotificationBell } from './NotificationBell';
 
 interface HeaderProps {
   onMenuToggle?: () => void;
@@ -79,10 +80,7 @@ export function Header({ onMenuToggle, className }: HeaderProps) {
         <LanguageSwitcher />
 
         {/* Notifications */}
-        <button className="relative p-2 rounded-lg text-slate-500 hover:bg-slate-100 hover:text-slate-700 transition-colors">
-          <Bell size={18} />
-          <span className="absolute top-1.5 end-1.5 w-2 h-2 bg-red-500 rounded-full" />
-        </button>
+        <NotificationBell locale={locale} />
 
         {/* User menu */}
         <div className="relative">
