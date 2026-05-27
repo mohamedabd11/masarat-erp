@@ -12,8 +12,47 @@ import { cn } from '@/lib/utils';
 import {
   BookOpen, Search, X, Plus, TrendingUp, CheckCircle2,
   Clock, AlertCircle, ChevronRight, Wallet, ArrowUpRight,
+  FileText, FileX, FileCheck,
 } from 'lucide-react';
 import type { BookingType } from '@masarat/firebase';
+
+// ─── Invoice status badge ─────────────────────────────────────────────────────
+
+function InvoiceBadge({
+  hasInvoice, paymentStatus, isAr,
+}: { hasInvoice: boolean; paymentStatus: string; isAr: boolean }) {
+  if (!hasInvoice) return (
+    <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded-md bg-slate-100 text-slate-400">
+      <FileX size={10} />
+      {isAr ? 'بدون فاتورة' : 'No invoice'}
+    </span>
+  );
+  if (paymentStatus === 'fully_paid') return (
+    <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded-md bg-emerald-50 text-emerald-700">
+      <FileCheck size={10} />
+      {isAr ? 'مدفوع' : 'Paid'}
+    </span>
+  );
+  if (paymentStatus === 'partial') return (
+    <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded-md bg-amber-50 text-amber-700">
+      <FileText size={10} />
+      {isAr ? 'جزئي' : 'Partial'}
+    </span>
+  );
+  if (paymentStatus === 'refunded') return (
+    <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded-md bg-purple-50 text-purple-700">
+      <FileText size={10} />
+      {isAr ? 'مُسترد' : 'Refunded'}
+    </span>
+  );
+  // unpaid
+  return (
+    <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded-md bg-red-50 text-red-600">
+      <FileText size={10} />
+      {isAr ? 'غير مدفوع' : 'Unpaid'}
+    </span>
+  );
+}
 
 interface BookingsClientProps {
   locale: string;
@@ -171,25 +210,27 @@ export function BookingsClient({ locale, bookingType, initialQuery = '' }: Booki
           {/* ── Mobile cards (< sm) ───────────────────────────────────────── */}
           <div className="sm:hidden divide-y divide-surface-border">
             {filtered.map(b => {
-              const name     = isAr ? (b.customerName?.ar ?? b.customerName?.en ?? '') : (b.customerName?.en ?? b.customerName?.ar ?? '');
-              const typeMeta = TYPE_META[b.type] ?? { ar: b.type, en: b.type, bg: 'bg-slate-100', text: 'text-slate-600' };
-              const total    = b.grandTotalHalalas ?? b.pricing?.totalAmount ?? 0;
-              const paidAmt  = b.paidHalalas ?? b.totalPaid ?? 0;
-              const paidPct  = total > 0 ? Math.min(100, Math.round((paidAmt / total) * 100)) : 0;
+              const name      = isAr ? (b.customerName?.ar ?? b.customerName?.en ?? '') : (b.customerName?.en ?? b.customerName?.ar ?? '');
+              const typeMeta  = TYPE_META[b.type] ?? { ar: b.type, en: b.type, bg: 'bg-slate-100', text: 'text-slate-600' };
+              const total     = b.grandTotalHalalas ?? b.pricing?.totalAmount ?? 0;
+              const paidAmt   = b.paidHalalas ?? b.totalPaid ?? 0;
+              const paidPct   = total > 0 ? Math.min(100, Math.round((paidAmt / total) * 100)) : 0;
               const createdAt = b.createdAt?.toDate?.() ?? null;
+              const hasInvoice = (b.invoiceIds?.length ?? 0) > 0;
 
               return (
                 <Link key={b.id} href={`/${locale}/bookings/${b.id}`}
                   className="flex flex-col gap-2 px-4 py-3.5 hover:bg-slate-50 transition-colors active:bg-slate-100">
-                  {/* Row 1: number + type + status */}
+                  {/* Row 1: number + type + invoice badge + status */}
                   <div className="flex items-center justify-between gap-2">
-                    <div className="flex items-center gap-2 min-w-0">
+                    <div className="flex items-center gap-1.5 min-w-0 flex-wrap">
                       <span className="font-mono text-xs font-bold text-brand-700">
                         {b.bookingNumber ?? b.id.slice(0, 10)}
                       </span>
                       <span className={cn('px-2 py-0.5 rounded-md text-[11px] font-bold', typeMeta.bg, typeMeta.text)}>
                         {isAr ? typeMeta.ar : typeMeta.en}
                       </span>
+                      <InvoiceBadge hasInvoice={hasInvoice} paymentStatus={b.paymentStatus ?? 'unpaid'} isAr={isAr} />
                     </div>
                     <BookingStatusBadge status={b.status} locale={locale} />
                   </div>
@@ -227,6 +268,7 @@ export function BookingsClient({ locale, bookingType, initialQuery = '' }: Booki
                   <th className="text-start ps-6 pe-3 py-3.5 text-xs font-bold text-slate-500 uppercase tracking-wider">{isAr ? 'رقم الحجز' : 'Booking #'}</th>
                   <th className="text-start px-3 py-3.5 text-xs font-bold text-slate-500 uppercase tracking-wider">{isAr ? 'العميل' : 'Customer'}</th>
                   <th className="text-start px-3 py-3.5 text-xs font-bold text-slate-500 uppercase tracking-wider hidden md:table-cell">{isAr ? 'الخدمة' : 'Service'}</th>
+                  <th className="text-start px-3 py-3.5 text-xs font-bold text-slate-500 uppercase tracking-wider hidden md:table-cell">{isAr ? 'الفاتورة' : 'Invoice'}</th>
                   <th className="text-start px-3 py-3.5 text-xs font-bold text-slate-500 uppercase tracking-wider hidden lg:table-cell">{isAr ? 'التاريخ' : 'Date'}</th>
                   <th className="text-start px-3 py-3.5 text-xs font-bold text-slate-500 uppercase tracking-wider hidden xl:table-cell">{isAr ? 'الدفع' : 'Payment'}</th>
                   <th className="text-start px-3 py-3.5 text-xs font-bold text-slate-500 uppercase tracking-wider">{isAr ? 'الحالة' : 'Status'}</th>
@@ -235,12 +277,13 @@ export function BookingsClient({ locale, bookingType, initialQuery = '' }: Booki
               </thead>
               <tbody className="divide-y divide-surface-border">
                 {filtered.map(b => {
-                  const name     = isAr ? (b.customerName?.ar ?? b.customerName?.en ?? '') : (b.customerName?.en ?? b.customerName?.ar ?? '');
-                  const typeMeta = TYPE_META[b.type] ?? { ar: b.type, en: b.type, bg: 'bg-slate-100', text: 'text-slate-600' };
-                  const total    = b.grandTotalHalalas ?? b.pricing?.totalAmount ?? 0;
-                  const paidAmt  = b.paidHalalas ?? b.totalPaid ?? 0;
-                  const paidPct  = total > 0 ? Math.min(100, Math.round((paidAmt / total) * 100)) : 0;
-                  const createdAt = b.createdAt?.toDate?.() ?? null;
+                  const name       = isAr ? (b.customerName?.ar ?? b.customerName?.en ?? '') : (b.customerName?.en ?? b.customerName?.ar ?? '');
+                  const typeMeta   = TYPE_META[b.type] ?? { ar: b.type, en: b.type, bg: 'bg-slate-100', text: 'text-slate-600' };
+                  const total      = b.grandTotalHalalas ?? b.pricing?.totalAmount ?? 0;
+                  const paidAmt    = b.paidHalalas ?? b.totalPaid ?? 0;
+                  const paidPct    = total > 0 ? Math.min(100, Math.round((paidAmt / total) * 100)) : 0;
+                  const createdAt  = b.createdAt?.toDate?.() ?? null;
+                  const hasInvoice = (b.invoiceIds?.length ?? 0) > 0;
 
                   return (
                     <tr key={b.id} className="hover:bg-slate-50/60 transition-colors group">
@@ -256,6 +299,9 @@ export function BookingsClient({ locale, bookingType, initialQuery = '' }: Booki
                         <span className={cn('inline-flex items-center px-2.5 py-1 rounded-lg text-xs font-bold', typeMeta.bg, typeMeta.text)}>
                           {isAr ? typeMeta.ar : typeMeta.en}
                         </span>
+                      </td>
+                      <td className="px-3 py-4 hidden md:table-cell">
+                        <InvoiceBadge hasInvoice={hasInvoice} paymentStatus={b.paymentStatus ?? 'unpaid'} isAr={isAr} />
                       </td>
                       <td className="px-3 py-4 hidden lg:table-cell">
                         <span className="text-sm text-slate-500">{createdAt ? formatDate(createdAt, fmtLocale) : '—'}</span>
