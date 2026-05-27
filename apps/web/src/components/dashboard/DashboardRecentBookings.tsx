@@ -93,7 +93,7 @@ export function DashboardRecentBookings({ locale }: DashboardRecentBookingsProps
                 {/* Ref # */}
                 <td className="ps-6 pe-3 py-3.5">
                   <span className="font-mono text-xs font-semibold text-brand-700 whitespace-nowrap">
-                    {booking.id}
+                    {booking.bookingNumber ?? booking.id.slice(-6).toUpperCase()}
                   </span>
                 </td>
 

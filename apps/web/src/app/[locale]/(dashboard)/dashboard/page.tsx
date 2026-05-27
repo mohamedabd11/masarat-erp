@@ -3,6 +3,7 @@ import { getTranslations } from 'next-intl/server';
 import { Card, CardHeader, CardTitle } from '@/components/ui/Card';
 import { DashboardStats } from '@/components/dashboard/DashboardStats';
 import { DashboardRecentBookings } from '@/components/dashboard/DashboardRecentBookings';
+import { DashboardCharts } from '@/components/dashboard/DashboardCharts';
 import {
   Plane, Building2, Moon, Stamp, Shield, Package,
   Car, Anchor, Layers, Users, TrendingUp, FileText,
@@ -51,6 +52,9 @@ export default async function DashboardPage({ params }: { params: { locale: stri
 
       {/* KPI Stats */}
       <DashboardStats locale={locale} />
+
+      {/* Charts */}
+      <DashboardCharts locale={locale} />
 
       {/* Quick Service Launch */}
       <Card>
