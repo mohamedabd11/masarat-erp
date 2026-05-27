@@ -329,6 +329,7 @@ export default function SettingsPage() {
   const isAr = locale === 'ar';
   const searchParams = useSearchParams();
   const { user } = useAuth();
+  const agencyId = user?.agencyId ?? null;
   const { status: subStatus, plan: subPlan, agencyName: subAgencyName, daysRemaining } = useSubscription();
 
   // Support ?tab=service_types URL param
@@ -385,13 +386,13 @@ export default function SettingsPage() {
 
   // Load all agency info from Firestore
   useEffect(() => {
-    if (!user?.agencyId) return;
+    if (!agencyId) return;
 
     async function loadAgency() {
       const { getFirestore, doc, getDoc } = await import('firebase/firestore');
       const { getApp } = await import('@masarat/firebase');
       const db = getFirestore(getApp());
-      const snap = await getDoc(doc(db, 'agencies', user!.agencyId));
+      const snap = await getDoc(doc(db, 'agencies', agencyId!));
       if (snap.exists()) {
         const d = snap.data();
         if (d.nameAr)        setNameAr(d.nameAr);
@@ -412,11 +413,11 @@ export default function SettingsPage() {
     }
 
     void loadAgency();
-  }, [user?.agencyId]);
+  }, [agencyId]);
 
   // Load agency users from Firestore when on users tab
   useEffect(() => {
-    if (!user?.agencyId || activeTab !== 'users') return;
+    if (!agencyId || activeTab !== 'users') return;
     let unsub: (() => void) | undefined;
 
     async function load() {
@@ -424,7 +425,7 @@ export default function SettingsPage() {
       const { getFirestore, collection, query, where, onSnapshot } = await import('firebase/firestore');
       const { getApp } = await import('@masarat/firebase');
       const db = getFirestore(getApp());
-      const q = query(collection(db, 'users'), where('agencyId', '==', user!.agencyId));
+      const q = query(collection(db, 'users'), where('agencyId', '==', agencyId));
       unsub = onSnapshot(q, snap => {
         setAgencyUsers(snap.docs.map(d => ({ id: d.id, ...d.data() } as UserDoc)));
         setLoadingUsers(false);
@@ -433,28 +434,28 @@ export default function SettingsPage() {
 
     void load();
     return () => unsub?.();
-  }, [user?.agencyId, activeTab]);
+  }, [agencyId, activeTab]);
 
   // Load usage stats when billing tab is active
   useEffect(() => {
-    if (!user?.agencyId || activeTab !== 'billing') return;
+    if (!agencyId || activeTab !== 'billing') return;
     async function load() {
       const { getFirestore, collection, query, where, getDocs } = await import('firebase/firestore');
       const { getApp } = await import('@masarat/firebase');
       const db = getFirestore(getApp());
       const [usersSnap, bookingsSnap] = await Promise.all([
-        getDocs(query(collection(db, 'users'), where('agencyId', '==', user!.agencyId))),
-        getDocs(query(collection(db, 'bookings'), where('agencyId', '==', user!.agencyId))),
+        getDocs(query(collection(db, 'users'), where('agencyId', '==', agencyId))),
+        getDocs(query(collection(db, 'bookings'), where('agencyId', '==', agencyId))),
       ]);
       setUsersCount(usersSnap.size);
       setBookingsCount(bookingsSnap.size);
     }
     void load();
-  }, [user?.agencyId, activeTab]);
+  }, [agencyId, activeTab]);
 
   // Load custom service types from Firestore
   useEffect(() => {
-    if (!user?.agencyId || activeTab !== 'service_types') return;
+    if (!agencyId || activeTab !== 'service_types') return;
     let unsub: (() => void) | undefined;
 
     async function load() {
@@ -463,7 +464,7 @@ export default function SettingsPage() {
       const db = getFirestore(getApp());
       const q = query(
         collection(db, 'service_types'),
-        where('agencyId', '==', user!.agencyId),
+        where('agencyId', '==', agencyId),
       );
       unsub = onSnapshot(q, snap => {
         setCustomTypes(snap.docs.map(d => ({ id: d.id, ...d.data() } as CustomServiceType)));
@@ -472,7 +473,7 @@ export default function SettingsPage() {
 
     void load();
     return () => unsub?.();
-  }, [user?.agencyId, activeTab]);
+  }, [agencyId, activeTab]);
 
   // Service type handlers
   async function handleAddServiceType() {
@@ -949,6 +950,7 @@ export default function SettingsPage() {
                     <div className="flex items-center gap-4">
                       <div className="w-20 h-20 rounded-xl bg-brand-50 border-2 border-dashed border-brand-200 flex items-center justify-center flex-shrink-0 overflow-hidden">
                         {logoUrl ? (
+                          // eslint-disable-next-line @next/next/no-img-element
                           <img src={logoUrl} alt="logo" className="w-full h-full object-contain p-1" />
                         ) : (
                           <Building2 size={26} className="text-brand-300" />
@@ -1001,6 +1003,7 @@ export default function SettingsPage() {
                           )}
                         >
                           <div className="w-16 h-16 rounded-lg bg-slate-100 overflow-hidden flex items-center justify-center">
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
                             <img
                               src={logoPendingPreview}
                               alt="fit"
@@ -1027,6 +1030,7 @@ export default function SettingsPage() {
                           )}
                         >
                           <div className="w-16 h-16 rounded-lg bg-slate-100 overflow-hidden">
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
                             <img
                               src={logoPendingPreview}
                               alt="square"

@@ -104,8 +104,7 @@ interface BookingDetailClientProps {
   bookingId: string;
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type BookingData = Record<string, any>;
+type BookingData = Record<string, any>; // Firestore raw data – type-safe access via explicit casts below
 
 const TYPE_LABELS: Record<string, { ar: string; en: string }> = {
   flight:       { ar: 'طيران',        en: 'Flight' },

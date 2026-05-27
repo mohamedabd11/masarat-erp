@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useAuth } from '@masarat/firebase';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
@@ -1226,7 +1226,7 @@ function DepartmentsTab({ isAr, agencyId, locale }: { isAr: boolean; agencyId: s
   const [nameEn, setNameEn]           = useState('');
   const [saving, setSaving]           = useState(false);
   const [deletingId, setDeletingId]   = useState<string | null>(null);
-  const [seeded, setSeeded]           = useState(false);
+  const seededRef = useRef(false);
 
   useEffect(() => {
     if (!agencyId) { setLoading(false); return; }
@@ -1244,8 +1244,8 @@ function DepartmentsTab({ isAr, agencyId, locale }: { isAr: boolean; agencyId: s
         setLoading(false);
 
         // Seed default departments once if none exist
-        if (docs.length === 0 && !seeded) {
-          setSeeded(true);
+        if (docs.length === 0 && !seededRef.current) {
+          seededRef.current = true;
           for (const def of DEFAULT_DEPARTMENTS) {
             await addDoc(col, { ...def, agencyId });
           }

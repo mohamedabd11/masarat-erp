@@ -127,25 +127,26 @@ function ServiceGrid({ isAr, onSelect, onAddNew }: {
   onAddNew: () => void;
 }) {
   const { user } = useAuth();
+  const agencyId = user?.agencyId ?? null;
   const [customTypes, setCustomTypes] = useState<
     Array<{ id: string; nameAr: string; nameEn: string; icon: string }>
   >([]);
 
   useEffect(() => {
-    if (!user?.agencyId) return;
+    if (!agencyId) return;
     let unsub: (() => void) | undefined;
     async function load() {
       const { getFirestore, collection, query, where, onSnapshot } = await import('firebase/firestore');
       const { getApp } = await import('@masarat/firebase');
       const db = getFirestore(getApp());
-      const q = query(collection(db, 'service_types'), where('agencyId', '==', user!.agencyId), where('isActive', '==', true));
+      const q = query(collection(db, 'service_types'), where('agencyId', '==', agencyId), where('isActive', '==', true));
       unsub = onSnapshot(q, snap => {
         setCustomTypes(snap.docs.map(d => ({ id: d.id, ...d.data() } as { id: string; nameAr: string; nameEn: string; icon: string })));
       });
     }
     void load();
     return () => unsub?.();
-  }, [user?.agencyId]);
+  }, [agencyId]);
 
   return (
     <div className="max-w-4xl mx-auto space-y-6">

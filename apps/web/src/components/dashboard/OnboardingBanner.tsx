@@ -26,6 +26,7 @@ export function OnboardingBanner() {
   const locale  = useLocale();
   const isAr    = locale === 'ar';
   const { user } = useAuth();
+  const agencyId = user?.agencyId ?? null;
 
   const [steps, setSteps]           = useState<Step[]>([]);
   const [loading, setLoading]       = useState(true);
@@ -41,7 +42,7 @@ export function OnboardingBanner() {
 
   // Load agency data and derive steps
   useEffect(() => {
-    if (!user?.agencyId || dismissed) { setLoading(false); return; }
+    if (!agencyId || dismissed) { setLoading(false); return; }
     let cancelled = false;
 
     async function load() {
@@ -51,8 +52,8 @@ export function OnboardingBanner() {
         const db = getFirestore(getApp());
 
         const [agSnap, usersSnap] = await Promise.all([
-          getDoc(doc(db, 'agencies', user!.agencyId as string)),
-          getDocs(query(collection(db, 'users'), where('agencyId', '==', user!.agencyId))),
+          getDoc(doc(db, 'agencies', agencyId!)),
+          getDocs(query(collection(db, 'users'), where('agencyId', '==', agencyId))),
         ]);
 
         if (cancelled) return;
@@ -112,7 +113,7 @@ export function OnboardingBanner() {
 
     void load();
     return () => { cancelled = true; };
-  }, [user?.agencyId, locale, dismissed]);
+  }, [agencyId, locale, dismissed]);
 
   function handleDismiss() {
     localStorage.setItem(DISMISSED_KEY, '1');

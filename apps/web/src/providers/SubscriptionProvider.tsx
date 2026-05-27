@@ -65,8 +65,7 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
           return;
         }
 
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const d   = snap.data() as Record<string, any>;
+        const d   = snap.data() as Record<string, any>; // Firestore raw data
         const sub = (d.subscriptionStatus ?? 'active') as SubscriptionStatus;
         setStatus(sub);
         setPlan(d.plan ?? '');

@@ -17,16 +17,17 @@ export default function HelpPage() {
   const locale = useLocale();
   const isAr = locale === 'ar';
   const { user } = useAuth();
+  const agencyId = user?.agencyId ?? null;
   const [contact, setContact] = useState<AgencyContact | null>(null);
 
   useEffect(() => {
-    if (!user?.agencyId) return;
+    if (!agencyId) return;
 
     async function load() {
       const { getFirestore, doc, getDoc } = await import('firebase/firestore');
       const { getApp } = await import('@masarat/firebase');
       const db = getFirestore(getApp());
-      const snap = await getDoc(doc(db, 'agencies', user!.agencyId));
+      const snap = await getDoc(doc(db, 'agencies', agencyId!));
       if (snap.exists()) {
         const data = snap.data();
         setContact({
@@ -38,7 +39,7 @@ export default function HelpPage() {
     }
 
     void load();
-  }, [user?.agencyId]);
+  }, [agencyId]);
 
   const email = contact?.contactEmail || 'support@masarat.sa';
   const phone = contact?.contactPhone || '+966 11 000 0000';

@@ -136,7 +136,7 @@ export function DashboardCharts({ locale }: { locale: string }) {
 
     void load();
     return () => { cancelled = true; };
-  }, [agencyId, isAr]);
+  }, [agencyId, isAr, months]);
 
   if (loading) {
     return (

@@ -113,11 +113,12 @@ export function Sidebar({ collapsed = false, onToggle, onClose }: SidebarProps) 
   const pathname = usePathname();
   const isAr = locale === 'ar';
   const { user } = useAuth();
+  const agencyId = user?.agencyId ?? null;
   const [customTypes, setCustomTypes] = useState<CustomServiceType[]>([]);
   const [logoUrl, setLogoUrl] = useState('');
 
   useEffect(() => {
-    if (!user?.agencyId) return;
+    if (!agencyId) return;
     let unsub: (() => void) | undefined;
 
     async function load() {
@@ -126,13 +127,13 @@ export function Sidebar({ collapsed = false, onToggle, onClose }: SidebarProps) 
       const db = getFirestore(getApp());
 
       // Listen to agency logo changes
-      onSnapshot(doc(db, 'agencies', user!.agencyId), snap => {
+      onSnapshot(doc(db, 'agencies', agencyId!), snap => {
         setLogoUrl((snap.data()?.logoUrl as string) ?? '');
       });
 
       const q = query(
         collection(db, 'service_types'),
-        where('agencyId', '==', user!.agencyId),
+        where('agencyId', '==', agencyId),
         where('isActive', '==', true),
       );
       unsub = onSnapshot(q, snap => {
@@ -142,7 +143,7 @@ export function Sidebar({ collapsed = false, onToggle, onClose }: SidebarProps) 
 
     void load();
     return () => unsub?.();
-  }, [user?.agencyId]);
+  }, [agencyId]);
 
   function isActive(href: string): boolean {
     const fullHref = `/${locale}${href}`;
@@ -195,6 +196,7 @@ export function Sidebar({ collapsed = false, onToggle, onClose }: SidebarProps) 
       )}>
         <div className="flex items-center justify-center w-9 h-9 rounded-lg bg-brand-600 text-white font-bold text-lg flex-shrink-0 overflow-hidden">
           {logoUrl
+            // eslint-disable-next-line @next/next/no-img-element
             ? <img src={logoUrl} alt="logo" className="w-full h-full object-contain p-0.5" />
             : 'م'
           }
