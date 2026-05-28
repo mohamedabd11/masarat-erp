@@ -726,11 +726,17 @@ export default function SettingsPage() {
                   />
                 </div>
 
-                {/* Address section */}
+                {/* Address section — only required for VAT-registered agencies */}
+                {isVatRegistered && (
                 <div className="border-t border-surface-border pt-5">
-                  <p className="text-sm font-semibold text-slate-700 mb-4">
-                    {isAr ? 'العنوان الوطني' : 'National Address'}
-                  </p>
+                  <div className="flex items-center gap-2 mb-4">
+                    <p className="text-sm font-semibold text-slate-700">
+                      {isAr ? 'العنوان الوطني' : 'National Address'}
+                    </p>
+                    <span className="text-[10px] bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full font-medium">
+                      {isAr ? 'مطلوب لـ ZATCA' : 'Required for ZATCA'}
+                    </span>
+                  </div>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <Input
                       label={isAr ? 'اسم الشارع' : 'Street Name'}
@@ -766,6 +772,7 @@ export default function SettingsPage() {
                     />
                   </div>
                 </div>
+                )}
 
                 {/* Contact info section */}
                 <div className="border-t border-surface-border pt-5">
