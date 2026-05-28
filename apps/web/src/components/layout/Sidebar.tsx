@@ -169,16 +169,16 @@ export function Sidebar({ collapsed = false, onToggle, onClose }: SidebarProps) 
         title={collapsed ? (isAr ? item.labelAr : item.labelEn) : undefined}
         onClick={handleClick}
         className={cn(
-          'flex items-center rounded-lg transition-colors duration-150 text-sm font-medium',
-          collapsed ? 'justify-center px-2 py-2.5' : 'gap-3 px-3 py-2',
+          'flex items-center rounded-xl transition-all duration-150 text-sm font-medium',
+          collapsed ? 'justify-center px-2 py-2.5' : 'gap-3 px-3 py-2.5',
           locked
             ? 'text-slate-400 hover:bg-slate-50 cursor-pointer'
             : active
-              ? 'bg-brand-50 text-brand-700'
+              ? 'bg-brand-600 text-white shadow-sm'
               : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900',
         )}
       >
-        <span className={cn('flex-shrink-0', locked ? 'opacity-40' : active ? 'text-brand-600' : '')}>{item.icon}</span>
+        <span className={cn('flex-shrink-0', locked ? 'opacity-40' : active ? 'text-white' : '')}>{item.icon}</span>
         {!collapsed && (
           <>
             <span className="truncate flex-1">{isAr ? item.labelAr : item.labelEn}</span>
@@ -195,19 +195,22 @@ export function Sidebar({ collapsed = false, onToggle, onClose }: SidebarProps) 
   return (
     <aside
       className={cn(
-        'flex flex-col h-full bg-white border-e border-surface-border',
+        'flex flex-col h-full border-e border-surface-border',
         'transition-all duration-300 ease-in-out',
         collapsed ? 'w-16' : 'w-64',
       )}
+      style={{ background: 'linear-gradient(180deg, #f8faff 0%, #ffffff 120px)' }}
     >
       {/* Logo */}
       <div className={cn(
-        'flex items-center justify-center border-b border-surface-border flex-shrink-0',
-        collapsed ? 'h-16 px-2' : 'h-28 px-4',
+        'flex items-center justify-center flex-shrink-0',
+        collapsed
+          ? 'h-16 px-2 border-b border-slate-100'
+          : 'h-32 px-6 border-b border-slate-100',
       )}>
         {collapsed
-          ? <MasaratLogo size={40} variant="icon" />
-          : <MasaratLogo size={40} variant="full" />
+          ? <MasaratLogo size={42} variant="icon" />
+          : <MasaratLogo size={110} variant="full" />
         }
       </div>
 

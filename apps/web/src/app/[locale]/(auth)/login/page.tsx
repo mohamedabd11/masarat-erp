@@ -83,9 +83,9 @@ export default function LoginPage() {
 
   return (
     <div className="w-full max-w-sm">
-      {/* Mobile logo */}
-      <div className="flex justify-center mb-8 lg:hidden">
-        <MasaratLogo size={52} variant="full" />
+      {/* Logo */}
+      <div className="flex justify-center mb-8">
+        <MasaratLogo size={160} variant="full" />
       </div>
 
       {resetMode ? (

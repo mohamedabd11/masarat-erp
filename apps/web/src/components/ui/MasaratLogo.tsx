@@ -1,14 +1,15 @@
 import Image from 'next/image';
 
 interface MasaratLogoProps {
+  /** Controls rendered height in px */
   size?: number;
+  /** 'icon' = circular crop of icon only | 'full' = full logo with text */
   variant?: 'icon' | 'full';
   className?: string;
 }
 
 export function MasaratLogo({ size = 40, variant = 'icon', className }: MasaratLogoProps) {
   if (variant === 'icon') {
-    // Collapsed sidebar: circular crop showing the top (graphic) portion of the logo.
     return (
       <div
         className={className}
@@ -27,8 +28,6 @@ export function MasaratLogo({ size = 40, variant = 'icon', className }: MasaratL
           alt="مسارات"
           fill
           sizes={`${size}px`}
-          // The logo graphic sits in the top ~65% of the square PNG.
-          // Scale up so that portion fills the circle.
           style={{ objectFit: 'cover', objectPosition: '50% 20%', transform: 'scale(1.6)', transformOrigin: '50% 25%' }}
           priority
         />
@@ -36,15 +35,15 @@ export function MasaratLogo({ size = 40, variant = 'icon', className }: MasaratL
     );
   }
 
-  // Expanded sidebar: full logo, fills the h-28 container with padding.
+  // Full variant: square logo PNG, size controls the height
   return (
     <div className={className} style={{ flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
       <Image
         src="/masarat-logo.png"
         alt="مسارات — نظام إدارة وكالات السفر"
-        width={200}
-        height={200}
-        style={{ objectFit: 'contain', width: 'auto', height: 100 }}
+        width={size}
+        height={size}
+        style={{ objectFit: 'contain', width: 'auto', height: size }}
         priority
       />
     </div>
