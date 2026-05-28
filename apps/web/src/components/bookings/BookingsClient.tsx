@@ -121,7 +121,7 @@ export function BookingsClient({ locale, bookingType, initialQuery = '' }: Booki
     <div className="space-y-5">
 
       {/* ── KPI strip ─────────────────────────────────────────────────────── */}
-      <div className="grid grid-cols-2 xl:grid-cols-5 gap-3">
+      <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-3">
         {[
           { icon: TrendingUp,   bg: 'bg-brand-50',   color: 'text-brand-600',   accent: 'border-brand-500',   label: isAr ? 'إجمالي الإيرادات' : 'Total Revenue',   value: formatCurrency(revenue, fmtLocale) },
           { icon: Wallet,       bg: 'bg-emerald-50', color: 'text-emerald-600', accent: 'border-emerald-500', label: isAr ? 'المحصّل' : 'Collected',                value: formatCurrency(paid, fmtLocale) },

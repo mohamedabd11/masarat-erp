@@ -341,6 +341,7 @@ export default function SettingsPage() {
   const [modules, setModules] = useState<Module[]>(INITIAL_MODULES);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [saveError, setSaveError] = useState('');
   const [dbSetupRunning, setDbSetupRunning] = useState(false);
   const [dbSetupResult, setDbSetupResult] = useState<{ ok: boolean; message?: string; error?: string } | null>(null);
 
@@ -614,6 +615,7 @@ export default function SettingsPage() {
     if (!user?.agencyId) return;
     setSaving(true);
     setSaved(false);
+    setSaveError('');
     try {
       const { apiFetch } = await import('@/lib/api-client');
       await apiFetch('/api/settings', {
@@ -634,7 +636,7 @@ export default function SettingsPage() {
       setSaved(true);
       setTimeout(() => setSaved(false), 3000);
     } catch {
-      // ignore save error silently — UI already shows saved state on success
+      setSaveError(isAr ? 'فشل الحفظ — تحقق من اتصالك وحاول مجدداً' : 'Save failed — check your connection and try again');
     } finally {
       setSaving(false);
     }
@@ -1098,7 +1100,13 @@ export default function SettingsPage() {
                       {isAr ? 'تم الحفظ بنجاح' : 'Saved successfully'}
                     </span>
                   )}
-                  {!saved && <span />}
+                  {saveError && (
+                    <span className="flex items-center gap-1.5 text-sm text-red-600 font-medium">
+                      <XCircle size={15} />
+                      {saveError}
+                    </span>
+                  )}
+                  {!saved && !saveError && <span />}
                   <Button onClick={handleSave} loading={saving}>
                     {saving
                       ? (isAr ? 'جارٍ الحفظ...' : 'Saving...')

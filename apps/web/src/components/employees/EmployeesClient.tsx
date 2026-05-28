@@ -130,7 +130,8 @@ function salaryDisplayValue(halalas: number): string {
 
 function salaryToHalalas(val: string): number {
   const n = parseFloat(val);
-  return isNaN(n) ? 0 : Math.round(n * 100);
+  if (isNaN(n) || n < 0) return 0;
+  return Math.round(n * 100);
 }
 
 // input class reuse
@@ -727,6 +728,14 @@ function SalariesTab({ isAr, agencyId, locale }: { isAr: boolean; agencyId: stri
       const bonus      = salaryToHalalas(editBonus);
       const deductions = salaryToHalalas(editDeduct);
       const netSalary  = (emp.salary ?? 0) + bonus - deductions;
+      if (netSalary < 0) {
+        alert(
+          isAr
+            ? `الراتب الصافي سالب (${(netSalary / 100).toFixed(2)} ر.س) — يرجى مراجعة الخصومات`
+            : `Net salary is negative (${(netSalary / 100).toFixed(2)} SAR) — please review deductions`
+        );
+        return;
+      }
       setPayments(prev => prev.map(p => p.employeeId === emp.id ? { ...p, bonus, deductions, netSalary } : p));
       setShowEditId(null);
     } finally {

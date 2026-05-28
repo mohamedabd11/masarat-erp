@@ -97,7 +97,7 @@ export function PaymentsClient({ locale }: PaymentsClientProps) {
         <p className="text-slate-500 text-sm mt-0.5">{isAr ? 'متابعة المدفوعات والمستحقات وتقرير التقادم' : 'Track payments, outstanding balances, and aging report'}</p>
       </div>
 
-      <div className="grid grid-cols-2 xl:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-4">
         {[
           { icon: Wallet,     bg: 'bg-emerald-50', color: 'text-emerald-600', accent: 'border-emerald-500', label: isAr ? 'إجمالي المحصّل' : 'Total Collected',   value: formatCurrency(totalPaid,  fmtLocale) },
           { icon: AlertCircle,bg: 'bg-red-50',     color: 'text-red-600',     accent: 'border-red-500',     label: isAr ? 'إجمالي المستحق' : 'Total Outstanding', value: formatCurrency(totalDue,   fmtLocale) },

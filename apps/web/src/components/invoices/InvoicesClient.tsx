@@ -111,7 +111,7 @@ export function InvoicesClient({ locale }: InvoicesClientProps) {
         </button>
       </div>
 
-      <div className="grid grid-cols-2 xl:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-4">
         {[
           { icon: TrendingUp,    bg: 'bg-brand-50',   color: 'text-brand-600',   accent: 'border-brand-500',   label: isAr ? 'إجمالي الفواتير' : 'Total Invoiced',   value: formatCurrency(totalRevenue, fmtLocale) },
           { icon: CheckCircle2,  bg: 'bg-emerald-50', color: 'text-emerald-600', accent: 'border-emerald-500', label: isAr ? 'إجمالي المحصّل' : 'Total Collected',   value: formatCurrency(totalPaid, fmtLocale) },
