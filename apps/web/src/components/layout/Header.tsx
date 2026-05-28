@@ -5,7 +5,7 @@ import { useAuth } from '@masarat/firebase';
 import { LanguageSwitcher } from './LanguageSwitcher';
 import { cn } from '@/lib/utils';
 import { Search, Menu, LogOut, User, X } from 'lucide-react';
-import { useState } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { NotificationBell } from './NotificationBell';
 
@@ -19,19 +19,52 @@ export function Header({ onMenuToggle, className }: HeaderProps) {
   const locale = useLocale();
   const { user, signOut } = useAuth();
   const [userMenuOpen, setUserMenuOpen] = useState(false);
+  const [searchOpen, setSearchOpen]     = useState(false);
+  const [searchQuery, setSearchQuery]   = useState('');
+  const inputRef = useRef<HTMLInputElement>(null);
+  const wrapRef  = useRef<HTMLDivElement>(null);
 
   const displayName = user?.displayName ?? user?.email?.split('@')[0] ?? '';
   const router      = useRouter();
-  const [searchQuery, setSearchQuery] = useState('');
+
+  function openSearch() {
+    setSearchOpen(true);
+    setTimeout(() => inputRef.current?.focus(), 50);
+  }
+
+  function closeSearch() {
+    setSearchOpen(false);
+    setSearchQuery('');
+  }
 
   function handleSearch(e: React.FormEvent) {
     e.preventDefault();
     const q = searchQuery.trim();
     if (q) {
       router.push(`/${locale}/bookings?q=${encodeURIComponent(q)}`);
-      setSearchQuery('');
+      closeSearch();
     }
   }
+
+  // Close on Escape key
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key === 'Escape' && searchOpen) closeSearch();
+    }
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [searchOpen]);
+
+  // Close on outside click
+  useEffect(() => {
+    function onClickOutside(e: MouseEvent) {
+      if (searchOpen && wrapRef.current && !wrapRef.current.contains(e.target as Node)) {
+        closeSearch();
+      }
+    }
+    document.addEventListener('mousedown', onClickOutside);
+    return () => document.removeEventListener('mousedown', onClickOutside);
+  }, [searchOpen]);
 
   return (
     <header
@@ -50,31 +83,52 @@ export function Header({ onMenuToggle, className }: HeaderProps) {
         <Menu size={20} />
       </button>
 
-      {/* Search */}
-      <form onSubmit={handleSearch} className="flex-1 min-w-0 max-w-md">
-        <div className="relative">
-          <Search size={16} className="absolute start-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
-          <input
-            type="text"
-            value={searchQuery}
-            onChange={e => setSearchQuery(e.target.value)}
-            placeholder={locale === 'ar' ? 'ابحث في الحجوزات...' : 'Search bookings...'}
-            className={cn(
-              'w-full rounded-lg border border-slate-200 bg-slate-50',
-              'ps-9 pe-9 py-2 text-sm text-slate-700',
-              'placeholder:text-slate-400',
-              'focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent focus:bg-white',
-              'transition-colors duration-150'
-            )}
-          />
-          {searchQuery && (
-            <button type="button" onClick={() => setSearchQuery('')}
-              className="absolute end-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
-              <X size={14} />
+      {/* Search — icon button that expands to input */}
+      <div ref={wrapRef} className="relative flex items-center">
+        {/* Collapsed: circle icon */}
+        {!searchOpen && (
+          <button
+            onClick={openSearch}
+            aria-label={locale === 'ar' ? 'بحث' : 'Search'}
+            className="w-9 h-9 rounded-full bg-slate-100 hover:bg-slate-200 flex items-center justify-center text-slate-500 hover:text-slate-700 transition-colors"
+          >
+            <Search size={17} />
+          </button>
+        )}
+
+        {/* Expanded: animated input */}
+        {searchOpen && (
+          <form
+            onSubmit={handleSearch}
+            className="flex items-center gap-2 animate-in fade-in slide-in-from-left-2 duration-150"
+          >
+            <div className="relative">
+              <Search size={15} className="absolute start-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+              <input
+                ref={inputRef}
+                type="text"
+                value={searchQuery}
+                onChange={e => setSearchQuery(e.target.value)}
+                placeholder={locale === 'ar' ? 'ابحث في الحجوزات...' : 'Search bookings...'}
+                className={cn(
+                  'w-52 sm:w-64 rounded-lg border border-slate-200 bg-slate-50',
+                  'ps-9 pe-3 py-2 text-sm text-slate-700',
+                  'placeholder:text-slate-400',
+                  'focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent focus:bg-white',
+                  'transition-colors duration-150'
+                )}
+              />
+            </div>
+            <button
+              type="button"
+              onClick={closeSearch}
+              className="p-1.5 rounded-full text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"
+            >
+              <X size={15} />
             </button>
-          )}
-        </div>
-      </form>
+          </form>
+        )}
+      </div>
 
       <div className="flex items-center gap-2 sm:gap-3 ms-auto flex-shrink-0">
         <LanguageSwitcher />
