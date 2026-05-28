@@ -13,6 +13,7 @@ import {
   UserCog, Plus, Search, Phone, Mail, X, Check,
   Banknote, CalendarDays, Building2, ChevronLeft, ChevronRight,
   ThumbsUp, ThumbsDown, CreditCard, Users,
+  Clock, UserCheck,
 } from 'lucide-react';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -141,7 +142,7 @@ const labelCls = 'block text-xs font-medium text-slate-700 mb-1';
 
 interface EmployeesClientProps { locale: string }
 
-type Tab = 'employees' | 'salaries' | 'leaves' | 'departments';
+type Tab = 'employees' | 'salaries' | 'leaves' | 'departments' | 'shifts' | 'attendance';
 
 export function EmployeesClient({ locale }: EmployeesClientProps) {
   const isAr = locale === 'ar';
@@ -155,6 +156,8 @@ export function EmployeesClient({ locale }: EmployeesClientProps) {
     { key: 'salaries',    label: isAr ? 'الرواتب'   : 'Salaries',    icon: <Banknote size={16} /> },
     { key: 'leaves',      label: isAr ? 'الإجازات'  : 'Leave',        icon: <CalendarDays size={16} /> },
     { key: 'departments', label: isAr ? 'الأقسام'   : 'Departments',  icon: <Building2 size={16} /> },
+    { key: 'shifts',      label: isAr ? 'الورديات'  : 'Shifts',       icon: <Clock size={16} /> },
+    { key: 'attendance',  label: isAr ? 'الحضور'    : 'Attendance',   icon: <UserCheck size={16} /> },
   ];
 
   return (
@@ -192,6 +195,8 @@ export function EmployeesClient({ locale }: EmployeesClientProps) {
       {activeTab === 'salaries'    && <SalariesTab    isAr={isAr} agencyId={agencyId} locale={locale} />}
       {activeTab === 'leaves'      && <LeavesTab      isAr={isAr} agencyId={agencyId} locale={locale} />}
       {activeTab === 'departments' && <DepartmentsTab isAr={isAr} agencyId={agencyId} locale={locale} />}
+      {activeTab === 'shifts'      && <ShiftsTab      isAr={isAr} agencyId={agencyId} locale={locale} />}
+      {activeTab === 'attendance'  && <AttendanceTab  isAr={isAr} agencyId={agencyId} locale={locale} />}
     </div>
   );
 }
@@ -1308,6 +1313,345 @@ function DepartmentsTab({ isAr, agencyId, locale }: { isAr: boolean; agencyId: s
             );
           })}
         </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Types for Shifts & Attendance ────────────────────────────────────────────
+
+interface Shift {
+  id: string; nameAr: string; nameEn?: string;
+  startTime: string; endTime: string;
+  daysOfWeek?: number[]; isDefault: boolean; isActive: boolean;
+}
+
+interface AttendanceRecord {
+  id: string; employeeId: string; date: string;
+  checkIn: string | null; checkOut: string | null;
+  status: string; workMinutes: number; notes?: string;
+}
+
+const DAY_LABELS_AR = ['أحد','اثنين','ثلاثاء','أربعاء','خميس','جمعة','سبت'];
+const DAY_LABELS_EN = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+
+const ATT_STATUS_AR: Record<string, string> = {
+  present: 'حاضر', absent: 'غائب', late: 'متأخر', half_day: 'نصف يوم', on_leave: 'إجازة',
+};
+const ATT_STATUS_EN: Record<string, string> = {
+  present: 'Present', absent: 'Absent', late: 'Late', half_day: 'Half Day', on_leave: 'On Leave',
+};
+const ATT_BADGE: Record<string, string> = {
+  present: 'bg-emerald-100 text-emerald-700',
+  absent:  'bg-red-100 text-red-700',
+  late:    'bg-amber-100 text-amber-700',
+  half_day:'bg-sky-100 text-sky-700',
+  on_leave:'bg-slate-100 text-slate-600',
+};
+
+// ─── Shifts Tab ───────────────────────────────────────────────────────────────
+
+function ShiftsTab({ isAr, agencyId }: { isAr: boolean; agencyId: string; locale: string }) {
+  const [shifts, setShifts]       = useState<Shift[]>([]);
+  const [loading, setLoading]     = useState(true);
+  const [showForm, setShowForm]   = useState(false);
+  const [editShift, setEditShift] = useState<Shift | null>(null);
+  const [saving, setSaving]       = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [nameAr, setNameAr]       = useState('');
+  const [nameEn, setNameEn]       = useState('');
+  const [startTime, setStartTime] = useState('08:00');
+  const [endTime, setEndTime]     = useState('17:00');
+  const [selDays, setSelDays]     = useState<number[]>([0,1,2,3,4]);
+
+  useEffect(() => {
+    if (!agencyId) return;
+    apiFetch<{ shifts: Shift[] }>('/api/employees/shifts')
+      .then(d => setShifts(d.shifts)).catch(() => {}).finally(() => setLoading(false));
+  }, [agencyId]);
+
+  function openAdd() {
+    setEditShift(null); setNameAr(''); setNameEn('');
+    setStartTime('08:00'); setEndTime('17:00'); setSelDays([0,1,2,3,4]);
+    setShowForm(true);
+  }
+  function openEdit(s: Shift) {
+    setEditShift(s); setNameAr(s.nameAr); setNameEn(s.nameEn ?? '');
+    setStartTime(s.startTime); setEndTime(s.endTime); setSelDays(s.daysOfWeek ?? []);
+    setShowForm(true);
+  }
+  function toggleDay(d: number) {
+    setSelDays(prev => prev.includes(d) ? prev.filter(x => x !== d) : [...prev, d]);
+  }
+
+  async function handleSave() {
+    if (!nameAr || !startTime || !endTime) return;
+    setSaving(true);
+    try {
+      const payload = { nameAr, nameEn: nameEn || undefined, startTime, endTime, daysOfWeek: selDays };
+      if (editShift) {
+        await apiFetch(`/api/employees/shifts/${editShift.id}`, { method: 'PATCH', body: JSON.stringify(payload) });
+        setShifts(prev => prev.map(s => s.id === editShift.id ? { ...s, ...payload } : s));
+      } else {
+        const res = await apiFetch<{ id: string }>('/api/employees/shifts', { method: 'POST', body: JSON.stringify(payload) });
+        setShifts(prev => [...prev, { id: res.id, ...payload, isDefault: false, isActive: true }]);
+      }
+      setShowForm(false); setEditShift(null);
+    } catch (e) { console.error(e); } finally { setSaving(false); }
+  }
+
+  async function handleDelete(s: Shift) {
+    setDeletingId(s.id);
+    try {
+      await apiFetch(`/api/employees/shifts/${s.id}`, { method: 'DELETE' });
+      setShifts(prev => prev.filter(x => x.id !== s.id));
+    } catch (e) { console.error(e); } finally { setDeletingId(null); }
+  }
+
+  return (
+    <div className="space-y-5">
+      <div className="flex justify-end">
+        <Button size="sm" onClick={openAdd}><Plus size={15} />{isAr ? 'وردية جديدة' : 'New Shift'}</Button>
+      </div>
+
+      {showForm && (
+        <Card>
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="font-semibold text-slate-900">
+              {editShift ? (isAr ? 'تعديل الوردية' : 'Edit Shift') : (isAr ? 'إضافة وردية' : 'Add Shift')}
+            </h2>
+            <button onClick={() => { setShowForm(false); setEditShift(null); }}
+              className="text-slate-400 hover:text-slate-600"><X size={18} /></button>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div><label className={labelCls}>{isAr ? 'الاسم بالعربية *' : 'Name (Arabic) *'}</label>
+              <input value={nameAr} onChange={e => setNameAr(e.target.value)} className={inputCls} dir="rtl" /></div>
+            <div><label className={labelCls}>{isAr ? 'الاسم بالإنجليزية' : 'Name (English)'}</label>
+              <input value={nameEn} onChange={e => setNameEn(e.target.value)} className={inputCls} dir="ltr" /></div>
+            <div><label className={labelCls}>{isAr ? 'وقت البداية *' : 'Start Time *'}</label>
+              <input type="time" value={startTime} onChange={e => setStartTime(e.target.value)} className={inputCls} /></div>
+            <div><label className={labelCls}>{isAr ? 'وقت النهاية *' : 'End Time *'}</label>
+              <input type="time" value={endTime} onChange={e => setEndTime(e.target.value)} className={inputCls} /></div>
+          </div>
+          <div className="mt-4">
+            <label className={labelCls}>{isAr ? 'أيام الدوام' : 'Work Days'}</label>
+            <div className="flex gap-2 flex-wrap mt-1">
+              {(isAr ? DAY_LABELS_AR : DAY_LABELS_EN).map((day, i) => (
+                <button key={i} type="button" onClick={() => toggleDay(i)}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors ${
+                    selDays.includes(i) ? 'bg-brand-600 text-white border-brand-600' : 'bg-white text-slate-600 border-slate-200 hover:border-brand-300'
+                  }`}>{day}</button>
+              ))}
+            </div>
+          </div>
+          <div className="flex gap-3 mt-4 justify-end">
+            <Button variant="ghost" size="sm" onClick={() => { setShowForm(false); setEditShift(null); }}>{isAr ? 'إلغاء' : 'Cancel'}</Button>
+            <Button size="sm" onClick={handleSave} disabled={saving || !nameAr}>
+              {saving ? <Spinner size="sm" /> : <Check size={14} />}{isAr ? 'حفظ' : 'Save'}
+            </Button>
+          </div>
+        </Card>
+      )}
+
+      {loading ? (
+        <div className="flex justify-center py-16"><Spinner size="lg" /></div>
+      ) : shifts.length === 0 ? (
+        <EmptyState icon={<Clock size={48} />}
+          title={isAr ? 'لا توجد ورديات' : 'No shifts'}
+          description={isAr ? 'أضف أول وردية لتنظيم مواعيد الدوام' : 'Add your first shift to organize work schedules'} />
+      ) : (
+        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
+          {shifts.map(shift => (
+            <Card key={shift.id}>
+              <div className="flex items-start justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-brand-50 flex items-center justify-center flex-shrink-0">
+                    <Clock size={20} className="text-brand-600" />
+                  </div>
+                  <div>
+                    <p className="font-semibold text-slate-900">{isAr ? shift.nameAr : (shift.nameEn || shift.nameAr)}</p>
+                    <p className="text-sm text-slate-500 mt-0.5 tabular-nums">{shift.startTime} — {shift.endTime}</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button onClick={() => openEdit(shift)} className="text-xs text-brand-600 hover:text-brand-800 font-medium">
+                    {isAr ? 'تعديل' : 'Edit'}</button>
+                  <button onClick={() => handleDelete(shift)} disabled={deletingId === shift.id}
+                    className="text-xs text-red-500 hover:text-red-700 font-medium disabled:opacity-50">
+                    {deletingId === shift.id ? <Spinner size="sm" /> : (isAr ? 'حذف' : 'Delete')}</button>
+                </div>
+              </div>
+              {(shift.daysOfWeek ?? []).length > 0 && (
+                <div className="flex gap-1 flex-wrap mt-3">
+                  {(shift.daysOfWeek ?? []).map(d => (
+                    <span key={d} className="px-2 py-0.5 bg-brand-50 text-brand-700 text-[11px] rounded-full">
+                      {isAr ? DAY_LABELS_AR[d] : DAY_LABELS_EN[d]}
+                    </span>
+                  ))}
+                </div>
+              )}
+            </Card>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Attendance Tab ───────────────────────────────────────────────────────────
+
+function AttendanceTab({ isAr, agencyId, locale }: { isAr: boolean; agencyId: string; locale: string }) {
+  const today = new Date().toISOString().split('T')[0]!;
+  const [records, setRecords]         = useState<AttendanceRecord[]>([]);
+  const [empList, setEmpList]         = useState<Employee[]>([]);
+  const [loading, setLoading]         = useState(true);
+  const [filterMonth, setFilterMonth] = useState(currentMonth());
+  const [filterEmp, setFilterEmp]     = useState('');
+  const [showForm, setShowForm]       = useState(false);
+  const [saving, setSaving]           = useState(false);
+  const [fEmpId, setFEmpId]           = useState('');
+  const [fDate, setFDate]             = useState(today);
+  const [fStatus, setFStatus]         = useState('present');
+  const [fIn, setFIn]                 = useState('');
+  const [fOut, setFOut]               = useState('');
+  const [fNotes, setFNotes]           = useState('');
+
+  useEffect(() => {
+    if (!agencyId) return;
+    apiFetch<{ employees: Employee[] }>('/api/employees').then(d => setEmpList(d.employees)).catch(() => {});
+  }, [agencyId]);
+
+  useEffect(() => {
+    if (!agencyId) return;
+    setLoading(true);
+    const q = new URLSearchParams({ month: filterMonth });
+    if (filterEmp) q.set('employeeId', filterEmp);
+    apiFetch<{ attendance: AttendanceRecord[] }>(`/api/employees/attendance?${q}`)
+      .then(d => setRecords(d.attendance)).catch(() => {}).finally(() => setLoading(false));
+  }, [agencyId, filterMonth, filterEmp]);
+
+  function empName(id: string) {
+    const e = empList.find(x => x.id === id);
+    return e ? (isAr ? e.nameAr : (e.nameEn || e.nameAr)) : id;
+  }
+  function fmtTime(iso: string | null) {
+    if (!iso) return '—';
+    try { return new Date(iso).toLocaleTimeString(locale === 'ar' ? 'ar-SA' : 'en-US', { hour: '2-digit', minute: '2-digit' }); }
+    catch { return '—'; }
+  }
+  function fmtMins(m: number) {
+    if (!m) return '—';
+    return `${Math.floor(m / 60)}h ${m % 60}m`;
+  }
+
+  async function handleSave() {
+    if (!fEmpId || !fDate) return;
+    setSaving(true);
+    try {
+      const payload: Record<string, unknown> = { employeeId: fEmpId, date: fDate, status: fStatus, notes: fNotes || undefined };
+      if (fIn)  payload['checkIn']  = `${fDate}T${fIn}:00`;
+      if (fOut) payload['checkOut'] = `${fDate}T${fOut}:00`;
+      await apiFetch('/api/employees/attendance', { method: 'POST', body: JSON.stringify(payload) });
+      const q = new URLSearchParams({ month: filterMonth });
+      if (filterEmp) q.set('employeeId', filterEmp);
+      const d = await apiFetch<{ attendance: AttendanceRecord[] }>(`/api/employees/attendance?${q}`);
+      setRecords(d.attendance);
+      setShowForm(false);
+    } catch (e) { console.error(e); } finally { setSaving(false); }
+  }
+
+  return (
+    <div className="space-y-5">
+      <Card>
+        <div className="flex flex-wrap gap-3 items-end">
+          <div><label className={labelCls}>{isAr ? 'الشهر' : 'Month'}</label>
+            <input type="month" value={filterMonth} onChange={e => setFilterMonth(e.target.value)} className={inputCls + ' w-44'} /></div>
+          <div><label className={labelCls}>{isAr ? 'الموظف' : 'Employee'}</label>
+            <select value={filterEmp} onChange={e => setFilterEmp(e.target.value)} className={inputCls + ' w-48'}>
+              <option value="">{isAr ? 'جميع الموظفين' : 'All Employees'}</option>
+              {empList.map(e => <option key={e.id} value={e.id}>{isAr ? e.nameAr : (e.nameEn || e.nameAr)}</option>)}
+            </select></div>
+          <Button size="sm" onClick={() => { setFEmpId(''); setFDate(today); setFStatus('present'); setFIn(''); setFOut(''); setFNotes(''); setShowForm(true); }}>
+            <Plus size={15} />{isAr ? 'تسجيل حضور' : 'Record'}
+          </Button>
+        </div>
+      </Card>
+
+      {showForm && (
+        <Card>
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="font-semibold text-slate-900">{isAr ? 'تسجيل حضور' : 'Record Attendance'}</h2>
+            <button onClick={() => setShowForm(false)} className="text-slate-400 hover:text-slate-600"><X size={18} /></button>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            <div><label className={labelCls}>{isAr ? 'الموظف *' : 'Employee *'}</label>
+              <select value={fEmpId} onChange={e => setFEmpId(e.target.value)} className={inputCls}>
+                <option value="">{isAr ? 'اختر' : 'Select'}</option>
+                {empList.map(e => <option key={e.id} value={e.id}>{isAr ? e.nameAr : (e.nameEn || e.nameAr)}</option>)}
+              </select></div>
+            <div><label className={labelCls}>{isAr ? 'التاريخ *' : 'Date *'}</label>
+              <input type="date" value={fDate} onChange={e => setFDate(e.target.value)} className={inputCls} /></div>
+            <div><label className={labelCls}>{isAr ? 'الحالة' : 'Status'}</label>
+              <select value={fStatus} onChange={e => setFStatus(e.target.value)} className={inputCls}>
+                {Object.entries(ATT_STATUS_AR).map(([k, v]) => (
+                  <option key={k} value={k}>{isAr ? v : ATT_STATUS_EN[k]}</option>
+                ))}
+              </select></div>
+            <div><label className={labelCls}>{isAr ? 'وقت الدخول' : 'Check-in'}</label>
+              <input type="time" value={fIn} onChange={e => setFIn(e.target.value)} className={inputCls} /></div>
+            <div><label className={labelCls}>{isAr ? 'وقت الخروج' : 'Check-out'}</label>
+              <input type="time" value={fOut} onChange={e => setFOut(e.target.value)} className={inputCls} /></div>
+            <div><label className={labelCls}>{isAr ? 'ملاحظات' : 'Notes'}</label>
+              <input value={fNotes} onChange={e => setFNotes(e.target.value)} className={inputCls} /></div>
+          </div>
+          <div className="flex gap-3 mt-4 justify-end">
+            <Button variant="ghost" size="sm" onClick={() => setShowForm(false)}>{isAr ? 'إلغاء' : 'Cancel'}</Button>
+            <Button size="sm" onClick={handleSave} disabled={saving || !fEmpId}>
+              {saving ? <Spinner size="sm" /> : <Check size={14} />}{isAr ? 'حفظ' : 'Save'}
+            </Button>
+          </div>
+        </Card>
+      )}
+
+      {loading ? (
+        <div className="flex justify-center py-16"><Spinner size="lg" /></div>
+      ) : records.length === 0 ? (
+        <EmptyState icon={<UserCheck size={48} />}
+          title={isAr ? 'لا توجد سجلات حضور' : 'No attendance records'}
+          description={isAr ? 'سجّل حضور الموظفين لهذا الشهر' : 'Record employee attendance for this month'} />
+      ) : (
+        <Card padding="none">
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="bg-slate-50 border-b border-slate-200">
+                <tr>
+                  <th className="px-4 py-3 text-start text-xs font-semibold text-slate-500 uppercase tracking-wide">{isAr ? 'الموظف' : 'Employee'}</th>
+                  <th className="px-4 py-3 text-start text-xs font-semibold text-slate-500 uppercase tracking-wide">{isAr ? 'التاريخ' : 'Date'}</th>
+                  <th className="px-4 py-3 text-start text-xs font-semibold text-slate-500 uppercase tracking-wide hidden sm:table-cell">{isAr ? 'دخول' : 'In'}</th>
+                  <th className="px-4 py-3 text-start text-xs font-semibold text-slate-500 uppercase tracking-wide hidden sm:table-cell">{isAr ? 'خروج' : 'Out'}</th>
+                  <th className="px-4 py-3 text-start text-xs font-semibold text-slate-500 uppercase tracking-wide">{isAr ? 'الحالة' : 'Status'}</th>
+                  <th className="px-4 py-3 text-end text-xs font-semibold text-slate-500 uppercase tracking-wide hidden md:table-cell">{isAr ? 'ساعات' : 'Hours'}</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {records.map(rec => (
+                  <tr key={rec.id} className="hover:bg-slate-50 transition-colors">
+                    <td className="px-4 py-3.5 font-medium text-slate-900">{empName(rec.employeeId)}</td>
+                    <td className="px-4 py-3.5 text-slate-600 tabular-nums">{rec.date}</td>
+                    <td className="px-4 py-3.5 text-slate-600 tabular-nums hidden sm:table-cell">{fmtTime(rec.checkIn)}</td>
+                    <td className="px-4 py-3.5 text-slate-600 tabular-nums hidden sm:table-cell">{fmtTime(rec.checkOut)}</td>
+                    <td className="px-4 py-3.5">
+                      <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${ATT_BADGE[rec.status] ?? 'bg-slate-100 text-slate-600'}`}>
+                        {isAr ? (ATT_STATUS_AR[rec.status] ?? rec.status) : (ATT_STATUS_EN[rec.status] ?? rec.status)}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3.5 text-end text-slate-500 tabular-nums hidden md:table-cell">{fmtMins(rec.workMinutes ?? 0)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </Card>
       )}
     </div>
   );

@@ -34,6 +34,13 @@ CREATE TABLE IF NOT EXISTS agencies (
   default_currency     TEXT DEFAULT 'SAR',
   is_vat_registered    BOOLEAN NOT NULL DEFAULT FALSE,
   vat_rate             INTEGER NOT NULL DEFAULT 15,
+  smtp_host            TEXT,
+  smtp_port            INTEGER,
+  smtp_user            TEXT,
+  smtp_password        TEXT,
+  smtp_from_name       TEXT,
+  smtp_from_email      TEXT,
+  smtp_encryption      TEXT DEFAULT 'tls',
   created_at           TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at           TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -462,9 +469,223 @@ CREATE TABLE IF NOT EXISTS exchange_rates (
 );
 CREATE INDEX IF NOT EXISTS idx_exchange_rates_agency ON exchange_rates(agency_id);
 
+-- ══ COST CENTERS ═════════════════════════════════════════════════════════════
+CREATE TABLE IF NOT EXISTS cost_centers (
+  id          TEXT PRIMARY KEY,
+  agency_id   TEXT NOT NULL REFERENCES agencies(id) ON DELETE CASCADE,
+  code        TEXT NOT NULL,
+  name_ar     TEXT NOT NULL,
+  name_en     TEXT,
+  type        TEXT NOT NULL DEFAULT 'department',
+  parent_id   TEXT,
+  is_active   BOOLEAN NOT NULL DEFAULT TRUE,
+  notes       TEXT,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE UNIQUE INDEX IF NOT EXISTS cost_centers_agency_code_uq ON cost_centers(agency_id, code);
+
+-- ══ EMPLOYEE CONTRACTS ════════════════════════════════════════════════════════
+CREATE TABLE IF NOT EXISTS employee_contracts (
+  id                          TEXT PRIMARY KEY,
+  agency_id                   TEXT NOT NULL REFERENCES agencies(id) ON DELETE CASCADE,
+  employee_id                 TEXT NOT NULL REFERENCES employees(id),
+  contract_number             TEXT NOT NULL,
+  type                        TEXT NOT NULL DEFAULT 'full_time',
+  start_date                  TEXT NOT NULL,
+  end_date                    TEXT,
+  base_salary_halalas         INTEGER NOT NULL DEFAULT 0,
+  housing_allowance_halalas   INTEGER NOT NULL DEFAULT 0,
+  transport_allowance_halalas INTEGER NOT NULL DEFAULT 0,
+  other_allowances_halalas    INTEGER NOT NULL DEFAULT 0,
+  salary_components           JSONB,
+  working_days_per_week       INTEGER NOT NULL DEFAULT 5,
+  working_hours_per_day       INTEGER NOT NULL DEFAULT 8,
+  annual_leave_days           INTEGER NOT NULL DEFAULT 21,
+  status                      TEXT NOT NULL DEFAULT 'active',
+  notes                       TEXT,
+  created_by                  TEXT,
+  created_at                  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at                  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_employee_contracts_emp ON employee_contracts(employee_id);
+
+-- ══ PAYSLIPS ══════════════════════════════════════════════════════════════════
+CREATE TABLE IF NOT EXISTS payslips (
+  id                           TEXT PRIMARY KEY,
+  agency_id                    TEXT NOT NULL REFERENCES agencies(id) ON DELETE CASCADE,
+  employee_id                  TEXT NOT NULL REFERENCES employees(id),
+  salary_payment_id            TEXT,
+  month                        TEXT NOT NULL,
+  base_salary_halalas          INTEGER NOT NULL DEFAULT 0,
+  housing_allowance_halalas    INTEGER NOT NULL DEFAULT 0,
+  transport_allowance_halalas  INTEGER NOT NULL DEFAULT 0,
+  other_allowances_halalas     INTEGER NOT NULL DEFAULT 0,
+  gross_halalas                INTEGER NOT NULL DEFAULT 0,
+  deductions_halalas           INTEGER NOT NULL DEFAULT 0,
+  advance_deduction_halalas    INTEGER NOT NULL DEFAULT 0,
+  gosi_employee_halalas        INTEGER NOT NULL DEFAULT 0,
+  net_halalas                  INTEGER NOT NULL DEFAULT 0,
+  components                   JSONB,
+  payment_date                 TEXT,
+  payment_method               TEXT,
+  created_at                   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE UNIQUE INDEX IF NOT EXISTS payslips_emp_month_uq ON payslips(employee_id, month);
+
+-- ══ SALARY ADVANCES ═══════════════════════════════════════════════════════════
+CREATE TABLE IF NOT EXISTS salary_advances (
+  id               TEXT PRIMARY KEY,
+  agency_id        TEXT NOT NULL REFERENCES agencies(id) ON DELETE CASCADE,
+  employee_id      TEXT NOT NULL REFERENCES employees(id),
+  amount_halalas   INTEGER NOT NULL,
+  request_date     TEXT NOT NULL,
+  deduct_from      TEXT NOT NULL,
+  status           TEXT NOT NULL DEFAULT 'pending',
+  reason           TEXT,
+  approved_by      TEXT,
+  journal_entry_id TEXT,
+  created_by       TEXT,
+  created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_salary_advances_emp ON salary_advances(employee_id);
+
+-- ══ PNR RECORDS ═══════════════════════════════════════════════════════════════
+CREATE TABLE IF NOT EXISTS pnr_records (
+  id               TEXT PRIMARY KEY,
+  agency_id        TEXT NOT NULL REFERENCES agencies(id) ON DELETE CASCADE,
+  pnr_code         TEXT NOT NULL,
+  gds              TEXT,
+  airline          TEXT,
+  flight_numbers   JSONB,
+  origin           TEXT,
+  destination      TEXT,
+  departure_date   TEXT,
+  return_date      TEXT,
+  passenger_count  INTEGER NOT NULL DEFAULT 1,
+  passenger_names  JSONB,
+  ticket_numbers   JSONB,
+  fare_halalas     INTEGER NOT NULL DEFAULT 0,
+  tax_halalas      INTEGER NOT NULL DEFAULT 0,
+  total_halalas    INTEGER NOT NULL DEFAULT 0,
+  booking_id       TEXT,
+  customer_id      TEXT,
+  status           TEXT NOT NULL DEFAULT 'active',
+  notes            TEXT,
+  expires_at       TEXT,
+  created_by       TEXT,
+  created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE UNIQUE INDEX IF NOT EXISTS pnr_agency_code_uq ON pnr_records(agency_id, pnr_code);
+CREATE INDEX IF NOT EXISTS idx_pnr_agency ON pnr_records(agency_id);
+
+-- ══ APPOINTMENTS ══════════════════════════════════════════════════════════════
+CREATE TABLE IF NOT EXISTS appointments (
+  id            TEXT PRIMARY KEY,
+  agency_id     TEXT NOT NULL REFERENCES agencies(id) ON DELETE CASCADE,
+  customer_id   TEXT,
+  customer_name TEXT,
+  assigned_to   TEXT,
+  title         TEXT NOT NULL,
+  description   TEXT,
+  type          TEXT NOT NULL DEFAULT 'meeting',
+  status        TEXT NOT NULL DEFAULT 'scheduled',
+  scheduled_at  TIMESTAMPTZ NOT NULL,
+  duration_min  INTEGER,
+  location      TEXT,
+  notes         TEXT,
+  outcome       TEXT,
+  created_by    TEXT,
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_appointments_agency ON appointments(agency_id);
+CREATE INDEX IF NOT EXISTS idx_appointments_scheduled ON appointments(scheduled_at);
+
+-- ══ AUDIT LOG ═════════════════════════════════════════════════════════════════
+CREATE TABLE IF NOT EXISTS audit_log (
+  id          TEXT PRIMARY KEY,
+  agency_id   TEXT NOT NULL,
+  user_id     TEXT,
+  user_email  TEXT,
+  action      TEXT NOT NULL,
+  resource    TEXT NOT NULL,
+  resource_id TEXT,
+  before      JSONB,
+  after       JSONB,
+  metadata    JSONB,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_audit_log_agency ON audit_log(agency_id, created_at DESC);
+
+-- ══ RECURRING INVOICES ════════════════════════════════════════════════════════
+CREATE TABLE IF NOT EXISTS recurring_invoices (
+  id                TEXT PRIMARY KEY,
+  agency_id         TEXT NOT NULL REFERENCES agencies(id) ON DELETE CASCADE,
+  customer_id       TEXT,
+  title             TEXT NOT NULL,
+  subtotal_halalas  INTEGER NOT NULL DEFAULT 0,
+  vat_halalas       INTEGER NOT NULL DEFAULT 0,
+  total_halalas     INTEGER NOT NULL DEFAULT 0,
+  items             JSONB,
+  notes             TEXT,
+  frequency         TEXT NOT NULL DEFAULT 'monthly',
+  day_of_month      INTEGER,
+  start_date        TEXT NOT NULL,
+  end_date          TEXT,
+  last_issued_at    TEXT,
+  next_issue_at     TEXT,
+  total_issued      INTEGER NOT NULL DEFAULT 0,
+  is_active         BOOLEAN NOT NULL DEFAULT TRUE,
+  buyer_name_ar     TEXT,
+  payment_method    TEXT,
+  created_by        TEXT,
+  created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at        TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_recurring_invoices_agency ON recurring_invoices(agency_id);
+
+-- ══ SHIFTS ════════════════════════════════════════════════════════════════════
+CREATE TABLE IF NOT EXISTS shifts (
+  id           TEXT PRIMARY KEY,
+  agency_id    TEXT NOT NULL REFERENCES agencies(id) ON DELETE CASCADE,
+  name_ar      TEXT NOT NULL,
+  name_en      TEXT,
+  start_time   TEXT NOT NULL,
+  end_time     TEXT NOT NULL,
+  days_of_week JSONB,
+  is_default   BOOLEAN NOT NULL DEFAULT FALSE,
+  is_active    BOOLEAN NOT NULL DEFAULT TRUE,
+  created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_shifts_agency ON shifts(agency_id);
+
+-- ══ ATTENDANCE RECORDS ════════════════════════════════════════════════════════
+CREATE TABLE IF NOT EXISTS attendance_records (
+  id               TEXT PRIMARY KEY,
+  agency_id        TEXT NOT NULL REFERENCES agencies(id) ON DELETE CASCADE,
+  employee_id      TEXT NOT NULL REFERENCES employees(id),
+  shift_id         TEXT,
+  date             TEXT NOT NULL,
+  check_in         TIMESTAMPTZ,
+  check_out        TIMESTAMPTZ,
+  status           TEXT NOT NULL DEFAULT 'present',
+  work_minutes     INTEGER DEFAULT 0,
+  overtime_minutes INTEGER DEFAULT 0,
+  notes            TEXT,
+  created_by       TEXT,
+  created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE UNIQUE INDEX IF NOT EXISTS attendance_employee_date_uq ON attendance_records(employee_id, date);
+CREATE INDEX IF NOT EXISTS idx_attendance_agency_date ON attendance_records(agency_id, date);
+
 `;
 
-const SUPER_ADMIN_EMAIL = 'mohamedabdalazim1111@gmail.com';
+const SUPER_ADMIN_EMAIL = process.env['SUPER_ADMIN_EMAIL'] ?? '';
 
 export async function POST(req: NextRequest) {
   // Accept either the setup secret header OR a Firebase auth token (admin/owner role)
