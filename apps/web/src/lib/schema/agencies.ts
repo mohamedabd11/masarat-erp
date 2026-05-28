@@ -27,6 +27,14 @@ export const agencies = pgTable('agencies', {
   defaultCurrency:    text('default_currency').default('SAR'),
   isVatRegistered:    boolean('is_vat_registered').notNull().default(false),
   vatRate:            integer('vat_rate').notNull().default(15),         // percent × 100 = basis points
+  // SMTP email settings
+  smtpHost:           text('smtp_host'),
+  smtpPort:           integer('smtp_port'),
+  smtpUser:           text('smtp_user'),
+  smtpPassword:       text('smtp_password'),    // stored at-rest; never returned to client
+  smtpFromName:       text('smtp_from_name'),
+  smtpFromEmail:      text('smtp_from_email'),
+  smtpEncryption:     text('smtp_encryption').default('tls'),  // tls|ssl|none
   createdAt:          timestamp('created_at').notNull().defaultNow(),
   updatedAt:          timestamp('updated_at').notNull().defaultNow(),
 });

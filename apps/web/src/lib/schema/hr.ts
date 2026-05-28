@@ -1,4 +1,4 @@
-import { pgTable, text, integer, boolean, timestamp, jsonb } from 'drizzle-orm/pg-core';
+import { pgTable, text, integer, boolean, timestamp, jsonb, uniqueIndex } from 'drizzle-orm/pg-core';
 import { agencies } from './agencies';
 
 export const employees = pgTable('employees', {
@@ -132,3 +132,46 @@ export const salaryAdvances = pgTable('salary_advances', {
 
 export type SalaryAdvance    = typeof salaryAdvances.$inferSelect;
 export type NewSalaryAdvance = typeof salaryAdvances.$inferInsert;
+
+// ── Shifts ────────────────────────────────────────────────────────────────────
+
+export const shifts = pgTable('shifts', {
+  id:          text('id').primaryKey(),
+  agencyId:    text('agency_id').notNull().references(() => agencies.id, { onDelete: 'cascade' }),
+  nameAr:      text('name_ar').notNull(),
+  nameEn:      text('name_en'),
+  startTime:   text('start_time').notNull(),  // HH:MM 24h
+  endTime:     text('end_time').notNull(),    // HH:MM 24h
+  daysOfWeek:  jsonb('days_of_week'),         // [0..6] where 0=Sun
+  isDefault:   boolean('is_default').notNull().default(false),
+  isActive:    boolean('is_active').notNull().default(true),
+  createdAt:   timestamp('created_at').notNull().defaultNow(),
+  updatedAt:   timestamp('updated_at').notNull().defaultNow(),
+});
+
+export type Shift    = typeof shifts.$inferSelect;
+export type NewShift = typeof shifts.$inferInsert;
+
+// ── Attendance Records ────────────────────────────────────────────────────────
+
+export const attendanceRecords = pgTable('attendance_records', {
+  id:               text('id').primaryKey(),
+  agencyId:         text('agency_id').notNull().references(() => agencies.id, { onDelete: 'cascade' }),
+  employeeId:       text('employee_id').notNull().references(() => employees.id),
+  shiftId:          text('shift_id'),
+  date:             text('date').notNull(),              // YYYY-MM-DD
+  checkIn:          timestamp('check_in'),
+  checkOut:         timestamp('check_out'),
+  status:           text('status').notNull().default('present'), // present|absent|late|half_day|on_leave
+  workMinutes:      integer('work_minutes').default(0),
+  overtimeMinutes:  integer('overtime_minutes').default(0),
+  notes:            text('notes'),
+  createdBy:        text('created_by'),
+  createdAt:        timestamp('created_at').notNull().defaultNow(),
+  updatedAt:        timestamp('updated_at').notNull().defaultNow(),
+}, (t) => ({
+  employeeDateUq: uniqueIndex('attendance_employee_date_uq').on(t.employeeId, t.date),
+}));
+
+export type AttendanceRecord    = typeof attendanceRecords.$inferSelect;
+export type NewAttendanceRecord = typeof attendanceRecords.$inferInsert;
