@@ -33,6 +33,7 @@ interface PrintableInvoiceData {
     vatNumber: string;
     crNumber: string;
     isVatRegistered?: boolean;
+    logoUrl?: string;
     address: {
       streetName: string;
       buildingNumber: string;
@@ -153,9 +154,18 @@ export function PrintableInvoice({ invoice, onClose }: PrintableInvoiceProps) {
                 <p className="text-brand-200 text-xs mt-0.5">{invoice.seller.nameEn}</p>
               )}
             </div>
-            <div className="w-12 h-12 rounded-xl bg-white/20 flex items-center justify-center flex-shrink-0">
-              <span className="text-2xl font-black text-white">م</span>
-            </div>
+            {invoice.seller.logoUrl ? (
+              /* eslint-disable-next-line @next/next/no-img-element */
+              <img
+                src={invoice.seller.logoUrl}
+                alt={invoice.seller.nameAr}
+                style={{ height: 48, width: 'auto', objectFit: 'contain', maxWidth: 120, background: 'white', borderRadius: 8, padding: 4 }}
+              />
+            ) : (
+              <div className="w-12 h-12 rounded-xl bg-white/20 flex items-center justify-center flex-shrink-0">
+                <span className="text-2xl font-black text-white">م</span>
+              </div>
+            )}
           </div>
         </div>
 

@@ -28,7 +28,11 @@ export default function PrintInvoicePage({
 
     async function load() {
       try {
-        const { invoice: inv } = await apiFetch<{ invoice: Invoice }>(`/api/invoices/${params.id}`);
+        const [{ invoice: inv }, settingsResult] = await Promise.all([
+          apiFetch<{ invoice: Invoice }>(`/api/invoices/${params.id}`),
+          apiFetch<{ agency: Record<string, unknown> }>('/api/settings').catch(() => ({ agency: {} as Record<string, unknown> })),
+        ]);
+        const ag = settingsResult.agency;
         if (cancelled) return;
 
         const grandTotal      = inv.totalHalalas;
@@ -76,8 +80,9 @@ export default function PrintInvoicePage({
             vatNumber:       inv.sellerVatNumber ?? '',
             crNumber:        inv.sellerCrNumber ?? '',
             isVatRegistered,
+            logoUrl:         (ag['logoUrl'] as string | undefined) || undefined,
             address: { streetName: '', buildingNumber: '', district: '', city: inv.sellerAddress ?? '', postalCode: '' },
-            phone:           '',
+            phone:           (ag['contactPhone'] as string | undefined) || (ag['phone'] as string | undefined) || '',
             email:           '',
           },
           buyer: {
