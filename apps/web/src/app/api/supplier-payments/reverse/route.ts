@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
-import { eq, and } from 'drizzle-orm';
+import { eq, and, sql } from 'drizzle-orm';
 import { db } from '@/lib/db';
-import { supplierPayments, journalEntries, journalLines } from '@/lib/schema';
+import { supplierPayments, suppliers, journalEntries, journalLines } from '@/lib/schema';
 import { verifyAuth, assertRole, ApiAuthError, ROLES_ADMIN_ONLY } from '@/lib/api-auth';
 import { getNextJournalNumber } from '@/lib/invoice-counter';
 
@@ -108,6 +108,13 @@ export async function POST(request: Request) {
       await tx.update(supplierPayments)
         .set({ status: 'reversed' })
         .where(eq(supplierPayments.id, supplierPaymentId));
+
+      // Restore supplier balance if the original payment was linked to a supplier
+      if (orig.supplierId) {
+        await tx.update(suppliers)
+          .set({ balanceHalalas: sql`${suppliers.balanceHalalas} + ${amountHalalas}`, updatedAt: now })
+          .where(and(eq(suppliers.id, orig.supplierId), eq(suppliers.agencyId, agencyId)));
+      }
 
       return { id: reversalId, reversalVoucherNumber };
     });
