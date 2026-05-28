@@ -37,10 +37,10 @@ export async function GET() {
         : null,
     });
   } catch (err) {
+    console.error(JSON.stringify({ event: 'health_check_failed', error: String(err) }));
     return NextResponse.json({
       ok: false,
       problem: 'DB_CONNECTION_FAILED',
-      error: err instanceof Error ? err.message : String(err),
       fix: 'Check that DATABASE_URL is correct in Vercel environment variables.',
     }, { status: 503 });
   }

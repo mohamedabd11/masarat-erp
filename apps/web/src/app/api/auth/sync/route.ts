@@ -100,7 +100,18 @@ export async function POST(request: Request): Promise<NextResponse> {
         set: { email, nameAr, nameEn, role, updatedAt: new Date() },
       });
 
-    const [row] = await db.select().from(users).where(eq(users.id, uid));
+    const [row] = await db
+      .select({
+        id:       users.id,
+        agencyId: users.agencyId,
+        email:    users.email,
+        nameAr:   users.nameAr,
+        nameEn:   users.nameEn,
+        role:     users.role,
+        isActive: users.isActive,
+      })
+      .from(users)
+      .where(eq(users.id, uid));
 
     return NextResponse.json({ synced: true, agencyCreated: !existingAgency, user: row });
   } catch (err: unknown) {

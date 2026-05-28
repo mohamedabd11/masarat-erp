@@ -100,7 +100,7 @@ export async function POST(request: Request, { params }: { params: { id: string 
         nextIssueAt:  next.toISOString().split('T')[0]!,
         totalIssued:  (recurring.totalIssued ?? 0) + 1,
         updatedAt:    new Date(),
-      }).where(eq(recurringInvoices.id, params.id));
+      }).where(and(eq(recurringInvoices.id, params.id), eq(recurringInvoices.agencyId, agencyId)));
 
       return { invoiceId: invId, invoiceNumber: invNum };
     });

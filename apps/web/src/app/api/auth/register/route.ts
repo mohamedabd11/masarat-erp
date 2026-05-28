@@ -51,6 +51,16 @@ export async function POST(request: Request) {
   try {
     ensureAdminApp();
 
+    // Optional guard: set REGISTRATION_SECRET env var to require a token on this endpoint.
+    // If the env var is not set, the endpoint remains open (default behaviour for SaaS onboarding).
+    const REGISTRATION_SECRET = process.env['REGISTRATION_SECRET'];
+    if (REGISTRATION_SECRET) {
+      const provided = request.headers.get('x-registration-token') ?? '';
+      if (provided !== REGISTRATION_SECRET) {
+        return NextResponse.json({ error: 'غير مصرح' }, { status: 403 });
+      }
+    }
+
     const body = await request.json() as RegisterAgencyRequest;
     const { agencyNameAr, agencyNameEn, adminEmail, adminNameAr, adminNameEn } = body;
 

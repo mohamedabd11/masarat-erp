@@ -61,6 +61,14 @@ export async function PATCH(request: Request) {
     if (body.smtpEncryption !== undefined && !['tls','ssl','none'].includes(body.smtpEncryption)) {
       return NextResponse.json({ error: 'نوع التشفير غير صالح' }, { status: 400 });
     }
+    if (body.logoUrl !== undefined && body.logoUrl !== '') {
+      try {
+        const u = new URL(body.logoUrl);
+        if (u.protocol !== 'https:') throw new Error();
+      } catch {
+        return NextResponse.json({ error: 'رابط الشعار يجب أن يكون رابط https صالح' }, { status: 400 });
+      }
+    }
 
     const ALLOWED = [
       'nameAr','nameEn','phone','addressAr','vatNumber','crNumber','isVatRegistered',
