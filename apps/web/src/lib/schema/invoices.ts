@@ -42,6 +42,7 @@ export const invoices = pgTable('invoices', {
   // items stored as JSON array
   items:             jsonb('items'),
   notes:             text('notes'),
+  originalInvoiceId: text('original_invoice_id'),  // for credit/debit notes (type 381/383)
   journalEntryId:    text('journal_entry_id'),
   createdBy:         text('created_by'),
   createdAt:         timestamp('created_at').notNull().defaultNow(),
