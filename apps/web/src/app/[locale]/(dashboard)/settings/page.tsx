@@ -341,6 +341,22 @@ export default function SettingsPage() {
   const [modules, setModules] = useState<Module[]>(INITIAL_MODULES);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [dbSetupRunning, setDbSetupRunning] = useState(false);
+  const [dbSetupResult, setDbSetupResult] = useState<{ ok: boolean; message?: string; error?: string } | null>(null);
+
+  async function handleDbSetup() {
+    setDbSetupRunning(true);
+    setDbSetupResult(null);
+    try {
+      const { apiFetch } = await import('@/lib/api-client');
+      const data = await apiFetch<{ ok: boolean; message?: string; error?: string }>('/api/setup-db', { method: 'POST' });
+      setDbSetupResult(data);
+    } catch (err) {
+      setDbSetupResult({ ok: false, error: err instanceof Error ? err.message : 'خطأ غير معروف' });
+    } finally {
+      setDbSetupRunning(false);
+    }
+  }
   const [zatcaEnv, setZatcaEnv] = useState<'testing' | 'production'>('testing');
 
   // ── Agency info (loaded from / saved to Firestore) ────────────────────
@@ -1830,6 +1846,46 @@ export default function SettingsPage() {
                         ? 'ستظهر هنا فواتير اشتراكك'
                         : 'Your subscription invoices will appear here'}
                     </p>
+                  </div>
+                </Card>
+
+                {/* ── Database setup ─────────────────────────────────────── */}
+                <Card>
+                  <CardHeader>
+                    <CardTitle>{isAr ? 'تهيئة قاعدة البيانات' : 'Database Setup'}</CardTitle>
+                  </CardHeader>
+                  <div className="px-6 pb-6 space-y-3">
+                    <p className="text-sm text-slate-500">
+                      {isAr
+                        ? 'إذا ظهرت رسالة "خطأ في الخادم" في جميع الصفحات، اضغط الزر أدناه لإنشاء جداول قاعدة البيانات.'
+                        : 'If you see "Server Error" on all pages, click the button below to create the database tables.'}
+                    </p>
+                    <div className="flex items-center gap-3 flex-wrap">
+                      <button
+                        onClick={handleDbSetup}
+                        disabled={dbSetupRunning}
+                        className="inline-flex items-center gap-2 px-4 py-2 bg-brand-600 hover:bg-brand-700 disabled:opacity-50 text-white text-sm font-medium rounded-lg transition-colors"
+                      >
+                        {dbSetupRunning
+                          ? (isAr ? 'جارٍ الإنشاء...' : 'Running...')
+                          : (isAr ? 'إنشاء الجداول' : 'Create Tables')}
+                      </button>
+                      <a
+                        href="/api/health"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-xs text-brand-600 hover:underline"
+                      >
+                        {isAr ? 'فحص حالة قاعدة البيانات' : 'Check DB Status'}
+                      </a>
+                    </div>
+                    {dbSetupResult && (
+                      <div className={`p-3 rounded-lg text-sm ${dbSetupResult.ok ? 'bg-emerald-50 text-emerald-800' : 'bg-red-50 text-red-800'}`}>
+                        {dbSetupResult.ok
+                          ? (isAr ? '✓ تم إنشاء الجداول بنجاح. أعد تحميل الصفحة.' : '✓ Tables created successfully. Reload the page.')
+                          : (dbSetupResult.error ?? 'Error')}
+                      </div>
+                    )}
                   </div>
                 </Card>
               </div>

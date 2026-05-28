@@ -1,16 +1,11 @@
 /**
  * One-time database setup endpoint.
- * Creates all Postgres tables from scratch.
- * Protected by SETUP_SECRET env variable.
+ * Creates all Postgres tables using CREATE TABLE IF NOT EXISTS (safe to re-run).
  *
- * Usage (after deploying to Vercel):
- *   POST /api/setup-db
- *   Header: x-setup-secret: <SETUP_SECRET value from Vercel env>
+ * Auth: either x-setup-secret header OR a valid Firebase admin/owner JWT.
  */
 import { NextRequest, NextResponse } from 'next/server';
 import { neon } from '@neondatabase/serverless';
-
-export const runtime = 'edge';
 
 const CREATE_TABLES_SQL = `
 
@@ -469,19 +464,52 @@ CREATE INDEX IF NOT EXISTS idx_exchange_rates_agency ON exchange_rates(agency_id
 
 `;
 
+const SUPER_ADMIN_EMAIL = 'mohamedabdalazim1111@gmail.com';
+
 export async function POST(req: NextRequest) {
-  const secret = req.headers.get('x-setup-secret');
-  if (!secret || secret !== process.env.SETUP_SECRET) {
+  // Accept either the setup secret header OR a Firebase auth token (admin/owner role)
+  const secret     = req.headers.get('x-setup-secret');
+  const authHeader = req.headers.get('Authorization') ?? '';
+  const bearerToken = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : null;
+
+  let authorized = false;
+
+  if (secret && secret === process.env.SETUP_SECRET) {
+    authorized = true;
+  } else if (bearerToken) {
+    try {
+      const { ensureAdminApp } = await import('@/lib/firebase-admin');
+      ensureAdminApp();
+      const { getAuth } = await import('firebase-admin/auth');
+      const decoded = await getAuth().verifyIdToken(bearerToken);
+      const role    = decoded['role'] as string | undefined;
+      const email   = decoded.email ?? '';
+      if (role === 'admin' || role === 'owner' || email === SUPER_ADMIN_EMAIL) {
+        authorized = true;
+      }
+    } catch {
+      // invalid token — fall through to 401
+    }
+  }
+
+  if (!authorized) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
+  if (!process.env.DATABASE_URL) {
+    return NextResponse.json({
+      ok: false,
+      error: 'DATABASE_URL is not set. Add it to Vercel environment variables.',
+    }, { status: 503 });
+  }
+
   try {
-    const sql = neon(process.env.DATABASE_URL!);
-    // Use query() method instead of tagged template for dynamic SQL strings
+    const sql = neon(process.env.DATABASE_URL);
     await sql.query(CREATE_TABLES_SQL);
     return NextResponse.json({ ok: true, message: 'All tables created successfully' });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
+    console.error(JSON.stringify({ event: 'setup_db_failed', error: message }));
     return NextResponse.json({ ok: false, error: message }, { status: 500 });
   }
 }
