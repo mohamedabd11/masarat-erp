@@ -128,7 +128,8 @@ function salaryDisplayValue(halalas: number): string {
 
 function salaryToHalalas(val: string): number {
   const n = parseFloat(val);
-  return isNaN(n) ? 0 : Math.round(n * 100);
+  if (isNaN(n) || n < 0) return 0;
+  return Math.round(n * 100);
 }
 
 // input class reuse
@@ -778,6 +779,14 @@ function SalariesTab({ isAr, agencyId, locale }: { isAr: boolean; agencyId: stri
       const bonus      = salaryToHalalas(editBonus);
       const deductions = salaryToHalalas(editDeduct);
       const netSalary  = (emp.salary ?? 0) + bonus - deductions;
+
+      if (netSalary < 0) {
+        alert(isAr
+          ? 'الاستقطاعات أكبر من الراتب — صافي الراتب لا يمكن أن يكون سالباً'
+          : 'Deductions exceed salary — net salary cannot be negative');
+        return;
+      }
+
       const id = await ensurePaymentDoc(emp, pay);
       await updateDoc(doc(getFirestore(getApp()), 'salary_payments', id), { bonus, deductions, netSalary });
       setShowEditId(null);
