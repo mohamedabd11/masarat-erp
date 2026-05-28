@@ -73,7 +73,9 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
           setDaysRemaining(null);
         }
       } catch {
-        if (!cancelled) setStatus('cancelled');
+        // On network / token errors don't falsely mark subscription as cancelled.
+        // Keep status as trial with unknown days — isExpired stays false.
+        if (!cancelled) { setStatus('trial'); setDaysRemaining(null); }
       } finally {
         if (!cancelled) setIsLoading(false);
       }
