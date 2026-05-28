@@ -222,13 +222,17 @@ export function BookingDetailClient({ locale, bookingId }: BookingDetailClientPr
     : (booking.customerName?.en ?? booking.customerName?.ar ?? booking.customerName ?? '');
 
   const pricing = booking.pricing ?? {};
-  const grandTotalHalalas = booking.grandTotalHalalas ?? pricing.totalAmount ?? 0;
+  const grandTotalHalalas = booking.totalPriceHalalas ?? booking.grandTotalHalalas ?? pricing.totalAmount ?? 0;
   const paidHalalas = booking.paidHalalas ?? booking.totalPaid ?? 0;
 
-  const travelDate = booking.travelDate ? new Date(booking.travelDate as string) : null;
-  const returnDate = booking.returnDate ? new Date(booking.returnDate as string) : null;
+  // Dates and passengers are stored inside the details JSONB
+  const det = (booking.details ?? {}) as Record<string, unknown>;
+  const rawTravelDate = (det['departureDate'] ?? det['travelDate'] ?? booking.travelDate) as string | undefined;
+  const rawReturnDate = (det['returnDate']    ?? booking.returnDate)                       as string | undefined;
+  const travelDate = rawTravelDate ? new Date(rawTravelDate) : null;
+  const returnDate = rawReturnDate ? new Date(rawReturnDate) : null;
 
-  const travelers: BookingData[] = booking.passengers ?? [];
+  const travelers: BookingData[] = (det['passengers'] as BookingData[] | undefined) ?? booking.passengers ?? [];
   const invoiceIds: string[] = booking.invoiceIds ?? [];
   const existingInvoiceId = invoiceIds[0];
 

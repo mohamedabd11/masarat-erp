@@ -4,6 +4,11 @@ import { db } from '@/lib/db';
 import { bookings } from '@/lib/schema';
 import { getNextBookingNumber } from '@/lib/invoice-counter';
 
+const VALID_SERVICE_TYPES = new Set([
+  'flight', 'hotel', 'package', 'umrah', 'hajj',
+  'insurance', 'visa', 'transport', 'custom',
+]);
+
 export async function POST(request: Request) {
   try {
     ensureAdminApp();
@@ -22,6 +27,14 @@ export async function POST(request: Request) {
     }
 
     const body = await request.json() as Record<string, unknown>;
+
+    const serviceType = String(body['type'] ?? '');
+    if (!serviceType || !VALID_SERVICE_TYPES.has(serviceType)) {
+      return NextResponse.json(
+        { error: `نوع الخدمة غير صالح: "${serviceType}". القيم المقبولة: flight، hotel، package، umrah، hajj، insurance، visa، transport، custom` },
+        { status: 400 },
+      );
+    }
 
     const year = new Date().getFullYear();
 
@@ -55,7 +68,7 @@ export async function POST(request: Request) {
         id:               bookingId,
         agencyId,
         bookingNumber,
-        serviceType:      String(body['type'] ?? ''),
+        serviceType,
         customerId:       String(body['customerId'] ?? '') || null,
         customerNameAr,
         customerNameEn,
@@ -63,7 +76,7 @@ export async function POST(request: Request) {
         status:           'confirmed',
         totalPriceHalalas: totalPriceHalalas,
         costPriceHalalas:  costPriceHalalas,
-        profitHalalas:     profitHalalas > 0 ? profitHalalas : 0,
+        profitHalalas:     profitHalalas,
         paidHalalas:      0,
         notes:            String(body['notes'] ?? '') || null,
         details:          mergedDetails,
