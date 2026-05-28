@@ -65,13 +65,16 @@ function closingDebit(a: TrialAccount)  { return Math.max(0, a.openDebit  + a.mv
 function closingCredit(a: TrialAccount) { return Math.max(0, a.openCredit + a.mvtCredit - a.openDebit  - a.mvtDebit); }
 
 function accountToTrial(a: ChartAccount): TrialAccount {
+  // Distribute opening balance to the correct side based on account type
+  const debitNormal = a.type === 'asset' || a.type === 'expense';
+  const opening = a.openingBalanceHalalas ?? 0;
   return {
     code: a.code,
     nameAr: a.nameAr,
     nameEn: (a.nameEn ?? '') || a.nameAr,
     category: a.type as TrialAccount['category'],
-    openDebit: 0,
-    openCredit: 0,
+    openDebit:  debitNormal ? opening : 0,
+    openCredit: debitNormal ? 0 : opening,
     mvtDebit:  a.debitTotal  ?? 0,
     mvtCredit: a.creditTotal ?? 0,
   };

@@ -47,7 +47,7 @@ function RevenueTooltip({ active, payload, label, isAr }: {
   return (
     <div className="bg-white border border-slate-200 rounded-xl shadow-lg px-4 py-2.5 text-sm">
       <p className="font-semibold text-slate-700 mb-0.5">{label}</p>
-      <p className="text-brand-600 font-bold">{formatCurrency((payload[0]?.value ?? 0) * 100, loc)}</p>
+      <p className="text-brand-600 font-bold">{formatCurrency(payload[0]?.value ?? 0, loc)}</p>
     </div>
   );
 }

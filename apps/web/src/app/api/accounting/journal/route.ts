@@ -4,6 +4,9 @@ import { db } from '@/lib/db';
 import { journalEntries, journalLines } from '@/lib/schema';
 import { verifyAuth, ApiAuthError } from '@/lib/api-auth';
 
+const DEFAULT_PAGE_SIZE = 100;
+const MAX_PAGE_SIZE     = 500;
+
 export async function POST(request: Request) {
   try {
     const { agencyId, uid } = await verifyAuth(request);
@@ -70,9 +73,14 @@ export async function GET(request: Request) {
   try {
     const { agencyId } = await verifyAuth(request);
     const url       = new URL(request.url);
-    const fromDate  = url.searchParams.get('from') ?? undefined;
-    const toDate    = url.searchParams.get('to')   ?? undefined;
+    const fromDate  = url.searchParams.get('from')  ?? undefined;
+    const toDate    = url.searchParams.get('to')    ?? undefined;
     const withLines = url.searchParams.get('lines') === '1';
+    const pageStr   = url.searchParams.get('page');
+    const limitStr  = url.searchParams.get('limit');
+    const page      = Math.max(1, parseInt(pageStr  ?? '1',   10) || 1);
+    const pageSize  = Math.min(MAX_PAGE_SIZE, Math.max(1, parseInt(limitStr ?? String(DEFAULT_PAGE_SIZE), 10) || DEFAULT_PAGE_SIZE));
+    const offset    = (page - 1) * pageSize;
 
     const conditions = [eq(journalEntries.agencyId, agencyId)];
     if (fromDate) conditions.push(gte(journalEntries.date, fromDate));
@@ -82,10 +90,12 @@ export async function GET(request: Request) {
       .select()
       .from(journalEntries)
       .where(and(...conditions))
-      .orderBy(desc(journalEntries.date), desc(journalEntries.createdAt));
+      .orderBy(desc(journalEntries.date), desc(journalEntries.createdAt))
+      .limit(pageSize)
+      .offset(offset);
 
     if (!withLines) {
-      return NextResponse.json({ entries });
+      return NextResponse.json({ entries, page, pageSize });
     }
 
     // Fetch lines for all entries in one query
@@ -109,7 +119,7 @@ export async function GET(request: Request) {
       lines: (linesMap.get(e.id) ?? []).sort((a, b) => a.sortOrder - b.sortOrder),
     }));
 
-    return NextResponse.json({ entries: result });
+    return NextResponse.json({ entries: result, page, pageSize });
   } catch (err) {
     if (err instanceof ApiAuthError) return NextResponse.json({ error: err.message }, { status: err.status });
     return NextResponse.json({ error: 'خطأ في الخادم' }, { status: 500 });

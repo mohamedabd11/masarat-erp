@@ -95,6 +95,12 @@ export function useReportsData(agencyId: string | null): ReportsData {
         bookings: 0, rev: 0, cost: 0, vat: 0, grandTotal: 0 });
     }
 
+    // Build a bookingId → costPriceHalalas lookup so invoices can carry cost
+    const costByBookingId = new Map<string, number>();
+    for (const bk of allBookings) {
+      if (bk.id) costByBookingId.set(bk.id, bk.costPriceHalalas ?? 0);
+    }
+
     for (const inv of allInvoices) {
       const date = new Date(inv.createdAt as unknown as string);
       if (date.getFullYear() !== year) continue;
@@ -104,12 +110,14 @@ export function useReportsData(agencyId: string | null): ReportsData {
       row.rev       += inv.subtotalHalalas;
       row.vat       += inv.vatHalalas;
       row.grandTotal += inv.totalHalalas;
+      // Lookup cost from the linked booking (invoices don't store cost themselves)
+      row.cost      += costByBookingId.get(inv.bookingId ?? '') ?? 0;
       mm.set(m, row);
     }
 
     const nowMonth = year < new Date().getFullYear() ? 11 : new Date().getMonth();
     return Array.from(mm.values()).filter(r => r.month <= nowMonth && r.bookings > 0);
-  }, [allInvoices, year]);
+  }, [allInvoices, allBookings, year]);
 
   const typeMix = useMemo<TypeMixRow[]>(() => {
     const typeMap: Record<string, { count: number; rev: number }> = {};
@@ -138,7 +146,9 @@ export function useReportsData(agencyId: string | null): ReportsData {
       .map(inv => ({
         id:              inv.id,
         invoiceNumber:   inv.invoiceNumber,
-        isVatRegistered: inv.isEInvoice,
+        // An invoice is VAT-applicable when it has a non-zero VAT amount
+        // (isEInvoice is a ZATCA e-invoicing flag, not a VAT indicator)
+        isVatRegistered: (inv.vatHalalas ?? 0) > 0,
         grandTotal:      inv.totalHalalas,
         subtotalExclVat: inv.subtotalHalalas,
         totalVat:        inv.vatHalalas,
