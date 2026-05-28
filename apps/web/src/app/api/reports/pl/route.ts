@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { eq, and, sql } from 'drizzle-orm';
+import { eq, and, ne, sql } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { journalLines, journalEntries } from '@/lib/schema';
 import { verifyAuth, assertRole, ApiAuthError, ROLES_ACCOUNTANT_UP } from '@/lib/api-auth';
@@ -49,6 +49,7 @@ export async function GET(request: Request) {
       .where(and(
         eq(journalLines.agencyId, agencyId),
         eq(journalEntries.isPosted, true),
+        ne(journalEntries.source, 'closing'),   // exclude year-end closing entries
         sql`${journalEntries.date} >= ${from}`,
         sql`${journalEntries.date} <= ${to}`,
       ))
