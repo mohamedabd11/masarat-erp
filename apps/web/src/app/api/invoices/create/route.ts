@@ -13,6 +13,7 @@ const AC = {
   vatPayable:       { code: '2200', ar: 'ضريبة القيمة المضافة مستحقة', en: 'VAT Payable' },
   revenueAgent:     { code: '4000', ar: 'إيراد رسوم الوكالة',           en: 'Revenue - Agency Fees' },
   revenuePrincipal: { code: '4100', ar: 'إيراد خدمات السفر',            en: 'Revenue - Travel Services' },
+  costOfServices:   { code: '5000', ar: 'تكلفة الخدمات',                en: 'Cost of Services' },
 };
 
 interface InvoiceCreateBody {
@@ -226,8 +227,14 @@ function buildInvoiceJournalLines(
     return [ar(AC.receivable, grandTotal, 0), ar(AC.revenueAgent, 0, grandTotal)];
   }
 
-  if (isVatRegistered && vatAmount > 0) {
-    return [ar(AC.receivable, grandTotal, 0), ar(AC.revenuePrincipal, 0, subtotalExclVat), ar(AC.vatPayable, 0, vatAmount)];
+  // Principal model: Dr AR / Cr Revenue / Cr VAT  +  Dr COGS / Cr AP (if cost known)
+  const revenueLines = isVatRegistered && vatAmount > 0
+    ? [ar(AC.receivable, grandTotal, 0), ar(AC.revenuePrincipal, 0, subtotalExclVat), ar(AC.vatPayable, 0, vatAmount)]
+    : [ar(AC.receivable, grandTotal, 0), ar(AC.revenuePrincipal, 0, grandTotal)];
+
+  if (totalCost > 0) {
+    revenueLines.push(ar(AC.costOfServices, totalCost, 0));
+    revenueLines.push(ar(AC.payableSupplier, 0, totalCost));
   }
-  return [ar(AC.receivable, grandTotal, 0), ar(AC.revenuePrincipal, 0, grandTotal)];
+  return revenueLines;
 }
