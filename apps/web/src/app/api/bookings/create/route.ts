@@ -62,7 +62,7 @@ export async function POST(request: Request) {
 
     return NextResponse.json(result);
   } catch (err) {
-    console.error('[bookings/create]', err);
+    console.error(JSON.stringify({ event: 'booking_create_failed', error: (err as Error).message ?? String(err) }));
     return NextResponse.json({ error: 'خطأ في الخادم' }, { status: 500 });
   }
 }

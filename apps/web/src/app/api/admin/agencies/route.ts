@@ -53,7 +53,7 @@ export async function GET(request: Request) {
     if (msg === 'NO_TOKEN' || msg === 'FORBIDDEN') {
       return NextResponse.json({ error: 'ممنوع الوصول' }, { status: 403 });
     }
-    console.error('[admin/agencies]', msg);
+    console.error(JSON.stringify({ event: 'admin_agencies_failed', error: msg }));
     return NextResponse.json({ error: msg }, { status: 500 });
   }
 }

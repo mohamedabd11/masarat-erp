@@ -961,7 +961,9 @@ export default function AccountingPage() {
                 ? 'أدوات الإدارة — تُستخدم مرة واحدة أو عند الحاجة'
                 : 'Admin tools — run once or as needed'}
             </p>
-            <MigrationTool locale={locale} />
+            {process.env['NEXT_PUBLIC_SHOW_MIGRATION_TOOL'] === 'true' && (
+              <MigrationTool locale={locale} />
+            )}
           </div>
         )}
       </div>

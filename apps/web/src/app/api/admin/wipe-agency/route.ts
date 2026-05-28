@@ -98,7 +98,7 @@ export async function POST(request: Request) {
     if (msg === 'NO_TOKEN' || msg === 'FORBIDDEN') {
       return NextResponse.json({ error: 'ممنوع الوصول' }, { status: 403 });
     }
-    console.error('[admin/wipe-agency]', err);
+    console.error(JSON.stringify({ event: 'admin_wipe_agency_failed', error: (err as Error).message ?? String(err) }));
     return NextResponse.json({ error: 'خطأ في الخادم' }, { status: 500 });
   }
 }

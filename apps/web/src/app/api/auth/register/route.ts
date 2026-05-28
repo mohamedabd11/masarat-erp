@@ -122,7 +122,7 @@ export async function POST(request: Request) {
       const { getAuth } = await import('firebase-admin/auth');
       await getAuth().deleteUser(firebaseUid).catch(() => {});
     }
-    console.error('[auth/register]', err);
+    console.error(JSON.stringify({ event: 'auth_register_failed', error: (err as Error).message ?? String(err) }));
     return NextResponse.json({ error: 'خطأ في الخادم' }, { status: 500 });
   }
 }
