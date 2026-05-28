@@ -22,6 +22,7 @@ export interface ReceiptVoucherData {
   agency: {
     nameAr: string;
     nameEn: string;
+    logoUrl?: string;
     isVatRegistered?: boolean;
     address?: {
       streetName?: string;
@@ -120,6 +121,17 @@ export function PrintableReceiptVoucher({ data }: { data: ReceiptVoucherData }) 
     >
       {/* ── Agency Header ──────────────────────────────────────────────────── */}
       <div className="border-b-2 border-slate-700 pb-4 mb-4 px-8 pt-6">
+        {/* Logo centered above the two-column name block */}
+        {data.agency.logoUrl && (
+          <div className="flex justify-center mb-3">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={data.agency.logoUrl}
+              alt={data.agency.nameAr}
+              style={{ height: 72, width: 'auto', objectFit: 'contain', maxWidth: 200 }}
+            />
+          </div>
+        )}
         <div className="flex justify-between items-start">
           {/* Arabic side */}
           <div className="text-right">

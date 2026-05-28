@@ -106,8 +106,9 @@ export default function ReceiptVoucherPage({
           agency: {
             nameAr: (ag['nameAr'] as string | undefined) ?? '',
             nameEn: (ag['nameEn'] as string | undefined) ?? '',
+            logoUrl: (ag['logoUrl'] as string | undefined) || undefined,
             isVatRegistered: (ag['isVatRegistered'] as boolean | undefined) === true,
-            phone: (ag['contactPhone'] as string | undefined) || undefined,
+            phone: (ag['contactPhone'] as string | undefined) || (ag['phone'] as string | undefined) || undefined,
             vatNumber: (ag['vatNumber'] as string | undefined) || undefined,
             crNumber: (ag['crNumber'] as string | undefined) || undefined,
             address: {
