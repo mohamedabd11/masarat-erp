@@ -63,15 +63,19 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
         if (cancelled) return;
         const { agency } = data;
         const sub = (agency.subscriptionStatus ?? 'active') as SubscriptionStatus;
-        setStatus(sub);
-        setPlan(agency.plan ?? '');
         setAgencyName(agency.nameAr ?? agency.nameEn ?? '');
-        if (sub === 'trial' && agency.trialEndDate) {
-          const days = Math.ceil((new Date(agency.trialEndDate).getTime() - Date.now()) / 86_400_000);
-          setDaysRemaining(Math.max(0, days));
-        } else {
-          setDaysRemaining(null);
-        }
+        setPlan(agency.plan ?? '');
+
+        // Compute trial days from trialEndDate regardless of subscriptionStatus.
+        // If the trial window is still open, treat the session as 'trial' so all
+        // features remain accessible even when the stored plan is 'starter'.
+        const trialDaysLeft = agency.trialEndDate
+          ? Math.ceil((new Date(agency.trialEndDate).getTime() - Date.now()) / 86_400_000)
+          : null;
+        const stillInTrial = trialDaysLeft !== null && trialDaysLeft > 0
+          && sub !== 'cancelled' && sub !== 'past_due';
+        setStatus(stillInTrial ? 'trial' : sub);
+        setDaysRemaining(trialDaysLeft !== null ? Math.max(0, trialDaysLeft) : null);
       } catch {
         // On network / token errors: default to full trial access.
         // plan='trial' ensures canAccess() grants rank-10 (all features unlocked).

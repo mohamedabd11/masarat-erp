@@ -32,8 +32,15 @@ const FEATURE_LABEL: Record<FeatureKey, { ar: string; en: string }> = {
   reports:           { ar: 'التقارير',           en: 'Reports' },
 };
 
+const PLAN_LABEL: Record<string, { ar: string; en: string }> = {
+  starter:      { ar: 'المبتدئة',     en: 'Starter' },
+  professional: { ar: 'الاحترافية',  en: 'Professional' },
+  lifetime:     { ar: 'مدى الحياة',  en: 'Lifetime' },
+  trial:        { ar: 'التجريبية',   en: 'Trial' },
+};
+
 export function UpgradeGate({ feature, children }: UpgradeGateProps) {
-  const { canAccess, isLoading } = useSubscription();
+  const { canAccess, isLoading, plan } = useSubscription();
   const locale = useLocale();
   const isAr = locale === 'ar';
 
@@ -90,7 +97,9 @@ export function UpgradeGate({ feature, children }: UpgradeGateProps) {
 
         {/* Plan badge */}
         <p className="text-xs text-slate-400">
-          {isAr ? 'خطتك الحالية: المبتدئة (Starter)' : 'Your current plan: Starter'}
+          {isAr
+            ? `خطتك الحالية: ${PLAN_LABEL[plan]?.ar ?? plan}`
+            : `Your current plan: ${PLAN_LABEL[plan]?.en ?? plan}`}
         </p>
       </div>
     </div>
