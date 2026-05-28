@@ -80,8 +80,8 @@ export function CreateInvoiceButton({
   }
 
   const invoiceLabel = isVatRegistered
-    ? (isAr ? 'فاتورة ضريبية' : 'Tax Invoice')
-    : (isAr ? 'إصدار إيصال' : 'Issue Receipt');
+    ? (isAr ? 'إصدار فاتورة ضريبية' : 'Issue Tax Invoice')
+    : (isAr ? 'إصدار فاتورة تجارية' : 'Issue Commercial Invoice');
 
   return (
     <div className="space-y-2">

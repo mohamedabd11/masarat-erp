@@ -380,7 +380,6 @@ export default function SettingsPage() {
   const [postalCode, setPostalCode] = useState('');
   const [contactEmail, setContactEmail] = useState('');
   const [contactPhone, setContactPhone] = useState('');
-  const [contactHours, setContactHours] = useState('');
 
   // ── Service Types state ─────────────────────────────────────────────────
   const [tick, setTick] = useState(0);
@@ -421,7 +420,6 @@ export default function SettingsPage() {
       if (d.city)          setCity(d.city);
       setContactEmail(d.contactEmail ?? '');
       setContactPhone(d.contactPhone ?? '');
-      setContactHours(d.contactHours ?? '');
     }
 
     void loadAgency();
@@ -630,7 +628,6 @@ export default function SettingsPage() {
           city:            city.trim(),
           contactEmail:    contactEmail.trim(),
           contactPhone:    contactPhone.trim(),
-          contactHours:    contactHours.trim(),
         }),
       });
       setSaved(true);
@@ -938,14 +935,6 @@ export default function SettingsPage() {
                       placeholder="+966 11 000 0000"
                       dir="ltr"
                     />
-                    <div className="sm:col-span-2">
-                      <Input
-                        label={isAr ? 'ساعات الدعم' : 'Support Hours'}
-                        value={contactHours}
-                        onChange={e => setContactHours(e.target.value)}
-                        placeholder={isAr ? 'الأحد — الخميس، 9ص — 6م' : 'Sun — Thu, 9AM — 6PM'}
-                      />
-                    </div>
                   </div>
                 </div>
 
