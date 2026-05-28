@@ -11,3 +11,7 @@ export * from './accounting';
 export * from './banking';
 export * from './hr';
 export * from './utils';
+export * from './pnr';
+export * from './appointments';
+export * from './audit';
+export * from './recurring-invoices';

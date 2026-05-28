@@ -78,3 +78,22 @@ export const exchangeRates = pgTable('exchange_rates', {
 
 export type ExchangeRate    = typeof exchangeRates.$inferSelect;
 export type NewExchangeRate = typeof exchangeRates.$inferInsert;
+
+// ── Cost Centers ──────────────────────────────────────────────────────────────
+
+export const costCenters = pgTable('cost_centers', {
+  id:          text('id').primaryKey(),
+  agencyId:    text('agency_id').notNull().references(() => agencies.id, { onDelete: 'cascade' }),
+  code:        text('code').notNull(),
+  nameAr:      text('name_ar').notNull(),
+  nameEn:      text('name_en'),
+  type:        text('type').notNull().default('department'), // department|project|branch|product
+  parentId:    text('parent_id'),
+  isActive:    boolean('is_active').notNull().default(true),
+  notes:       text('notes'),
+  createdAt:   timestamp('created_at').notNull().defaultNow(),
+  updatedAt:   timestamp('updated_at').notNull().defaultNow(),
+});
+
+export type CostCenter    = typeof costCenters.$inferSelect;
+export type NewCostCenter = typeof costCenters.$inferInsert;
