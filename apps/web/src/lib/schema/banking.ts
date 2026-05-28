@@ -1,4 +1,4 @@
-import { pgTable, text, integer, boolean, timestamp } from 'drizzle-orm/pg-core';
+import { pgTable, text, integer, boolean, timestamp, index } from 'drizzle-orm/pg-core';
 import { agencies } from './agencies';
 
 export const bankAccounts = pgTable('bank_accounts', {
@@ -15,9 +15,11 @@ export const bankAccounts = pgTable('bank_accounts', {
   currency:            text('currency').notNull().default('SAR'),
   glAccountId:         text('gl_account_id'),
   isActive:            boolean('is_active').notNull().default(true),
-  isReconciled:        boolean('is_reconciled').notNull().default(false),
-  createdAt:           timestamp('created_at').notNull().defaultNow(),
-  updatedAt:           timestamp('updated_at').notNull().defaultNow(),
+  isReconciled:           boolean('is_reconciled').notNull().default(false),
+  reconciledAt:           timestamp('reconciled_at'),
+  reconciledBalanceHalalas: integer('reconciled_balance_halalas'),
+  createdAt:              timestamp('created_at').notNull().defaultNow(),
+  updatedAt:              timestamp('updated_at').notNull().defaultNow(),
 });
 
 export type BankAccount    = typeof bankAccounts.$inferSelect;
@@ -35,8 +37,14 @@ export const bankTransactions = pgTable('bank_transactions', {
   sourceType:      text('source_type'),                      // payment|receipt|supplier_payment|manual
   sourceId:        text('source_id'),
   date:            text('date').notNull(),
+  isReconciled:    boolean('is_reconciled').notNull().default(false),
+  reconciledAt:    timestamp('reconciled_at'),
+  reconciledBy:    text('reconciled_by'),
   createdAt:       timestamp('created_at').notNull().defaultNow(),
-});
+}, (t) => [
+  index('bank_txn_account_date_idx').on(t.bankAccountId, t.date),
+  index('bank_txn_reconciled_idx').on(t.bankAccountId, t.isReconciled),
+]);
 
 export type BankTransaction    = typeof bankTransactions.$inferSelect;
 export type NewBankTransaction = typeof bankTransactions.$inferInsert;
