@@ -4,6 +4,10 @@ import { db } from '@/lib/db';
 import { agencies, users } from '@/lib/schema';
 import { eq, count } from 'drizzle-orm';
 
+const EMAIL_RE  = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const MAX_NAME  = 100;
+const MAX_EMAIL = 254;
+
 type UserRole = 'admin' | 'agent' | 'accountant' | 'viewer';
 
 interface InviteUserRequest {
@@ -62,9 +66,14 @@ export async function POST(request: Request) {
     const email = body.email?.trim().toLowerCase();
 
     const VALID_ROLES: UserRole[] = ['admin', 'agent', 'accountant', 'viewer'];
-    if (!email || !nameAr?.trim() || !VALID_ROLES.includes(role)) {
-      return NextResponse.json({ error: 'بيانات مطلوبة ناقصة أو غير صالحة' }, { status: 400 });
-    }
+    if (!email || !EMAIL_RE.test(email) || email.length > MAX_EMAIL)
+      return NextResponse.json({ error: 'البريد الإلكتروني غير صالح' }, { status: 400 });
+    if (!nameAr?.trim())
+      return NextResponse.json({ error: 'اسم المستخدم مطلوب' }, { status: 400 });
+    if (nameAr.trim().length > MAX_NAME)
+      return NextResponse.json({ error: `الاسم يجب أن لا يتجاوز ${MAX_NAME} حرفاً` }, { status: 400 });
+    if (!VALID_ROLES.includes(role))
+      return NextResponse.json({ error: 'الدور المحدد غير صالح' }, { status: 400 });
 
     try {
       await auth.getUserByEmail(email);

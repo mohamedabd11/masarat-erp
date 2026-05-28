@@ -5,7 +5,8 @@ import { db } from '@/lib/db';
 import { agencies } from '@/lib/schema';
 import { TRIAL_DAYS, SUBSCRIPTION_MONTHLY_DAYS, SUBSCRIPTION_YEARLY_DAYS } from '@masarat/accounting';
 
-const SUPER_ADMIN_EMAIL = process.env['SUPER_ADMIN_EMAIL'] ?? 'mohamedabdalazim1111@gmail.com';
+const SUPER_ADMIN_EMAIL = process.env['SUPER_ADMIN_EMAIL'];
+if (!SUPER_ADMIN_EMAIL) throw new Error('SUPER_ADMIN_EMAIL env var is not configured');
 
 type AdminAction = 'activate_month' | 'activate_year' | 'activate_lifetime' | 'suspend' | 'extend_trial';
 

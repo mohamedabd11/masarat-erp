@@ -4,7 +4,8 @@ import { ensureAdminApp } from '@/lib/firebase-admin';
 import { db } from '@/lib/db';
 import { agencies, users } from '@/lib/schema';
 
-const SUPER_ADMIN_EMAIL = process.env['SUPER_ADMIN_EMAIL'] ?? 'mohamedabdalazim1111@gmail.com';
+const SUPER_ADMIN_EMAIL = process.env['SUPER_ADMIN_EMAIL'];
+if (!SUPER_ADMIN_EMAIL) throw new Error('SUPER_ADMIN_EMAIL env var is not configured');
 
 async function verifySuperAdmin(request: Request) {
   const authHeader = request.headers.get('Authorization') ?? '';

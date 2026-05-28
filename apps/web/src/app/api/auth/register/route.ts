@@ -4,6 +4,10 @@ import { db } from '@/lib/db';
 import { agencies, users, chartOfAccounts } from '@/lib/schema';
 import { TRIAL_DAYS } from '@masarat/accounting';
 
+const EMAIL_RE  = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const MAX_NAME  = 100;
+const MAX_EMAIL = 254;
+
 interface RegisterAgencyRequest {
   agencyNameAr: string;
   agencyNameEn?: string;
@@ -51,9 +55,16 @@ export async function POST(request: Request) {
     const { agencyNameAr, agencyNameEn, adminEmail, adminNameAr, adminNameEn } = body;
 
     const email = adminEmail?.trim().toLowerCase();
-    if (!agencyNameAr?.trim() || !email || !adminNameAr?.trim()) {
-      return NextResponse.json({ error: 'بيانات مطلوبة ناقصة' }, { status: 400 });
-    }
+    if (!agencyNameAr?.trim())
+      return NextResponse.json({ error: 'اسم الوكالة مطلوب' }, { status: 400 });
+    if (agencyNameAr.trim().length > MAX_NAME)
+      return NextResponse.json({ error: `اسم الوكالة يجب أن لا يتجاوز ${MAX_NAME} حرفاً` }, { status: 400 });
+    if (!adminNameAr?.trim())
+      return NextResponse.json({ error: 'اسم المدير مطلوب' }, { status: 400 });
+    if (adminNameAr.trim().length > MAX_NAME)
+      return NextResponse.json({ error: `اسم المدير يجب أن لا يتجاوز ${MAX_NAME} حرفاً` }, { status: 400 });
+    if (!email || !EMAIL_RE.test(email) || email.length > MAX_EMAIL)
+      return NextResponse.json({ error: 'البريد الإلكتروني غير صالح' }, { status: 400 });
 
     const { getAuth } = await import('firebase-admin/auth');
     const auth = getAuth();
