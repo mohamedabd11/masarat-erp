@@ -33,8 +33,6 @@ export function useSubscription() {
 
 // ─── Provider ─────────────────────────────────────────────────────────────────
 
-const SUPER_ADMIN_EMAIL = 'mohamedabdalazim1111@gmail.com';
-
 export function SubscriptionProvider({ children }: { children: ReactNode }) {
   const { user } = useAuth();
   const [status,        setStatus]        = useState<SubscriptionStatus>('loading');
@@ -43,7 +41,7 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
   const [daysRemaining, setDaysRemaining] = useState<number | null>(null);
   const [isLoading,     setIsLoading]     = useState(true);
 
-  const isSuperAdmin = user?.email === SUPER_ADMIN_EMAIL;
+  const isSuperAdmin = user?.email === process.env['NEXT_PUBLIC_SUPER_ADMIN_EMAIL'];
 
   useEffect(() => {
     if (isSuperAdmin) { setStatus('active'); setPlan('super_admin'); setIsLoading(false); return; }

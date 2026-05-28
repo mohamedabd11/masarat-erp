@@ -1,7 +1,8 @@
 import { NextResponse } from 'next/server';
 import { ensureAdminApp } from '@/lib/firebase-admin';
 
-const SUPER_ADMIN_EMAIL = process.env['SUPER_ADMIN_EMAIL'] ?? 'mohamedabdalazim1111@gmail.com';
+const SUPER_ADMIN_EMAIL = process.env['SUPER_ADMIN_EMAIL'];
+if (!SUPER_ADMIN_EMAIL) throw new Error('SUPER_ADMIN_EMAIL env var is not configured');
 
 type AdminAction = 'activate_month' | 'activate_year' | 'activate_lifetime' | 'suspend' | 'extend_trial';
 
