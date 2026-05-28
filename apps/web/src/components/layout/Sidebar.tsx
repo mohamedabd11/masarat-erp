@@ -202,12 +202,12 @@ export function Sidebar({ collapsed = false, onToggle, onClose }: SidebarProps) 
     >
       {/* Logo */}
       <div className={cn(
-        'flex items-center border-b border-surface-border flex-shrink-0',
-        collapsed ? 'h-16 justify-center px-2' : 'h-16 px-4',
+        'flex items-center justify-center border-b border-surface-border flex-shrink-0',
+        collapsed ? 'h-16 px-2' : 'h-28 px-4',
       )}>
         {collapsed
-          ? <MasaratLogo size={36} variant="icon" />
-          : <MasaratLogo size={36} variant="full" />
+          ? <MasaratLogo size={40} variant="icon" />
+          : <MasaratLogo size={40} variant="full" />
         }
       </div>
 
