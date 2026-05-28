@@ -112,9 +112,34 @@ export function InvoiceDetailClient({ locale, invoiceId }: InvoiceDetailClientPr
           setNotFound(true);
         } else {
           const inv = { id: snap.id, ...snap.data() } as FirestoreInvoice;
+
+          // Merge fresh agency data into seller info so name/address always reflects
+          // the current settings — stored invoice values are kept for amounts/IDs only
+          if (agencySnap?.exists()) {
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const ag = agencySnap.data() as Record<string, any>;
+            setIsVatRegistered(ag.isVatRegistered === true);
+            inv.seller = {
+              ...inv.seller,
+              name: { ar: ag.nameAr ?? '', en: ag.nameEn ?? '' },
+              vatNumber:      ag.vatNumber      ?? inv.seller?.vatNumber,
+              crNumber:       ag.crNumber       ?? inv.seller?.crNumber,
+              phone:          ag.contactPhone   ?? inv.seller?.phone,
+              email:          ag.contactEmail   ?? inv.seller?.email,
+              address: {
+                streetName:     ag.streetName     ?? inv.seller?.address?.streetName,
+                buildingNumber: ag.buildingNumber ?? inv.seller?.address?.buildingNumber,
+                district:       ag.district       ?? inv.seller?.address?.district,
+                city:           ag.city           ?? inv.seller?.address?.city,
+                postalCode:     ag.postalCode     ?? inv.seller?.address?.postalCode,
+                countryCode:    'SA',
+              },
+            };
+          } else {
+            setIsVatRegistered(false);
+          }
+
           setInvoice(inv);
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          setIsVatRegistered(agencySnap?.exists() ? (agencySnap.data() as any).isVatRegistered === true : false);
 
           // Resolve booking number: use stored field or fetch from booking doc
           if (inv.bookingNumber) {
