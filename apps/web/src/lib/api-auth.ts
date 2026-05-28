@@ -13,6 +13,8 @@ export class ApiAuthError extends Error {
   }
 }
 
+const SUPER_ADMIN_EMAIL = 'mohamedabdalazim1111@gmail.com';
+
 export async function verifyAuth(request: Request): Promise<AuthClaims> {
   ensureAdminApp();
   const authHeader = request.headers.get('Authorization') ?? '';
@@ -22,11 +24,15 @@ export async function verifyAuth(request: Request): Promise<AuthClaims> {
   const { getAuth } = await import('firebase-admin/auth');
   const decoded = await getAuth().verifyIdToken(token);
   const agencyId = decoded['agencyId'] as string | undefined;
-  if (!agencyId) throw new ApiAuthError('يجب تسجيل الدخول أولاً', 401);
+
+  // Super admin is allowed through even without an agencyId claim.
+  // Their queries will return empty results (agencyId = '') which is correct.
+  const isSuperAdmin = decoded.email === SUPER_ADMIN_EMAIL;
+  if (!agencyId && !isSuperAdmin) throw new ApiAuthError('يجب تسجيل الدخول أولاً', 401);
 
   return {
     uid: decoded.uid,
-    agencyId,
-    role: (decoded['role'] as string) ?? 'agent',
+    agencyId: agencyId ?? '',
+    role: (decoded['role'] as string) ?? (isSuperAdmin ? 'owner' : 'agent'),
   };
 }

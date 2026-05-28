@@ -38,50 +38,8 @@ interface TrialAccount {
   mvtCredit: number;
 }
 
-// ── Profitability demo data (no Firestore source yet) ─────────────────────────
 
-interface ServiceProfit {
-  nameAr: string;
-  nameEn: string;
-  color: string;
-  bookings: number;
-  revenueH: number;
-  costH: number;
-}
 
-interface AgentStat {
-  nameAr: string;
-  nameEn: string;
-  bookings: number;
-  revenueH: number;
-  commH: number;
-  convPct: number;
-}
-
-interface TopCustomer {
-  nameAr: string;
-  nameEn: string;
-  bookings: number;
-  totalH: number;
-  lastServiceAr: string;
-  lastServiceEn: string;
-}
-
-const AGENT_STATS: AgentStat[] = [
-  { nameAr: 'أحمد المحمد',   nameEn: 'Ahmad Al-Muhammad', bookings: 74, revenueH: 8_120_000, commH: 520_000, convPct: 88 },
-  { nameAr: 'سارة القحطاني', nameEn: 'Sara Al-Qahtani',   bookings: 58, revenueH: 6_340_000, commH: 420_000, convPct: 82 },
-  { nameAr: 'خالد العتيبي',  nameEn: 'Khalid Al-Otaibi',  bookings: 41, revenueH: 4_500_000, commH: 310_000, convPct: 79 },
-  { nameAr: 'نورة الدوسري',  nameEn: 'Noura Al-Dosari',   bookings: 33, revenueH: 3_620_000, commH: 255_000, convPct: 75 },
-  { nameAr: 'فهد الشهري',    nameEn: 'Fahad Al-Shehri',   bookings: 28, revenueH: 2_820_000, commH: 198_000, convPct: 71 },
-];
-
-const TOP_CUSTOMERS: TopCustomer[] = [
-  { nameAr: 'شركة الأمانة للسفر',    nameEn: 'Al-Amana Travel Co.',   bookings: 18, totalH: 3_240_000, lastServiceAr: 'باقة سياحية', lastServiceEn: 'Tour Package' },
-  { nameAr: 'مجموعة نجم للأعمال',    nameEn: 'Najm Business Group',   bookings: 14, totalH: 2_870_000, lastServiceAr: 'طيران',        lastServiceEn: 'Flight' },
-  { nameAr: 'عبد الرحمن السلمان',    nameEn: 'Abdulrahman Al-Salman', bookings: 12, totalH: 1_980_000, lastServiceAr: 'عمرة وحج',     lastServiceEn: 'Umrah & Hajj' },
-  { nameAr: 'شركة الرواد للمقاولات', nameEn: 'Al-Rowad Contracting',  bookings: 9,  totalH: 1_640_000, lastServiceAr: 'فنادق',        lastServiceEn: 'Hotel' },
-  { nameAr: 'د. هند الزهراني',       nameEn: 'Dr. Hind Al-Zahrani',   bookings: 8,  totalH: 1_340_000, lastServiceAr: 'تأشيرة',       lastServiceEn: 'Visa' },
-];
 
 const VAT_QUICK_PERIODS: { id: string; labelAr: string; labelEn: string; from: string; to: string }[] = [
   { id: 'q1', labelAr: 'ر١ 2026', labelEn: 'Q1 2026', from: '2026-01-01', to: '2026-03-31' },
@@ -1076,8 +1034,7 @@ function ProfitabilityTab({ monthly, typeMix, loading, isAr, fmtLocale }: {
         <KpiCard icon={<Wallet size={20} />} iconBg="bg-emerald-50" iconColor="text-emerald-600"
           label={isAr ? 'عدد الخدمات' : 'Service Types'} value={typeMix.length} />
         <KpiCard icon={<Users size={20} />} iconBg="bg-purple-50" iconColor="text-purple-600"
-          label={isAr ? 'أفضل وكيل (تجريبي)' : 'Top Agent (demo)'} value={isAr ? AGENT_STATS[0].nameAr : AGENT_STATS[0].nameEn}
-          sub={formatCurrency(AGENT_STATS[0].revenueH, fmtLocale)} />
+          label={isAr ? 'عدد الأنواع' : 'Service Types'} value={typeMix.length} />
       </div>
 
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
@@ -1113,45 +1070,10 @@ function ProfitabilityTab({ monthly, typeMix, loading, isAr, fmtLocale }: {
           )}
         </Card>
 
-        {/* Agent performance (demo) */}
-        <Card padding="none">
-          <div className="px-5 py-4 border-b border-surface-border flex items-center justify-between">
-            <h2 className="text-base font-semibold text-slate-900">{isAr ? 'أداء الموظفين (تجريبي)' : 'Agent Performance (demo)'}</h2>
-          </div>
-          <table className="w-full">
-            <thead>
-              <tr className="bg-slate-50 border-b border-surface-border">
-                <th className="text-start ps-5 pe-3 py-3 text-xs font-bold text-slate-500 uppercase tracking-wider">{isAr ? 'الموظف' : 'Agent'}</th>
-                <th className="text-end px-3 py-3 text-xs font-bold text-slate-500 uppercase tracking-wider">{isAr ? 'حجوزات' : 'Bookings'}</th>
-                <th className="text-end pe-5 px-3 py-3 text-xs font-bold text-slate-500 uppercase tracking-wider">{isAr ? 'نسبة التحويل' : 'Conv. Rate'}</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-surface-border">
-              {AGENT_STATS.map((a, idx) => (
-                <tr key={a.nameEn} className="hover:bg-slate-50/40 transition-colors">
-                  <td className="ps-5 pe-3 py-3">
-                    <div className="flex items-center gap-2.5">
-                      <div className="w-8 h-8 rounded-full bg-gradient-to-br from-brand-400 to-brand-600 flex items-center justify-center text-white text-xs font-bold flex-shrink-0">
-                        {idx + 1}
-                      </div>
-                      <p className="text-sm font-semibold text-slate-900">{isAr ? a.nameAr : a.nameEn}</p>
-                    </div>
-                  </td>
-                  <td className="px-3 py-3 text-end">
-                    <span className="text-sm font-bold tabular-nums text-slate-900">{formatCount(a.bookings, fmtLocale)}</span>
-                  </td>
-                  <td className="pe-5 px-3 py-3 text-end">
-                    <div className="flex items-center justify-end gap-2">
-                      <div className="w-16 h-1.5 bg-slate-100 rounded-full overflow-hidden">
-                        <div className="h-full bg-emerald-500 rounded-full" style={{ width: `${a.convPct}%` }} />
-                      </div>
-                      <span className="text-sm font-bold text-emerald-600 tabular-nums">{a.convPct}%</span>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+        {/* Bookings by agent — empty state until real data exists */}
+        <Card>
+          <h2 className="text-base font-semibold text-slate-900 mb-4">{isAr ? 'أداء الموظفين' : 'Agent Performance'}</h2>
+          <p className="text-sm text-slate-400 text-center py-8">{isAr ? 'ستظهر البيانات بعد إضافة حجوزات' : 'Data will appear after adding bookings'}</p>
         </Card>
       </div>
 
@@ -1182,42 +1104,10 @@ function ProfitabilityTab({ monthly, typeMix, loading, isAr, fmtLocale }: {
         </Card>
       )}
 
-      {/* Top Customers (demo) */}
-      <Card padding="none">
-        <div className="px-5 py-4 border-b border-surface-border flex items-center justify-between">
-          <h2 className="text-base font-semibold text-slate-900">{isAr ? 'أفضل العملاء (تجريبي)' : 'Top Customers (demo)'}</h2>
-        </div>
-        <table className="w-full">
-          <thead>
-            <tr className="bg-slate-50 border-b border-surface-border">
-              <th className="text-start ps-5 pe-3 py-3 text-xs font-bold text-slate-500 uppercase tracking-wider w-8">#</th>
-              <th className="text-start pe-3 py-3 text-xs font-bold text-slate-500 uppercase tracking-wider">{isAr ? 'العميل' : 'Customer'}</th>
-              <th className="text-end px-3 py-3 text-xs font-bold text-slate-500 uppercase tracking-wider">{isAr ? 'حجوزات' : 'Bookings'}</th>
-              <th className="text-end pe-5 px-3 py-3 text-xs font-bold text-slate-500 uppercase tracking-wider">{isAr ? 'الإجمالي' : 'Total'}</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-surface-border">
-            {TOP_CUSTOMERS.map((c, idx) => (
-              <tr key={c.nameEn} className="hover:bg-slate-50/40 transition-colors">
-                <td className="ps-5 pe-3 py-3.5">
-                  <span className={cn('w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold',
-                    idx === 0 ? 'bg-amber-100 text-amber-700' : idx === 1 ? 'bg-slate-200 text-slate-600' : idx === 2 ? 'bg-orange-100 text-orange-700' : 'bg-slate-100 text-slate-500')}>
-                    {idx + 1}
-                  </span>
-                </td>
-                <td className="pe-3 py-3.5">
-                  <p className="text-sm font-semibold text-slate-900">{isAr ? c.nameAr : c.nameEn}</p>
-                </td>
-                <td className="px-3 py-3.5 text-end">
-                  <span className="text-sm tabular-nums font-bold text-slate-800">{formatCount(c.bookings, fmtLocale)}</span>
-                </td>
-                <td className="pe-5 px-3 py-3.5 text-end">
-                  <span className="text-sm font-bold tabular-nums text-slate-900">{formatCurrency(c.totalH, fmtLocale)}</span>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+      {/* Top Customers — empty state until real data exists */}
+      <Card>
+        <h2 className="text-base font-semibold text-slate-900 mb-4">{isAr ? 'أفضل العملاء' : 'Top Customers'}</h2>
+        <p className="text-sm text-slate-400 text-center py-8">{isAr ? 'ستظهر البيانات بعد إضافة حجوزات' : 'Data will appear after adding bookings'}</p>
       </Card>
     </div>
   );
