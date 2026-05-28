@@ -13,6 +13,7 @@ const nextConfig = {
   transpilePackages: ['@masarat/firebase', '@masarat/zatca', '@masarat/accounting'],
   experimental: {
     typedRoutes: false,
+    instrumentationHook: true,
   },
   images: {
     remotePatterns: [

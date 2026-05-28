@@ -1,0 +1,49 @@
+/**
+ * Next.js instrumentation hook — runs once on server startup (Node.js runtime only).
+ * Applies idempotent SQL migrations so the DB stays in sync with the schema
+ * without any manual intervention.
+ *
+ * Rules for adding migrations:
+ *  - Every statement MUST be idempotent (IF NOT EXISTS / IF EXISTS).
+ *  - Append new entries to the end of the array; never reorder or remove.
+ */
+export async function register() {
+  // Only run in Node.js (not Edge runtime) and only when a DB is configured.
+  if (process.env.NEXT_RUNTIME !== 'nodejs') return;
+  if (!process.env.DATABASE_URL) return;
+
+  const migrations: string[] = [
+    // ── 2025-05 ────────────────────────────────────────────────────────────
+    // cheques was created without bank_account_id; add it to existing tables.
+    `ALTER TABLE cheques ADD COLUMN IF NOT EXISTS bank_account_id TEXT REFERENCES bank_accounts(id)`,
+
+    // accounting_periods was missing from the original setup-db DDL.
+    `CREATE TABLE IF NOT EXISTS accounting_periods (
+      id            TEXT PRIMARY KEY,
+      agency_id     TEXT NOT NULL REFERENCES agencies(id) ON DELETE CASCADE,
+      period_year   INTEGER NOT NULL,
+      period_month  INTEGER NOT NULL,
+      is_locked     BOOLEAN NOT NULL DEFAULT FALSE,
+      locked_at     TIMESTAMPTZ,
+      locked_by     TEXT,
+      notes         TEXT,
+      created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )`,
+    `CREATE UNIQUE INDEX IF NOT EXISTS accounting_periods_agency_ym_uq
+      ON accounting_periods(agency_id, period_year, period_month)`,
+  ];
+
+  try {
+    const { neon } = await import('@neondatabase/serverless');
+    const sql = neon(process.env.DATABASE_URL);
+    for (const stmt of migrations) {
+      await sql.query(stmt);
+    }
+    console.log(JSON.stringify({ event: 'db_migrations_applied', count: migrations.length }));
+  } catch (err) {
+    // Log but don't crash the server — a failed migration is investigated,
+    // not a reason to take the whole app down.
+    console.error(JSON.stringify({ event: 'db_migrations_failed', error: String(err) }));
+  }
+}
