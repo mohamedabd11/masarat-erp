@@ -49,9 +49,13 @@ export default function RegisterPage() {
   async function onSubmit(values: FormValues) {
     setServerError('');
     try {
+      const regToken = process.env.NEXT_PUBLIC_REGISTRATION_SECRET ?? '';
       const resp = await fetch('/api/auth/register', {
         method:  'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...(regToken ? { 'x-registration-token': regToken } : {}),
+        },
         body:    JSON.stringify(values),
       });
       const data = await resp.json() as { agencyId?: string; setupLink?: string; error?: string };
