@@ -6,7 +6,6 @@ import { verifyAuth, ApiAuthError } from '@/lib/api-auth';
 import { withIdempotency, buildIdempotencyInsert } from '@/lib/idempotency';
 import { idempotencyKeys } from '@/lib/schema';
 import { getNextInvoiceNumber, getNextJournalNumber } from '@/lib/invoice-counter';
-import { VAT_RATE } from '@masarat/accounting';
 
 const AC = {
   receivable:       { code: '1120', ar: 'ذمم مدينة - عملاء',           en: 'Accounts Receivable' },
@@ -60,6 +59,7 @@ export async function POST(request: Request) {
         const now = new Date();
         const year = now.getFullYear();
         const isVatRegistered = agency.isVatRegistered === true;
+        const vatRateDecimal  = (agency.vatRate ?? 15) / 100;
 
         const grandTotal  = booking.totalPriceHalalas;
         const storedCost  = booking.costPriceHalalas;
@@ -81,7 +81,7 @@ export async function POST(request: Request) {
           totalVat        = storedVat;
           finalGrandTotal = grandTotal;
         } else {
-          subtotalExclVat = Math.round(grandTotal / (1 + VAT_RATE));
+          subtotalExclVat = Math.round(grandTotal / (1 + vatRateDecimal));
           totalVat        = grandTotal - subtotalExclVat;
           finalGrandTotal = grandTotal;
         }

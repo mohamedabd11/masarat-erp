@@ -415,6 +415,7 @@ function NewBookingContent() {
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError]   = useState('');
   const [agencyIsVatRegistered, setAgencyIsVatRegistered] = useState(false);
+  const [agencyVatRate, setAgencyVatRate] = useState(15);
   const [selectedCustomer, setSelectedCustomer] = useState<{
     id: string; nameAr: string; nameEn: string; phone: string; email: string;
   } | null>(null);
@@ -425,11 +426,10 @@ function NewBookingContent() {
     let cancelled = false;
     async function loadVatStatus() {
       try {
-        const res = await apiFetch<{ agency: { isVatRegistered: boolean; vatNumber?: string } }>('/api/settings');
+        const res = await apiFetch<{ agency: { isVatRegistered: boolean; vatNumber?: string; vatRate?: number } }>('/api/settings');
         if (!cancelled) {
-          setAgencyIsVatRegistered(
-            res.agency.isVatRegistered ?? (res.agency.vatNumber ?? '').trim().length > 0,
-          );
+          setAgencyIsVatRegistered(res.agency.isVatRegistered === true);
+          setAgencyVatRate(res.agency.vatRate ?? 15);
         }
       } catch { /* default to false */ }
     }
@@ -493,7 +493,7 @@ function NewBookingContent() {
   const model      = watch('revenueModel');
   const sellSAR    = model === 'agent' ? costSAR + feeSAR : costSAR;
   const vatBaseSAR = model === 'agent' ? feeSAR : sellSAR;
-  const vatSAR     = agencyIsVatRegistered ? Math.round(vatBaseSAR * 15) / 100 : 0;
+  const vatSAR     = agencyIsVatRegistered ? Math.round(vatBaseSAR * agencyVatRate) / 100 : 0;
   const totalSAR   = sellSAR + vatSAR;
   const loc2       = isAr ? 'ar-SA' : 'en-SA';
   const toH        = (n: number) => Math.round(n * 100);

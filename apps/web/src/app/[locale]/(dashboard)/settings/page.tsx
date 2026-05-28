@@ -371,6 +371,7 @@ export default function SettingsPage() {
   const [isVatRegistered, setIsVatRegistered] = useState(false);
   const [vatNumber, setVatNumber] = useState('');
   const [crNumber, setCrNumber] = useState('');
+  const [vatRate, setVatRate] = useState(15);
   const [streetName, setStreetName] = useState('');
   const [buildingNumber, setBuildingNumber] = useState('');
   const [district, setDistrict] = useState('');
@@ -412,9 +413,10 @@ export default function SettingsPage() {
       if (d.nameAr)        setNameAr(d.nameAr);
       if (d.nameEn)        setNameEn(d.nameEn);
       if (d.logoUrl)       setLogoUrl(d.logoUrl);
-      setIsVatRegistered(d.isVatRegistered ?? (d.vatNumber ?? '').trim().length > 0);
+      setIsVatRegistered(d.isVatRegistered === true);
       if (d.vatNumber)     setVatNumber(d.vatNumber);
       if (d.crNumber)      setCrNumber(d.crNumber);
+      if (d.vatRate)       setVatRate(d.vatRate);
       if (d.city)          setCity(d.city);
       setContactEmail(d.contactEmail ?? '');
       setContactPhone(d.contactPhone ?? '');
@@ -621,6 +623,7 @@ export default function SettingsPage() {
           nameEn:          nameEn.trim(),
           isVatRegistered,
           vatNumber:       isVatRegistered ? vatNumber.trim() : '',
+          vatRate:         isVatRegistered ? vatRate : 0,
           crNumber:        crNumber.trim(),
           city:            city.trim(),
           contactEmail:    contactEmail.trim(),
@@ -835,6 +838,35 @@ export default function SettingsPage() {
                     placeholder="4030000000"
                   />
                 </div>
+
+                {/* VAT rate — configurable for Gulf countries */}
+                {isVatRegistered && (
+                  <div className="space-y-1.5">
+                    <label className="block text-sm font-medium text-slate-700">
+                      {isAr ? 'معدل ضريبة القيمة المضافة' : 'VAT Rate'}
+                    </label>
+                    <p className="text-xs text-slate-500">
+                      {isAr ? 'السعودية 15%، الإمارات وعُمان 5%، البحرين 10%' : 'KSA 15%, UAE & Oman 5%, Bahrain 10%'}
+                    </p>
+                    <div className="flex gap-2 flex-wrap">
+                      {[{ v: 5, label: '5%' }, { v: 10, label: '10%' }, { v: 15, label: '15%' }].map(opt => (
+                        <button
+                          key={opt.v}
+                          type="button"
+                          onClick={() => setVatRate(opt.v)}
+                          className={cn(
+                            'px-4 py-2 rounded-lg border text-sm font-semibold transition-colors',
+                            vatRate === opt.v
+                              ? 'bg-brand-600 text-white border-brand-600'
+                              : 'bg-white text-slate-600 border-slate-200 hover:border-brand-300',
+                          )}
+                        >
+                          {opt.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
 
                 {/* Address section */}
                 <div className="border-t border-surface-border pt-5">

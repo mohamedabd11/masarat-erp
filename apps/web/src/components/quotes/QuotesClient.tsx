@@ -274,9 +274,27 @@ function NewQuoteModal({ isAr, onClose, onSave }: {
   const [terms, setTerms]   = useState(isAr ? DEFAULT_TERMS_AR : DEFAULT_TERMS_EN);
   const [error, setError]   = useState('');
   const [saving, setSaving] = useState(false);
+  const [agencyIsVat, setAgencyIsVat] = useState(false);
+  const [agencyVatRate, setAgencyVatRate] = useState(15);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function loadAgency() {
+      try {
+        const { apiFetch } = await import('@/lib/api-client');
+        const res = await apiFetch<{ agency: { isVatRegistered: boolean; vatRate?: number } }>('/api/settings');
+        if (!cancelled) {
+          setAgencyIsVat(res.agency.isVatRegistered === true);
+          setAgencyVatRate(res.agency.vatRate ?? 15);
+        }
+      } catch { /* keep defaults */ }
+    }
+    void loadAgency();
+    return () => { cancelled = true; };
+  }, []);
 
   const subtotalHalalas = items.reduce((s, i) => s + i.quantity * i.unitPriceSAR * 100, 0);
-  const vatHalalas      = Math.round(subtotalHalalas * 0.15);
+  const vatHalalas      = agencyIsVat ? Math.round(subtotalHalalas * agencyVatRate / 100) : 0;
   const grandTotalHalalas = subtotalHalalas + vatHalalas;
 
   function updateItem(idx: number, field: keyof QuoteItem, value: string | number) {
