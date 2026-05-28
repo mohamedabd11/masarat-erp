@@ -13,8 +13,9 @@ import { formatCurrency, formatDate, formatCount } from '@/lib/utils';
 import { cn } from '@/lib/utils';
 import {
   FileText, Search, X, Download, Printer, TrendingUp,
-  CheckCircle2, Clock, AlertCircle, AlertTriangle, ChevronRight,
+  CheckCircle2, Clock, AlertCircle, AlertTriangle, ChevronRight, Plus,
 } from 'lucide-react';
+import { CreateDirectInvoiceModal } from './CreateDirectInvoiceModal';
 
 type StatusFilter = 'all' | 'issued' | 'partial' | 'paid' | 'overdue';
 interface InvoicesClientProps { locale: string }
@@ -24,10 +25,11 @@ export function InvoicesClient({ locale }: InvoicesClientProps) {
   const fmtLocale = isAr ? 'ar-SA' : 'en-SA';
   const { user }  = useAuth();
 
-  const [invoices, setInvoices] = useState<Invoice[]>([]);
-  const [loading, setLoading]   = useState(true);
-  const [search, setSearch]     = useState('');
-  const [filter, setFilter]     = useState<StatusFilter>('all');
+  const [invoices,    setInvoices]    = useState<Invoice[]>([]);
+  const [loading,     setLoading]     = useState(true);
+  const [search,      setSearch]      = useState('');
+  const [filter,      setFilter]      = useState<StatusFilter>('all');
+  const [showCreate,  setShowCreate]  = useState(false);
 
   useEffect(() => {
     if (!user?.agencyId) { setLoading(false); return; }
@@ -105,6 +107,13 @@ export function InvoicesClient({ locale }: InvoicesClientProps) {
           <h1 className="text-2xl font-bold text-slate-900">{isAr ? 'الفواتير' : 'Invoices'}</h1>
           <p className="text-slate-500 text-sm mt-0.5">{isAr ? 'إدارة فواتير العملاء وتتبع المدفوعات' : 'Manage customer invoices and track payments'}</p>
         </div>
+        <button
+          onClick={() => setShowCreate(true)}
+          className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-brand-600 hover:bg-brand-700 text-white text-sm font-semibold transition-colors shadow-sm"
+        >
+          <Plus size={16} strokeWidth={2.5} />
+          {isAr ? 'إنشاء فاتورة' : 'New Invoice'}
+        </button>
         <button onClick={handleExport} className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl border border-slate-200 text-sm text-slate-600 hover:bg-slate-50 transition-colors font-medium">
           <Download size={14} />
           {isAr ? 'تصدير CSV' : 'Export CSV'}
@@ -264,6 +273,21 @@ export function InvoicesClient({ locale }: InvoicesClientProps) {
             </span>
           </div>
         </Card>
+      )}
+
+      {showCreate && (
+        <CreateDirectInvoiceModal
+          onClose={() => setShowCreate(false)}
+          onSuccess={(invoiceId, invoiceNumber) => {
+            setShowCreate(false);
+            // Reload invoices list to show the new one
+            if (user?.agencyId) {
+              apiFetch<{ invoices: Invoice[] }>('/api/invoices')
+                .then(d => setInvoices(d.invoices))
+                .catch(() => {});
+            }
+          }}
+        />
       )}
     </div>
   );

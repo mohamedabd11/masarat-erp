@@ -91,6 +91,9 @@ const formSchema = z.object({
   hotelName:    z.string().optional(),
   roomType:     z.string().optional(),
   boardType:    z.string().optional(),
+  hotelCheckIn:  z.string().optional(),
+  hotelCheckOut: z.string().optional(),
+  destination:   z.string().optional(),
   makkahHotel:  z.string().optional(),
   makkahNights: z.coerce.number().optional(),
   madinahHotel: z.string().optional(),
@@ -228,39 +231,86 @@ function ServiceFields({
   register: ReturnType<typeof useForm<FormData>>['register'];
 }) {
   if (type === 'flight' || type === 'flight_hotel') return (
-    <div className="grid grid-cols-2 gap-3">
-      <div>
-        <label className="block text-xs font-medium text-slate-600 mb-1">{isAr ? 'مدينة المغادرة' : 'From City'}</label>
-        <input className={IC} placeholder={isAr ? 'الرياض - RUH' : 'Riyadh - RUH'} {...register('fromCity')} />
+    <div className="space-y-4">
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <label className="block text-xs font-medium text-slate-600 mb-1">{isAr ? 'مدينة المغادرة' : 'From City'}</label>
+          <input className={IC} placeholder={isAr ? 'الرياض - RUH' : 'Riyadh - RUH'} {...register('fromCity')} />
+        </div>
+        <div>
+          <label className="block text-xs font-medium text-slate-600 mb-1">{isAr ? 'مدينة الوصول' : 'To City'}</label>
+          <input className={IC} placeholder={isAr ? 'جدة - JED' : 'Jeddah - JED'} {...register('toCity')} />
+        </div>
+        <div>
+          <label className="block text-xs font-medium text-slate-600 mb-1">{isAr ? 'تاريخ الذهاب' : 'Departure'}</label>
+          <input type="date" className={IC} {...register('departureDate')} />
+        </div>
+        <div>
+          <label className="block text-xs font-medium text-slate-600 mb-1">{isAr ? 'تاريخ العودة' : 'Return'}</label>
+          <input type="date" className={IC} {...register('returnDate')} />
+        </div>
+        <div>
+          <label className="block text-xs font-medium text-slate-600 mb-1">{isAr ? 'شركة الطيران' : 'Airline'}</label>
+          <input className={IC} placeholder={isAr ? 'الخطوط السعودية، flyadeal...' : 'Saudia, flyadeal...'} {...register('airline')} />
+        </div>
+        <div>
+          <label className="block text-xs font-medium text-slate-600 mb-1">{isAr ? 'رقم الرحلة / PNR' : 'Flight No / PNR'}</label>
+          <input className={IC} dir="ltr" placeholder="SV123 / ABC123" {...register('pnr')} />
+        </div>
+        <div className="col-span-2">
+          <label className="block text-xs font-medium text-slate-600 mb-1">{isAr ? 'الدرجة' : 'Cabin Class'}</label>
+          <select className={IC} {...register('flightClass')}>
+            <option value="economy">{isAr ? 'اقتصادية' : 'Economy'}</option>
+            <option value="business">{isAr ? 'رجال الأعمال' : 'Business'}</option>
+            <option value="first">{isAr ? 'الدرجة الأولى' : 'First Class'}</option>
+          </select>
+        </div>
       </div>
-      <div>
-        <label className="block text-xs font-medium text-slate-600 mb-1">{isAr ? 'مدينة الوصول' : 'To City'}</label>
-        <input className={IC} placeholder={isAr ? 'جدة - JED' : 'Jeddah - JED'} {...register('toCity')} />
-      </div>
-      <div>
-        <label className="block text-xs font-medium text-slate-600 mb-1">{isAr ? 'تاريخ الذهاب' : 'Departure'}</label>
-        <input type="date" className={IC} {...register('departureDate')} />
-      </div>
-      <div>
-        <label className="block text-xs font-medium text-slate-600 mb-1">{isAr ? 'تاريخ العودة' : 'Return'}</label>
-        <input type="date" className={IC} {...register('returnDate')} />
-      </div>
-      <div>
-        <label className="block text-xs font-medium text-slate-600 mb-1">{isAr ? 'شركة الطيران' : 'Airline'}</label>
-        <input className={IC} placeholder={isAr ? 'الخطوط السعودية، flyadeal...' : 'Saudia, flyadeal...'} {...register('airline')} />
-      </div>
-      <div>
-        <label className="block text-xs font-medium text-slate-600 mb-1">{isAr ? 'رقم الرحلة / PNR' : 'Flight No / PNR'}</label>
-        <input className={IC} dir="ltr" placeholder="SV123 / ABC123" {...register('pnr')} />
-      </div>
-      <div className="col-span-2">
-        <label className="block text-xs font-medium text-slate-600 mb-1">{isAr ? 'الدرجة' : 'Cabin Class'}</label>
-        <select className={IC} {...register('flightClass')}>
-          <option value="economy">{isAr ? 'اقتصادية' : 'Economy'}</option>
-          <option value="business">{isAr ? 'رجال الأعمال' : 'Business'}</option>
-          <option value="first">{isAr ? 'الدرجة الأولى' : 'First Class'}</option>
-        </select>
-      </div>
+
+      {type === 'flight_hotel' && (
+        <div className="border-t border-slate-200 pt-4">
+          <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-3">
+            {isAr ? '— تفاصيل الفندق —' : '— Hotel Details —'}
+          </p>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="col-span-2">
+              <label className="block text-xs font-medium text-slate-600 mb-1">{isAr ? 'اسم الفندق' : 'Hotel Name'}</label>
+              <input className={IC} placeholder={isAr ? 'اسم الفندق' : 'Hotel name'} {...register('hotelName')} />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-slate-600 mb-1">{isAr ? 'الوجهة / المدينة' : 'City / Destination'}</label>
+              <input className={IC} placeholder={isAr ? 'دبي، إسطنبول...' : 'Dubai, Istanbul...'} {...register('destination')} />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-slate-600 mb-1">{isAr ? 'نوع الغرفة' : 'Room Type'}</label>
+              <select className={IC} {...register('roomType')}>
+                <option value="single">{isAr ? 'مفردة' : 'Single'}</option>
+                <option value="double">{isAr ? 'مزدوجة' : 'Double'}</option>
+                <option value="triple">{isAr ? 'ثلاثية' : 'Triple'}</option>
+                <option value="suite">{isAr ? 'جناح' : 'Suite'}</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-slate-600 mb-1">{isAr ? 'تاريخ الدخول' : 'Check-in'}</label>
+              <input type="date" className={IC} {...register('hotelCheckIn')} />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-slate-600 mb-1">{isAr ? 'تاريخ المغادرة' : 'Check-out'}</label>
+              <input type="date" className={IC} {...register('hotelCheckOut')} />
+            </div>
+            <div className="col-span-2">
+              <label className="block text-xs font-medium text-slate-600 mb-1">{isAr ? 'الإقامة' : 'Board Type'}</label>
+              <select className={IC} {...register('boardType')}>
+                <option value="ro">{isAr ? 'غرفة فقط' : 'Room Only'}</option>
+                <option value="bb">{isAr ? 'إفطار' : 'Bed & Breakfast'}</option>
+                <option value="hb">{isAr ? 'نصف إقامة' : 'Half Board'}</option>
+                <option value="fb">{isAr ? 'إقامة كاملة' : 'Full Board'}</option>
+                <option value="ai">{isAr ? 'شامل' : 'All Inclusive'}</option>
+              </select>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 
@@ -571,6 +621,8 @@ function NewBookingContent() {
             fromCity: data.fromCity ?? null, toCity: data.toCity ?? null,
             airline: data.airline ?? null, flightClass: data.flightClass ?? null, pnr: data.pnr ?? null,
             hotelName: data.hotelName ?? null, roomType: data.roomType ?? null, boardType: data.boardType ?? null,
+            hotelCheckIn: data.hotelCheckIn ?? null, hotelCheckOut: data.hotelCheckOut ?? null,
+            hotelDestination: data.destination ?? null,
             makkahHotel: data.makkahHotel ?? null, makkahNights: data.makkahNights ?? null,
             madinahHotel: data.madinahHotel ?? null, madinahNights: data.madinahNights ?? null,
             visaCountry: data.visaCountry ?? null, visaType: data.visaType ?? null,
