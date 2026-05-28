@@ -15,6 +15,13 @@
       "when": 1748390400000,
       "tag": "0001_quotes_conversion_tracking",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1748476800000,
+      "tag": "0002_hr_suppliers_constraints",
+      "breakpoints": true
     }
   ]
 }

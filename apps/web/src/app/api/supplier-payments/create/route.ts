@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
+import { eq, and, sql } from 'drizzle-orm';
 import { db } from '@/lib/db';
-import { supplierPayments, journalEntries, journalLines } from '@/lib/schema';
+import { supplierPayments, suppliers, journalEntries, journalLines } from '@/lib/schema';
 import { verifyAuth, ApiAuthError } from '@/lib/api-auth';
 import { getNextPaymentVoucherNumber, getNextJournalNumber } from '@/lib/invoice-counter';
 
@@ -13,6 +14,7 @@ interface SupplierPaymentBody {
   notes?:          string;
   bookingId?:      string;
   bookingNumber?:  string;
+  supplierId?:     string;
 }
 
 const EXPENSE_ACCOUNT: Record<string, { code: string; ar: string; en: string }> = {
@@ -38,7 +40,7 @@ export async function POST(request: Request) {
     const { uid, agencyId } = await verifyAuth(request);
 
     const body = await request.json() as SupplierPaymentBody;
-    const { payeeName, expenseCategory, amountHalalas, paymentMethod, reference, notes, bookingId, bookingNumber } = body;
+    const { payeeName, expenseCategory, amountHalalas, paymentMethod, reference, notes, bookingId, bookingNumber, supplierId } = body;
 
     if (!payeeName || !expenseCategory || !paymentMethod) {
       return NextResponse.json({ error: 'بيانات مطلوبة ناقصة' }, { status: 400 });
@@ -64,6 +66,7 @@ export async function POST(request: Request) {
         id:              spId,
         agencyId,
         bookingId:       bookingId    ?? null,
+        supplierId:      supplierId   ?? null,
         payeeName,
         supplierName:    payeeName,
         amountHalalas,
@@ -77,6 +80,13 @@ export async function POST(request: Request) {
         journalEntryId:  jeId,
         createdBy:       uid,
       });
+
+      // Decrease supplier balance if a supplierId was provided (positive = we owe them)
+      if (supplierId) {
+        await tx.update(suppliers)
+          .set({ balanceHalalas: sql`${suppliers.balanceHalalas} - ${amountHalalas}`, updatedAt: now })
+          .where(and(eq(suppliers.id, supplierId), eq(suppliers.agencyId, agencyId)));
+      }
 
       await tx.insert(journalEntries).values({
         id:                 jeId,

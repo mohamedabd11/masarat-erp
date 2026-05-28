@@ -1,0 +1,137 @@
+import { NextResponse } from 'next/server';
+import { eq, and, desc } from 'drizzle-orm';
+import { db } from '@/lib/db';
+import { salaryPayments, employees, journalEntries, journalLines } from '@/lib/schema';
+import { verifyAuth, ApiAuthError } from '@/lib/api-auth';
+import { getNextJournalNumber } from '@/lib/invoice-counter';
+
+const METHOD_ACCOUNT: Record<string, { code: string; ar: string; en: string }> = {
+  cash:          { code: '1100', ar: 'الصندوق النقدي', en: 'Cash' },
+  bank_transfer: { code: '1110', ar: 'البنك',           en: 'Bank' },
+  card:          { code: '1115', ar: 'نقاط البيع',      en: 'POS / Card' },
+};
+
+const AC_SALARY = { code: '5100', ar: 'الرواتب والأجور', en: 'Salaries' };
+
+export async function GET(request: Request) {
+  try {
+    const { agencyId } = await verifyAuth(request);
+    const url        = new URL(request.url);
+    const employeeId = url.searchParams.get('employeeId') ?? undefined;
+
+    const conditions = [eq(salaryPayments.agencyId, agencyId)];
+    if (employeeId) conditions.push(eq(salaryPayments.employeeId, employeeId));
+
+    const rows = await db
+      .select()
+      .from(salaryPayments)
+      .where(and(...conditions))
+      .orderBy(desc(salaryPayments.createdAt));
+    return NextResponse.json({ salaryPayments: rows });
+  } catch (err) {
+    if (err instanceof ApiAuthError) return NextResponse.json({ error: err.message }, { status: err.status });
+    return NextResponse.json({ error: 'خطأ في الخادم' }, { status: 500 });
+  }
+}
+
+export async function POST(request: Request) {
+  try {
+    const { uid, agencyId } = await verifyAuth(request);
+    const body = await request.json() as {
+      employeeId:    string;
+      amountHalalas: number;
+      month:         string;            // YYYY-MM
+      paymentMethod?: string;
+      notes?:        string;
+    };
+
+    const { employeeId, amountHalalas, month } = body;
+    if (!employeeId || !month) {
+      return NextResponse.json({ error: 'employeeId و month مطلوبان' }, { status: 400 });
+    }
+    if (!Number.isInteger(amountHalalas) || amountHalalas <= 0) {
+      return NextResponse.json({ error: 'مبلغ الراتب غير صالح' }, { status: 400 });
+    }
+    if (!/^\d{4}-\d{2}$/.test(month)) {
+      return NextResponse.json({ error: 'صيغة الشهر يجب أن تكون YYYY-MM' }, { status: 400 });
+    }
+
+    const result = await db.transaction(async (tx) => {
+      // Verify employee belongs to this agency
+      const [employee] = await tx
+        .select({ id: employees.id, nameAr: employees.nameAr, endDate: employees.endDate })
+        .from(employees)
+        .where(and(eq(employees.id, employeeId), eq(employees.agencyId, agencyId)));
+      if (!employee) throw new Error('الموظف غير موجود');
+
+      // Warn: terminated employee
+      if (employee.endDate) {
+        const termDate  = new Date(employee.endDate);
+        const [yr, mo]  = month.split('-').map(Number) as [number, number];
+        const monthDate = new Date(yr, mo - 1, 1);
+        if (termDate < monthDate) {
+          throw new Error(`الموظف "${employee.nameAr}" أنهى خدمته في ${employee.endDate} — لا يمكن صرف راتب لهذا الشهر`);
+        }
+      }
+
+      // Prevent duplicate salary for same employee + month
+      const [existing] = await tx
+        .select({ id: salaryPayments.id })
+        .from(salaryPayments)
+        .where(and(eq(salaryPayments.employeeId, employeeId), eq(salaryPayments.month, month), eq(salaryPayments.agencyId, agencyId)))
+        .limit(1);
+      if (existing) throw new Error(`تم صرف راتب ${month} للموظف "${employee.nameAr}" مسبقاً`);
+
+      const now    = new Date();
+      const year   = now.getFullYear();
+      const today  = now.toISOString().split('T')[0]!;
+      const jeId   = crypto.randomUUID();
+      const jeNum  = await getNextJournalNumber(agencyId, year, tx);
+      const payId  = crypto.randomUUID();
+      const paymentMethod = body.paymentMethod ?? 'bank_transfer';
+      const cashAc = METHOD_ACCOUNT[paymentMethod] ?? METHOD_ACCOUNT['bank_transfer']!;
+
+      await tx.insert(salaryPayments).values({
+        id:            payId,
+        agencyId,
+        employeeId,
+        amountHalalas,
+        month,
+        paymentMethod,
+        notes:         body.notes ?? null,
+        journalEntryId: jeId,
+      });
+
+      await tx.insert(journalEntries).values({
+        id:                  jeId,
+        agencyId,
+        entryNumber:         jeNum,
+        date:                today,
+        descriptionAr:       `راتب ${employee.nameAr} — ${month}`,
+        descriptionEn:       `Salary ${employee.nameAr} — ${month}`,
+        source:              'manual',
+        sourceId:            payId,
+        isPosted:            true,
+        totalDebitHalalas:   amountHalalas,
+        totalCreditHalalas:  amountHalalas,
+        createdBy:           uid,
+      });
+
+      await tx.insert(journalLines).values([
+        { id: crypto.randomUUID(), entryId: jeId, agencyId, accountCode: AC_SALARY.code, accountNameAr: AC_SALARY.ar, accountNameEn: AC_SALARY.en, debitHalalas: amountHalalas, creditHalalas: 0,             sortOrder: 1 },
+        { id: crypto.randomUUID(), entryId: jeId, agencyId, accountCode: cashAc.code,    accountNameAr: cashAc.ar,    accountNameEn: cashAc.en,    debitHalalas: 0,             creditHalalas: amountHalalas, sortOrder: 2 },
+      ]);
+
+      return { id: payId };
+    });
+
+    return NextResponse.json({ success: true, ...result });
+  } catch (err) {
+    if (err instanceof ApiAuthError) {
+      return NextResponse.json({ error: err.message }, { status: err.status });
+    }
+    console.error(JSON.stringify({ event: 'salary_payment_failed', error: String(err) }));
+    const message = err instanceof Error ? err.message : 'خطأ في الخادم';
+    return NextResponse.json({ error: message }, { status: 500 });
+  }
+}

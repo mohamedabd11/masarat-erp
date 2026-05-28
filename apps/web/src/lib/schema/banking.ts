@@ -45,6 +45,7 @@ export const cheques = pgTable('cheques', {
   id:              text('id').primaryKey(),
   agencyId:        text('agency_id').notNull().references(() => agencies.id, { onDelete: 'cascade' }),
   chequeNumber:    text('cheque_number').notNull(),
+  bankAccountId:   text('bank_account_id').references(() => bankAccounts.id),
   bankName:        text('bank_name'),
   amountHalalas:   integer('amount_halalas').notNull(),
   type:            text('type').notNull(),                    // incoming|outgoing
