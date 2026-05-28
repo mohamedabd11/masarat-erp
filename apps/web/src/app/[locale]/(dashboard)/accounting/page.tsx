@@ -809,6 +809,9 @@ export default function AccountingPage() {
   const [entries, setEntries] = useState<JournalEntry[]>([]);
   const [loadingEntries, setLoadingEntries] = useState(true);
   const [showNewEntry, setShowNewEntry] = useState(false);
+  const [refreshKey, setRefreshKey] = useState(0);
+  const [fixingCodes, setFixingCodes] = useState(false);
+  const [fixResult, setFixResult] = useState<{ total: number } | null>(null);
 
   useEffect(() => {
     if (!agencyId) return;
@@ -829,7 +832,22 @@ export default function AccountingPage() {
     }
     void load();
     return () => { cancelled = true; };
-  }, [agencyId]);
+  }, [agencyId, refreshKey]);
+
+  async function handleFixJournalCodes() {
+    setFixingCodes(true);
+    setFixResult(null);
+    try {
+      const { apiFetch } = await import('@/lib/api-client');
+      const data = await apiFetch<{ total: number }>('/api/accounting/fix-journal-codes', { method: 'POST' });
+      setFixResult(data);
+      setRefreshKey(k => k + 1);
+    } catch {
+      // server returns 403 for non-admin; user will see no result
+    } finally {
+      setFixingCodes(false);
+    }
+  }
 
   const tabs: { id: TabId; labelAr: string; labelEn: string; icon: ReactNode }[] = [
     { id: 'chart',      labelAr: 'شجرة الحسابات',   labelEn: 'Chart of Accounts', icon: <ListTree size={16} /> },
@@ -946,6 +964,50 @@ export default function AccountingPage() {
 
         {activeTab === 'currencies' && (
           <CurrenciesClient locale={locale} />
+        )}
+
+        {/* Data maintenance — only shown in journal tab */}
+        {activeTab === 'journal' && (
+          <div className="mt-8 pt-6 border-t border-slate-200">
+            <details className="group">
+              <summary className="flex items-center gap-2 text-xs text-slate-400 cursor-pointer hover:text-slate-600 select-none list-none">
+                <Wrench size={13} />
+                {isAr ? 'أدوات الصيانة' : 'Maintenance Tools'}
+              </summary>
+              <div className="mt-3 p-4 bg-amber-50 border border-amber-200 rounded-xl space-y-3">
+                <p className="text-xs text-amber-800 font-medium">
+                  {isAr
+                    ? 'إصلاح رموز الحسابات في سندات الصرف القديمة (تشغيل مرة واحدة)'
+                    : 'Fix account codes on old supplier payments (run once)'}
+                </p>
+                <p className="text-xs text-amber-700">
+                  {isAr
+                    ? 'يصحح هذا الإجراء رموز الحسابات الخاطئة التي أُدخلت قبل الإصلاح: 5900→5400، 5100(تشغيلي)→5400، 5200(رواتب)→5100.'
+                    : 'Corrects wrong account codes entered before the fix: 5900→5400, 5100(operational)→5400, 5200(salaries)→5100.'}
+                </p>
+                <div className="flex items-center gap-3">
+                  <button
+                    onClick={handleFixJournalCodes}
+                    disabled={fixingCodes}
+                    className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-amber-600 text-white text-xs font-medium hover:bg-amber-700 disabled:opacity-50 transition-colors"
+                  >
+                    <Wrench size={12} />
+                    {fixingCodes
+                      ? (isAr ? 'جارٍ الإصلاح...' : 'Fixing...')
+                      : (isAr ? 'تشغيل الإصلاح' : 'Run Fix')}
+                  </button>
+                  {fixResult !== null && (
+                    <span className="text-xs text-emerald-700 font-medium">
+                      {isAr
+                        ? `تم إصلاح ${fixResult.total} سطر`
+                        : `${fixResult.total} lines fixed`}
+                      {fixResult.total === 0 && (isAr ? ' — لا شيء يحتاج إصلاح' : ' — nothing to fix')}
+                    </span>
+                  )}
+                </div>
+              </div>
+            </details>
+          </div>
         )}
 
       </div>
