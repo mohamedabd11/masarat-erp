@@ -1,6 +1,21 @@
 import { NextResponse } from 'next/server';
 import { ensureAdminApp } from '@/lib/firebase-admin';
 
+// ─── Validation helpers ───────────────────────────────────────────────────────
+
+const EMAIL_RE  = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
+const PHONE_RE  = /^[+\d\s\-()]{7,20}$/;
+const MAX_NAME  = 100;
+const MAX_EMAIL = 254;
+
+function validateEmail(v: string): string | null {
+  if (!EMAIL_RE.test(v)) return 'صيغة البريد الإلكتروني غير صحيحة';
+  if (v.length > MAX_EMAIL) return 'البريد الإلكتروني طويل جداً';
+  return null;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+
 type UserRole = 'admin' | 'agent' | 'accountant' | 'viewer';
 
 interface InviteUserRequest {
@@ -60,8 +75,19 @@ export async function POST(request: Request) {
     const email = body.email?.trim().toLowerCase();
 
     const VALID_ROLES: UserRole[] = ['admin', 'agent', 'accountant', 'viewer'];
-    if (!email || !nameAr?.trim() || !VALID_ROLES.includes(role)) {
-      return NextResponse.json({ error: 'بيانات مطلوبة ناقصة أو غير صالحة' }, { status: 400 });
+
+    // ── Input validation ──────────────────────────────────────────────────────
+    const emailErr = validateEmail(email ?? '');
+    if (emailErr) return NextResponse.json({ error: emailErr }, { status: 400 });
+    if (!nameAr?.trim())
+      return NextResponse.json({ error: 'اسم المستخدم مطلوب' }, { status: 400 });
+    if (nameAr.trim().length > MAX_NAME)
+      return NextResponse.json({ error: `الاسم يجب ألا يتجاوز ${MAX_NAME} حرفاً` }, { status: 400 });
+    if (!VALID_ROLES.includes(role))
+      return NextResponse.json({ error: 'الدور الوظيفي غير صالح' }, { status: 400 });
+    if (mobile?.trim()) {
+      const phoneErr = mobile.trim().length > 20 || !/^[+\d\s\-()]{7,20}$/.test(mobile.trim());
+      if (phoneErr) return NextResponse.json({ error: 'رقم الهاتف غير صالح' }, { status: 400 });
     }
 
     // التحقق من عدم تكرار البريد

@@ -1,6 +1,32 @@
 import { NextResponse } from 'next/server';
 import { ensureAdminApp } from '@/lib/firebase-admin';
 
+// ─── Validation helpers ───────────────────────────────────────────────────────
+
+const EMAIL_RE  = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
+const PHONE_RE  = /^[+\d\s\-()]{7,20}$/;
+const MAX_NAME  = 100;
+const MAX_EMAIL = 254;
+
+function validateEmail(v: string): string | null {
+  if (!EMAIL_RE.test(v)) return 'صيغة البريد الإلكتروني غير صحيحة';
+  if (v.length > MAX_EMAIL) return 'البريد الإلكتروني طويل جداً';
+  return null;
+}
+
+function validateName(v: string, label: string): string | null {
+  if (!v.trim()) return `${label} مطلوب`;
+  if (v.trim().length > MAX_NAME) return `${label} يجب ألا يتجاوز ${MAX_NAME} حرفاً`;
+  return null;
+}
+
+function validatePhone(v: string): string | null {
+  if (!PHONE_RE.test(v)) return 'رقم الهاتف غير صالح — أرقام وعلامات (+, -, مسافة) فقط';
+  return null;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+
 interface RegisterAgencyRequest {
   agencyNameAr: string;
   agencyNameEn?: string;
@@ -18,8 +44,23 @@ export async function POST(request: Request) {
     const { agencyNameAr, agencyNameEn, adminEmail, adminNameAr, adminNameEn, adminMobile } = body;
 
     const email = adminEmail?.trim().toLowerCase();
-    if (!agencyNameAr?.trim() || !email || !adminNameAr?.trim()) {
-      return NextResponse.json({ error: 'بيانات مطلوبة ناقصة' }, { status: 400 });
+
+    // ── Input validation ──────────────────────────────────────────────────────
+    const errors: string[] = [];
+    const nameErr     = validateName(agencyNameAr ?? '', 'اسم الوكالة بالعربي');
+    const adminErr    = validateName(adminNameAr   ?? '', 'اسم المدير بالعربي');
+    const emailErr    = validateEmail(email ?? '');
+    if (nameErr)  errors.push(nameErr);
+    if (adminErr) errors.push(adminErr);
+    if (emailErr) errors.push(emailErr);
+    if (agencyNameEn && agencyNameEn.trim().length > MAX_NAME)
+      errors.push(`اسم الوكالة بالإنجليزي يجب ألا يتجاوز ${MAX_NAME} حرفاً`);
+    if (adminMobile) {
+      const phoneErr = validatePhone(adminMobile.trim());
+      if (phoneErr) errors.push(phoneErr);
+    }
+    if (errors.length > 0) {
+      return NextResponse.json({ error: errors[0] }, { status: 400 });
     }
 
     const { getAuth } = await import('firebase-admin/auth');
