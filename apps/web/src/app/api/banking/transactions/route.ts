@@ -9,8 +9,18 @@ export async function POST(request: Request) {
   try {
     const { uid, agencyId } = await verifyAuth(request);
     const body = await request.json() as {
-      bankAccountId: string; type: string; amountHalalas: number;
-      description?: string; reference?: string; date: string;
+      bankAccountId:       string;
+      type:                string;    // 'deposit' | 'withdrawal'
+      amountHalalas:       number;
+      description?:        string;
+      reference?:          string;
+      date:                string;
+      // Optional: override the counter GL account.
+      // Deposit default  → 9001 (حساب تعليق - إيرادات غير مصنفة)
+      // Withdrawal default → 5400 (مصاريف تشغيلية)
+      counterAccountCode?: string;
+      counterAccountAr?:   string;
+      counterAccountEn?:   string;
     };
     if (!body.bankAccountId || !body.type || !body.amountHalalas || !body.date) {
       return NextResponse.json({ error: 'بيانات ناقصة' }, { status: 400 });
@@ -64,17 +74,24 @@ export async function POST(request: Request) {
         createdBy:           uid,
       });
 
+      // Counter-account: use caller-supplied code or a safe default.
+      // Deposits  → default 9001 (Suspense - Unclassified Receipts)   NOT Retained Earnings
+      // Withdrawals → default 5400 (Operating Expenses)
+      const counterCode = body.counterAccountCode ?? (isDeposit ? '9001' : '5400');
+      const counterAr   = body.counterAccountAr   ?? (isDeposit ? 'حساب تعليق - إيرادات غير مصنفة' : 'المصاريف التشغيلية');
+      const counterEn   = body.counterAccountEn   ?? (isDeposit ? 'Suspense - Unclassified Receipts' : 'Operating Expenses');
+
       if (isDeposit) {
-        // Deposit: Dr Bank/Cash, Cr Retained Earnings (3200) as suspense — user should reclassify
+        // Deposit: Dr Bank/Cash, Cr counter account
         await tx.insert(journalLines).values([
-          { id: crypto.randomUUID(), entryId: jeId, agencyId, accountCode: bankGlCode, accountNameAr: bankGlAr,             accountNameEn: bankGlEn,            debitHalalas: body.amountHalalas, creditHalalas: 0,                    sortOrder: 1 },
-          { id: crypto.randomUUID(), entryId: jeId, agencyId, accountCode: '3200',     accountNameAr: 'الأرباح المحتجزة',    accountNameEn: 'Retained Earnings', debitHalalas: 0,                   creditHalalas: body.amountHalalas, sortOrder: 2 },
+          { id: crypto.randomUUID(), entryId: jeId, agencyId, accountCode: bankGlCode,  accountNameAr: bankGlAr,   accountNameEn: bankGlEn,   debitHalalas: body.amountHalalas, creditHalalas: 0,                  sortOrder: 1 },
+          { id: crypto.randomUUID(), entryId: jeId, agencyId, accountCode: counterCode, accountNameAr: counterAr, accountNameEn: counterEn, debitHalalas: 0,                  creditHalalas: body.amountHalalas, sortOrder: 2 },
         ]);
       } else {
-        // Withdrawal: Dr Operating Expenses (5400), Cr Bank/Cash
+        // Withdrawal: Dr counter account, Cr Bank/Cash
         await tx.insert(journalLines).values([
-          { id: crypto.randomUUID(), entryId: jeId, agencyId, accountCode: '5400',     accountNameAr: 'المصاريف التشغيلية', accountNameEn: 'Operating Expenses', debitHalalas: body.amountHalalas, creditHalalas: 0,                    sortOrder: 1 },
-          { id: crypto.randomUUID(), entryId: jeId, agencyId, accountCode: bankGlCode, accountNameAr: bankGlAr,             accountNameEn: bankGlEn,             debitHalalas: 0,                   creditHalalas: body.amountHalalas, sortOrder: 2 },
+          { id: crypto.randomUUID(), entryId: jeId, agencyId, accountCode: counterCode, accountNameAr: counterAr,   accountNameEn: counterEn,   debitHalalas: body.amountHalalas, creditHalalas: 0,                  sortOrder: 1 },
+          { id: crypto.randomUUID(), entryId: jeId, agencyId, accountCode: bankGlCode,  accountNameAr: bankGlAr,    accountNameEn: bankGlEn,    debitHalalas: 0,                  creditHalalas: body.amountHalalas, sortOrder: 2 },
         ]);
       }
     });
