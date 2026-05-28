@@ -505,7 +505,21 @@ export async function POST(req: NextRequest) {
 
   try {
     const sql = neon(process.env.DATABASE_URL);
-    await sql.query(CREATE_TABLES_SQL);
+
+    // Strip single-line comments, split on semicolons, run each statement separately.
+    // Neon serverless doesn't allow multiple commands in one prepared statement.
+    const statements = CREATE_TABLES_SQL
+      .split('\n')
+      .filter(line => !line.trim().startsWith('--'))
+      .join('\n')
+      .split(';')
+      .map(s => s.trim())
+      .filter(s => s.length > 0);
+
+    for (const stmt of statements) {
+      await sql.query(stmt);
+    }
+
     return NextResponse.json({ ok: true, message: 'All tables created successfully' });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
