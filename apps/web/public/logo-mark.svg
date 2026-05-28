@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" role="img" aria-label="مسارات">
+  <!-- Navy circular background -->
+  <circle cx="50" cy="50" r="50" fill="#1B3A6B"/>
+  <!-- Gold accent ring -->
+  <circle cx="50" cy="50" r="46" fill="none" stroke="#C8962A" stroke-width="1.5" opacity="0.55"/>
+
+  <!--
+    Stylized Arabic م as a travel route:
+      Origin (arm tip, right) ─── horizontal arm ─── 330° clockwise loop (the م bowl) ─── tail ─── destination
+  -->
+  <path
+    d="M72,43 L60,43 A18,18 0 1 1 53,50 L53,70"
+    fill="none"
+    stroke="white"
+    stroke-width="6"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+  />
+
+  <!-- Origin: hollow gold ring (journey start) -->
+  <circle cx="72" cy="43" r="6.5" fill="#C8962A"/>
+  <circle cx="72" cy="43" r="3"   fill="#1B3A6B"/>
+
+  <!-- Destination: gold location pin (journey end) -->
+  <path d="M53,68 C48,68 44,72 44,76 C44,81 48,85 53,88 C58,85 62,81 62,76 C62,72 58,68 53,68 Z" fill="#C8962A"/>
+  <circle cx="53" cy="76" r="3" fill="#1B3A6B"/>
+</svg>
