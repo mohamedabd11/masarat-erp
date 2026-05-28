@@ -11,11 +11,13 @@ interface ReverseBody {
 }
 
 const EXPENSE_ACCOUNT: Record<string, { code: string; ar: string; en: string }> = {
-  supplier:    { code: '5000', ar: 'تكلفة الخدمات',   en: 'Cost of Services' },
-  operational: { code: '5100', ar: 'مصاريف تشغيلية',  en: 'Operating Expenses' },
-  salaries:    { code: '5200', ar: 'رواتب وأجور',       en: 'Salaries' },
-  office:      { code: '5300', ar: 'مصاريف مكتبية',    en: 'Office Expenses' },
-  other:       { code: '5900', ar: 'مصاريف أخرى',      en: 'Other Expenses' },
+  supplier:    { code: '5000', ar: 'تكلفة الخدمات',       en: 'Cost of Services' },
+  salaries:    { code: '5100', ar: 'الرواتب والأجور',     en: 'Salaries' },
+  rent:        { code: '5200', ar: 'الإيجار',             en: 'Rent' },
+  marketing:   { code: '5300', ar: 'التسويق والإعلان',    en: 'Marketing' },
+  operational: { code: '5400', ar: 'المصاريف التشغيلية',  en: 'Operating Expenses' },
+  office:      { code: '5400', ar: 'المصاريف التشغيلية',  en: 'Operating Expenses' },
+  other:       { code: '5400', ar: 'المصاريف التشغيلية',  en: 'Operating Expenses' },
 };
 
 const METHOD_ACCOUNT: Record<string, { code: string; ar: string; en: string }> = {

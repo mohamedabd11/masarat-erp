@@ -796,7 +796,7 @@ function NewEntryModal({
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
-type TabId = 'chart' | 'journal' | 'trial' | 'currencies' | 'tools';
+type TabId = 'chart' | 'journal' | 'currencies';
 
 export default function AccountingPage() {
   const locale = useLocale();
@@ -834,9 +834,7 @@ export default function AccountingPage() {
   const tabs: { id: TabId; labelAr: string; labelEn: string; icon: ReactNode }[] = [
     { id: 'chart',      labelAr: 'شجرة الحسابات',   labelEn: 'Chart of Accounts', icon: <ListTree size={16} /> },
     { id: 'journal',    labelAr: 'قيود اليومية',     labelEn: 'Journal Entries',   icon: <BookOpen size={16} /> },
-    { id: 'trial',      labelAr: 'ميزان المراجعة',   labelEn: 'Trial Balance',     icon: <Scale size={16} /> },
     { id: 'currencies', labelAr: 'العملات',           labelEn: 'Currencies',        icon: <DollarSign size={16} /> },
-    { id: 'tools',      labelAr: 'أدوات',             labelEn: 'Tools',             icon: <Wrench size={16} /> },
   ];
 
   return (
@@ -946,26 +944,10 @@ export default function AccountingPage() {
           )
         )}
 
-        {activeTab === 'trial' && (
-          <TrialBalanceTab locale={locale} />
-        )}
-
         {activeTab === 'currencies' && (
           <CurrenciesClient locale={locale} />
         )}
 
-        {activeTab === 'tools' && (
-          <div className="max-w-xl space-y-4">
-            <p className="text-sm text-slate-500">
-              {isAr
-                ? 'أدوات الإدارة — تُستخدم مرة واحدة أو عند الحاجة'
-                : 'Admin tools — run once or as needed'}
-            </p>
-            {process.env['NEXT_PUBLIC_SHOW_MIGRATION_TOOL'] === 'true' && (
-              <MigrationTool locale={locale} />
-            )}
-          </div>
-        )}
       </div>
 
       {/* New Entry Modal */}

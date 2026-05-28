@@ -17,19 +17,19 @@ import { ReceiptVoucherModal } from './ReceiptVoucherModal';
 import { ProcessRefundModal } from '@/components/bookings/ProcessRefundModal';
 import { apiFetch } from '@/lib/api-client';
 
-interface ReceiptPayment {
-  id: string;
-  agencyId: string;
-  bookingId?: string;
-  invoiceId?: string;
+// ─── Unified row type ─────────────────────────────────────────────────────────
+interface VoucherRow {
+  id:             string;
+  kind:           'payment' | 'receipt';   // payment = linked to invoice, receipt = standalone
+  voucherNumber:  string;
+  date:           string | null;
+  customerName:   string;
+  method:         string;
+  amountHalalas:  number;
   invoiceNumber?: string;
-  customerNameAr?: string;
-  customerNameEn?: string;
-  amountHalalas: number;
-  paymentMethod: string;
-  reference?: string;
-  receiptNumber?: string;
-  createdAt: string | null;
+  invoiceId?:     string;
+  bookingId?:     string;
+  isRefund:       boolean;
 }
 
 type MethodFilter = 'all' | 'cash' | 'bank_transfer' | 'card' | 'online';
@@ -52,6 +52,69 @@ function methodLabel(method: string, isAr: boolean) {
   return m ? (isAr ? m.ar : m.en) : method;
 }
 
+// ─── Reverse standalone receipt modal ────────────────────────────────────────
+function ReverseReceiptModal({
+  receipt, onClose, onSuccess, isAr,
+}: { receipt: VoucherRow; onClose: () => void; onSuccess: () => void; isAr: boolean }) {
+  const [reason, setReason] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [error,  setError]  = useState('');
+
+  async function handleReverse() {
+    setSaving(true);
+    setError('');
+    try {
+      await apiFetch(`/api/receipts/${receipt.id}/reverse`, {
+        method: 'POST',
+        body: JSON.stringify({ reason }),
+      });
+      onSuccess();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'خطأ غير معروف');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6 space-y-5">
+        <div>
+          <h2 className="text-lg font-bold text-slate-900">
+            {isAr ? 'عكس سند القبض' : 'Reverse Receipt'}
+          </h2>
+          <p className="text-sm text-slate-500 mt-1">
+            {isAr
+              ? `سيتم عكس سند القبض ${receipt.voucherNumber} وإنشاء قيد محاسبي معكوس.`
+              : `Receipt ${receipt.voucherNumber} will be reversed with a matching journal entry.`}
+          </p>
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-slate-700 mb-1">
+            {isAr ? 'سبب العكس (اختياري)' : 'Reason (optional)'}
+          </label>
+          <input
+            value={reason}
+            onChange={e => setReason(e.target.value)}
+            className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-400"
+            placeholder={isAr ? 'مثال: خطأ في الإدخال' : 'e.g. Data entry error'}
+          />
+        </div>
+        {error && <p className="text-sm text-red-600">{error}</p>}
+        <div className="flex gap-3 justify-end">
+          <Button variant="outline" onClick={onClose} disabled={saving}>
+            {isAr ? 'إلغاء' : 'Cancel'}
+          </Button>
+          <Button onClick={handleReverse} disabled={saving} className="bg-red-600 hover:bg-red-700">
+            {saving ? '...' : isAr ? 'تأكيد العكس' : 'Confirm Reverse'}
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Main component ───────────────────────────────────────────────────────────
 export function ReceiptVouchersClient() {
   const locale    = useLocale();
   const isAr      = locale === 'ar';
@@ -59,48 +122,89 @@ export function ReceiptVouchersClient() {
   const { user }  = useAuth();
   const agencyId  = (user?.agencyId as string | undefined) ?? null;
 
-  const [payments,    setPayments]   = useState<ReceiptPayment[]>([]);
+  const [rows,        setRows]       = useState<VoucherRow[]>([]);
   const [loading,     setLoading]    = useState(true);
   const [search,      setSearch]     = useState('');
   const [method,      setMethod]     = useState<MethodFilter>('all');
   const [showModal,   setShowModal]  = useState(false);
-  const [showRefund,  setShowRefund] = useState<ReceiptPayment | null>(null);
+  const [showRefund,  setShowRefund] = useState<VoucherRow | null>(null);
+  const [showReverse, setShowReverse] = useState<VoucherRow | null>(null);
   const [refreshKey,  setRefreshKey] = useState(0);
 
   useEffect(() => {
     if (!agencyId) { setLoading(false); return; }
     let cancelled = false;
+    setLoading(true);
 
-    apiFetch<{ payments: ReceiptPayment[] }>('/api/payments')
-      .then(d => {
-        if (cancelled) return;
-        const sorted = [...d.payments].sort((a, b) => {
-          const aTime = a.createdAt ? new Date(a.createdAt).getTime() : 0;
-          const bTime = b.createdAt ? new Date(b.createdAt).getTime() : 0;
-          return bTime - aTime;
-        });
-        setPayments(sorted);
-      })
-      .catch(() => {})
-      .finally(() => { if (!cancelled) setLoading(false); });
+    Promise.all([
+      apiFetch<{ payments: Array<{
+        id: string; invoiceId?: string; invoiceNumber?: string;
+        bookingId?: string; customerNameAr?: string; customerNameEn?: string;
+        amountHalalas: number; paymentMethod: string; receiptNumber?: string;
+        createdAt: string | null;
+      }> }>('/api/payments'),
+      apiFetch<{ receipts: Array<{
+        id: string; voucherNumber: string; customerName?: string;
+        amountHalalas: number; method: string; date: string;
+        isRefund?: string; createdAt: string | null;
+      }> }>('/api/receipts'),
+    ]).then(([pmtData, rctData]) => {
+      if (cancelled) return;
+
+      const paymentRows: VoucherRow[] = pmtData.payments.map(p => ({
+        id:            p.id,
+        kind:          'payment',
+        voucherNumber: p.receiptNumber ?? p.id.slice(-8).toUpperCase(),
+        date:          p.createdAt,
+        customerName:  isAr
+          ? (p.customerNameAr || p.customerNameEn || '—')
+          : (p.customerNameEn || p.customerNameAr || '—'),
+        method:        p.paymentMethod,
+        amountHalalas: p.amountHalalas,
+        invoiceNumber: p.invoiceNumber,
+        invoiceId:     p.invoiceId,
+        bookingId:     p.bookingId,
+        isRefund:      false,
+      }));
+
+      const receiptRows: VoucherRow[] = rctData.receipts.map(r => ({
+        id:            r.id,
+        kind:          'receipt',
+        voucherNumber: r.voucherNumber,
+        date:          r.createdAt ?? r.date,
+        customerName:  r.customerName ?? '—',
+        method:        r.method,
+        amountHalalas: r.amountHalalas,
+        isRefund:      r.isRefund === 'true',
+      }));
+
+      const all = [...paymentRows, ...receiptRows].sort((a, b) => {
+        const ta = a.date ? new Date(a.date).getTime() : 0;
+        const tb = b.date ? new Date(b.date).getTime() : 0;
+        return tb - ta;
+      });
+
+      setRows(all);
+    })
+    .catch(() => {})
+    .finally(() => { if (!cancelled) setLoading(false); });
 
     return () => { cancelled = true; };
-  }, [agencyId, showModal, refreshKey]);
+  }, [agencyId, isAr, showModal, refreshKey]);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
-    return payments.filter(p => {
-      if (method !== 'all' && p.paymentMethod !== method) return false;
+    return rows.filter(r => {
+      if (method !== 'all' && r.method !== method) return false;
       if (!q) return true;
-      const nameAr = (p.customerNameAr ?? '').toLowerCase();
-      const nameEn = (p.customerNameEn ?? '').toLowerCase();
-      const inv    = (p.invoiceNumber ?? '').toLowerCase();
-      const rcpt   = (p.receiptNumber ?? '').toLowerCase();
-      return nameAr.includes(q) || nameEn.includes(q) || inv.includes(q) || rcpt.includes(q);
+      return r.customerName.toLowerCase().includes(q)
+          || r.voucherNumber.toLowerCase().includes(q)
+          || (r.invoiceNumber ?? '').toLowerCase().includes(q);
     });
-  }, [payments, search, method]);
+  }, [rows, search, method]);
 
-  const totalHalalas = filtered.reduce((s, p) => s + p.amountHalalas, 0);
+  const totalHalalas = filtered.filter(r => !r.isRefund).reduce((s, r) => s + r.amountHalalas, 0);
+  const refundHalalas = filtered.filter(r => r.isRefund).reduce((s, r) => s + r.amountHalalas, 0);
 
   const methodFilters: { key: MethodFilter; ar: string; en: string }[] = [
     { key: 'all',          ar: 'الكل',        en: 'All' },
@@ -109,6 +213,8 @@ export function ReceiptVouchersClient() {
     { key: 'card',         ar: 'بطاقة',       en: 'Card' },
     { key: 'online',       ar: 'إلكتروني',   en: 'Online' },
   ];
+
+  const refresh = () => setRefreshKey(k => k + 1);
 
   return (
     <div className="space-y-6">
@@ -129,15 +235,14 @@ export function ReceiptVouchersClient() {
             </p>
           </div>
         </div>
-
         <div className="flex items-center gap-3 flex-shrink-0">
           {!loading && (
             <div className="bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-2 text-end">
               <p className="text-[10px] font-bold uppercase tracking-widest text-emerald-500">
-                {isAr ? 'إجمالي المعروض' : 'Showing Total'}
+                {isAr ? 'صافي المحصّل' : 'Net Collected'}
               </p>
               <p className="text-lg font-extrabold text-emerald-700 tabular-nums">
-                {formatCurrency(totalHalalas, fmtLocale)}
+                {formatCurrency(totalHalalas - refundHalalas, fmtLocale)}
               </p>
             </div>
           )}
@@ -149,30 +254,27 @@ export function ReceiptVouchersClient() {
       </div>
 
       {/* KPI */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
         {[
           {
-            label: isAr ? 'إجمالي المحصّل' : 'Total Collected',
-            value: formatCurrency(payments.reduce((s, p) => s + p.amountHalalas, 0), fmtLocale),
-            color: 'border-emerald-500',
-            bg: 'bg-emerald-50',
-            textColor: 'text-emerald-700',
+            label: isAr ? 'إجمالي المحصّل' : 'Total Received',
+            value: formatCurrency(rows.filter(r => !r.isRefund).reduce((s, r) => s + r.amountHalalas, 0), fmtLocale),
+            color: 'border-emerald-500', textColor: 'text-emerald-700',
+          },
+          {
+            label: isAr ? 'إجمالي المردودات' : 'Total Refunds',
+            value: formatCurrency(rows.filter(r => r.isRefund).reduce((s, r) => s + r.amountHalalas, 0), fmtLocale),
+            color: 'border-red-400', textColor: 'text-red-600',
           },
           {
             label: isAr ? 'عدد السندات' : 'Total Vouchers',
-            value: payments.length.toLocaleString(fmtLocale),
-            color: 'border-brand-500',
-            bg: 'bg-brand-50',
-            textColor: 'text-brand-700',
+            value: rows.filter(r => !r.isRefund).length.toLocaleString(fmtLocale),
+            color: 'border-brand-500', textColor: 'text-brand-700',
           },
           {
-            label: isAr ? 'متوسط الدفعة' : 'Avg. Payment',
-            value: payments.length > 0
-              ? formatCurrency(Math.round(payments.reduce((s, p) => s + p.amountHalalas, 0) / payments.length), fmtLocale)
-              : formatCurrency(0, fmtLocale),
-            color: 'border-amber-500',
-            bg: 'bg-amber-50',
-            textColor: 'text-amber-700',
+            label: isAr ? 'سندات القبض المستقلة' : 'Standalone Receipts',
+            value: rows.filter(r => r.kind === 'receipt' && !r.isRefund).length.toLocaleString(fmtLocale),
+            color: 'border-amber-400', textColor: 'text-amber-700',
           },
         ].map(k => (
           <div key={k.label} className={cn('bg-white rounded-xl border border-slate-200 shadow-sm p-4 border-s-4', k.color)}>
@@ -190,7 +292,7 @@ export function ReceiptVouchersClient() {
             type="text"
             value={search}
             onChange={e => setSearch(e.target.value)}
-            placeholder={isAr ? 'بحث بالعميل أو رقم الفاتورة أو السند...' : 'Search customer, invoice or receipt no...'}
+            placeholder={isAr ? 'بحث بالعميل أو رقم السند...' : 'Search customer or voucher no...'}
             className="w-full ps-9 pe-9 py-2 text-sm border border-slate-200 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-brand-400"
           />
           {search && (
@@ -199,7 +301,6 @@ export function ReceiptVouchersClient() {
             </button>
           )}
         </div>
-
         <div className="flex gap-1 flex-wrap">
           {methodFilters.map(f => (
             <button
@@ -226,28 +327,21 @@ export function ReceiptVouchersClient() {
           <Receipt size={36} className="mx-auto text-slate-200 mb-3" />
           <p className="text-slate-400 text-sm">
             {search || method !== 'all'
-              ? (isAr ? 'لا توجد نتائج مطابقة' : 'No matching results')
+              ? (isAr ? 'لا توجد نتائج' : 'No results')
               : (isAr ? 'لا توجد سندات قبض بعد' : 'No receipt vouchers yet')}
           </p>
-          {!search && method === 'all' && (
-            <p className="text-slate-300 text-xs mt-1">
-              {isAr
-                ? 'ستظهر هنا سندات القبض بعد تسجيل دفعات من العملاء'
-                : 'Receipt vouchers will appear here after recording customer payments'}
-            </p>
-          )}
         </Card>
       ) : (
         <Card padding="none">
           <div className="overflow-x-auto">
             <table className="w-full">
               <thead>
-                <tr className="bg-slate-50 border-b border-surface-border">
+                <tr className="bg-slate-50 border-b border-slate-200">
                   <th className="text-start ps-5 pe-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">
                     {isAr ? 'التاريخ' : 'Date'}
                   </th>
-                  <th className="text-start px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider hidden sm:table-cell">
-                    {isAr ? 'رقم السند' : 'Receipt #'}
+                  <th className="text-start px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">
+                    {isAr ? 'رقم السند' : 'Voucher #'}
                   </th>
                   <th className="text-start px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">
                     {isAr ? 'العميل' : 'Customer'}
@@ -261,70 +355,99 @@ export function ReceiptVouchersClient() {
                   <th className="text-end px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">
                     {isAr ? 'المبلغ' : 'Amount'}
                   </th>
-                  <th className="text-end px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">
-                    {isAr ? 'سند القبض' : 'Voucher'}
-                  </th>
-                  <th className="text-end pe-5 px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">
-                    {isAr ? 'استرداد' : 'Refund'}
+                  <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">
+                    {isAr ? 'إجراء' : 'Action'}
                   </th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-surface-border">
-                {filtered.map(p => {
-                  const date        = p.createdAt ? new Date(p.createdAt) : null;
-                  const customerName = isAr
-                    ? (p.customerNameAr || p.customerNameEn || '—')
-                    : (p.customerNameEn || p.customerNameAr || '—');
+              <tbody className="divide-y divide-slate-100">
+                {filtered.map(r => {
+                  const date = r.date ? new Date(r.date) : null;
                   return (
-                    <tr key={p.id} className="hover:bg-slate-50/60 transition-colors">
+                    <tr
+                      key={r.id}
+                      className={cn(
+                        'hover:bg-slate-50/60 transition-colors',
+                        r.isRefund && 'opacity-60 bg-red-50/30',
+                      )}
+                    >
                       <td className="ps-5 pe-3 py-3.5 text-sm text-slate-600 whitespace-nowrap">
                         {date ? formatDate(date, fmtLocale) : '—'}
                       </td>
-                      <td className="px-3 py-3.5 hidden sm:table-cell">
-                        <span className="text-xs font-mono text-slate-700 bg-slate-100 px-2 py-0.5 rounded">
-                          {p.receiptNumber ?? '—'}
-                        </span>
+                      <td className="px-3 py-3.5">
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-xs font-mono text-slate-700 bg-slate-100 px-2 py-0.5 rounded">
+                            {r.voucherNumber}
+                          </span>
+                          {r.isRefund && (
+                            <span className="text-[10px] font-bold text-red-600 bg-red-50 border border-red-200 px-1.5 py-0.5 rounded">
+                              {isAr ? 'عكس' : 'REV'}
+                            </span>
+                          )}
+                          {r.kind === 'receipt' && !r.isRefund && (
+                            <span className="text-[10px] font-bold text-amber-600 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded">
+                              {isAr ? 'مستقل' : 'RCPT'}
+                            </span>
+                          )}
+                        </div>
                       </td>
                       <td className="px-3 py-3.5">
-                        <p className="text-sm font-medium text-slate-900">{customerName}</p>
+                        <p className="text-sm font-medium text-slate-900">{r.customerName}</p>
                       </td>
                       <td className="px-3 py-3.5 hidden md:table-cell">
                         <span className="text-xs font-mono text-brand-700">
-                          {p.invoiceNumber ?? '—'}
+                          {r.invoiceNumber ?? '—'}
                         </span>
                       </td>
                       <td className="px-3 py-3.5 hidden sm:table-cell">
                         <span className="inline-flex items-center gap-1.5 text-xs text-slate-600 bg-slate-100 px-2.5 py-1 rounded-full font-medium">
-                          {methodIcon(p.paymentMethod)}
-                          {methodLabel(p.paymentMethod, isAr)}
+                          {methodIcon(r.method)}
+                          {methodLabel(r.method, isAr)}
                         </span>
                       </td>
                       <td className="px-3 py-3.5 text-end">
-                        <span className="text-sm font-bold font-mono tabular-nums text-emerald-700">
-                          {formatCurrency(p.amountHalalas, fmtLocale)}
+                        <span className={cn(
+                          'text-sm font-bold font-mono tabular-nums',
+                          r.isRefund ? 'text-red-600' : 'text-emerald-700',
+                        )}>
+                          {r.isRefund ? '−' : ''}{formatCurrency(r.amountHalalas, fmtLocale)}
                         </span>
                       </td>
-                      <td className="px-3 py-3.5 text-end">
-                        <Link
-                          href={`/${locale}/payments/${p.id}`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="inline-flex items-center gap-1 text-xs text-brand-600 hover:text-brand-700 font-medium"
-                        >
-                          <Printer size={13} />
-                          {isAr ? 'طباعة' : 'Print'}
-                        </Link>
-                      </td>
-                      <td className="pe-5 px-3 py-3.5 text-end">
-                        {p.invoiceId && p.bookingId && (
-                          <button
-                            onClick={() => setShowRefund(p)}
-                            className="inline-flex items-center gap-1 text-xs text-red-500 hover:text-red-700 font-medium transition-colors"
+                      <td className="px-3 py-3.5 text-center">
+                        <div className="flex items-center justify-center gap-2">
+                          {/* Print */}
+                          <Link
+                            href={`/${locale}/payments/${r.id}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1 text-xs text-brand-600 hover:text-brand-700 font-medium"
                           >
-                            <RotateCcw size={13} />
-                            {isAr ? 'استرداد' : 'Refund'}
-                          </button>
-                        )}
+                            <Printer size={13} />
+                            {isAr ? 'طباعة' : 'Print'}
+                          </Link>
+
+                          {/* Refund (booking-linked payment) */}
+                          {!r.isRefund && r.kind === 'payment' && r.invoiceId && r.bookingId && (
+                            <button
+                              onClick={() => setShowRefund(r)}
+                              className="inline-flex items-center gap-1 text-xs text-red-500 hover:text-red-700 font-medium transition-colors"
+                            >
+                              <RotateCcw size={13} />
+                              {isAr ? 'استرداد' : 'Refund'}
+                            </button>
+                          )}
+
+                          {/* Reverse (standalone receipt) */}
+                          {!r.isRefund && r.kind === 'receipt' && (
+                            <button
+                              onClick={() => setShowReverse(r)}
+                              className="inline-flex items-center gap-1 text-xs text-red-500 hover:text-red-700 font-medium transition-colors"
+                            >
+                              <RotateCcw size={13} />
+                              {isAr ? 'عكس' : 'Reverse'}
+                            </button>
+                          )}
+                        </div>
                       </td>
                     </tr>
                   );
@@ -335,8 +458,8 @@ export function ReceiptVouchersClient() {
                   <td colSpan={5} className="ps-5 pe-3 py-3.5">
                     <span className="text-sm font-bold text-slate-700">
                       {isAr
-                        ? `الإجمالي (${filtered.length} سند)`
-                        : `Total (${filtered.length} receipts)`}
+                        ? `الإجمالي (${filtered.filter(r => !r.isRefund).length} سند)`
+                        : `Total (${filtered.filter(r => !r.isRefund).length} vouchers)`}
                     </span>
                   </td>
                   <td className="px-3 py-3.5 text-end">
@@ -345,7 +468,6 @@ export function ReceiptVouchersClient() {
                     </span>
                   </td>
                   <td className="px-3 py-3.5" />
-                  <td className="pe-5 px-3 py-3.5" />
                 </tr>
               </tfoot>
             </table>
@@ -357,7 +479,7 @@ export function ReceiptVouchersClient() {
         <ReceiptVoucherModal
           agencyId={agencyId}
           onClose={() => setShowModal(false)}
-          onSuccess={() => setShowModal(false)}
+          onSuccess={() => { setShowModal(false); refresh(); }}
         />
       )}
 
@@ -368,7 +490,16 @@ export function ReceiptVouchersClient() {
           agencyId={agencyId}
           paidAmountHalalas={showRefund.amountHalalas}
           onClose={() => setShowRefund(null)}
-          onSuccess={() => { setShowRefund(null); setRefreshKey(k => k + 1); }}
+          onSuccess={() => { setShowRefund(null); refresh(); }}
+        />
+      )}
+
+      {showReverse && (
+        <ReverseReceiptModal
+          receipt={showReverse}
+          isAr={isAr}
+          onClose={() => setShowReverse(null)}
+          onSuccess={() => { setShowReverse(null); refresh(); }}
         />
       )}
     </div>
