@@ -5,21 +5,25 @@ import { supplierPayments, suppliers, journalEntries, journalLines } from '@/lib
 import { verifyAuth, ApiAuthError, BusinessError } from '@/lib/api-auth';
 import { getNextPaymentVoucherNumber, getNextJournalNumber } from '@/lib/invoice-counter';
 import { assertPeriodOpen } from '@/lib/period-lock';
+import { lookupFxRate, fxToHalalas } from '@/lib/fx';
+import type { Tx } from '@/lib/db';
 
 interface SupplierPaymentBody {
   payeeName:          string;
   expenseCategory:    string;
-  amountHalalas:      number;  // actual SAR paid (in halalas)
+  // SAR amount in halalas. If 0 or omitted AND foreignCurrency+foreignAmountMinor
+  // are provided, the system auto-looks up the rate and computes it.
+  amountHalalas:      number;
   paymentMethod:      string;
   reference?:         string;
   notes?:             string;
   bookingId?:         string;
   bookingNumber?:     string;
   supplierId?:        string;
-  // FX fields (IFRS 9) — omit for SAR-only payments
+  // FX fields (IFRS 9)
   foreignCurrency?:   string;  // e.g. 'USD', 'AED'
-  foreignAmountMinor?: number; // informational: amount in minor units of foreign currency
-  fxOriginalHalalas?: number;  // SAR equivalent at original booking rate; difference posted to 6100
+  foreignAmountMinor?: number; // amount in minor units (cents, fils, etc.)
+  fxOriginalHalalas?: number;  // SAR at original booking rate — if supplied, difference posts to 6100
 }
 
 const EXPENSE_ACCOUNT: Record<string, { code: string; ar: string; en: string }> = {
@@ -54,14 +58,36 @@ export async function POST(request: Request) {
     if (!payeeName || !expenseCategory || !paymentMethod) {
       return NextResponse.json({ error: 'بيانات مطلوبة ناقصة' }, { status: 400 });
     }
-    if (!Number.isInteger(amountHalalas) || amountHalalas <= 0) {
+
+    const today0 = new Date().toISOString().split('T')[0]!;
+
+    // ── FX auto-resolution ────────────────────────────────────────────────────
+    // If amountHalalas is 0/absent but foreignCurrency + foreignAmountMinor are
+    // supplied, look up the stored rate and compute the SAR amount automatically.
+    let resolvedAmountHalalas = amountHalalas;
+    let appliedFxRate:    number | null = null;  // decimal (e.g. 3.75), for the response
+    let appliedFxRateDate: string | null = null;
+
+    if (foreignCurrency && foreignAmountMinor && foreignAmountMinor > 0 && !amountHalalas) {
+      const fxRow = await lookupFxRate(agencyId, foreignCurrency, 'SAR', today0, db);
+      if (!fxRow) {
+        return NextResponse.json(
+          { error: `لا يوجد سعر صرف محدّث لـ ${foreignCurrency.toUpperCase()}/SAR. أضف سعر الصرف أولاً من إدارة الأسعار.` },
+          { status: 422 },
+        );
+      }
+      resolvedAmountHalalas = fxToHalalas(foreignAmountMinor, fxRow.storedRate);
+      appliedFxRate     = fxRow.storedRate / 10000;
+      appliedFxRateDate = fxRow.effectiveDate;
+    }
+
+    if (!Number.isInteger(resolvedAmountHalalas) || resolvedAmountHalalas <= 0) {
       return NextResponse.json({ error: 'مبلغ الدفعة غير صالح' }, { status: 400 });
     }
 
-    const today0 = new Date().toISOString().split('T')[0]!;
     await assertPeriodOpen(agencyId, today0, db);
 
-    const result = await db.transaction(async (tx) => {
+    const result = await db.transaction(async (tx: Tx) => {
       const now   = new Date();
       const year  = now.getFullYear();
       const today = now.toISOString().split('T')[0]!;
@@ -81,7 +107,7 @@ export async function POST(request: Request) {
         supplierId:      supplierId   ?? null,
         payeeName,
         supplierName:    payeeName,
-        amountHalalas,
+        amountHalalas:   resolvedAmountHalalas,
         method:          paymentMethod,
         reference:       reference    ?? null,
         voucherNumber,
@@ -96,17 +122,19 @@ export async function POST(request: Request) {
       // Decrease supplier balance if a supplierId was provided (positive = we owe them)
       if (supplierId) {
         await tx.update(suppliers)
-          .set({ balanceHalalas: sql`${suppliers.balanceHalalas} - ${amountHalalas}`, updatedAt: now })
+          .set({ balanceHalalas: sql`${suppliers.balanceHalalas} - ${resolvedAmountHalalas}`, updatedAt: now })
           .where(and(eq(suppliers.id, supplierId), eq(suppliers.agencyId, agencyId)));
       }
 
       // FX gain/loss (IFRS 9): if fxOriginalHalalas supplied, post difference to 6100
       const expenseDebit = (fxOriginalHalalas != null && fxOriginalHalalas > 0)
         ? fxOriginalHalalas
-        : amountHalalas;
-      const fxDiff = amountHalalas - expenseDebit; // >0 = loss, <0 = gain
+        : resolvedAmountHalalas;
+      const fxDiff = resolvedAmountHalalas - expenseDebit; // >0 = loss, <0 = gain
 
-      const fxNote = foreignCurrency ? ` (${foreignCurrency}${foreignAmountMinor != null ? ' ' + (foreignAmountMinor / 100).toFixed(2) : ''})` : '';
+      const fxNote = foreignCurrency
+        ? ` (${foreignCurrency}${foreignAmountMinor != null ? ' ' + (foreignAmountMinor / 100).toFixed(2) : ''}${appliedFxRate ? ' @ ' + appliedFxRate.toFixed(4) : ''})`
+        : '';
 
       await tx.insert(journalEntries).values({
         id:                 jeId,
@@ -117,8 +145,8 @@ export async function POST(request: Request) {
         source:             'payment',
         sourceId:           spId,
         isPosted:           true,
-        totalDebitHalalas:  amountHalalas,
-        totalCreditHalalas: amountHalalas,
+        totalDebitHalalas:  resolvedAmountHalalas,
+        totalCreditHalalas: resolvedAmountHalalas,
         createdBy:          uid,
       });
 
@@ -131,21 +159,27 @@ export async function POST(request: Request) {
       if (fxDiff > 0) {
         // FX Loss: paid more SAR than originally booked — Dr FX Loss (6100)
         lines.push({ id: crypto.randomUUID(), entryId: jeId, agencyId, accountCode: AC_FX.code, accountNameAr: AC_FX.ar, accountNameEn: AC_FX.en, debitHalalas: fxDiff, creditHalalas: 0, sortOrder: 2 });
-        lines.push({ id: crypto.randomUUID(), entryId: jeId, agencyId, accountCode: paymentAc.code, accountNameAr: paymentAc.ar, accountNameEn: paymentAc.en, debitHalalas: 0, creditHalalas: amountHalalas, sortOrder: 3 });
+        lines.push({ id: crypto.randomUUID(), entryId: jeId, agencyId, accountCode: paymentAc.code, accountNameAr: paymentAc.ar, accountNameEn: paymentAc.en, debitHalalas: 0, creditHalalas: resolvedAmountHalalas, sortOrder: 3 });
       } else if (fxDiff < 0) {
         // FX Gain: paid less SAR than originally booked — Cr FX Gain (6100)
-        lines.push({ id: crypto.randomUUID(), entryId: jeId, agencyId, accountCode: paymentAc.code, accountNameAr: paymentAc.ar, accountNameEn: paymentAc.en, debitHalalas: 0, creditHalalas: amountHalalas, sortOrder: 2 });
+        lines.push({ id: crypto.randomUUID(), entryId: jeId, agencyId, accountCode: paymentAc.code, accountNameAr: paymentAc.ar, accountNameEn: paymentAc.en, debitHalalas: 0, creditHalalas: resolvedAmountHalalas, sortOrder: 2 });
         lines.push({ id: crypto.randomUUID(), entryId: jeId, agencyId, accountCode: AC_FX.code, accountNameAr: AC_FX.ar, accountNameEn: AC_FX.en, debitHalalas: 0, creditHalalas: -fxDiff, sortOrder: 3 });
       } else {
-        lines.push({ id: crypto.randomUUID(), entryId: jeId, agencyId, accountCode: paymentAc.code, accountNameAr: paymentAc.ar, accountNameEn: paymentAc.en, debitHalalas: 0, creditHalalas: amountHalalas, sortOrder: 2 });
+        lines.push({ id: crypto.randomUUID(), entryId: jeId, agencyId, accountCode: paymentAc.code, accountNameAr: paymentAc.ar, accountNameEn: paymentAc.en, debitHalalas: 0, creditHalalas: resolvedAmountHalalas, sortOrder: 2 });
       }
 
       await tx.insert(journalLines).values(lines);
 
-      return { id: spId, voucherNumber };
+      return { id: spId, voucherNumber, resolvedAmountHalalas, appliedFxRate, appliedFxRateDate };
     });
 
-    return NextResponse.json({ success: true, ...result });
+    const { resolvedAmountHalalas: computedAmount, appliedFxRate: fxRate, appliedFxRateDate: fxRateDate, ...rest } = result;
+    return NextResponse.json({
+      success: true,
+      ...rest,
+      amountHalalas: computedAmount,
+      ...(fxRate !== null ? { appliedFxRate: fxRate, appliedFxRateDate: fxRateDate } : {}),
+    });
   } catch (err) {
     if (err instanceof ApiAuthError) {
       return NextResponse.json({ error: err.message }, { status: err.status });

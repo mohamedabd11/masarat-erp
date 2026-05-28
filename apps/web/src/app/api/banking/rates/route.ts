@@ -1,8 +1,41 @@
 import { NextResponse } from 'next/server';
-import { eq } from 'drizzle-orm';
+import { eq, and, desc } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { exchangeRates } from '@/lib/schema';
 import { verifyAuth, ApiAuthError } from '@/lib/api-auth';
+
+// GET /api/banking/rates?currency=USD&toCurrency=SAR
+// Returns all stored rates (latest first), optionally filtered by fromCurrency.
+export async function GET(request: Request) {
+  try {
+    const { agencyId } = await verifyAuth(request);
+    const url      = new URL(request.url);
+    const currency = url.searchParams.get('currency')?.toUpperCase();
+    const to       = url.searchParams.get('toCurrency')?.toUpperCase() ?? 'SAR';
+
+    const conditions = [eq(exchangeRates.agencyId, agencyId), eq(exchangeRates.toCurrency, to)];
+    if (currency) conditions.push(eq(exchangeRates.fromCurrency, currency));
+
+    const rows = await db.select().from(exchangeRates)
+      .where(and(...conditions))
+      .orderBy(desc(exchangeRates.effectiveDate));
+
+    // Express the stored rate (× 10000) back as a decimal for the caller
+    const rates = rows.map((r: typeof rows[number]) => ({
+      id:            r.id,
+      fromCurrency:  r.fromCurrency,
+      toCurrency:    r.toCurrency,
+      rate:          r.rate / 10000,        // e.g. 3.75
+      storedRate:    r.rate,                // raw value for debugging
+      effectiveDate: r.effectiveDate,
+    }));
+
+    return NextResponse.json({ rates });
+  } catch (err) {
+    if (err instanceof ApiAuthError) return NextResponse.json({ error: err.message }, { status: err.status });
+    return NextResponse.json({ error: 'خطأ في الخادم' }, { status: 500 });
+  }
+}
 
 export async function POST(request: Request) {
   try {
