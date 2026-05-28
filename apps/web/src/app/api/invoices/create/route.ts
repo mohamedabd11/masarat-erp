@@ -126,39 +126,41 @@ export async function POST(request: Request) {
           status:          'issued',
           isEInvoice:      isVatRegistered,
           items:           [{ description: typeLabel.ar, quantity: 1, unitPriceHalalas: subtotalExclVat, vatHalalas: totalVat, totalHalalas: finalGrandTotal }],
-          journalEntryId:  jeId,
+          journalEntryId:  jLines.length > 0 ? jeId : null,
           createdBy:       uid,
           zatcaUuid:       crypto.randomUUID(),
         });
 
-        await tx.insert(journalEntries).values({
-          id:                  jeId,
-          agencyId,
-          entryNumber:         jeNumber,
-          date:                today,
-          descriptionAr:       `فاتورة رقم ${invoiceNumber} - ${typeLabel.ar}`,
-          descriptionEn:       `Invoice ${invoiceNumber} - ${typeLabel.en}`,
-          source:              'invoice',
-          sourceId:            invoiceId,
-          isPosted:            true,
-          totalDebitHalalas:   jLines.reduce((s, l) => s + l.dr, 0),
-          totalCreditHalalas:  jLines.reduce((s, l) => s + l.cr, 0),
-          createdBy:           uid,
-        });
-
-        for (let i = 0; i < jLines.length; i++) {
-          const l = jLines[i]!;
-          await tx.insert(journalLines).values({
-            id:            crypto.randomUUID(),
-            entryId:       jeId,
+        if (jLines.length > 0) {
+          await tx.insert(journalEntries).values({
+            id:                  jeId,
             agencyId,
-            accountCode:   l.code,
-            accountNameAr: l.ar,
-            accountNameEn: l.en,
-            debitHalalas:  l.dr,
-            creditHalalas: l.cr,
-            sortOrder:     i + 1,
+            entryNumber:         jeNumber,
+            date:                today,
+            descriptionAr:       `فاتورة رقم ${invoiceNumber} - ${typeLabel.ar}`,
+            descriptionEn:       `Invoice ${invoiceNumber} - ${typeLabel.en}`,
+            source:              'invoice',
+            sourceId:            invoiceId,
+            isPosted:            true,
+            totalDebitHalalas:   jLines.reduce((s, l) => s + l.dr, 0),
+            totalCreditHalalas:  jLines.reduce((s, l) => s + l.cr, 0),
+            createdBy:           uid,
           });
+
+          for (let i = 0; i < jLines.length; i++) {
+            const l = jLines[i]!;
+            await tx.insert(journalLines).values({
+              id:            crypto.randomUUID(),
+              entryId:       jeId,
+              agencyId,
+              accountCode:   l.code,
+              accountNameAr: l.ar,
+              accountNameEn: l.en,
+              debitHalalas:  l.dr,
+              creditHalalas: l.cr,
+              sortOrder:     i + 1,
+            });
+          }
         }
 
         // Update booking status

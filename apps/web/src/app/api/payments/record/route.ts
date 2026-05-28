@@ -107,7 +107,7 @@ export async function POST(request: Request) {
         ]);
 
         await tx.update(invoices)
-          .set({ paidHalalas: newPaidHalalas, status: isFullyPaid ? 'paid' : 'issued', updatedAt: now })
+          .set({ paidHalalas: newPaidHalalas, status: isFullyPaid ? 'paid' : 'partial', updatedAt: now })
           .where(eq(invoices.id, invoiceId));
 
         await tx.update(bookings)
