@@ -73,9 +73,9 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
           setDaysRemaining(null);
         }
       } catch {
-        // On network / token errors don't falsely mark subscription as cancelled.
-        // Keep status as trial with unknown days — isExpired stays false.
-        if (!cancelled) { setStatus('trial'); setDaysRemaining(null); }
+        // On network / token errors: default to full trial access.
+        // plan='trial' ensures canAccess() grants rank-10 (all features unlocked).
+        if (!cancelled) { setStatus('trial'); setPlan('trial'); setDaysRemaining(null); }
       } finally {
         if (!cancelled) setIsLoading(false);
       }
@@ -93,9 +93,10 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
     status === 'cancelled'
   );
 
-  // Optimistic while loading; super-admin always passes
+  // Optimistic while loading; super-admin and trial always pass
   function canAccess(feature: FeatureKey): boolean {
     if (isLoading || isSuperAdmin) return true;
+    if (status === 'trial' || plan === 'trial' || plan === 'lifetime') return true;
     return planCanAccess(plan, feature);
   }
 

@@ -58,14 +58,21 @@ export function useAuth(): UseAuthReturn {
 
       try {
         // جلب الـ Custom Claims من الـ token
-        const token = await firebaseUser.getIdTokenResult();
-        const claims = token.claims as unknown as MasaratClaims;
+        let token = await firebaseUser.getIdTokenResult();
+        let claims = token.claims as unknown as MasaratClaims;
+
+        // If agencyId is missing (e.g. freshly-set custom claims not yet in cached token),
+        // force-refresh once so the latest claims are included.
+        if (!claims.agencyId) {
+          token  = await firebaseUser.getIdTokenResult(true);
+          claims = token.claims as unknown as MasaratClaims;
+        }
 
         setUser({
           uid: firebaseUser.uid,
           email: firebaseUser.email,
           displayName: firebaseUser.displayName,
-          agencyId: claims.agencyId ?? firebaseUser.uid,
+          agencyId: claims.agencyId ?? '',
           claims,
         });
       } catch {

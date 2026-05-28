@@ -4,7 +4,7 @@ import { useLocale } from 'next-intl';
 import { MessageCircle, Mail, Clock, Zap } from 'lucide-react';
 
 const WHATSAPP_NUMBER = '249969837823';
-const SUPPORT_EMAIL   = 'zoolsamet4@gmail.com';
+const SUPPORT_EMAIL   = 'mohamed@masarat-erp.com';
 
 function whatsappUrl(msgAr: string) {
   return `https://wa.me/${WHATSAPP_NUMBER}?text=${encodeURIComponent(msgAr)}`;
