@@ -101,6 +101,10 @@ export async function POST(request: Request) {
     if (msg === 'NO_TOKEN' || msg === 'FORBIDDEN') {
       return NextResponse.json({ error: 'ممنوع الوصول' }, { status: 403 });
     }
+    // Validation errors thrown inside the try block return 400
+    if (msg.startsWith('VALIDATION:')) {
+      return NextResponse.json({ error: msg.replace('VALIDATION:', '').trim() }, { status: 400 });
+    }
     console.error('[admin/action]', err);
     return NextResponse.json({ error: 'خطأ في الخادم' }, { status: 500 });
   }

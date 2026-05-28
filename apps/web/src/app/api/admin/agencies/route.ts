@@ -58,6 +58,7 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: 'ممنوع الوصول' }, { status: 403 });
     }
     console.error('[admin/agencies]', msg);
-    return NextResponse.json({ error: msg }, { status: 500 });
+    // Never leak raw internal error messages to clients
+    return NextResponse.json({ error: 'خطأ في تحميل البيانات' }, { status: 500 });
   }
 }
