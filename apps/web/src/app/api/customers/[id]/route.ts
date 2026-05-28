@@ -134,6 +134,30 @@ export async function DELETE(
       return NextResponse.json({ error: 'العميل غير موجود' }, { status: 404 });
     }
 
+    const [hasInvoice] = await db
+      .select({ id: invoices.id })
+      .from(invoices)
+      .where(and(eq(invoices.customerId, id), eq(invoices.agencyId, agencyId)))
+      .limit(1);
+    if (hasInvoice) {
+      return NextResponse.json(
+        { error: 'لا يمكن حذف العميل لوجود فواتير مرتبطة به. قم بتعطيله بدلاً من الحذف.' },
+        { status: 422 },
+      );
+    }
+
+    const [hasBooking] = await db
+      .select({ id: bookings.id })
+      .from(bookings)
+      .where(and(eq(bookings.customerId, id), eq(bookings.agencyId, agencyId)))
+      .limit(1);
+    if (hasBooking) {
+      return NextResponse.json(
+        { error: 'لا يمكن حذف العميل لوجود حجوزات مرتبطة به. قم بتعطيله بدلاً من الحذف.' },
+        { status: 422 },
+      );
+    }
+
     await db
       .delete(customers)
       .where(and(eq(customers.id, id), eq(customers.agencyId, agencyId)));

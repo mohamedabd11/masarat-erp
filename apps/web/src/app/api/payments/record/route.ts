@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { eq, and } from 'drizzle-orm';
+import { eq, and, sql } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { invoices, bookings, payments, journalEntries, journalLines, idempotencyKeys } from '@/lib/schema';
 import { verifyAuth, ApiAuthError, BusinessError } from '@/lib/api-auth';
@@ -49,17 +49,15 @@ export async function POST(request: Request) {
         if (!invoice) throw new BusinessError(`الفاتورة ${invoiceId} غير موجودة`, 404);
         if (invoice.bookingId !== bookingId) throw new BusinessError('الفاتورة لا تنتمي لهذا الحجز', 400);
 
-        // ── 2. Validate ────────────────────────────────────────────────────
+        // ── 2. Validate (fast-fail before any writes) ──────────────────────
         const currentDue = invoice.totalHalalas - invoice.paidHalalas;
         if (amountHalalas > currentDue) {
           throw new BusinessError(`المبلغ (${amountHalalas / 100} ر.س) يتجاوز المستحق (${currentDue / 100} ر.س)`, 400);
         }
 
         // ── 3. Calculate ────────────────────────────────────────────────────
-        const now = new Date();
+        const now  = new Date();
         const year = now.getFullYear();
-        const newPaidHalalas = invoice.paidHalalas + amountHalalas;
-        const isFullyPaid    = newPaidHalalas >= invoice.totalHalalas;
 
         // ── 4. Counters + IDs ───────────────────────────────────────────────
         const receiptNumber = await getNextReceiptNumber(agencyId, year, tx);
@@ -106,12 +104,32 @@ export async function POST(request: Request) {
           { id: crypto.randomUUID(), entryId: jeId, agencyId, accountCode: AC_RECEIVABLE.code, accountNameAr: AC_RECEIVABLE.ar, accountNameEn: AC_RECEIVABLE.en, debitHalalas: 0, creditHalalas: amountHalalas, sortOrder: 2 },
         ]);
 
-        await tx.update(invoices)
-          .set({ paidHalalas: newPaidHalalas, status: isFullyPaid ? 'paid' : 'partial', updatedAt: now })
-          .where(eq(invoices.id, invoiceId));
+        // Atomic update: only succeeds if remaining due still covers the amount.
+        // This prevents double-payment from concurrent requests that both passed the
+        // fast-fail check above with the same snapshot.
+        const [updatedInvoice] = await tx.update(invoices)
+          .set({
+            paidHalalas: sql`${invoices.paidHalalas} + ${amountHalalas}`,
+            status: sql`CASE WHEN ${invoices.paidHalalas} + ${amountHalalas} >= ${invoices.totalHalalas} THEN 'paid' ELSE 'partial' END`,
+            updatedAt: now,
+          })
+          .where(
+            and(
+              eq(invoices.id, invoiceId),
+              sql`(${invoices.totalHalalas} - ${invoices.paidHalalas}) >= ${amountHalalas}`,
+            ),
+          )
+          .returning({ paidHalalas: invoices.paidHalalas, totalHalalas: invoices.totalHalalas });
+
+        if (!updatedInvoice) {
+          throw new BusinessError('تعذّر تسجيل الدفعة — قد تكون دفعة أخرى سجّلت في نفس الوقت، حاول مجدداً', 400);
+        }
+
+        const newPaidHalalas = updatedInvoice.paidHalalas;
+        const isFullyPaid    = newPaidHalalas >= updatedInvoice.totalHalalas;
 
         await tx.update(bookings)
-          .set({ paidHalalas: newPaidHalalas, updatedAt: now })
+          .set({ paidHalalas: sql`${bookings.paidHalalas} + ${amountHalalas}`, updatedAt: now })
           .where(eq(bookings.id, bookingId));
 
         await tx.insert(idempotencyKeys)
@@ -121,7 +139,7 @@ export async function POST(request: Request) {
         return {
           paymentId,
           receiptNumber,
-          remainingDueHalalas: currentDue - amountHalalas,
+          remainingDueHalalas: updatedInvoice.totalHalalas - newPaidHalalas,
           invoiceStatus: isFullyPaid ? 'fully_paid' : 'partial',
         };
       });

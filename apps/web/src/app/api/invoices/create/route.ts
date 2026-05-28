@@ -229,6 +229,10 @@ export async function POST(request: Request) {
     if (err instanceof BusinessError) {
       return NextResponse.json({ error: err.message }, { status: err.status });
     }
+    // PostgreSQL unique_violation (23505) — duplicate invoice for same booking
+    if (err && typeof err === 'object' && 'code' in err && (err as { code: string }).code === '23505') {
+      return NextResponse.json({ error: 'الحجز لديه فاتورة بالفعل' }, { status: 409 });
+    }
     console.error(JSON.stringify({ event: 'create_invoice_failed', error: String(err) }));
     return NextResponse.json({ error: 'خطأ في الخادم' }, { status: 500 });
   }
