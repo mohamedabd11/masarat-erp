@@ -6,6 +6,7 @@ import { verifyAuth, ApiAuthError } from '@/lib/api-auth';
 import { withIdempotency, buildIdempotencyInsert } from '@/lib/idempotency';
 import { idempotencyKeys } from '@/lib/schema';
 import { getNextInvoiceNumber, getNextJournalNumber } from '@/lib/invoice-counter';
+import { assertPeriodOpen } from '@/lib/period-lock';
 
 const AC = {
   receivable:       { code: '1120', ar: 'ذمم مدينة - عملاء',           en: 'Accounts Receivable' },
@@ -56,8 +57,11 @@ export async function POST(request: Request) {
         ).limit(1);
         if (existingInvoice) throw new Error(`الحجز ${bookingId} لديه فاتورة بالفعل`);
 
-        // ── 3. Calculate amounts ────────────────────────────────────────────
+        // ── 3. Period lock check ────────────────────────────────────────────
         const now = new Date();
+        await assertPeriodOpen(agencyId, now.toISOString().split('T')[0]!, tx);
+
+        // ── 3b. Calculate amounts ────────────────────────────────────────────
         const year = now.getFullYear();
         const isVatRegistered = agency.isVatRegistered === true;
         const vatRateDecimal  = (agency.vatRate ?? 15) / 100;

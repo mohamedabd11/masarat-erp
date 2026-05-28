@@ -1,4 +1,4 @@
-import { pgTable, text, integer, boolean, timestamp } from 'drizzle-orm/pg-core';
+import { pgTable, text, integer, boolean, timestamp, uniqueIndex } from 'drizzle-orm/pg-core';
 import { agencies } from './agencies';
 
 // ── Chart of Accounts ─────────────────────────────────────────────────────
@@ -98,3 +98,23 @@ export const costCenters = pgTable('cost_centers', {
 
 export type CostCenter    = typeof costCenters.$inferSelect;
 export type NewCostCenter = typeof costCenters.$inferInsert;
+
+// ── Accounting Period Locks ────────────────────────────────────────────────
+
+export const accountingPeriods = pgTable('accounting_periods', {
+  id:          text('id').primaryKey(),
+  agencyId:    text('agency_id').notNull().references(() => agencies.id, { onDelete: 'cascade' }),
+  periodYear:  integer('period_year').notNull(),
+  periodMonth: integer('period_month').notNull(),         // 1–12
+  isLocked:    boolean('is_locked').notNull().default(false),
+  lockedAt:    timestamp('locked_at'),
+  lockedBy:    text('locked_by'),
+  notes:       text('notes'),
+  createdAt:   timestamp('created_at').notNull().defaultNow(),
+  updatedAt:   timestamp('updated_at').notNull().defaultNow(),
+}, (t) => [
+  uniqueIndex('accounting_periods_agency_ym_uq').on(t.agencyId, t.periodYear, t.periodMonth),
+]);
+
+export type AccountingPeriod    = typeof accountingPeriods.$inferSelect;
+export type NewAccountingPeriod = typeof accountingPeriods.$inferInsert;

@@ -4,6 +4,7 @@ import { db } from '@/lib/db';
 import { bankAccounts, bankTransactions, journalEntries, journalLines } from '@/lib/schema';
 import { verifyAuth, ApiAuthError } from '@/lib/api-auth';
 import { getNextJournalNumber } from '@/lib/invoice-counter';
+import { assertPeriodOpen } from '@/lib/period-lock';
 
 export async function POST(request: Request) {
   try {
@@ -25,6 +26,7 @@ export async function POST(request: Request) {
     if (!body.bankAccountId || !body.type || !body.amountHalalas || !body.date) {
       return NextResponse.json({ error: 'بيانات ناقصة' }, { status: 400 });
     }
+    await assertPeriodOpen(agencyId, body.date, db);
 
     const [account] = await db
       .select({ id: bankAccounts.id, currentBalanceHalalas: bankAccounts.currentBalanceHalalas, type: bankAccounts.type, nameAr: bankAccounts.nameAr })

@@ -2,14 +2,16 @@ import { NextResponse } from 'next/server';
 import { eq, and, desc, gte, lte, inArray } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { journalEntries, journalLines } from '@/lib/schema';
-import { verifyAuth, ApiAuthError } from '@/lib/api-auth';
+import { verifyAuth, assertRole, ApiAuthError, ROLES_ACCOUNTANT_UP } from '@/lib/api-auth';
+import { assertPeriodOpen } from '@/lib/period-lock';
 
 const DEFAULT_PAGE_SIZE = 100;
 const MAX_PAGE_SIZE     = 500;
 
 export async function POST(request: Request) {
   try {
-    const { agencyId, uid } = await verifyAuth(request);
+    const { agencyId, uid, role } = await verifyAuth(request);
+    assertRole(role, [...ROLES_ACCOUNTANT_UP]);
     const body = await request.json() as {
       entryNumber: string;
       date: string;
@@ -30,6 +32,7 @@ export async function POST(request: Request) {
         memo?: string;
       }>;
     };
+    await assertPeriodOpen(agencyId, body.date, db);
     const id = crypto.randomUUID();
     await db.insert(journalEntries).values({
       id,

@@ -5,6 +5,7 @@ import { invoices, journalEntries, journalLines } from '@/lib/schema';
 import { verifyAuth, assertRole, ApiAuthError, ROLES_MANAGER_UP } from '@/lib/api-auth';
 import { logAudit } from '@/lib/audit';
 import { getNextInvoiceNumber, getNextJournalNumber, type InvoiceType } from '@/lib/invoice-counter';
+import { assertPeriodOpen } from '@/lib/period-lock';
 
 // Fallback accounts when no original invoice GL is available
 const AC_FALLBACK = {
@@ -49,8 +50,10 @@ export async function POST(request: Request) {
     }
 
     const result = await db.transaction(async (tx) => {
-      const year  = new Date().getFullYear();
-      const today = new Date().toISOString().split('T')[0]!;
+      const now   = new Date();
+      const year  = now.getFullYear();
+      const today = now.toISOString().split('T')[0]!;
+      await assertPeriodOpen(agencyId, today, tx);
       const invNum = await getNextInvoiceNumber(agencyId, 'creditNote' as InvoiceType, year, tx);
       const jeNum  = await getNextJournalNumber(agencyId, year, tx);
       const invId  = crypto.randomUUID();

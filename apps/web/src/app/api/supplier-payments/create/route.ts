@@ -4,6 +4,7 @@ import { db } from '@/lib/db';
 import { supplierPayments, suppliers, journalEntries, journalLines } from '@/lib/schema';
 import { verifyAuth, ApiAuthError } from '@/lib/api-auth';
 import { getNextPaymentVoucherNumber, getNextJournalNumber } from '@/lib/invoice-counter';
+import { assertPeriodOpen } from '@/lib/period-lock';
 
 interface SupplierPaymentBody {
   payeeName:          string;
@@ -56,6 +57,9 @@ export async function POST(request: Request) {
     if (!Number.isInteger(amountHalalas) || amountHalalas <= 0) {
       return NextResponse.json({ error: 'مبلغ الدفعة غير صالح' }, { status: 400 });
     }
+
+    const today0 = new Date().toISOString().split('T')[0]!;
+    await assertPeriodOpen(agencyId, today0, db);
 
     const result = await db.transaction(async (tx) => {
       const now   = new Date();
