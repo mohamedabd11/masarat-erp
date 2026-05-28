@@ -17,7 +17,7 @@ import {
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-const SUPER_ADMIN_EMAIL = 'mohamedabdalazim1111@gmail.com';
+const SUPER_ADMIN_EMAIL = process.env['NEXT_PUBLIC_SUPER_ADMIN_EMAIL'] ?? '';
 
 interface AgencyRow {
   id:                  string;
