@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { eq, and } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { invoices, bookings, payments, journalEntries, journalLines, idempotencyKeys } from '@/lib/schema';
-import { verifyAuth, ApiAuthError } from '@/lib/api-auth';
+import { verifyAuth, ApiAuthError, BusinessError } from '@/lib/api-auth';
 import { withIdempotency, buildIdempotencyInsert } from '@/lib/idempotency';
 import { getNextInvoiceNumber, getNextJournalNumber } from '@/lib/invoice-counter';
 
@@ -44,19 +44,20 @@ export async function POST(request: Request) {
         const [invoice] = await tx.select().from(invoices).where(
           and(eq(invoices.id, originalInvoiceId), eq(invoices.agencyId, agencyId)),
         );
-        if (!invoice) throw new Error(`الفاتورة ${originalInvoiceId} غير موجودة`);
-        if (invoice.status === 'cancelled') throw new Error('الفاتورة ملغاة بالفعل');
+        if (!invoice) throw new BusinessError(`الفاتورة ${originalInvoiceId} غير موجودة`, 404);
+        if (invoice.status === 'cancelled') throw new BusinessError('الفاتورة ملغاة بالفعل', 400);
 
         const [booking] = await tx.select().from(bookings).where(
           and(eq(bookings.id, bookingId), eq(bookings.agencyId, agencyId)),
         );
-        if (!booking) throw new Error(`الحجز ${bookingId} غير موجود`);
-        if (booking.status === 'cancelled') throw new Error('الحجز ملغى بالفعل');
+        if (!booking) throw new BusinessError(`الحجز ${bookingId} غير موجود`, 404);
+        if (booking.status === 'cancelled') throw new BusinessError('الحجز ملغى بالفعل', 400);
 
         // ── 2. Validate ────────────────────────────────────────────────────
         if (refundAmountHalalas + cancellationFeeHalalas > invoice.paidHalalas) {
-          throw new Error(
+          throw new BusinessError(
             `المجموع (${(refundAmountHalalas + cancellationFeeHalalas) / 100} ر.س) يتجاوز المدفوع (${invoice.paidHalalas / 100} ر.س)`,
+            400,
           );
         }
 
@@ -172,8 +173,10 @@ export async function POST(request: Request) {
     if (err instanceof ApiAuthError) {
       return NextResponse.json({ error: err.message }, { status: err.status });
     }
+    if (err instanceof BusinessError) {
+      return NextResponse.json({ error: err.message }, { status: err.status });
+    }
     console.error(JSON.stringify({ event: 'process_refund_failed', error: String(err) }));
-    const message = err instanceof Error ? err.message : 'خطأ في الخادم';
-    return NextResponse.json({ error: message }, { status: 500 });
+    return NextResponse.json({ error: 'خطأ في الخادم' }, { status: 500 });
   }
 }

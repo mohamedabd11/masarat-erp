@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { eq, and } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { invoices, bookings, payments, journalEntries, journalLines, idempotencyKeys } from '@/lib/schema';
-import { verifyAuth, ApiAuthError } from '@/lib/api-auth';
+import { verifyAuth, ApiAuthError, BusinessError } from '@/lib/api-auth';
 import { withIdempotency, buildIdempotencyInsert } from '@/lib/idempotency';
 import { getNextReceiptNumber, getNextJournalNumber } from '@/lib/invoice-counter';
 
@@ -46,13 +46,13 @@ export async function POST(request: Request) {
         const [invoice] = await tx.select().from(invoices).where(
           and(eq(invoices.id, invoiceId), eq(invoices.agencyId, agencyId)),
         );
-        if (!invoice) throw new Error(`الفاتورة ${invoiceId} غير موجودة`);
-        if (invoice.bookingId !== bookingId) throw new Error('الفاتورة لا تنتمي لهذا الحجز');
+        if (!invoice) throw new BusinessError(`الفاتورة ${invoiceId} غير موجودة`, 404);
+        if (invoice.bookingId !== bookingId) throw new BusinessError('الفاتورة لا تنتمي لهذا الحجز', 400);
 
         // ── 2. Validate ────────────────────────────────────────────────────
         const currentDue = invoice.totalHalalas - invoice.paidHalalas;
         if (amountHalalas > currentDue) {
-          throw new Error(`المبلغ (${amountHalalas / 100} ر.س) يتجاوز المستحق (${currentDue / 100} ر.س)`);
+          throw new BusinessError(`المبلغ (${amountHalalas / 100} ر.س) يتجاوز المستحق (${currentDue / 100} ر.س)`, 400);
         }
 
         // ── 3. Calculate ────────────────────────────────────────────────────
@@ -132,8 +132,10 @@ export async function POST(request: Request) {
     if (err instanceof ApiAuthError) {
       return NextResponse.json({ error: err.message }, { status: err.status });
     }
+    if (err instanceof BusinessError) {
+      return NextResponse.json({ error: err.message }, { status: err.status });
+    }
     console.error(JSON.stringify({ event: 'process_payment_failed', error: String(err) }));
-    const message = err instanceof Error ? err.message : 'خطأ في الخادم';
-    return NextResponse.json({ error: message }, { status: 500 });
+    return NextResponse.json({ error: 'خطأ في الخادم' }, { status: 500 });
   }
 }

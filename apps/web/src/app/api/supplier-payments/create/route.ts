@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { eq, and, sql } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { supplierPayments, suppliers, journalEntries, journalLines } from '@/lib/schema';
-import { verifyAuth, ApiAuthError } from '@/lib/api-auth';
+import { verifyAuth, ApiAuthError, BusinessError } from '@/lib/api-auth';
 import { getNextPaymentVoucherNumber, getNextJournalNumber } from '@/lib/invoice-counter';
 import { assertPeriodOpen } from '@/lib/period-lock';
 
@@ -150,8 +150,10 @@ export async function POST(request: Request) {
     if (err instanceof ApiAuthError) {
       return NextResponse.json({ error: err.message }, { status: err.status });
     }
+    if (err instanceof BusinessError) {
+      return NextResponse.json({ error: err.message }, { status: err.status });
+    }
     console.error(JSON.stringify({ event: 'supplier_payment_create_failed', error: String(err) }));
-    const message = err instanceof Error ? err.message : 'خطأ في الخادم';
-    return NextResponse.json({ error: message }, { status: 500 });
+    return NextResponse.json({ error: 'خطأ في الخادم' }, { status: 500 });
   }
 }

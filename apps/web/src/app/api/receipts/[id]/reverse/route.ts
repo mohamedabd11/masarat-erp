@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { eq, and } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { receiptVouchers, invoices, journalEntries, journalLines } from '@/lib/schema';
-import { verifyAuth, assertRole, ApiAuthError, ROLES_ADMIN_ONLY } from '@/lib/api-auth';
+import { verifyAuth, assertRole, ApiAuthError, BusinessError, ROLES_ADMIN_ONLY } from '@/lib/api-auth';
 import { getNextReceiptNumber, getNextJournalNumber } from '@/lib/invoice-counter';
 
 const METHOD_ACCOUNT: Record<string, { code: string; ar: string; en: string }> = {
@@ -26,8 +26,8 @@ export async function POST(
       const [orig] = await tx.select().from(receiptVouchers).where(
         and(eq(receiptVouchers.id, params.id), eq(receiptVouchers.agencyId, agencyId)),
       );
-      if (!orig) throw new Error('سند القبض غير موجود');
-      if (orig.isRefund === 'true') throw new Error('لا يمكن عكس سند استرداد');
+      if (!orig) throw new BusinessError('سند القبض غير موجود', 404);
+      if (orig.isRefund === 'true') throw new BusinessError('لا يمكن عكس سند استرداد', 400);
 
       const now   = new Date();
       const year  = now.getFullYear();
@@ -104,7 +104,8 @@ export async function POST(
     return NextResponse.json({ success: true, ...result });
   } catch (err) {
     if (err instanceof ApiAuthError) return NextResponse.json({ error: err.message }, { status: err.status });
+    if (err instanceof BusinessError) return NextResponse.json({ error: err.message }, { status: err.status });
     console.error(JSON.stringify({ event: 'receipt_reverse_failed', error: String(err) }));
-    return NextResponse.json({ error: err instanceof Error ? err.message : 'خطأ في الخادم' }, { status: 500 });
+    return NextResponse.json({ error: 'خطأ في الخادم' }, { status: 500 });
   }
 }

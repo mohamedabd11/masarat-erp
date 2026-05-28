@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { eq, and, sql, ne } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { bookings, agencies, invoices, journalEntries, journalLines, customers } from '@/lib/schema';
-import { verifyAuth, ApiAuthError } from '@/lib/api-auth';
+import { verifyAuth, ApiAuthError, BusinessError } from '@/lib/api-auth';
 import { withIdempotency, buildIdempotencyInsert } from '@/lib/idempotency';
 import { idempotencyKeys } from '@/lib/schema';
 import { getNextInvoiceNumber, getNextJournalNumber } from '@/lib/invoice-counter';
@@ -41,21 +41,21 @@ export async function POST(request: Request) {
         const [booking] = await tx.select().from(bookings).where(
           and(eq(bookings.id, bookingId), eq(bookings.agencyId, agencyId)),
         );
-        if (!booking) throw new Error(`الحجز ${bookingId} غير موجود`);
+        if (!booking) throw new BusinessError(`الحجز ${bookingId} غير موجود`, 404);
 
         const [agency] = await tx.select().from(agencies).where(eq(agencies.id, agencyId));
-        if (!agency) throw new Error(`الوكالة ${agencyId} غير موجودة`);
+        if (!agency) throw new BusinessError(`الوكالة ${agencyId} غير موجودة`, 404);
 
         // ── 2. Validate ────────────────────────────────────────────────────
         if (booking.status !== 'confirmed' && booking.status !== 'completed') {
-          throw new Error(`لا يمكن إصدار فاتورة للحجز بحالة: ${booking.status}`);
+          throw new BusinessError(`لا يمكن إصدار فاتورة للحجز بحالة: ${booking.status}`, 400);
         }
 
         // Check no existing invoice for this booking
         const [existingInvoice] = await tx.select({ id: invoices.id }).from(invoices).where(
           and(eq(invoices.bookingId, bookingId), eq(invoices.agencyId, agencyId)),
         ).limit(1);
-        if (existingInvoice) throw new Error(`الحجز ${bookingId} لديه فاتورة بالفعل`);
+        if (existingInvoice) throw new BusinessError(`الحجز ${bookingId} لديه فاتورة بالفعل`, 409);
 
         // ── 3. Period lock check ────────────────────────────────────────────
         const now = new Date();
@@ -121,8 +121,9 @@ export async function POST(request: Request) {
             ));
 
             if ((outstanding + finalGrandTotal) > customer.creditLimitHalalas) {
-              throw new Error(
+              throw new BusinessError(
                 `تجاوز حد الائتمان: الرصيد المستحق ${(outstanding / 100).toFixed(2)} ر.س + الفاتورة الجديدة ${(finalGrandTotal / 100).toFixed(2)} ر.س يتجاوز الحد ${(customer.creditLimitHalalas / 100).toFixed(2)} ر.س`,
+                400,
               );
             }
           }
@@ -225,9 +226,11 @@ export async function POST(request: Request) {
     if (err instanceof ApiAuthError) {
       return NextResponse.json({ error: err.message }, { status: err.status });
     }
+    if (err instanceof BusinessError) {
+      return NextResponse.json({ error: err.message }, { status: err.status });
+    }
     console.error(JSON.stringify({ event: 'create_invoice_failed', error: String(err) }));
-    const message = err instanceof Error ? err.message : 'خطأ في الخادم';
-    return NextResponse.json({ error: message }, { status: 500 });
+    return NextResponse.json({ error: 'خطأ في الخادم' }, { status: 500 });
   }
 }
 

@@ -13,6 +13,35 @@ export class ApiAuthError extends Error {
   }
 }
 
+/** Business rule violation — returns 4xx to the client, never logged as a server error. */
+export class BusinessError extends Error {
+  constructor(message: string, public readonly status: number = 400) {
+    super(message);
+    this.name = 'BusinessError';
+  }
+}
+
+/** Standard catch block for all API routes. */
+export function handleApiError(err: unknown, event: string): Response {
+  if (err instanceof ApiAuthError) {
+    return new Response(JSON.stringify({ error: err.message }), {
+      status: err.status,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  }
+  if (err instanceof BusinessError) {
+    return new Response(JSON.stringify({ error: err.message }), {
+      status: err.status,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  }
+  console.error(JSON.stringify({ event, error: String(err) }));
+  return new Response(JSON.stringify({ error: 'خطأ في الخادم' }), {
+    status: 500,
+    headers: { 'Content-Type': 'application/json' },
+  });
+}
+
 // Read super-admin email from env only — no hardcoded fallback.
 // Set SUPER_ADMIN_EMAIL in your environment; leave it unset on purpose if
 // you don't want a super-admin bypass (e.g., per-tenant deployments).

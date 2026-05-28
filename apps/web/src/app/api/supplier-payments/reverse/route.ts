@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { eq, and, sql } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { supplierPayments, suppliers, journalEntries, journalLines } from '@/lib/schema';
-import { verifyAuth, assertRole, ApiAuthError, ROLES_ADMIN_ONLY } from '@/lib/api-auth';
+import { verifyAuth, assertRole, ApiAuthError, BusinessError, ROLES_ADMIN_ONLY } from '@/lib/api-auth';
 import { getNextJournalNumber } from '@/lib/invoice-counter';
 
 interface ReverseBody {
@@ -45,9 +45,9 @@ export async function POST(request: Request) {
       const [orig] = await tx.select().from(supplierPayments).where(
         and(eq(supplierPayments.id, supplierPaymentId), eq(supplierPayments.agencyId, agencyId)),
       );
-      if (!orig) throw new Error(`سند الصرف ${supplierPaymentId} غير موجود`);
-      if (orig.isRefund === 'true') throw new Error('لا يمكن عكس سند استرداد');
-      if (orig.status === 'reversed') throw new Error('سند الصرف مُعكوس بالفعل');
+      if (!orig) throw new BusinessError(`سند الصرف ${supplierPaymentId} غير موجود`, 404);
+      if (orig.isRefund === 'true') throw new BusinessError('لا يمكن عكس سند استرداد', 400);
+      if (orig.status === 'reversed') throw new BusinessError('سند الصرف مُعكوس بالفعل', 409);
 
       const now  = new Date();
       const year = now.getFullYear();
@@ -124,8 +124,10 @@ export async function POST(request: Request) {
     if (err instanceof ApiAuthError) {
       return NextResponse.json({ error: err.message }, { status: err.status });
     }
+    if (err instanceof BusinessError) {
+      return NextResponse.json({ error: err.message }, { status: err.status });
+    }
     console.error(JSON.stringify({ event: 'supplier_payment_reverse_failed', error: String(err) }));
-    const message = err instanceof Error ? err.message : 'خطأ في الخادم';
-    return NextResponse.json({ error: message }, { status: 500 });
+    return NextResponse.json({ error: 'خطأ في الخادم' }, { status: 500 });
   }
 }

@@ -21,7 +21,7 @@ import { NextResponse } from 'next/server';
 import { eq, and, inArray, gte, lte } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { bankAccounts, bankTransactions } from '@/lib/schema';
-import { verifyAuth, assertRole, ApiAuthError, ROLES_ACCOUNTANT_UP } from '@/lib/api-auth';
+import { verifyAuth, assertRole, ApiAuthError, BusinessError, ROLES_ACCOUNTANT_UP } from '@/lib/api-auth';
 import { logAudit } from '@/lib/audit';
 
 // ─── GET: list transactions eligible for reconciliation ──────────────────────
@@ -109,7 +109,7 @@ export async function POST(request: Request) {
       // Verify account ownership
       const [account] = await tx.select().from(bankAccounts)
         .where(and(eq(bankAccounts.id, bankAccountId), eq(bankAccounts.agencyId, agencyId)));
-      if (!account) throw new Error('الحساب البنكي غير موجود');
+      if (!account) throw new BusinessError('الحساب البنكي غير موجود', 404);
 
       const now = new Date();
 
@@ -124,7 +124,7 @@ export async function POST(request: Request) {
 
       const validIds = rows.map(r => r.id);
       if (validIds.length !== transactionIds.length) {
-        throw new Error(`${transactionIds.length - validIds.length} معرّفات حركة غير صالحة`);
+        throw new BusinessError(`${transactionIds.length - validIds.length} معرّفات حركة غير صالحة`, 400);
       }
 
       // Mark transactions as reconciled
@@ -160,7 +160,8 @@ export async function POST(request: Request) {
     return NextResponse.json({ success: true, ...result });
   } catch (err) {
     if (err instanceof ApiAuthError) return NextResponse.json({ error: err.message }, { status: err.status });
-    const msg = err instanceof Error ? err.message : 'خطأ في الخادم';
-    return NextResponse.json({ error: msg }, { status: 500 });
+    if (err instanceof BusinessError) return NextResponse.json({ error: err.message }, { status: err.status });
+    console.error(JSON.stringify({ event: 'banking_reconcile_failed', error: String(err) }));
+    return NextResponse.json({ error: 'خطأ في الخادم' }, { status: 500 });
   }
 }

@@ -15,7 +15,7 @@ import { NextResponse } from 'next/server';
 import { eq, and } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { invoices, receiptVouchers, journalEntries, journalLines } from '@/lib/schema';
-import { verifyAuth, assertRole, ApiAuthError, ROLES_ACCOUNTANT_UP } from '@/lib/api-auth';
+import { verifyAuth, assertRole, ApiAuthError, BusinessError, ROLES_ACCOUNTANT_UP } from '@/lib/api-auth';
 import { logAudit } from '@/lib/audit';
 import { getNextJournalNumber } from '@/lib/invoice-counter';
 
@@ -39,25 +39,25 @@ export async function POST(
       // ── 1. Load & validate invoice ─────────────────────────────────────────
       const [invoice] = await tx.select().from(invoices)
         .where(and(eq(invoices.id, params.id), eq(invoices.agencyId, agencyId)));
-      if (!invoice) throw new Error('الفاتورة غير موجودة');
-      if (invoice.status === 'cancelled') throw new Error('لا يمكن التطبيق على فاتورة ملغاة');
+      if (!invoice) throw new BusinessError('الفاتورة غير موجودة', 404);
+      if (invoice.status === 'cancelled') throw new BusinessError('لا يمكن التطبيق على فاتورة ملغاة', 400);
 
       const remainingDue = invoice.totalHalalas - (invoice.paidHalalas ?? 0);
-      if (remainingDue <= 0) throw new Error('الفاتورة مسددة بالكامل بالفعل');
+      if (remainingDue <= 0) throw new BusinessError('الفاتورة مسددة بالكامل بالفعل', 400);
 
       // ── 2. Load & validate receipt voucher ────────────────────────────────
       const [voucher] = await tx.select().from(receiptVouchers)
         .where(and(eq(receiptVouchers.id, body.voucherId), eq(receiptVouchers.agencyId, agencyId)));
-      if (!voucher) throw new Error('سند القبض غير موجود');
-      if (voucher.invoiceId) throw new Error('سند القبض مُطبَّق مسبقاً على فاتورة أخرى');
-      if (voucher.isRefund === 'true') throw new Error('لا يمكن تطبيق سند استرداد');
+      if (!voucher) throw new BusinessError('سند القبض غير موجود', 404);
+      if (voucher.invoiceId) throw new BusinessError('سند القبض مُطبَّق مسبقاً على فاتورة أخرى', 409);
+      if (voucher.isRefund === 'true') throw new BusinessError('لا يمكن تطبيق سند استرداد', 400);
 
       // ── 3. Determine apply amount ─────────────────────────────────────────
       const applyAmount = body.amountHalalas
         ? Math.min(body.amountHalalas, voucher.amountHalalas, remainingDue)
         : Math.min(voucher.amountHalalas, remainingDue);
 
-      if (applyAmount <= 0) throw new Error('مبلغ التطبيق غير صالح');
+      if (applyAmount <= 0) throw new BusinessError('مبلغ التطبيق غير صالح', 400);
 
       // ── 4. Journal entry: Dr 2300 / Cr 1120 ─────────────────────────────
       const now      = new Date();
@@ -120,7 +120,8 @@ export async function POST(
     return NextResponse.json({ success: true, ...result });
   } catch (err) {
     if (err instanceof ApiAuthError) return NextResponse.json({ error: err.message }, { status: err.status });
-    const msg = err instanceof Error ? err.message : 'خطأ في الخادم';
-    return NextResponse.json({ error: msg }, { status: 500 });
+    if (err instanceof BusinessError) return NextResponse.json({ error: err.message }, { status: err.status });
+    console.error(JSON.stringify({ event: 'apply_advance_failed', error: String(err) }));
+    return NextResponse.json({ error: 'خطأ في الخادم' }, { status: 500 });
   }
 }

@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { eq, and, desc } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { salaryPayments, employees, journalEntries, journalLines } from '@/lib/schema';
-import { verifyAuth, assertRole, ApiAuthError, ROLES_ADMIN_ONLY } from '@/lib/api-auth';
+import { verifyAuth, assertRole, ApiAuthError, BusinessError, ROLES_ADMIN_ONLY } from '@/lib/api-auth';
 import { getNextJournalNumber } from '@/lib/invoice-counter';
 
 const METHOD_ACCOUNT: Record<string, { code: string; ar: string; en: string }> = {
@@ -63,7 +63,7 @@ export async function POST(request: Request) {
         .select({ id: employees.id, nameAr: employees.nameAr, endDate: employees.endDate })
         .from(employees)
         .where(and(eq(employees.id, employeeId), eq(employees.agencyId, agencyId)));
-      if (!employee) throw new Error('الموظف غير موجود');
+      if (!employee) throw new BusinessError('الموظف غير موجود', 404);
 
       // Warn: terminated employee
       if (employee.endDate) {
@@ -71,7 +71,7 @@ export async function POST(request: Request) {
         const [yr, mo]  = month.split('-').map(Number) as [number, number];
         const monthDate = new Date(yr, mo - 1, 1);
         if (termDate < monthDate) {
-          throw new Error(`الموظف "${employee.nameAr}" أنهى خدمته في ${employee.endDate} — لا يمكن صرف راتب لهذا الشهر`);
+          throw new BusinessError(`الموظف "${employee.nameAr}" أنهى خدمته في ${employee.endDate} — لا يمكن صرف راتب لهذا الشهر`, 400);
         }
       }
 
@@ -81,7 +81,7 @@ export async function POST(request: Request) {
         .from(salaryPayments)
         .where(and(eq(salaryPayments.employeeId, employeeId), eq(salaryPayments.month, month), eq(salaryPayments.agencyId, agencyId)))
         .limit(1);
-      if (existing) throw new Error(`تم صرف راتب ${month} للموظف "${employee.nameAr}" مسبقاً`);
+      if (existing) throw new BusinessError(`تم صرف راتب ${month} للموظف "${employee.nameAr}" مسبقاً`, 409);
 
       const now    = new Date();
       const year   = now.getFullYear();
@@ -131,8 +131,10 @@ export async function POST(request: Request) {
     if (err instanceof ApiAuthError) {
       return NextResponse.json({ error: err.message }, { status: err.status });
     }
+    if (err instanceof BusinessError) {
+      return NextResponse.json({ error: err.message }, { status: err.status });
+    }
     console.error(JSON.stringify({ event: 'salary_payment_failed', error: String(err) }));
-    const message = err instanceof Error ? err.message : 'خطأ في الخادم';
-    return NextResponse.json({ error: message }, { status: 500 });
+    return NextResponse.json({ error: 'خطأ في الخادم' }, { status: 500 });
   }
 }

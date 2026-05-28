@@ -86,7 +86,7 @@ export async function POST(request: Request) {
     });
   } catch (err) {
     if (err instanceof ApiAuthError) return NextResponse.json({ error: err.message }, { status: err.status });
-    const msg = err instanceof Error ? err.message : 'خطأ في الخادم';
-    return NextResponse.json({ error: msg }, { status: 500 });
+    console.error(JSON.stringify({ event: 'accounting_periods_failed', error: String(err) }));
+    return NextResponse.json({ error: 'خطأ في الخادم' }, { status: 500 });
   }
 }

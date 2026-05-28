@@ -55,6 +55,6 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: 'ممنوع الوصول' }, { status: 403 });
     }
     console.error(JSON.stringify({ event: 'admin_agencies_failed', error: msg }));
-    return NextResponse.json({ error: msg }, { status: 500 });
+    return NextResponse.json({ error: 'خطأ في تحميل البيانات' }, { status: 500 });
   }
 }

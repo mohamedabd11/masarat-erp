@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { eq, and } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { cheques, journalEntries, journalLines } from '@/lib/schema';
-import { verifyAuth, ApiAuthError } from '@/lib/api-auth';
+import { verifyAuth, ApiAuthError, BusinessError } from '@/lib/api-auth';
 import { getNextJournalNumber } from '@/lib/invoice-counter';
 
 const AC_RECEIVABLE  = { code: '1120', ar: 'ذمم مدينة - عملاء', en: 'Accounts Receivable' };
@@ -21,7 +21,7 @@ export async function PATCH(request: Request, { params }: { params: { id: string
         .from(cheques)
         .where(and(eq(cheques.id, params.id), eq(cheques.agencyId, agencyId)));
 
-      if (!existing) throw new Error('الشيك غير موجود');
+      if (!existing) throw new BusinessError('الشيك غير موجود', 404);
 
       await tx
         .update(cheques)
@@ -75,6 +75,7 @@ export async function PATCH(request: Request, { params }: { params: { id: string
     return NextResponse.json({ success: true });
   } catch (err) {
     if (err instanceof ApiAuthError) return NextResponse.json({ error: err.message }, { status: err.status });
+    if (err instanceof BusinessError) return NextResponse.json({ error: err.message }, { status: err.status });
     console.error(JSON.stringify({ event: 'update_cheque_failed', error: String(err) }));
     return NextResponse.json({ error: 'خطأ في الخادم' }, { status: 500 });
   }
