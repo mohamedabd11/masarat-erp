@@ -74,6 +74,27 @@ export function InvoicesClient({ locale }: InvoicesClientProps) {
     { key: 'overdue', ar: 'متأخر',     en: 'Overdue' },
   ];
 
+  function handleExport() {
+    const header = ['رقم الفاتورة', 'العميل', 'التاريخ', 'الإجمالي (ريال)', 'المدفوع (ريال)', 'المتبقي (ريال)', 'الحالة'];
+    const rows = filtered.map(inv => [
+      inv.invoiceNumber,
+      isAr ? (inv.buyerNameAr ?? '') : (inv.buyerNameEn ?? inv.buyerNameAr ?? ''),
+      inv.issueDate,
+      (inv.totalHalalas / 100).toFixed(2),
+      (inv.paidHalalas / 100).toFixed(2),
+      ((inv.totalHalalas - inv.paidHalalas) / 100).toFixed(2),
+      inv.status,
+    ]);
+    const csv = [header, ...rows].map(r => r.map(c => `"${String(c).replace(/"/g, '""')}"`).join(',')).join('\n');
+    const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    a.href     = url;
+    a.download = `invoices-${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
   if (loading) return <div className="flex items-center justify-center py-24"><Spinner size="lg" /></div>;
 
   return (
@@ -84,9 +105,9 @@ export function InvoicesClient({ locale }: InvoicesClientProps) {
           <h1 className="text-2xl font-bold text-slate-900">{isAr ? 'الفواتير' : 'Invoices'}</h1>
           <p className="text-slate-500 text-sm mt-0.5">{isAr ? 'إدارة فواتير العملاء وتتبع المدفوعات' : 'Manage customer invoices and track payments'}</p>
         </div>
-        <button className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl border border-slate-200 text-sm text-slate-600 hover:bg-slate-50 transition-colors font-medium">
+        <button onClick={handleExport} className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl border border-slate-200 text-sm text-slate-600 hover:bg-slate-50 transition-colors font-medium">
           <Download size={14} />
-          {isAr ? 'تصدير' : 'Export'}
+          {isAr ? 'تصدير CSV' : 'Export CSV'}
         </button>
       </div>
 

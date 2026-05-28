@@ -217,7 +217,7 @@ export function BookingsClient({ locale, bookingType, initialQuery = '' }: Booki
               const paidAmt   = b.paidHalalas ?? 0;
               const paidPct   = total > 0 ? Math.min(100, Math.round((paidAmt / total) * 100)) : 0;
               const createdAt = b.createdAt ? new Date(b.createdAt as unknown as string) : null;
-              const hasInvoice = false;
+              const hasInvoice = !!(b as Record<string, unknown>)['hasInvoice'];
               const bPaymentStatus = paidAmt >= total && total > 0 ? 'fully_paid' : paidAmt > 0 ? 'partial' : 'unpaid';
 
               return (
@@ -285,7 +285,7 @@ export function BookingsClient({ locale, bookingType, initialQuery = '' }: Booki
                   const paidAmt    = b.paidHalalas ?? 0;
                   const paidPct    = total > 0 ? Math.min(100, Math.round((paidAmt / total) * 100)) : 0;
                   const createdAt  = b.createdAt ? new Date(b.createdAt as unknown as string) : null;
-                  const hasInvoice = false;
+                  const hasInvoice = !!(b as Record<string, unknown>)['hasInvoice'];
                   const bPaymentStatus = paidAmt >= total && total > 0 ? 'fully_paid' : paidAmt > 0 ? 'partial' : 'unpaid';
 
                   return (
