@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
-import { eq, and } from 'drizzle-orm';
+import { eq, and, sql, ne } from 'drizzle-orm';
 import { db } from '@/lib/db';
-import { bookings, agencies, invoices, journalEntries, journalLines } from '@/lib/schema';
+import { bookings, agencies, invoices, journalEntries, journalLines, customers } from '@/lib/schema';
 import { verifyAuth, ApiAuthError } from '@/lib/api-auth';
 import { withIdempotency, buildIdempotencyInsert } from '@/lib/idempotency';
 import { idempotencyKeys } from '@/lib/schema';
@@ -98,7 +98,33 @@ export async function POST(request: Request) {
           finalGrandTotal = grandTotal;
         }
 
-        // ── 4. Counter + IDs ────────────────────────────────────────────────
+        // ── 4. Credit-limit guard ───────────────────────────────────────────
+        if (booking.customerId) {
+          const [customer] = await tx.select({ creditLimitHalalas: customers.creditLimitHalalas })
+            .from(customers)
+            .where(and(eq(customers.id, booking.customerId), eq(customers.agencyId, agencyId)));
+
+          if (customer && customer.creditLimitHalalas > 0) {
+            const [{ outstanding }] = await tx.select({
+              outstanding: sql<number>`coalesce(sum(${invoices.totalHalalas} - ${invoices.paidHalalas}), 0)`,
+            })
+            .from(invoices)
+            .where(and(
+              eq(invoices.customerId, booking.customerId),
+              eq(invoices.agencyId, agencyId),
+              ne(invoices.status, 'paid'),
+              ne(invoices.status, 'cancelled'),
+            ));
+
+            if ((outstanding + finalGrandTotal) > customer.creditLimitHalalas) {
+              throw new Error(
+                `تجاوز حد الائتمان: الرصيد المستحق ${(outstanding / 100).toFixed(2)} ر.س + الفاتورة الجديدة ${(finalGrandTotal / 100).toFixed(2)} ر.س يتجاوز الحد ${(customer.creditLimitHalalas / 100).toFixed(2)} ر.س`,
+              );
+            }
+          }
+        }
+
+        // ── 5. Counter + IDs ────────────────────────────────────────────────
         const invoiceNumber = await getNextInvoiceNumber(agencyId, 'taxInvoice', year, tx);
         const jeNumber      = await getNextJournalNumber(agencyId, year, tx);
         const invoiceId     = crypto.randomUUID();
@@ -107,7 +133,7 @@ export async function POST(request: Request) {
         const today  = now.toISOString().split('T')[0]!;
         const period = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
 
-        // ── 5. Build journal lines ──────────────────────────────────────────
+        // ── 6. Build journal lines ──────────────────────────────────────────
         const jLines = buildInvoiceJournalLines(
           revenueModel, isVatRegistered, finalGrandTotal, storedCost,
           (details['serviceFee'] as number | undefined) ?? 0, totalVat, subtotalExclVat,

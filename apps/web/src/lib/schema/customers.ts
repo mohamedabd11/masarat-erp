@@ -1,4 +1,4 @@
-import { pgTable, text, boolean, timestamp } from 'drizzle-orm/pg-core';
+import { pgTable, text, integer, boolean, timestamp } from 'drizzle-orm/pg-core';
 import { agencies } from './agencies';
 
 export const customers = pgTable('customers', {
@@ -13,6 +13,7 @@ export const customers = pgTable('customers', {
   nationality:    text('nationality'),
   dateOfBirth:    text('date_of_birth'),
   notes:          text('notes'),
+  creditLimitHalalas: integer('credit_limit_halalas').notNull().default(0),  // 0 = no limit
   isActive:       boolean('is_active').notNull().default(true),
   createdAt:      timestamp('created_at').notNull().defaultNow(),
   updatedAt:      timestamp('updated_at').notNull().defaultNow(),
