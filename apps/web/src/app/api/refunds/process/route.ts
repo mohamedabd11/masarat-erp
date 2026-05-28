@@ -62,13 +62,17 @@ export async function POST(request: Request) {
         }
 
         // ── 3. Calculate ────────────────────────────────────────────────────
-        const isVatRegistered = invoice.isEInvoice === true;
-        const details         = (booking.details ?? {}) as Record<string, unknown>;
-        const revenueModel    = (details['revenueModel'] as string | undefined) ?? 'agent';
-        const revenueAc       = revenueModel === 'agent' ? AC.revenueAgent : AC.revenuePrincipal;
+        const details      = (booking.details ?? {}) as Record<string, unknown>;
+        const revenueModel = (details['revenueModel'] as string | undefined) ?? 'agent';
+        const revenueAc    = revenueModel === 'agent' ? AC.revenueAgent : AC.revenuePrincipal;
 
-        const refundSubtotal = isVatRegistered ? Math.round(refundAmountHalalas / 1.15) : refundAmountHalalas;
-        const refundVat      = isVatRegistered ? refundAmountHalalas - refundSubtotal : 0;
+        // Prorate the original invoice's VAT by the refund ratio.
+        // This is correct for all VAT schemes (standard rate, margin scheme, any
+        // rate), because the credit note must mirror the same proportions as the
+        // original invoice — regardless of how the VAT was originally derived.
+        const refundRatio    = invoice.totalHalalas > 0 ? refundAmountHalalas / invoice.totalHalalas : 1;
+        const refundVat      = Math.round(invoice.vatHalalas * refundRatio);
+        const refundSubtotal = refundAmountHalalas - refundVat;
 
         // ── 4. Counters + IDs ───────────────────────────────────────────────
         const now  = new Date();
@@ -82,7 +86,7 @@ export async function POST(request: Request) {
         const today            = now.toISOString().split('T')[0]!;
 
         // ── 5. Build journal lines (reversal) ───────────────────────────────
-        const jLines: Array<{ code: string; ar: string; en: string; dr: number; cr: number }> = isVatRegistered && refundVat > 0
+        const jLines: Array<{ code: string; ar: string; en: string; dr: number; cr: number }> = refundVat > 0
           ? [{ ...revenueAc, dr: refundSubtotal, cr: 0 }, { ...AC.vatPayable, dr: refundVat, cr: 0 }, { ...AC.bank, dr: 0, cr: refundAmountHalalas }]
           : [{ ...revenueAc, dr: refundAmountHalalas, cr: 0 }, { ...AC.bank, dr: 0, cr: refundAmountHalalas }];
 
@@ -105,7 +109,7 @@ export async function POST(request: Request) {
           paidHalalas:     refundAmountHalalas,
           issueDate:       today,
           status:          'issued',
-          isEInvoice:      isVatRegistered,
+          isEInvoice:      invoice.isEInvoice,
           journalEntryId:  jeId,
           zatcaUuid:       crypto.randomUUID(),
           createdBy:       uid,
