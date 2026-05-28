@@ -66,6 +66,9 @@ export async function POST(request: Request) {
         const storedCost  = booking.costPriceHalalas;
         const details     = (booking.details ?? {}) as Record<string, unknown>;
         const revenueModel = (details['revenueModel'] as string | undefined) ?? 'principal';
+        // vatScheme: 'standard' (default) | 'margin' (ZATCA margin scheme for tour operators)
+        // Margin scheme: VAT is calculated only on the profit margin (selling - cost).
+        const vatScheme    = (details['vatScheme'] as string | undefined) ?? 'standard';
 
         let subtotalExclVat: number;
         let totalVat: number;
@@ -80,6 +83,14 @@ export async function POST(request: Request) {
           const storedVat = (details['vatAmount']  as number | undefined) ?? 0;
           subtotalExclVat = storedCost + storedFee;
           totalVat        = storedVat;
+          finalGrandTotal = grandTotal;
+        } else if (vatScheme === 'margin' && storedCost > 0) {
+          // ZATCA Margin Scheme (Special Scheme for Tour Operators):
+          // VAT base = profit margin = selling price - supplier cost (both VAT-inclusive)
+          // VAT = margin × rate / (100 + rate)   [tax-inclusive calculation]
+          const margin    = Math.max(0, grandTotal - storedCost);
+          totalVat        = Math.round(margin * vatRateDecimal / (1 + vatRateDecimal));
+          subtotalExclVat = grandTotal - totalVat;
           finalGrandTotal = grandTotal;
         } else {
           subtotalExclVat = Math.round(grandTotal / (1 + vatRateDecimal));
