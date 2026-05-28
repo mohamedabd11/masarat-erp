@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { eq, and } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { receiptVouchers, journalEntries, journalLines } from '@/lib/schema';
-import { verifyAuth, ApiAuthError } from '@/lib/api-auth';
+import { verifyAuth, assertRole, ApiAuthError, ROLES_ADMIN_ONLY } from '@/lib/api-auth';
 import { getNextReceiptNumber, getNextJournalNumber } from '@/lib/invoice-counter';
 
 const METHOD_ACCOUNT: Record<string, { code: string; ar: string; en: string }> = {
@@ -18,7 +18,8 @@ export async function POST(
   { params }: { params: { id: string } },
 ) {
   try {
-    const { uid, agencyId } = await verifyAuth(request);
+    const { uid, agencyId, role } = await verifyAuth(request);
+    assertRole(role, [...ROLES_ADMIN_ONLY]);
     const { reason } = await request.json() as { reason?: string };
 
     const result = await db.transaction(async (tx) => {

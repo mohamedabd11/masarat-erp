@@ -13,7 +13,12 @@ export class ApiAuthError extends Error {
   }
 }
 
-const SUPER_ADMIN_EMAIL = 'mohamedabdalazim1111@gmail.com';
+// Read super-admin email from env only — no hardcoded fallback.
+// Set SUPER_ADMIN_EMAIL in your environment; leave it unset on purpose if
+// you don't want a super-admin bypass (e.g., per-tenant deployments).
+function getSuperAdminEmail(): string | undefined {
+  return process.env['SUPER_ADMIN_EMAIL'] ?? undefined;
+}
 
 export async function verifyAuth(request: Request): Promise<AuthClaims> {
   ensureAdminApp();
@@ -25,14 +30,35 @@ export async function verifyAuth(request: Request): Promise<AuthClaims> {
   const decoded = await getAuth().verifyIdToken(token);
   const agencyId = decoded['agencyId'] as string | undefined;
 
-  // Super admin is allowed through even without an agencyId claim.
-  // Their queries will return empty results (agencyId = '') which is correct.
-  const isSuperAdmin = decoded.email === SUPER_ADMIN_EMAIL;
+  const superAdminEmail = getSuperAdminEmail();
+  const isSuperAdmin = !!superAdminEmail && decoded.email === superAdminEmail;
   if (!agencyId && !isSuperAdmin) throw new ApiAuthError('يجب تسجيل الدخول أولاً', 401);
 
   return {
-    uid: decoded.uid,
+    uid:     decoded.uid,
     agencyId: agencyId ?? '',
-    role: (decoded['role'] as string) ?? (isSuperAdmin ? 'owner' : 'agent'),
+    role:    (decoded['role'] as string) ?? (isSuperAdmin ? 'owner' : 'agent'),
   };
 }
+
+/**
+ * Throws 403 if the authenticated user's role is not in the `allowed` set.
+ *
+ * Role hierarchy (most → least privileged):
+ *   owner → admin → manager → accountant → staff → viewer → agent
+ *
+ * Usage:
+ *   const { role, agencyId } = await verifyAuth(request);
+ *   assertRole(role, ['admin', 'owner', 'manager']);
+ */
+export function assertRole(role: string, allowed: string[]): void {
+  if (!allowed.includes(role)) {
+    throw new ApiAuthError('ليس لديك صلاحية لهذه العملية', 403);
+  }
+}
+
+// Pre-defined role sets for common permission levels
+export const ROLES_ADMIN_ONLY    = ['owner', 'admin'] as const;
+export const ROLES_MANAGER_UP    = ['owner', 'admin', 'manager'] as const;
+export const ROLES_ACCOUNTANT_UP = ['owner', 'admin', 'manager', 'accountant'] as const;
+export const ROLES_STAFF_UP      = ['owner', 'admin', 'manager', 'accountant', 'staff'] as const;

@@ -2,11 +2,12 @@ import { NextResponse } from 'next/server';
 import { eq, and } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { leaveRequests } from '@/lib/schema';
-import { verifyAuth, ApiAuthError } from '@/lib/api-auth';
+import { verifyAuth, assertRole, ApiAuthError, ROLES_MANAGER_UP } from '@/lib/api-auth';
 
 export async function PATCH(request: Request, { params }: { params: { id: string } }) {
   try {
-    const { agencyId } = await verifyAuth(request);
+    const { agencyId, role } = await verifyAuth(request);
+    assertRole(role, [...ROLES_MANAGER_UP]);
     const body = await request.json() as { status?: string; notes?: string };
 
     const [existing] = await db

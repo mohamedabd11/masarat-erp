@@ -2,11 +2,12 @@ import { NextResponse } from 'next/server';
 import { eq, and } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { employees } from '@/lib/schema';
-import { verifyAuth, ApiAuthError } from '@/lib/api-auth';
+import { verifyAuth, assertRole, ApiAuthError, ROLES_MANAGER_UP } from '@/lib/api-auth';
 
 export async function PATCH(request: Request, { params }: { params: { id: string } }) {
   try {
-    const { agencyId } = await verifyAuth(request);
+    const { agencyId, role } = await verifyAuth(request);
+    assertRole(role, [...ROLES_MANAGER_UP]);
     const body = await request.json() as Record<string, unknown>;
     const now = new Date();
     await db.update(employees).set({ ...body as Partial<typeof employees.$inferInsert>, updatedAt: now })
@@ -20,7 +21,8 @@ export async function PATCH(request: Request, { params }: { params: { id: string
 
 export async function DELETE(request: Request, { params }: { params: { id: string } }) {
   try {
-    const { agencyId } = await verifyAuth(request);
+    const { agencyId, role } = await verifyAuth(request);
+    assertRole(role, [...ROLES_MANAGER_UP]);
     await db.delete(employees).where(and(eq(employees.id, params.id), eq(employees.agencyId, agencyId)));
     return NextResponse.json({ success: true });
   } catch (err) {

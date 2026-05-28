@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { eq, and, desc } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { salaryPayments, employees, journalEntries, journalLines } from '@/lib/schema';
-import { verifyAuth, ApiAuthError } from '@/lib/api-auth';
+import { verifyAuth, assertRole, ApiAuthError, ROLES_ADMIN_ONLY } from '@/lib/api-auth';
 import { getNextJournalNumber } from '@/lib/invoice-counter';
 
 const METHOD_ACCOUNT: Record<string, { code: string; ar: string; en: string }> = {
@@ -36,7 +36,8 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
-    const { uid, agencyId } = await verifyAuth(request);
+    const { uid, agencyId, role } = await verifyAuth(request);
+    assertRole(role, [...ROLES_ADMIN_ONLY]);
     const body = await request.json() as {
       employeeId:    string;
       amountHalalas: number;

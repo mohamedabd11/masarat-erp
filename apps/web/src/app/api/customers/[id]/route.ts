@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { eq, and, desc, sum, count } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { customers, invoices, bookings } from '@/lib/schema';
-import { verifyAuth, ApiAuthError } from '@/lib/api-auth';
+import { verifyAuth, assertRole, ApiAuthError, ROLES_MANAGER_UP } from '@/lib/api-auth';
 
 export async function GET(
   request: Request,
@@ -121,7 +121,8 @@ export async function DELETE(
   { params }: { params: { id: string } },
 ) {
   try {
-    const { agencyId } = await verifyAuth(request);
+    const { agencyId, role } = await verifyAuth(request);
+    assertRole(role, [...ROLES_MANAGER_UP]);
     const { id } = params;
 
     const [existing] = await db
