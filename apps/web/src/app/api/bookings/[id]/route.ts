@@ -10,7 +10,22 @@ export async function GET(request: Request, { params }: { params: { id: string }
     const [booking] = await db.select().from(bookings)
       .where(and(eq(bookings.id, params.id), eq(bookings.agencyId, agencyId)));
     if (!booking) return NextResponse.json({ error: 'الحجز غير موجود' }, { status: 404 });
-    return NextResponse.json({ booking });
+
+    // Reconstruct pricing object from stored details + numeric columns
+    const det = (booking.details ?? {}) as Record<string, unknown>;
+    const enriched = {
+      ...booking,
+      pricing: {
+        revenueModel: String(det['revenueModel'] ?? 'principal'),
+        currency:     String(det['currency']     ?? 'SAR'),
+        totalCost:    booking.costPriceHalalas,
+        serviceFee:   Number(det['serviceFee']   ?? 0),
+        vatAmount:    Number(det['vatAmount']     ?? 0),
+        totalAmount:  booking.totalPriceHalalas,
+        commission:   Number(det['serviceFee']   ?? 0),
+      },
+    };
+    return NextResponse.json({ booking: enriched });
   } catch (err) {
     if (err instanceof ApiAuthError) return NextResponse.json({ error: err.message }, { status: err.status });
     return NextResponse.json({ error: 'خطأ في الخادم' }, { status: 500 });

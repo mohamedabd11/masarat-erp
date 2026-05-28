@@ -37,6 +37,19 @@ export async function POST(request: Request) {
       const totalPriceHalalas = Number(pricing['totalAmount'] ?? 0);
       const costPriceHalalas  = Number(pricing['totalCost']   ?? 0);
       const profitHalalas     = totalPriceHalalas - costPriceHalalas;
+      const revenueModel      = String(pricing['revenueModel'] ?? 'principal');
+      const serviceFeeHalalas = Number(pricing['serviceFee']   ?? 0);
+      const vatAmountHalalas  = Number(pricing['vatAmount']    ?? 0);
+
+      // Merge pricing fields into details JSONB so they survive round-trips
+      const serviceDetails = (body['details'] ?? {}) as Record<string, unknown>;
+      const mergedDetails = {
+        ...serviceDetails,
+        revenueModel,
+        serviceFee:  serviceFeeHalalas,
+        vatAmount:   vatAmountHalalas,
+        currency:    String(pricing['currency'] ?? 'SAR'),
+      };
 
       await tx.insert(bookings).values({
         id:               bookingId,
@@ -53,7 +66,7 @@ export async function POST(request: Request) {
         profitHalalas:     profitHalalas > 0 ? profitHalalas : 0,
         paidHalalas:      0,
         notes:            String(body['notes'] ?? '') || null,
-        details:          body['details'] ?? {},
+        details:          mergedDetails,
         createdBy:        decoded.uid,
       });
 
