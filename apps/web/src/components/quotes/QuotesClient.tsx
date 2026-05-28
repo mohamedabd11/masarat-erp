@@ -1,6 +1,7 @@
 'use client';
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
+import Link from 'next/link';
 import { useAuth } from '@masarat/firebase';
 import { apiFetch } from '@/lib/api-client';
 import { Card } from '@/components/ui/Card';
@@ -237,12 +238,13 @@ function QuoteRow({ q, isAr, fmtLocale, locale, onStatusChange }: {
                     </>
                   )}
                   {q.status === 'accepted' && (
-                    <button
+                    <Link
+                      href={`/${locale}/bookings/new?customerNameAr=${encodeURIComponent(q.customerNameAr)}&customerPhone=${encodeURIComponent(q.customerPhone ?? '')}&notes=${encodeURIComponent((isAr ? 'من عرض سعر ' : 'From quote ') + q.quoteNumber)}`}
                       onClick={e => { e.stopPropagation(); onStatusChange(q.id, 'converted'); }}
                       className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-brand-600 text-white text-xs font-semibold hover:bg-brand-700 transition-colors"
                     >
                       <ArrowRight size={12} /> {isAr ? 'تحويل لحجز' : 'Convert to Booking'}
-                    </button>
+                    </Link>
                   )}
                 </div>
               </div>

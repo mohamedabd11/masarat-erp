@@ -459,6 +459,17 @@ function NewBookingContent() {
     if (found) { setSelType(t); setSelNames({ ar: found.ar, en: found.en }); setStep(1); }
   }, [params]);
 
+  // Pre-fill customer when navigated from a quote conversion
+  useEffect(() => {
+    const nameAr = params.get('customerNameAr');
+    const phone  = params.get('customerPhone');
+    const notes  = params.get('notes');
+    if (!nameAr) return;
+    setValue('customerName',  nameAr);
+    setValue('customerPhone', phone ?? '');
+    if (notes) setValue('notes', notes);
+  }, [params, setValue]);
+
   // Pre-fill customer when navigated from customer detail page
   useEffect(() => {
     const custId = params.get('customerId');
