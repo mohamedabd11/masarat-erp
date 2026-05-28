@@ -36,7 +36,7 @@ export function Header({ onMenuToggle, className }: HeaderProps) {
     <header
       className={cn(
         'h-16 bg-white border-b border-surface-border',
-        'flex items-center gap-4 px-5',
+        'flex items-center gap-2 sm:gap-4 px-3 sm:px-5',
         'flex-shrink-0',
         className
       )}
@@ -50,7 +50,7 @@ export function Header({ onMenuToggle, className }: HeaderProps) {
       </button>
 
       {/* Search */}
-      <form onSubmit={handleSearch} className="flex-1 max-w-md">
+      <form onSubmit={handleSearch} className="flex-1 min-w-0 max-w-md">
         <div className="relative">
           <Search size={16} className="absolute start-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
           <input
@@ -75,7 +75,7 @@ export function Header({ onMenuToggle, className }: HeaderProps) {
         </div>
       </form>
 
-      <div className="flex items-center gap-3 ms-auto">
+      <div className="flex items-center gap-2 sm:gap-3 ms-auto flex-shrink-0">
         <LanguageSwitcher />
 
         {/* Notifications */}
