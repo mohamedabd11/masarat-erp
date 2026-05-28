@@ -21,24 +21,26 @@ export function LanguageSwitcher({ className }: { className?: string }) {
       <button
         onClick={() => switchLocale('ar')}
         className={cn(
-          'px-3 py-1 rounded-md text-sm font-medium transition-colors duration-150',
+          'px-2.5 py-1 rounded-md text-sm font-medium transition-colors duration-150',
           locale === 'ar'
             ? 'bg-white text-slate-900 shadow-sm'
             : 'text-slate-500 hover:text-slate-700'
         )}
       >
-        العربية
+        <span className="sm:hidden">ع</span>
+        <span className="hidden sm:inline">العربية</span>
       </button>
       <button
         onClick={() => switchLocale('en')}
         className={cn(
-          'px-3 py-1 rounded-md text-sm font-medium transition-colors duration-150',
+          'px-2.5 py-1 rounded-md text-sm font-medium transition-colors duration-150',
           locale === 'en'
             ? 'bg-white text-slate-900 shadow-sm'
             : 'text-slate-500 hover:text-slate-700'
         )}
       >
-        English
+        <span className="sm:hidden">EN</span>
+        <span className="hidden sm:inline">English</span>
       </button>
     </div>
   );
