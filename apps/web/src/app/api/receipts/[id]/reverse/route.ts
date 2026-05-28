@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { eq, and } from 'drizzle-orm';
 import { db } from '@/lib/db';
-import { receiptVouchers, journalEntries, journalLines } from '@/lib/schema';
+import { receiptVouchers, invoices, journalEntries, journalLines } from '@/lib/schema';
 import { verifyAuth, assertRole, ApiAuthError, ROLES_ADMIN_ONLY } from '@/lib/api-auth';
 import { getNextReceiptNumber, getNextJournalNumber } from '@/lib/invoice-counter';
 
@@ -82,6 +82,21 @@ export async function POST(
           debitHalalas: 0, creditHalalas: amountHalalas, sortOrder: 2,
         },
       ]);
+
+      // If the voucher was linked to an invoice, reduce paidHalalas and update status
+      if (orig.invoiceId) {
+        const [inv] = await tx.select().from(invoices)
+          .where(and(eq(invoices.id, orig.invoiceId), eq(invoices.agencyId, agencyId)));
+        if (inv) {
+          const newPaid = Math.max(0, (inv.paidHalalas ?? 0) - amountHalalas);
+          const newStatus = newPaid <= 0               ? 'refunded'
+            : newPaid < inv.totalHalalas               ? 'partial'
+            : inv.status;
+          await tx.update(invoices)
+            .set({ paidHalalas: newPaid, status: newStatus, updatedAt: now })
+            .where(eq(invoices.id, orig.invoiceId));
+        }
+      }
 
       return { reversalId, voucherNumber: revNumber };
     });
