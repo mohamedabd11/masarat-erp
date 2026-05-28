@@ -22,6 +22,24 @@ interface InvoiceCreateBody {
   idempotencyKey?: string;
 }
 
+// Line items stored in booking.details.lineItems (set at booking-creation time)
+interface PackageLineItem {
+  descriptionAr:    string;
+  descriptionEn?:   string;
+  quantity:         number;
+  unitPriceHalalas: number;   // VAT-inclusive per unit
+  totalHalalas:     number;   // VAT-inclusive total (= quantity × unitPriceHalalas)
+}
+
+interface InvoiceItem {
+  description:      string;
+  descriptionEn:    string | null;
+  quantity:         number;
+  unitPriceHalalas: number;   // excl. VAT (for ZATCA line-level breakdown)
+  vatHalalas:       number;
+  totalHalalas:     number;   // incl. VAT
+}
+
 export async function POST(request: Request) {
   try {
     const { uid, agencyId } = await verifyAuth(request);
@@ -146,6 +164,12 @@ export async function POST(request: Request) {
 
         const typeLabel = BOOKING_TYPE_LABELS[booking.serviceType ?? ''] ?? { ar: 'خدمة سفر', en: 'Travel Service' };
 
+        // Build invoice line items — multi-line if booking.details.lineItems is set
+        const rawLineItems = details['lineItems'];
+        const invoiceItems = buildInvoiceItems(
+          rawLineItems, finalGrandTotal, subtotalExclVat, totalVat, typeLabel,
+        );
+
         // ── 6. Write ────────────────────────────────────────────────────────
         await tx.insert(invoices).values({
           id:              invoiceId,
@@ -168,7 +192,7 @@ export async function POST(request: Request) {
           issueDate:       today,
           status:          'issued',
           isEInvoice:      isVatRegistered,
-          items:           [{ description: typeLabel.ar, quantity: 1, unitPriceHalalas: subtotalExclVat, vatHalalas: totalVat, totalHalalas: finalGrandTotal }],
+          items:           invoiceItems,
           journalEntryId:  jLines.length > 0 ? jeId : null,
           createdBy:       uid,
           zatcaUuid:       crypto.randomUUID(),
@@ -250,6 +274,65 @@ const BOOKING_TYPE_LABELS: Record<string, { ar: string; en: string }> = {
   insurance: { ar: 'تأمين سفر',    en: 'Travel Insurance' },
   transport: { ar: 'خدمة نقل',     en: 'Transport Service' },
 };
+
+// ─── buildInvoiceItems ────────────────────────────────────────────────────────
+// Returns a multi-line items array when booking.details.lineItems is valid,
+// falling back to a single summary line otherwise.
+//
+// VAT is distributed proportionally across lines (last line absorbs rounding
+// remainder) so sum(item.vatHalalas) always equals the invoice totalVat.
+function buildInvoiceItems(
+  rawLineItems: unknown,
+  grandTotal:      number,
+  subtotalExclVat: number,
+  totalVat:        number,
+  typeLabel:       { ar: string; en: string },
+): InvoiceItem[] {
+  // ── Validate rawLineItems ────────────────────────────────────────────────
+  if (!Array.isArray(rawLineItems) || rawLineItems.length === 0) {
+    return [{ description: typeLabel.ar, descriptionEn: typeLabel.en, quantity: 1, unitPriceHalalas: subtotalExclVat, vatHalalas: totalVat, totalHalalas: grandTotal }];
+  }
+
+  const lineItems = rawLineItems as PackageLineItem[];
+  for (const item of lineItems) {
+    if (!item.descriptionAr || typeof item.descriptionAr !== 'string') {
+      return [{ description: typeLabel.ar, descriptionEn: typeLabel.en, quantity: 1, unitPriceHalalas: subtotalExclVat, vatHalalas: totalVat, totalHalalas: grandTotal }];
+    }
+    if (!Number.isInteger(item.quantity) || item.quantity <= 0) {
+      return [{ description: typeLabel.ar, descriptionEn: typeLabel.en, quantity: 1, unitPriceHalalas: subtotalExclVat, vatHalalas: totalVat, totalHalalas: grandTotal }];
+    }
+    if (!Number.isInteger(item.totalHalalas) || item.totalHalalas <= 0) {
+      return [{ description: typeLabel.ar, descriptionEn: typeLabel.en, quantity: 1, unitPriceHalalas: subtotalExclVat, vatHalalas: totalVat, totalHalalas: grandTotal }];
+    }
+  }
+
+  // Validate sum of line item totals equals invoice grand total
+  const lineSum = lineItems.reduce((s, l) => s + l.totalHalalas, 0);
+  if (lineSum !== grandTotal) {
+    // Sum mismatch — fall back to single line rather than produce invalid ZATCA document
+    return [{ description: typeLabel.ar, descriptionEn: typeLabel.en, quantity: 1, unitPriceHalalas: subtotalExclVat, vatHalalas: totalVat, totalHalalas: grandTotal }];
+  }
+
+  // ── Distribute VAT proportionally ────────────────────────────────────────
+  let vatAssigned = 0;
+  return lineItems.map((item, idx) => {
+    const isLast   = idx === lineItems.length - 1;
+    const itemVat  = isLast
+      ? totalVat - vatAssigned
+      : Math.round(totalVat * (item.totalHalalas / grandTotal));
+    if (!isLast) vatAssigned += itemVat;
+    const itemSubtotal     = item.totalHalalas - itemVat;
+    const unitPriceExclVat = item.quantity > 0 ? Math.round(itemSubtotal / item.quantity) : itemSubtotal;
+    return {
+      description:      item.descriptionAr,
+      descriptionEn:    item.descriptionEn ?? null,
+      quantity:         item.quantity,
+      unitPriceHalalas: unitPriceExclVat,
+      vatHalalas:       itemVat,
+      totalHalalas:     item.totalHalalas,
+    };
+  });
+}
 
 function buildInvoiceJournalLines(
   revenueModel: string,
