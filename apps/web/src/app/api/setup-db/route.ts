@@ -365,23 +365,25 @@ CREATE INDEX IF NOT EXISTS idx_bank_txn_account ON bank_transactions(bank_accoun
 
 -- ══ CHEQUES ══════════════════════════════════════════════════════════════════
 CREATE TABLE IF NOT EXISTS cheques (
-  id              TEXT PRIMARY KEY,
-  agency_id       TEXT NOT NULL REFERENCES agencies(id) ON DELETE CASCADE,
-  cheque_number   TEXT NOT NULL,
-  bank_name       TEXT,
-  amount_halalas  INTEGER NOT NULL,
-  type            TEXT NOT NULL,
-  status          TEXT NOT NULL DEFAULT 'pending',
-  issue_date      TEXT,
-  due_date        TEXT,
-  payer_name      TEXT,
-  payee_name      TEXT,
-  related_id      TEXT,
-  notes           TEXT,
-  created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  id                TEXT PRIMARY KEY,
+  agency_id         TEXT NOT NULL REFERENCES agencies(id) ON DELETE CASCADE,
+  cheque_number     TEXT NOT NULL,
+  bank_account_id   TEXT REFERENCES bank_accounts(id),
+  bank_name         TEXT,
+  amount_halalas    INTEGER NOT NULL,
+  type              TEXT NOT NULL,
+  status            TEXT NOT NULL DEFAULT 'pending',
+  issue_date        TEXT,
+  due_date          TEXT,
+  payer_name        TEXT,
+  payee_name        TEXT,
+  related_id        TEXT,
+  notes             TEXT,
+  created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at        TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 CREATE INDEX IF NOT EXISTS idx_cheques_agency ON cheques(agency_id);
+ALTER TABLE cheques ADD COLUMN IF NOT EXISTS bank_account_id TEXT REFERENCES bank_accounts(id);
 
 -- ══ EMPLOYEES ════════════════════════════════════════════════════════════════
 CREATE TABLE IF NOT EXISTS employees (
@@ -683,6 +685,21 @@ CREATE TABLE IF NOT EXISTS attendance_records (
 );
 CREATE UNIQUE INDEX IF NOT EXISTS attendance_employee_date_uq ON attendance_records(employee_id, date);
 CREATE INDEX IF NOT EXISTS idx_attendance_agency_date ON attendance_records(agency_id, date);
+
+-- ══ ACCOUNTING PERIODS ════════════════════════════════════════════════════════
+CREATE TABLE IF NOT EXISTS accounting_periods (
+  id            TEXT PRIMARY KEY,
+  agency_id     TEXT NOT NULL REFERENCES agencies(id) ON DELETE CASCADE,
+  period_year   INTEGER NOT NULL,
+  period_month  INTEGER NOT NULL,
+  is_locked     BOOLEAN NOT NULL DEFAULT FALSE,
+  locked_at     TIMESTAMPTZ,
+  locked_by     TEXT,
+  notes         TEXT,
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE UNIQUE INDEX IF NOT EXISTS accounting_periods_agency_ym_uq ON accounting_periods(agency_id, period_year, period_month);
 
 `;
 
