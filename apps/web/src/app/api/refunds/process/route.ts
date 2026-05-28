@@ -20,6 +20,7 @@ const AC = {
   vatPayable:       { code: '2200', ar: 'ضريبة القيمة المضافة مستحقة',  en: 'VAT Payable' },
   revenueAgent:     { code: '4000', ar: 'إيراد رسوم الوكالة',            en: 'Revenue - Agency Fees' },
   revenuePrincipal: { code: '4100', ar: 'إيراد خدمات السفر',             en: 'Revenue - Travel Services' },
+  cancellationFee:  { code: '4000', ar: 'إيراد رسوم الإلغاء',            en: 'Cancellation Fee Revenue' },
 };
 
 export async function POST(request: Request) {
@@ -35,6 +36,9 @@ export async function POST(request: Request) {
     }
     if (!Number.isInteger(refundAmountHalalas) || refundAmountHalalas < 0) {
       return NextResponse.json({ error: 'مبلغ الاسترداد غير صالح' }, { status: 400 });
+    }
+    if (!Number.isInteger(cancellationFeeHalalas) || cancellationFeeHalalas < 0) {
+      return NextResponse.json({ error: 'رسوم الإلغاء غير صالحة' }, { status: 400 });
     }
 
     const result = await withIdempotency(idempKey, agencyId, 'processRefund', async () => {
@@ -66,13 +70,17 @@ export async function POST(request: Request) {
         const revenueModel = (details['revenueModel'] as string | undefined) ?? 'agent';
         const revenueAc    = revenueModel === 'agent' ? AC.revenueAgent : AC.revenuePrincipal;
 
-        // Prorate the original invoice's VAT by the refund ratio.
-        // This is correct for all VAT schemes (standard rate, margin scheme, any
-        // rate), because the credit note must mirror the same proportions as the
-        // original invoice — regardless of how the VAT was originally derived.
-        const refundRatio    = invoice.totalHalalas > 0 ? refundAmountHalalas / invoice.totalHalalas : 1;
+        // Prorate the original invoice's VAT by ratio of each component to the
+        // original total. Works for standard rate, margin scheme, or any VAT rate.
+        const originalTotal  = invoice.totalHalalas > 0 ? invoice.totalHalalas : 1;
+        const refundRatio    = refundAmountHalalas / originalTotal;
         const refundVat      = Math.round(invoice.vatHalalas * refundRatio);
         const refundSubtotal = refundAmountHalalas - refundVat;
+
+        // Cancellation fee VAT (same proportional method)
+        const feeRatio       = cancellationFeeHalalas / originalTotal;
+        const cancelFeeVat   = invoice.isEInvoice ? Math.round(invoice.vatHalalas * feeRatio) : 0;
+        const cancelFeeNet   = cancellationFeeHalalas - cancelFeeVat;
 
         // ── 4. Counters + IDs ───────────────────────────────────────────────
         const now  = new Date();
@@ -85,10 +93,29 @@ export async function POST(request: Request) {
         const refundPaymentId  = crypto.randomUUID();
         const today            = now.toISOString().split('T')[0]!;
 
-        // ── 5. Build journal lines (reversal) ───────────────────────────────
-        const jLines: Array<{ code: string; ar: string; en: string; dr: number; cr: number }> = refundVat > 0
+        // ── 5. Build journal lines (reversal + cancellation fee) ────────────
+        type JLine = { code: string; ar: string; en: string; dr: number; cr: number };
+        const jLines: JLine[] = refundVat > 0
           ? [{ ...revenueAc, dr: refundSubtotal, cr: 0 }, { ...AC.vatPayable, dr: refundVat, cr: 0 }, { ...AC.bank, dr: 0, cr: refundAmountHalalas }]
           : [{ ...revenueAc, dr: refundAmountHalalas, cr: 0 }, { ...AC.bank, dr: 0, cr: refundAmountHalalas }];
+
+        // Cancellation fee lines — explicitly journalized (BUG-02 fix).
+        // The fee was already received in the original payment and remains in bank;
+        // we reclassify it from service revenue to cancellation fee revenue.
+        // Dr/Cr balance: cancellationFeeHalalas = cancelFeeNet + cancelFeeVat ✓
+        if (cancellationFeeHalalas > 0) {
+          jLines.push({
+            code: revenueAc.code,
+            ar:   'رسوم إلغاء — مقتطعة من الحجز',
+            en:   'Cancellation Fee Withheld',
+            dr:   cancellationFeeHalalas,
+            cr:   0,
+          });
+          jLines.push({ ...AC.cancellationFee, dr: 0, cr: cancelFeeNet });
+          if (cancelFeeVat > 0) {
+            jLines.push({ ...AC.vatPayable, dr: 0, cr: cancelFeeVat });
+          }
+        }
 
         // ── 6. Write ────────────────────────────────────────────────────────
         // Credit note (stored as invoice with type='381')
@@ -137,7 +164,9 @@ export async function POST(request: Request) {
           agencyId,
           entryNumber:        jeNumber,
           date:               today,
-          descriptionAr:      `مذكرة دائنة ${creditNoteNumber} - استرداد`,
+          descriptionAr:      cancellationFeeHalalas > 0
+            ? `مذكرة دائنة ${creditNoteNumber} - استرداد ${refundAmountHalalas / 100} ر.س ورسوم إلغاء ${cancellationFeeHalalas / 100} ر.س`
+            : `مذكرة دائنة ${creditNoteNumber} - استرداد`,
           source:             'receipt',
           sourceId:           creditNoteId,
           isPosted:           true,
@@ -168,7 +197,7 @@ export async function POST(request: Request) {
           .values(buildIdempotencyInsert(agencyId, 'processRefund', idempKey, { refundPaymentId, creditNoteId, creditNoteNumber }))
           .onConflictDoNothing();
 
-        return { creditNoteId, creditNoteNumber, refundAmountHalalas };
+        return { creditNoteId, creditNoteNumber, refundAmountHalalas, cancellationFeeHalalas };
       });
     });
 
