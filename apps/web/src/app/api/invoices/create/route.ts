@@ -179,6 +179,7 @@ export async function POST(request: Request) {
             descriptionEn:       `Invoice ${invoiceNumber} - ${typeLabel.en}`,
             source:              'invoice',
             sourceId:            invoiceId,
+            serviceType:         booking.serviceType ?? null,
             isPosted:            true,
             totalDebitHalalas:   jLines.reduce((s, l) => s + l.dr, 0),
             totalCreditHalalas:  jLines.reduce((s, l) => s + l.cr, 0),

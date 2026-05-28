@@ -36,6 +36,7 @@ export const journalEntries = pgTable('journal_entries', {
   reference:     text('reference'),
   source:        text('source').notNull().default('manual'), // manual|invoice|payment|receipt|salary
   sourceId:      text('source_id'),
+  serviceType:   text('service_type'),                       // flight|hotel|package|umrah|hajj|visa|insurance|transport
   isPosted:      boolean('is_posted').notNull().default(true),
   totalDebitHalalas:  integer('total_debit_halalas').notNull().default(0),
   totalCreditHalalas: integer('total_credit_halalas').notNull().default(0),
