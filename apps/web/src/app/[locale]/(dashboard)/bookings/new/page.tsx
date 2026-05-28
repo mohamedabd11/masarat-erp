@@ -19,6 +19,7 @@ import {
   X, Check, Search, UserPlus, FileText,
 } from 'lucide-react';
 import { CustomerSearch } from '@/components/customers/CustomerSearch';
+import { COUNTRIES } from '@/lib/countries';
 
 // ─── Service Types Catalog ─────────────────────────────────────────────────────
 
@@ -93,7 +94,6 @@ const formSchema = z.object({
   boardType:    z.string().optional(),
   hotelCheckIn:  z.string().optional(),
   hotelCheckOut: z.string().optional(),
-  destination:   z.string().optional(),
   makkahHotel:  z.string().optional(),
   makkahNights: z.coerce.number().optional(),
   madinahHotel: z.string().optional(),
@@ -494,7 +494,7 @@ function NewBookingContent() {
     resolver: zodResolver(formSchema),
     defaultValues: {
       revenueModel: 'agent',
-      travelers: [{ nameAr: '', nationality: 'SA', gender: 'male' }],
+      travelers: [{ nameAr: '', nationality: isAr ? 'السعودية' : 'Saudi Arabia', gender: 'male' }],
       costPriceSAR:  0,
       serviceFeeSAR: 0,
     },
@@ -921,7 +921,7 @@ function NewBookingContent() {
                       </div>
                       <div>
                         <label className="block text-[11px] font-medium text-slate-500 mb-1">{isAr ? 'الجنسية' : 'Nationality'}</label>
-                        <input className={IC} placeholder="SA" dir="ltr" {...register(`travelers.${idx}.nationality`)} />
+                        <input className={IC} list="countries-datalist" placeholder={isAr ? 'اختر أو اكتب...' : 'Select or type...'} {...register(`travelers.${idx}.nationality`)} />
                       </div>
                       <div>
                         <label className="block text-[11px] font-medium text-slate-500 mb-1">{isAr ? 'الجنس' : 'Gender'}</label>
@@ -1085,6 +1085,12 @@ function NewBookingContent() {
           </div>
         )}
       </form>
+
+      <datalist id="countries-datalist">
+        {COUNTRIES.map(c => (
+          <option key={c.code} value={isAr ? c.ar : c.en} />
+        ))}
+      </datalist>
     </div>
   );
 }

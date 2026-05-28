@@ -3,12 +3,13 @@ import type { Tx } from './db';
 import { agencyCounters } from './schema';
 import { sql } from 'drizzle-orm';
 
-export type InvoiceType = 'taxInvoice' | 'creditNote' | 'debitNote';
+export type InvoiceType = 'taxInvoice' | 'commercialInvoice' | 'creditNote' | 'debitNote';
 
 const PREFIX: Record<string, string> = {
-  taxInvoice:     'INV',
-  creditNote:     'CN',
-  debitNote:      'DN',
+  taxInvoice:        'INV',
+  commercialInvoice: 'CINV',
+  creditNote:        'CN',
+  debitNote:         'DN',
   receipt:        'RCT',
   paymentVoucher: 'PV',
   booking:        'BK',

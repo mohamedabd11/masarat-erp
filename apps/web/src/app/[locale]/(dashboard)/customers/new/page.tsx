@@ -13,6 +13,7 @@ import { cn } from '@/lib/utils';
 import { ArrowRight, ArrowLeft, UserPlus, Building2, User } from 'lucide-react';
 import { useAuth } from '@masarat/firebase';
 import { apiFetch } from '@/lib/api-client';
+import { COUNTRIES } from '@/lib/countries';
 
 // ─── Schema ───────────────────────────────────────────────────────────────────
 
@@ -34,34 +35,6 @@ const schema = z.object({
 
 type FormData = z.infer<typeof schema>;
 
-// ─── Nationality options ──────────────────────────────────────────────────────
-
-const NATIONALITIES = [
-  { value: 'SA', ar: 'السعودية',          en: 'Saudi Arabia',    flag: '🇸🇦' },
-  { value: 'AE', ar: 'الإمارات',          en: 'UAE',             flag: '🇦🇪' },
-  { value: 'KW', ar: 'الكويت',            en: 'Kuwait',          flag: '🇰🇼' },
-  { value: 'BH', ar: 'البحرين',           en: 'Bahrain',         flag: '🇧🇭' },
-  { value: 'OM', ar: 'عُمان',             en: 'Oman',            flag: '🇴🇲' },
-  { value: 'QA', ar: 'قطر',               en: 'Qatar',           flag: '🇶🇦' },
-  { value: 'EG', ar: 'مصر',               en: 'Egypt',           flag: '🇪🇬' },
-  { value: 'JO', ar: 'الأردن',            en: 'Jordan',          flag: '🇯🇴' },
-  { value: 'LB', ar: 'لبنان',             en: 'Lebanon',         flag: '🇱🇧' },
-  { value: 'SY', ar: 'سوريا',             en: 'Syria',           flag: '🇸🇾' },
-  { value: 'IQ', ar: 'العراق',            en: 'Iraq',            flag: '🇮🇶' },
-  { value: 'YE', ar: 'اليمن',             en: 'Yemen',           flag: '🇾🇪' },
-  { value: 'MA', ar: 'المغرب',            en: 'Morocco',         flag: '🇲🇦' },
-  { value: 'PK', ar: 'باكستان',           en: 'Pakistan',        flag: '🇵🇰' },
-  { value: 'IN', ar: 'الهند',             en: 'India',           flag: '🇮🇳' },
-  { value: 'PH', ar: 'الفلبين',           en: 'Philippines',     flag: '🇵🇭' },
-  { value: 'BD', ar: 'بنغلاديش',          en: 'Bangladesh',      flag: '🇧🇩' },
-  { value: 'ID', ar: 'إندونيسيا',         en: 'Indonesia',       flag: '🇮🇩' },
-  { value: 'TR', ar: 'تركيا',             en: 'Turkey',          flag: '🇹🇷' },
-  { value: 'US', ar: 'الولايات المتحدة',  en: 'United States',   flag: '🇺🇸' },
-  { value: 'GB', ar: 'المملكة المتحدة',   en: 'United Kingdom',  flag: '🇬🇧' },
-  { value: 'FR', ar: 'فرنسا',             en: 'France',          flag: '🇫🇷' },
-  { value: 'DE', ar: 'ألمانيا',           en: 'Germany',         flag: '🇩🇪' },
-];
-
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export default function NewCustomerPage() {
@@ -82,7 +55,7 @@ export default function NewCustomerPage() {
     formState: { errors },
   } = useForm<FormData>({
     resolver: zodResolver(schema),
-    defaultValues: { type: 'individual', nationality: 'SA', gender: 'male' },
+    defaultValues: { type: 'individual', nationality: isAr ? 'السعودية' : 'Saudi Arabia', gender: 'male' },
   });
 
   const customerType = watch('type');
@@ -292,16 +265,18 @@ export default function NewCustomerPage() {
                     <label className="block text-sm font-medium text-slate-700 mb-1.5">
                       {isAr ? 'الجنسية' : 'Nationality'}
                     </label>
-                    <select
+                    <input
+                      type="text"
+                      list="countries-datalist"
                       className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-brand-500"
+                      placeholder={isAr ? 'اختر أو اكتب الجنسية...' : 'Select or type nationality...'}
                       {...register('nationality')}
-                    >
-                      {NATIONALITIES.map(n => (
-                        <option key={n.value} value={n.value}>
-                          {n.flag} {isAr ? n.ar : n.en}
-                        </option>
+                    />
+                    <datalist id="countries-datalist">
+                      {COUNTRIES.map(c => (
+                        <option key={c.code} value={isAr ? c.ar : c.en} />
                       ))}
-                    </select>
+                    </datalist>
                   </div>
                 </div>
 

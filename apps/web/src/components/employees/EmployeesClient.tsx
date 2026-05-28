@@ -9,6 +9,7 @@ import { Spinner } from '@/components/ui/Spinner';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { Badge } from '@/components/ui/Badge';
 import { formatCurrency } from '@/lib/utils';
+import { COUNTRIES } from '@/lib/countries';
 import {
   UserCog, Plus, Search, Phone, Mail, X, Check,
   Banknote, CalendarDays, Building2, ChevronLeft, ChevronRight,
@@ -431,7 +432,13 @@ function EmployeesTab({ isAr, agencyId, locale }: { isAr: boolean; agencyId: str
             <div>
               <label className={labelCls}>{isAr ? 'الجنسية' : 'Nationality'}</label>
               <input value={form.nationality} onChange={e => setForm(p => ({ ...p, nationality: e.target.value }))}
-                className={inputCls} />
+                className={inputCls} list="emp-countries-datalist"
+                placeholder={isAr ? 'اختر أو اكتب...' : 'Select or type...'} />
+              <datalist id="emp-countries-datalist">
+                {COUNTRIES.map(c => (
+                  <option key={c.code} value={isAr ? c.ar : c.en} />
+                ))}
+              </datalist>
             </div>
             <div>
               <label className={labelCls}>{isAr ? 'تاريخ الالتحاق' : 'Join Date'}</label>

@@ -21,11 +21,12 @@ const SERVICE_TYPES = [
 ];
 
 interface Line {
-  key:           string;
-  serviceType:   string;
-  descriptionAr: string;
-  quantity:      number;
-  unitPrice:     string;  // SAR as string while editing
+  key:              string;
+  serviceType:      string;  // '__custom__' when user types a custom type
+  customServiceAr?: string;  // filled when serviceType === '__custom__'
+  descriptionAr:    string;
+  quantity:         number;
+  unitPrice:        string;
 }
 
 interface AgencyVat {
@@ -114,7 +115,7 @@ export function CreateDirectInvoiceModal({ onClose, onSuccess }: Props) {
           dueDate:     dueDate || undefined,
           notes:       notes.trim() || undefined,
           lines: lines.map(l => ({
-            serviceType:      l.serviceType,
+            serviceType:      l.serviceType === '__custom__' ? (l.customServiceAr?.trim() || 'other') : l.serviceType,
             descriptionAr:    l.descriptionAr.trim(),
             quantity:         Math.max(1, l.quantity),
             unitPriceHalalas: Math.round(parseFloat(l.unitPrice || '0') * 100),
@@ -257,7 +258,19 @@ export function CreateDirectInvoiceModal({ onClose, onSuccess }: Props) {
                             {isAr ? st.ar : st.en}
                           </option>
                         ))}
+                        <option value="__custom__">
+                          {isAr ? '➕ أضف نوع جديد...' : '➕ Add custom type...'}
+                        </option>
                       </select>
+                      {line.serviceType === '__custom__' && (
+                        <input
+                          className={`${IC} mt-1.5`}
+                          placeholder={isAr ? 'اكتب نوع الخدمة...' : 'Type service name...'}
+                          value={line.customServiceAr ?? ''}
+                          onChange={e => setLine(line.key, 'customServiceAr', e.target.value)}
+                          autoFocus
+                        />
+                      )}
                     </div>
 
                     {/* Description */}
