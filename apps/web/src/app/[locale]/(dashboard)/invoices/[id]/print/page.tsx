@@ -38,7 +38,7 @@ export default function PrintInvoicePage({
         const grandTotal      = inv.totalHalalas;
         const subtotalExclVat = inv.subtotalHalalas || Math.round(grandTotal / 1.15);
         const totalVat        = inv.vatHalalas;
-        const isVatRegistered = (inv.vatHalalas > 0) || inv.isEInvoice;
+        const isVatRegistered = !!(ag['isVatRegistered']) || (inv.vatHalalas > 0) || inv.isEInvoice;
 
         const rawItems = (inv.items as Record<string, unknown>[] | null) ?? [];
         const rawLines: PrintableInvoiceData['lines'] = rawItems.length > 0
@@ -75,15 +75,21 @@ export default function PrintInvoicePage({
           invoiceTypeCode: (inv.type as '388' | '381' | '383') ?? '388',
           currency:        'SAR',
           seller: {
-            nameAr:          inv.sellerNameAr ?? '',
-            nameEn:          inv.sellerNameEn ?? '',
-            vatNumber:       inv.sellerVatNumber ?? '',
-            crNumber:        inv.sellerCrNumber ?? '',
+            nameAr:          (ag['nameAr'] as string | undefined) || inv.sellerNameAr || '',
+            nameEn:          (ag['nameEn'] as string | undefined) || inv.sellerNameEn || '',
+            vatNumber:       (ag['vatNumber'] as string | undefined) || inv.sellerVatNumber || '',
+            crNumber:        (ag['crNumber'] as string | undefined) || inv.sellerCrNumber || '',
             isVatRegistered,
             logoUrl:         (ag['logoUrl'] as string | undefined) || undefined,
-            address: { streetName: '', buildingNumber: '', district: '', city: inv.sellerAddress ?? '', postalCode: '' },
+            address: {
+              streetName:     (ag['streetName'] as string | undefined) || '',
+              buildingNumber: (ag['buildingNumber'] as string | undefined) || '',
+              district:       (ag['district'] as string | undefined) || '',
+              city:           (ag['city'] as string | undefined) || inv.sellerAddress || '',
+              postalCode:     (ag['postalCode'] as string | undefined) || '',
+            },
             phone:           (ag['contactPhone'] as string | undefined) || (ag['phone'] as string | undefined) || '',
-            email:           '',
+            email:           (ag['contactEmail'] as string | undefined) || '',
           },
           buyer: {
             nameAr:    inv.buyerNameAr ?? '',
