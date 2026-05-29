@@ -39,7 +39,7 @@ export function useSubscription() {
 const SUPER_ADMIN_EMAIL = process.env['NEXT_PUBLIC_SUPER_ADMIN_EMAIL'] ?? '';
 
 export function SubscriptionProvider({ children }: { children: ReactNode }) {
-  const { user } = useAuth();
+  const { user, loading: authLoading } = useAuth();
   const [status,        setStatus]        = useState<SubscriptionStatus>('loading');
   const [plan,          setPlan]          = useState('');
   const [agencyName,    setAgencyName]    = useState('');
@@ -49,11 +49,17 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
   const isSuperAdmin = user?.email === SUPER_ADMIN_EMAIL;
 
   useEffect(() => {
+    // Wait for Firebase Auth to resolve before making any access decision.
+    // Without this guard the effect fires with user=null, sets isLoading=false
+    // immediately, and UpgradeGate briefly flashes the "upgrade" screen.
+    if (authLoading) return;
+
     if (isSuperAdmin) { setStatus('active'); setPlan('super_admin'); setIsLoading(false); return; }
 
     const agencyId = user?.agencyId as string | undefined;
     if (!agencyId) { setIsLoading(false); return; }
 
+    setIsLoading(true);   // reset while fetching — prevents stale state between user switches
     let cancelled = false;
 
     async function load() {
@@ -87,7 +93,7 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
 
     void load();
     return () => { cancelled = true; };
-  }, [user?.agencyId, isSuperAdmin]);
+  }, [user?.agencyId, isSuperAdmin, authLoading]);
 
   const isLifetime = status === 'lifetime';
 
