@@ -50,17 +50,22 @@ export default function LoginPage() {
     setResetSending(true);
     setResetError('');
     try {
-      // Custom API sends branded email via Resend with masarat-erp.com link
-      await fetch('/api/auth/forgot-password', {
+      const res  = await fetch('/api/auth/forgot-password', {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
         body:    JSON.stringify({ email, locale }),
       });
-      // Always show success (never reveal if email exists)
+      const data = await res.json() as { success: boolean; error?: string };
+      if (!data.success && data.error === 'not_found') {
+        setResetError(isAr
+          ? 'هذا البريد الإلكتروني غير مسجّل في النظام'
+          : 'This email is not registered in the system');
+        return;
+      }
+      setResetDone(true);
     } finally {
       setResetSending(false);
     }
-    setResetDone(true);
   }
 
   async function onSubmit(data: LoginForm) {
@@ -119,8 +124,8 @@ export default function LoginPage() {
           {resetDone ? (
             <div className="rounded-xl bg-emerald-50 border border-emerald-200 px-5 py-4 text-sm text-emerald-700 text-center leading-relaxed">
               {isAr
-                ? 'إذا كان هذا البريد الإلكتروني مسجّلاً في النظام، سيصلك رابط إعادة التعيين خلال دقائق. تحقق من صندوق الوارد والبريد المزعج.'
-                : 'If this email is registered in the system, you will receive a reset link within a few minutes. Check your inbox and spam folder.'}
+                ? 'تم إرسال رابط إعادة تعيين كلمة المرور إلى بريدك الإلكتروني. تحقق من صندوق الوارد والبريد المزعج.'
+                : 'A password reset link has been sent to your email. Please check your inbox and spam folder.'}
             </div>
           ) : (
             <div className="space-y-4">

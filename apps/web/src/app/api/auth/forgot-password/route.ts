@@ -139,9 +139,14 @@ export async function POST(request: Request) {
       html:    isAr ? htmlAr(resetUrl) : htmlEn(resetUrl),
     });
 
-  } catch {
-    // Intentionally swallow all errors — never reveal whether an email exists
-  }
+    return NextResponse.json({ success: true });
 
-  return NextResponse.json({ success: true });
+  } catch (err: unknown) {
+    const code = (err as { code?: string }).code ?? '';
+    if (code === 'auth/user-not-found' || code === 'auth/invalid-email') {
+      return NextResponse.json({ success: false, error: 'not_found' });
+    }
+    // Swallow unexpected errors silently
+    return NextResponse.json({ success: true });
+  }
 }
