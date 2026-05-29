@@ -137,7 +137,7 @@ export async function POST(request: Request) {
     // Send via Resend
     const resend = new Resend(process.env.RESEND_API_KEY);
     await resend.emails.send({
-      from:    'مسارات <onboarding@resend.dev>',
+      from:    'مسارات <noreply@masarat-erp.com>',
       to:      email,
       subject: isAr ? 'إعادة تعيين كلمة المرور — مسارات' : 'Reset your password — Masarat',
       html:    isAr ? htmlAr(resetUrl) : htmlEn(resetUrl),
