@@ -14,7 +14,7 @@
  * 5. إضافة للـ ZATCA queue (خارج الـ transaction)
  */
 
-import { eq, and } from 'drizzle-orm';
+import { eq, and, sql } from 'drizzle-orm';
 import {
   bookings,
   invoices,
@@ -24,11 +24,11 @@ import {
   agencyAccountingConfigs,
   agencyZatcaConfigs,
   zatcaSubmissionQueue,
-  type AgencyAccountingConfig,
 } from '@masarat/database/schema';
 import {
   generateJournalEntry,
   calculateVat,
+  type AgencyAccountingConfig,
   type AgentPaymentReceivedInput,
   type PrincipalPaymentReceivedInput,
 } from '@masarat/accounting';
@@ -148,9 +148,9 @@ async function executeCreateInvoice(
 
     // ── Step 3: رقم الفاتورة التسلسلي (Atomic) ─────────────────────────────
     // استخدام PostgreSQL function المُعرَّفة في migration 002
+    const currentYear = new Date().getFullYear();
     const [counterResult] = await tx.execute(
-      `SELECT get_next_invoice_number($1::uuid, 'tax_invoice'::invoice_type, $2::integer) AS invoice_number`,
-      [agencyId, new Date().getFullYear()]
+      sql`SELECT get_next_invoice_number(${agencyId}::uuid, 'tax_invoice'::invoice_type, ${currentYear}::integer) AS invoice_number`
     ) as unknown as [{ invoice_number: string }];
 
     const invoiceNumber = counterResult.invoice_number;
@@ -184,7 +184,7 @@ async function executeCreateInvoice(
       type: 'tax_invoice',
       status: 'issued',
       invoiceNumber,
-      zatcaUuid: zatcaUuid as unknown as undefined,
+      zatcaUuid,
       bookingId,
       journalEntryId,
 
@@ -212,10 +212,10 @@ async function executeCreateInvoice(
 
       // ZATCA
       zatcaInvoiceTypeCode: '388',
-      zatcaTransactionType: booking.buyerVatNumber ? 'B2B' : 'B2C',
+      zatcaTransactionType: 'B2C',
       zatcaSubmissionStatus: 'not_submitted',
 
-      issueDate: now.toISOString().split('T')[0] as unknown as Date,
+      issueDate: now.toISOString().split('T')[0] ,
       createdBy: userId,
     });
 
@@ -240,7 +240,7 @@ async function executeCreateInvoice(
       agencyId,
       type: journalEntry.type,
       description: journalEntry.description,
-      entryDate: now.toISOString().split('T')[0] as unknown as Date,
+      entryDate: now.toISOString().split('T')[0] ,
       period: `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`,
       totalDebitHalalas: BigInt(journalEntry.totalDebit),
       totalCreditHalalas: BigInt(journalEntry.totalCredit),

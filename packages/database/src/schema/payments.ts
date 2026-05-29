@@ -85,13 +85,13 @@ export const payments = pgTable(
       onDelete: 'set null',
     }),
   },
-  (t) => [
-    index('payments_agency_id_idx').on(t.agencyId),
-    index('payments_booking_id_idx').on(t.bookingId),
-    index('payments_invoice_id_idx').on(t.invoiceId),
-    index('payments_method_idx').on(t.agencyId, t.method),
-    index('payments_created_at_idx').on(t.agencyId, t.createdAt),
-  ]
+  (t) => ({
+    paymentsAgencyIdIdx: index('payments_agency_id_idx').on(t.agencyId),
+    paymentsBookingIdIdx: index('payments_booking_id_idx').on(t.bookingId),
+    paymentsInvoiceIdIdx: index('payments_invoice_id_idx').on(t.invoiceId),
+    paymentsMethodIdx: index('payments_method_idx').on(t.agencyId, t.method),
+    paymentsCreatedAtIdx: index('payments_created_at_idx').on(t.agencyId, t.createdAt),
+  })
 );
 
 /**
@@ -140,12 +140,12 @@ export const supplierPayments = pgTable(
       onDelete: 'set null',
     }),
   },
-  (t) => [
-    index('sp_agency_id_idx').on(t.agencyId),
-    index('sp_supplier_id_idx').on(t.supplierId),
-    index('sp_booking_id_idx').on(t.bookingId),
-    index('sp_payment_date_idx').on(t.agencyId, t.paymentDate),
-  ]
+  (t) => ({
+    spAgencyIdIdx: index('sp_agency_id_idx').on(t.agencyId),
+    spSupplierIdIdx: index('sp_supplier_id_idx').on(t.supplierId),
+    spBookingIdIdx: index('sp_booking_id_idx').on(t.bookingId),
+    spPaymentDateIdx: index('sp_payment_date_idx').on(t.agencyId, t.paymentDate),
+  })
 );
 
 /**
@@ -187,12 +187,12 @@ export const cheques = pgTable(
       onDelete: 'set null',
     }),
   },
-  (t) => [
-    index('cheques_agency_id_idx').on(t.agencyId),
-    index('cheques_status_idx').on(t.agencyId, t.status),
-    index('cheques_due_date_idx').on(t.agencyId, t.dueDate),
-    check('cheques_amount_positive', sql`amount_halalas > 0`),
-  ]
+  (t) => ({
+    chequesAgencyIdIdx: index('cheques_agency_id_idx').on(t.agencyId),
+    chequesStatusIdx: index('cheques_status_idx').on(t.agencyId, t.status),
+    chequesDueDateIdx: index('cheques_due_date_idx').on(t.agencyId, t.dueDate),
+    chequesAmountPositive: check('cheques_amount_positive', sql`amount_halalas > 0`),
+  })
 );
 
 /**
@@ -231,10 +231,10 @@ export const bankTransactions = pgTable(
       .notNull()
       .defaultNow(),
   },
-  (t) => [
-    index('bt_agency_id_idx').on(t.agencyId),
-    index('bt_bank_account_id_idx').on(t.bankAccountId),
-    index('bt_transaction_date_idx').on(t.agencyId, t.transactionDate),
-    index('bt_is_reconciled_idx').on(t.agencyId, t.isReconciled),
-  ]
+  (t) => ({
+    btAgencyIdIdx: index('bt_agency_id_idx').on(t.agencyId),
+    btBankAccountIdIdx: index('bt_bank_account_id_idx').on(t.bankAccountId),
+    btTransactionDateIdx: index('bt_transaction_date_idx').on(t.agencyId, t.transactionDate),
+    btIsReconciledIdx: index('bt_is_reconciled_idx').on(t.agencyId, t.isReconciled),
+  })
 );

@@ -28,7 +28,7 @@ export async function POST(request: Request): Promise<Response> {
       .where(
         and(
           inArray(agencies.subscriptionStatus, ['active', 'trial']),
-          lte(agencies.subscriptionExpiresAt, now)
+          lte(agencies.subscriptionEndsAt, now)
         )
       );
 
@@ -45,12 +45,12 @@ export async function POST(request: Request): Promise<Response> {
 
     // Find agencies expiring within 7 days (still active — for alerting)
     const expiringSoon = await db
-      .select({ id: agencies.id, nameAr: agencies.nameAr, subscriptionExpiresAt: agencies.subscriptionExpiresAt })
+      .select({ id: agencies.id, nameAr: agencies.nameAr, subscriptionEndsAt: agencies.subscriptionEndsAt })
       .from(agencies)
       .where(
         and(
           eq(agencies.subscriptionStatus, 'active'),
-          lte(agencies.subscriptionExpiresAt, warningThreshold)
+          lte(agencies.subscriptionEndsAt, warningThreshold)
         )
       );
 

@@ -66,10 +66,10 @@ export const suppliers = pgTable(
       onDelete: 'set null',
     }),
   },
-  (t) => [
-    index('suppliers_agency_id_idx').on(t.agencyId),
-    index('suppliers_type_idx').on(t.agencyId, t.type),
-  ]
+  (t) => ({
+    suppliersAgencyIdIdx: index('suppliers_agency_id_idx').on(t.agencyId),
+    suppliersTypeIdx: index('suppliers_type_idx').on(t.agencyId, t.type),
+  })
 );
 
 /**
@@ -113,10 +113,10 @@ export const bankAccounts = pgTable(
       .notNull()
       .defaultNow(),
   },
-  (t) => [
-    index('ba_agency_id_idx').on(t.agencyId),
-    index('ba_type_idx').on(t.agencyId, t.type),
-  ]
+  (t) => ({
+    baAgencyIdIdx: index('ba_agency_id_idx').on(t.agencyId),
+    baTypeIdx: index('ba_type_idx').on(t.agencyId, t.type),
+  })
 );
 
 /**
@@ -159,11 +159,11 @@ export const employees = pgTable(
       .notNull()
       .defaultNow(),
   },
-  (t) => [
-    index('employees_agency_id_idx').on(t.agencyId),
-    index('employees_status_idx').on(t.agencyId, t.status),
-    index('employees_department_idx').on(t.agencyId, t.departmentId),
-  ]
+  (t) => ({
+    employeesAgencyIdIdx: index('employees_agency_id_idx').on(t.agencyId),
+    employeesStatusIdx: index('employees_status_idx').on(t.agencyId, t.status),
+    employeesDepartmentIdx: index('employees_department_idx').on(t.agencyId, t.departmentId),
+  })
 );
 
 /**
@@ -186,7 +186,9 @@ export const departments = pgTable(
       .notNull()
       .defaultNow(),
   },
-  (t) => [index('departments_agency_id_idx').on(t.agencyId)]
+  (t) => ({
+    departmentsAgencyIdIdx: index('departments_agency_id_idx').on(t.agencyId),
+  })
 );
 
 /**
@@ -219,9 +221,9 @@ export const exchangeRates = pgTable(
       onDelete: 'set null',
     }),
   },
-  (t) => [
-    index('er_agency_id_idx').on(t.agencyId),
-    index('er_currencies_idx').on(t.agencyId, t.fromCurrency, t.toCurrency),
-    index('er_effective_date_idx').on(t.agencyId, t.effectiveDate),
-  ]
+  (t) => ({
+    erAgencyIdIdx: index('er_agency_id_idx').on(t.agencyId),
+    erCurrenciesIdx: index('er_currencies_idx').on(t.agencyId, t.fromCurrency, t.toCurrency),
+    erEffectiveDateIdx: index('er_effective_date_idx').on(t.agencyId, t.effectiveDate),
+  })
 );

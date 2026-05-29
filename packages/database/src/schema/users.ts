@@ -63,13 +63,13 @@ export const users = pgTable(
       .defaultNow(),
     createdBy: uuid('created_by'), // self-reference — nullable for first admin
   },
-  (t) => [
-    // email unique per agency (not globally)
+  (t) => ({
+    usersEmailAgencyUnique: // email unique per agency (not globally)
     unique('users_email_agency_unique').on(t.email, t.agencyId),
-    index('users_agency_id_idx').on(t.agencyId),
-    index('users_firebase_uid_idx').on(t.firebaseUid),
-    index('users_role_agency_idx').on(t.agencyId, t.role),
-  ]
+    usersAgencyIdIdx: index('users_agency_id_idx').on(t.agencyId),
+    usersFirebaseUidIdx: index('users_firebase_uid_idx').on(t.firebaseUid),
+    usersRoleAgencyIdx: index('users_role_agency_idx').on(t.agencyId, t.role),
+  })
 );
 
 /**
@@ -106,11 +106,11 @@ export const userSessions = pgTable(
       .notNull()
       .defaultNow(),
   },
-  (t) => [
-    index('sessions_user_id_idx').on(t.userId),
-    index('sessions_agency_id_idx').on(t.agencyId),
-    index('sessions_expires_at_idx').on(t.expiresAt),
-  ]
+  (t) => ({
+    sessionsUserIdIdx: index('sessions_user_id_idx').on(t.userId),
+    sessionsAgencyIdIdx: index('sessions_agency_id_idx').on(t.agencyId),
+    sessionsExpiresAtIdx: index('sessions_expires_at_idx').on(t.expiresAt),
+  })
 );
 
 /**
@@ -147,10 +147,10 @@ export const auditLogs = pgTable(
       .notNull()
       .defaultNow(),
   },
-  (t) => [
-    index('audit_logs_agency_id_idx').on(t.agencyId),
-    index('audit_logs_user_id_idx').on(t.userId),
-    index('audit_logs_resource_idx').on(t.resourceType, t.resourceId),
-    index('audit_logs_created_at_idx').on(t.createdAt),
-  ]
+  (t) => ({
+    auditLogsAgencyIdIdx: index('audit_logs_agency_id_idx').on(t.agencyId),
+    auditLogsUserIdIdx: index('audit_logs_user_id_idx').on(t.userId),
+    auditLogsResourceIdx: index('audit_logs_resource_idx').on(t.resourceType, t.resourceId),
+    auditLogsCreatedAtIdx: index('audit_logs_created_at_idx').on(t.createdAt),
+  })
 );

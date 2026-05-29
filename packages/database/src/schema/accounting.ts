@@ -35,6 +35,7 @@ import {
 import { agencies } from './agencies.js';
 import { users } from './users.js';
 import { bookings } from './bookings.js';
+import { customers } from './customers.js';
 
 // ─── دليل الحسابات ────────────────────────────────────────────────────────────
 
@@ -81,12 +82,12 @@ export const chartOfAccounts = pgTable(
       .notNull()
       .defaultNow(),
   },
-  (t) => [
-    unique('coa_agency_code_unique').on(t.agencyId, t.code),
-    index('coa_agency_id_idx').on(t.agencyId),
-    index('coa_type_idx').on(t.agencyId, t.type),
-    index('coa_parent_code_idx').on(t.agencyId, t.parentCode),
-  ]
+  (t) => ({
+    coaAgencyCodeUnique: unique('coa_agency_code_unique').on(t.agencyId, t.code),
+    coaAgencyIdIdx: index('coa_agency_id_idx').on(t.agencyId),
+    coaTypeIdx: index('coa_type_idx').on(t.agencyId, t.type),
+    coaParentCodeIdx: index('coa_parent_code_idx').on(t.agencyId, t.parentCode),
+  })
 );
 
 // ─── القيود اليومية ───────────────────────────────────────────────────────────
@@ -153,19 +154,18 @@ export const journalEntries = pgTable(
       onDelete: 'set null',
     }),
   },
-  (t) => [
-    index('je_agency_id_idx').on(t.agencyId),
-    index('je_booking_id_idx').on(t.bookingId),
-    index('je_invoice_id_idx').on(t.invoiceId),
-    index('je_period_idx').on(t.agencyId, t.period),
-    index('je_entry_date_idx').on(t.agencyId, t.entryDate),
-    index('je_status_idx').on(t.agencyId, t.status),
-    // يمنع حذف أو تعديل القيود المعتمدة (enforcement في RLS)
-    check(
+  (t) => ({
+    jeAgencyIdIdx: index('je_agency_id_idx').on(t.agencyId),
+    jeBookingIdIdx: index('je_booking_id_idx').on(t.bookingId),
+    jeInvoiceIdIdx: index('je_invoice_id_idx').on(t.invoiceId),
+    jePeriodIdx: index('je_period_idx').on(t.agencyId, t.period),
+    jeEntryDateIdx: index('je_entry_date_idx').on(t.agencyId, t.entryDate),
+    jeStatusIdx: index('je_status_idx').on(t.agencyId, t.status),
+    jeBalanceCheck: check(
       'je_balance_check',
       sql`status = 'draft' OR (is_balanced = true AND total_debit_halalas = total_credit_halalas)`
     ),
-  ]
+  })
 );
 
 /**
@@ -203,15 +203,14 @@ export const journalLines = pgTable(
       .notNull()
       .defaultNow(),
   },
-  (t) => [
-    index('jl_journal_entry_id_idx').on(t.journalEntryId),
-    index('jl_agency_account_idx').on(t.agencyId, t.accountCode),
-    // إما debit أو credit ≥ 0، وليس الاثنان معاً > 0
-    check(
+  (t) => ({
+    jlJournalEntryIdIdx: index('jl_journal_entry_id_idx').on(t.journalEntryId),
+    jlAgencyAccountIdx: index('jl_agency_account_idx').on(t.agencyId, t.accountCode),
+    jlDebitOrCreditCheck: check(
       'jl_debit_or_credit_check',
       sql`(debit_halalas = 0 AND credit_halalas > 0) OR (credit_halalas = 0 AND debit_halalas > 0)`
     ),
-  ]
+  })
 );
 
 // ─── الفواتير ─────────────────────────────────────────────────────────────────
@@ -319,16 +318,16 @@ export const invoices = pgTable(
       onDelete: 'set null',
     }),
   },
-  (t) => [
-    unique('invoices_agency_number_unique').on(t.agencyId, t.invoiceNumber),
-    unique('invoices_zatca_uuid_unique').on(t.zatcaUuid),
-    index('invoices_agency_id_idx').on(t.agencyId),
-    index('invoices_booking_id_idx').on(t.bookingId),
-    index('invoices_status_idx').on(t.agencyId, t.status),
-    index('invoices_zatca_status_idx').on(t.agencyId, t.zatcaSubmissionStatus),
-    index('invoices_issue_date_idx').on(t.agencyId, t.issueDate),
-    index('invoices_payment_status_idx').on(t.agencyId, t.paymentStatus),
-  ]
+  (t) => ({
+    invoicesAgencyNumberUnique: unique('invoices_agency_number_unique').on(t.agencyId, t.invoiceNumber),
+    invoicesZatcaUuidUnique: unique('invoices_zatca_uuid_unique').on(t.zatcaUuid),
+    invoicesAgencyIdIdx: index('invoices_agency_id_idx').on(t.agencyId),
+    invoicesBookingIdIdx: index('invoices_booking_id_idx').on(t.bookingId),
+    invoicesStatusIdx: index('invoices_status_idx').on(t.agencyId, t.status),
+    invoicesZatcaStatusIdx: index('invoices_zatca_status_idx').on(t.agencyId, t.zatcaSubmissionStatus),
+    invoicesIssueDateIdx: index('invoices_issue_date_idx').on(t.agencyId, t.issueDate),
+    invoicesPaymentStatusIdx: index('invoices_payment_status_idx').on(t.agencyId, t.paymentStatus),
+  })
 );
 
 /**
@@ -382,7 +381,9 @@ export const invoiceLines = pgTable(
       .notNull()
       .defaultNow(),
   },
-  (t) => [index('il_invoice_id_idx').on(t.invoiceId)]
+  (t) => ({
+    ilInvoiceIdIdx: index('il_invoice_id_idx').on(t.invoiceId),
+  })
 );
 
 // ─── عداد الفواتير ────────────────────────────────────────────────────────────
@@ -410,8 +411,8 @@ export const invoiceCounters = pgTable(
       .notNull()
       .defaultNow(),
   },
-  (t) => [
-    unique('ic_agency_type_year_unique').on(t.agencyId, t.invoiceType, t.year),
-    index('ic_agency_id_idx').on(t.agencyId),
-  ]
+  (t) => ({
+    icAgencyTypeYearUnique: unique('ic_agency_type_year_unique').on(t.agencyId, t.invoiceType, t.year),
+    icAgencyIdIdx: index('ic_agency_id_idx').on(t.agencyId),
+  })
 );

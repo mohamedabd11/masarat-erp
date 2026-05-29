@@ -58,12 +58,12 @@ export const idempotencyKeys = pgTable(
       .notNull()
       .defaultNow(),
   },
-  (t) => [
-    unique('ik_key_unique').on(t.key),
-    index('ik_agency_id_idx').on(t.agencyId),
-    index('ik_expires_at_idx').on(t.expiresAt), // للـ cleanup job
-    index('ik_operation_idx').on(t.agencyId, t.operation),
-  ]
+  (t) => ({
+    ikKeyUnique: unique('ik_key_unique').on(t.key),
+    ikAgencyIdIdx: index('ik_agency_id_idx').on(t.agencyId),
+    ikExpiresAtIdx: index('ik_expires_at_idx').on(t.expiresAt),
+    ikOperationIdx: index('ik_operation_idx').on(t.agencyId, t.operation),
+  })
 );
 
 /**
@@ -116,12 +116,12 @@ export const zatcaSubmissionQueue = pgTable(
       .notNull()
       .defaultNow(),
   },
-  (t) => [
-    index('zq_agency_id_idx').on(t.agencyId),
-    index('zq_invoice_id_idx').on(t.invoiceId),
-    index('zq_status_idx').on(t.status),
-    index('zq_next_retry_idx').on(t.nextRetryAt), // للـ cron job
-  ]
+  (t) => ({
+    zqAgencyIdIdx: index('zq_agency_id_idx').on(t.agencyId),
+    zqInvoiceIdIdx: index('zq_invoice_id_idx').on(t.invoiceId),
+    zqStatusIdx: index('zq_status_idx').on(t.status),
+    zqNextRetryIdx: index('zq_next_retry_idx').on(t.nextRetryAt), // للـ cron job,
+  })
 );
 
 /**
@@ -156,10 +156,10 @@ export const serviceTypes = pgTable(
       .notNull()
       .defaultNow(),
   },
-  (t) => [
-    index('st_agency_id_idx').on(t.agencyId),
-    unique('st_agency_type_unique').on(t.agencyId, t.bookingType),
-  ]
+  (t) => ({
+    stAgencyIdIdx: index('st_agency_id_idx').on(t.agencyId),
+    stAgencyTypeUnique: unique('st_agency_type_unique').on(t.agencyId, t.bookingType),
+  })
 );
 
 /**
@@ -201,9 +201,9 @@ export const vatReturns = pgTable(
       .notNull()
       .defaultNow(),
   },
-  (t) => [
-    unique('vr_agency_period_unique').on(t.agencyId, t.period),
-    index('vr_agency_id_idx').on(t.agencyId),
-    index('vr_status_idx').on(t.agencyId, t.status),
-  ]
+  (t) => ({
+    vrAgencyPeriodUnique: unique('vr_agency_period_unique').on(t.agencyId, t.period),
+    vrAgencyIdIdx: index('vr_agency_id_idx').on(t.agencyId),
+    vrStatusIdx: index('vr_status_idx').on(t.agencyId, t.status),
+  })
 );

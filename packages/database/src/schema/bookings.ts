@@ -126,21 +126,20 @@ export const bookings = pgTable(
       .notNull()
       .references(() => users.id, { onDelete: 'restrict' }),
   },
-  (t) => [
-    index('bookings_agency_id_idx').on(t.agencyId),
-    index('bookings_customer_id_idx').on(t.customerId),
-    index('bookings_agent_id_idx').on(t.agentId),
-    index('bookings_status_idx').on(t.agencyId, t.status),
-    index('bookings_type_idx').on(t.agencyId, t.type),
-    index('bookings_payment_status_idx').on(t.agencyId, t.paymentStatus),
-    index('bookings_travel_date_idx').on(t.agencyId, t.travelDate),
-    index('bookings_created_at_idx').on(t.agencyId, t.createdAt),
-    // constraint: total_amount = total_cost + service_fee + vat
-    check(
+  (t) => ({
+    bookingsAgencyIdIdx: index('bookings_agency_id_idx').on(t.agencyId),
+    bookingsCustomerIdIdx: index('bookings_customer_id_idx').on(t.customerId),
+    bookingsAgentIdIdx: index('bookings_agent_id_idx').on(t.agentId),
+    bookingsStatusIdx: index('bookings_status_idx').on(t.agencyId, t.status),
+    bookingsTypeIdx: index('bookings_type_idx').on(t.agencyId, t.type),
+    bookingsPaymentStatusIdx: index('bookings_payment_status_idx').on(t.agencyId, t.paymentStatus),
+    bookingsTravelDateIdx: index('bookings_travel_date_idx').on(t.agencyId, t.travelDate),
+    bookingsCreatedAtIdx: index('bookings_created_at_idx').on(t.agencyId, t.createdAt),
+    bookingsAmountsCheck: check(
       'bookings_amounts_check',
       sql`total_amount_halalas >= 0 AND total_paid_halalas >= 0 AND total_due_halalas >= 0`
     ),
-  ]
+  })
 );
 
 /**
@@ -187,8 +186,8 @@ export const bookingPassengers = pgTable(
       .notNull()
       .defaultNow(),
   },
-  (t) => [
-    index('passengers_booking_id_idx').on(t.bookingId),
-    index('passengers_agency_id_idx').on(t.agencyId),
-  ]
+  (t) => ({
+    passengersBookingIdIdx: index('passengers_booking_id_idx').on(t.bookingId),
+    passengersAgencyIdIdx: index('passengers_agency_id_idx').on(t.agencyId),
+  })
 );

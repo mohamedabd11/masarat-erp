@@ -12,6 +12,7 @@
 import { neon, neonConfig, Pool } from '@neondatabase/serverless';
 import { drizzle as drizzleHttp } from 'drizzle-orm/neon-http';
 import { drizzle as drizzlePool } from 'drizzle-orm/neon-serverless';
+import { sql } from 'drizzle-orm';
 import * as schema from '@masarat/database/schema';
 
 function getUrl(): string {
@@ -69,7 +70,7 @@ export async function withTransaction<T>(
 
   return db.transaction(async (tx) => {
     // تطبيق RLS context على هذه الـ transaction
-    await tx.execute(`SELECT set_config('app.current_agency_id', '${agencyId}', true)`);
+    await tx.execute(sql`SELECT set_config('app.current_agency_id', ${agencyId}, true)`);
     return callback(tx as unknown as ReturnType<typeof getPoolClient>);
   });
 }

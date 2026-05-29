@@ -80,13 +80,13 @@ export const customers = pgTable(
       onDelete: 'set null',
     }),
   },
-  (t) => [
-    index('customers_agency_id_idx').on(t.agencyId),
-    index('customers_mobile_idx').on(t.agencyId, t.mobile),
-    index('customers_email_idx').on(t.agencyId, t.email),
-    index('customers_type_tier_idx').on(t.agencyId, t.type, t.tier),
-    index('customers_is_blacklisted_idx').on(t.agencyId, t.isBlacklisted),
-  ]
+  (t) => ({
+    customersAgencyIdIdx: index('customers_agency_id_idx').on(t.agencyId),
+    customersMobileIdx: index('customers_mobile_idx').on(t.agencyId, t.mobile),
+    customersEmailIdx: index('customers_email_idx').on(t.agencyId, t.email),
+    customersTypeTierIdx: index('customers_type_tier_idx').on(t.agencyId, t.type, t.tier),
+    customersIsBlacklistedIdx: index('customers_is_blacklisted_idx').on(t.agencyId, t.isBlacklisted),
+  })
 );
 
 /**
@@ -124,8 +124,8 @@ export const customerPassports = pgTable(
       .notNull()
       .defaultNow(),
   },
-  (t) => [
-    index('passports_customer_id_idx').on(t.customerId),
-    index('passports_agency_number_idx').on(t.agencyId, t.passportNumber),
-  ]
+  (t) => ({
+    passportsCustomerIdIdx: index('passports_customer_id_idx').on(t.customerId),
+    passportsAgencyNumberIdx: index('passports_agency_number_idx').on(t.agencyId, t.passportNumber),
+  })
 );

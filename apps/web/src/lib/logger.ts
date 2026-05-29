@@ -64,11 +64,7 @@ function emit(record: LogRecord): void {
   } else {
     // Readable format for local dev
     const prefix = `[${record.level.toUpperCase()}]`;
-    const ctx = { ...record };
-    delete ctx.level;
-    delete ctx.msg;
-    delete ctx.ts;
-    delete ctx.service;
+    const { level: _l, msg: _m, ts: _t, service: _s, ...ctx } = record;
     const extras = Object.keys(ctx).length ? ` ${JSON.stringify(ctx)}` : '';
     const fn = record.level === 'error' ? console.error
              : record.level === 'warn'  ? console.warn

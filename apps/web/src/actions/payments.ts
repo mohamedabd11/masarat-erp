@@ -5,7 +5,7 @@
  * processPayment + processRefund مع ACID transactions كاملة
  */
 
-import { eq, and } from 'drizzle-orm';
+import { eq, and, sql } from 'drizzle-orm';
 import {
   bookings,
   invoices,
@@ -130,9 +130,9 @@ async function executeProcessPayment(
     }
 
     // توليد رقم الإيصال
+    const currentYear = new Date().getFullYear();
     const [receiptResult] = await tx.execute(
-      `SELECT get_next_invoice_number($1::uuid, 'tax_invoice'::invoice_type, $2::integer) AS receipt_number`,
-      [agencyId, new Date().getFullYear()]
+      sql`SELECT get_next_invoice_number(${agencyId}::uuid, 'tax_invoice'::invoice_type, ${currentYear}::integer) AS receipt_number`
     ) as unknown as [{ receipt_number: string }];
 
     // نستخدم prefix مختلف — نحوله لـ RCT
@@ -171,7 +171,7 @@ async function executeProcessPayment(
       agencyId,
       type: 'payment_received',
       description: `استلام دفعة — ${invoice.invoiceNumber} — ${receiptNumber}`,
-      entryDate: now.toISOString().split('T')[0] as unknown as Date,
+      entryDate: now.toISOString().split('T')[0] ,
       period: `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`,
       totalDebitHalalas: BigInt(amountHalalas),
       totalCreditHalalas: BigInt(amountHalalas),
@@ -341,9 +341,9 @@ async function executeProcessRefund(
     const journalEntry = generateJournalEntry(refundInput, accountingCfg);
 
     // رقم إشعار دائن تسلسلي
+    const cnYear = new Date().getFullYear();
     const [creditNoteResult] = await tx.execute(
-      `SELECT get_next_invoice_number($1::uuid, 'credit_note'::invoice_type, $2::integer) AS cn_number`,
-      [agencyId, new Date().getFullYear()]
+      sql`SELECT get_next_invoice_number(${agencyId}::uuid, 'credit_note'::invoice_type, ${cnYear}::integer) AS cn_number`
     ) as unknown as [{ cn_number: string }];
 
     const creditNoteNumber = creditNoteResult.cn_number;
@@ -359,7 +359,7 @@ async function executeProcessRefund(
       type: 'credit_note',
       status: 'issued',
       invoiceNumber: creditNoteNumber,
-      zatcaUuid: crypto.randomUUID() as unknown as undefined,
+      zatcaUuid: crypto.randomUUID(),
       bookingId,
       originalInvoiceId,
       journalEntryId,
@@ -377,7 +377,7 @@ async function executeProcessRefund(
       zatcaInvoiceTypeCode: '381',
       zatcaTransactionType: 'B2C',
       zatcaSubmissionStatus: 'not_submitted',
-      issueDate: now.toISOString().split('T')[0] as unknown as Date,
+      issueDate: now.toISOString().split('T')[0] ,
       createdBy: userId,
     });
 
@@ -387,7 +387,7 @@ async function executeProcessRefund(
       agencyId,
       type: 'refund_payment',
       description: journalEntry.description,
-      entryDate: now.toISOString().split('T')[0] as unknown as Date,
+      entryDate: now.toISOString().split('T')[0] ,
       period: `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`,
       totalDebitHalalas: BigInt(journalEntry.totalDebit),
       totalCreditHalalas: BigInt(journalEntry.totalCredit),

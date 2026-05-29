@@ -11,7 +11,7 @@
  * 4. إذا موجود + فشل → أعد المحاولة (ربما عملية قيد التنفيذ)
  */
 
-import { eq } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import { idempotencyKeys } from '@masarat/database/schema';
 import { getHttpClient } from './db/client.js';
 
@@ -117,7 +117,7 @@ export async function cleanupExpiredKeys(): Promise<number> {
   // Drizzle لا يدعم DELETE مع RETURNING count مباشرة
   // نستخدم raw SQL
   const result = await db.execute(
-    `DELETE FROM idempotency_keys WHERE expires_at < NOW()`
+    sql`DELETE FROM idempotency_keys WHERE expires_at < NOW()`
   );
 
   return (result as unknown as { rowCount: number }).rowCount ?? 0;

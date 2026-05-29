@@ -73,11 +73,11 @@ export const agencies = pgTable(
       .notNull()
       .defaultNow(),
   },
-  (t) => [
-    index('agencies_cr_number_idx').on(t.crNumber),
-    index('agencies_vat_number_idx').on(t.vatNumber),
-    index('agencies_subscription_status_idx').on(t.subscriptionStatus),
-  ]
+  (t) => ({
+    agenciesCrNumberIdx: index('agencies_cr_number_idx').on(t.crNumber),
+    agenciesVatNumberIdx: index('agencies_vat_number_idx').on(t.vatNumber),
+    agenciesSubscriptionStatusIdx: index('agencies_subscription_status_idx').on(t.subscriptionStatus),
+  })
 );
 
 /**

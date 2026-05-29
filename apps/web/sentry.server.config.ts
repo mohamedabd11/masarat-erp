@@ -16,17 +16,10 @@ if (SENTRY_DSN) {
 
     // Strip sensitive data before it leaves the server
     beforeSend(event) {
-      // Remove DB connection strings from breadcrumbs
-      if (event.breadcrumbs?.values) {
-        event.breadcrumbs.values = event.breadcrumbs.values.map(b => {
-          if (b.message?.includes('postgresql://') || b.message?.includes('DATABASE_URL')) {
-            b.message = '[REDACTED: DB URL]';
-          }
-          return b;
-        });
-      }
       // Remove request bodies — may contain ZATCA XML / invoices
-      if (event.request?.data) delete event.request.data;
+      if (event.request?.data) {
+        event.request.data = '[REDACTED]';
+      }
       return event;
     },
   });
