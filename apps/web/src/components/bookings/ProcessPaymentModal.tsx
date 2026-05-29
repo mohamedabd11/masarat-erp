@@ -26,7 +26,7 @@ function buildPaymentSchema(maxSAR: number) {
 type PaymentFormData = z.infer<ReturnType<typeof buildPaymentSchema>>;
 
 interface ProcessPaymentModalProps {
-  bookingId: string;
+  bookingId?: string;
   invoiceId: string;
   agencyId: string;
   remainingDueHalalas: number;

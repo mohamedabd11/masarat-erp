@@ -26,7 +26,7 @@ export interface ProcessRefundResponse {
 }
 
 export interface ProcessPaymentRequest {
-  bookingId: string;
+  bookingId?: string;
   invoiceId: string;
   agencyId: string;
   amountHalalas: number;

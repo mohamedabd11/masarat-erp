@@ -7,7 +7,7 @@ import { withIdempotency, buildIdempotencyInsert } from '@/lib/idempotency';
 import { getNextReceiptNumber, getNextJournalNumber } from '@/lib/invoice-counter';
 
 interface PaymentRecordBody {
-  bookingId:     string;
+  bookingId?:    string;
   invoiceId:     string;
   amountHalalas: number;
   paymentMethod: 'cash' | 'bank_transfer' | 'card' | 'online';
@@ -32,8 +32,8 @@ export async function POST(request: Request) {
     const { bookingId, invoiceId, amountHalalas, paymentMethod, reference, notes } = body;
     const idempKey = body.idempotencyKey ?? crypto.randomUUID();
 
-    if (!bookingId || !invoiceId) {
-      return NextResponse.json({ error: 'bookingId و invoiceId مطلوبان' }, { status: 400 });
+    if (!invoiceId) {
+      return NextResponse.json({ error: 'invoiceId مطلوب' }, { status: 400 });
     }
     if (!Number.isInteger(amountHalalas) || amountHalalas <= 0) {
       return NextResponse.json({ error: 'مبلغ الدفعة غير صالح' }, { status: 400 });
@@ -47,7 +47,7 @@ export async function POST(request: Request) {
           and(eq(invoices.id, invoiceId), eq(invoices.agencyId, agencyId)),
         );
         if (!invoice) throw new BusinessError(`الفاتورة ${invoiceId} غير موجودة`, 404);
-        if (invoice.bookingId !== bookingId) throw new BusinessError('الفاتورة لا تنتمي لهذا الحجز', 400);
+        if (bookingId && invoice.bookingId && invoice.bookingId !== bookingId) throw new BusinessError('الفاتورة لا تنتمي لهذا الحجز', 400);
 
         // ── 2. Validate (fast-fail before any writes) ──────────────────────
         const currentDue = invoice.totalHalalas - invoice.paidHalalas;
@@ -128,9 +128,11 @@ export async function POST(request: Request) {
         const newPaidHalalas = updatedInvoice.paidHalalas;
         const isFullyPaid    = newPaidHalalas >= updatedInvoice.totalHalalas;
 
-        await tx.update(bookings)
-          .set({ paidHalalas: sql`${bookings.paidHalalas} + ${amountHalalas}`, updatedAt: now })
-          .where(eq(bookings.id, bookingId));
+        if (bookingId) {
+          await tx.update(bookings)
+            .set({ paidHalalas: sql`${bookings.paidHalalas} + ${amountHalalas}`, updatedAt: now })
+            .where(eq(bookings.id, bookingId));
+        }
 
         await tx.insert(idempotencyKeys)
           .values(buildIdempotencyInsert(agencyId, 'processPayment', idempKey, { paymentId, receiptNumber }))

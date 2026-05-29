@@ -19,16 +19,12 @@ import { ProcessPaymentModal } from '@/components/bookings/ProcessPaymentModal';
 type ZatcaStatus = 'not_submitted' | 'submitted' | 'reported' | 'cleared' | 'rejected';
 
 interface InvoiceLine {
-  id: string;
-  nameAr: string;
-  nameEn: string;
-  quantity: number;
-  unitCode: string;
-  unitPriceExclVatHalalas: number;
-  totalExclVatHalalas: number;
-  vatRate: number;
-  vatAmountHalalas: number;
-  totalInclVatHalalas: number;
+  description:      string;
+  descriptionEn?:   string | null;
+  quantity:         number;
+  unitPriceHalalas: number;
+  vatHalalas:       number;
+  totalHalalas:     number;
 }
 
 // Postgres-backed invoice (flat fields from the invoices table)
@@ -172,19 +168,15 @@ export function InvoiceDetailClient({ locale, invoiceId }: InvoiceDetailClientPr
 
   // ── Line items: use stored items or create synthetic line ─────────────────
   const lines: InvoiceLine[] = (invoice.items && invoice.items.length > 0)
-    ? invoice.items
+    ? invoice.items as InvoiceLine[]
     : [
         {
-          id: '1',
-          nameAr: 'خدمة سفر',
-          nameEn: 'Travel Service',
-          quantity: 1,
-          unitCode: 'PCE',
-          unitPriceExclVatHalalas: subtotalExclVat,
-          totalExclVatHalalas: subtotalExclVat,
-          vatRate: totalVat > 0 ? 0.15 : 0,
-          vatAmountHalalas: totalVat,
-          totalInclVatHalalas: grandTotal,
+          description:      isAr ? 'خدمة سفر' : 'Travel Service',
+          descriptionEn:    'Travel Service',
+          quantity:         1,
+          unitPriceHalalas: subtotalExclVat,
+          vatHalalas:       totalVat,
+          totalHalalas:     grandTotal,
         },
       ];
 
@@ -435,37 +427,41 @@ export function InvoiceDetailClient({ locale, invoiceId }: InvoiceDetailClientPr
             </thead>
             <tbody className="divide-y divide-surface-border">
               {lines.map((line) => (
-                <tr key={line.id} className="hover:bg-slate-50/40 transition-colors">
+                <tr key={line.description} className="hover:bg-slate-50/40 transition-colors">
                   <td className="ps-6 pe-4 py-4">
-                    <p className="text-slate-900 font-medium">{isAr ? line.nameAr : line.nameEn}</p>
-                    {line.nameEn && line.nameAr !== line.nameEn && (
-                      <p className="text-xs text-slate-400">{isAr ? line.nameEn : line.nameAr}</p>
+                    <p className="text-slate-900 font-medium">{line.description}</p>
+                    {line.descriptionEn && line.description !== line.descriptionEn && (
+                      <p className="text-xs text-slate-400">{isAr ? line.descriptionEn : line.description}</p>
                     )}
                   </td>
                   <td className="px-4 py-4 text-center text-slate-600">
-                    {line.quantity} {line.unitCode}
+                    {line.quantity}
                   </td>
                   <td className="px-4 py-4 text-end text-slate-600">
-                    {formatCurrency(line.unitPriceExclVatHalalas, fmtLocale)}
+                    {formatCurrency(line.unitPriceHalalas, fmtLocale)}
                   </td>
                   {isVatRegistered && (
                     <>
                       <td className="px-4 py-4 text-center">
-                        {line.vatRate === 0 ? (
+                        {line.vatHalalas === 0 ? (
                           <span className="text-xs bg-slate-100 text-slate-500 px-2 py-0.5 rounded font-medium">
                             {isAr ? 'معفى' : 'Exempt'}
                           </span>
                         ) : (
-                          <span className="text-slate-600">{(line.vatRate * 100).toFixed(0)}%</span>
+                          <span className="text-slate-600">
+                            {line.unitPriceHalalas > 0
+                              ? `${Math.round(line.vatHalalas / (line.unitPriceHalalas * line.quantity) * 100)}%`
+                              : '15%'}
+                          </span>
                         )}
                       </td>
                       <td className="px-4 py-4 text-end text-slate-600">
-                        {formatCurrency(line.vatAmountHalalas, fmtLocale)}
+                        {formatCurrency(line.vatHalalas, fmtLocale)}
                       </td>
                     </>
                   )}
                   <td className="ps-4 pe-6 py-4 text-end font-semibold text-slate-900">
-                    {formatCurrency(isVatRegistered ? line.totalInclVatHalalas : line.totalExclVatHalalas, fmtLocale)}
+                    {formatCurrency(line.totalHalalas, fmtLocale)}
                   </td>
                 </tr>
               ))}
@@ -542,7 +538,7 @@ export function InvoiceDetailClient({ locale, invoiceId }: InvoiceDetailClientPr
       {/* ── Payment modal ──────────────────────────────────────────────────────── */}
       {showPayment && invoice && (
         <ProcessPaymentModal
-          bookingId={invoice.bookingId}
+          bookingId={invoice.bookingId ?? undefined}
           invoiceId={invoice.id}
           agencyId={invoice.agencyId}
           remainingDueHalalas={amountDue}
