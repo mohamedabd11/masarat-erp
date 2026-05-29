@@ -45,7 +45,10 @@ export default function LoginPage() {
     setResetError('');
     try {
       const auth = getAuth();
-      await sendPasswordResetEmail(auth, resetEmail.trim());
+      const appUrl = window.location.origin;
+      await sendPasswordResetEmail(auth, resetEmail.trim(), {
+        url: `${appUrl}/${locale}/login`,
+      });
     } catch (err: unknown) {
       const code = (err as { code?: string }).code ?? '';
       if (code === 'auth/invalid-email') {

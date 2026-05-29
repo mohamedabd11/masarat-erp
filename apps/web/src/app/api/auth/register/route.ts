@@ -15,6 +15,7 @@ interface RegisterAgencyRequest {
   adminNameAr: string;
   adminNameEn?: string;
   adminMobile?: string;
+  password: string;
 }
 
 const DEFAULT_COA = [
@@ -62,7 +63,7 @@ export async function POST(request: Request) {
     }
 
     const body = await request.json() as RegisterAgencyRequest;
-    const { agencyNameAr, agencyNameEn, adminEmail, adminNameAr, adminNameEn } = body;
+    const { agencyNameAr, agencyNameEn, adminEmail, adminNameAr, adminNameEn, password } = body;
 
     const email = adminEmail?.trim().toLowerCase();
     if (!agencyNameAr?.trim())
@@ -75,6 +76,8 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: `اسم المدير يجب أن لا يتجاوز ${MAX_NAME} حرفاً` }, { status: 400 });
     if (!email || !EMAIL_RE.test(email) || email.length > MAX_EMAIL)
       return NextResponse.json({ error: 'البريد الإلكتروني غير صالح' }, { status: 400 });
+    if (!password || password.length < 8)
+      return NextResponse.json({ error: 'كلمة المرور يجب أن تكون 8 أحرف على الأقل' }, { status: 400 });
 
     const { getAuth } = await import('firebase-admin/auth');
     const auth = getAuth();
@@ -90,15 +93,13 @@ export async function POST(request: Request) {
 
     const userRecord = await auth.createUser({
       email,
+      password,
       displayName: adminNameAr.trim(),
       emailVerified: false,
     });
     firebaseUid = userRecord.uid;
 
     await auth.setCustomUserClaims(userRecord.uid, { agencyId, role: 'admin' });
-
-    const appUrl = (process.env.NEXT_PUBLIC_APP_URL ?? 'https://masarat-erp.com').replace(/\/$/, '');
-    const setupLink = await auth.generatePasswordResetLink(email, { url: `${appUrl}/ar/login` });
 
     const trialEnd = new Date(Date.now() + TRIAL_DAYS * 24 * 60 * 60 * 1000);
 
@@ -139,7 +140,7 @@ export async function POST(request: Request) {
       }
     });
 
-    return NextResponse.json({ agencyId, setupLink });
+    return NextResponse.json({ agencyId });
   } catch (err: unknown) {
     if (firebaseUid) {
       const { getAuth } = await import('firebase-admin/auth');
