@@ -45,8 +45,11 @@ export default function AuthLayout({ children }: { children: ReactNode }) {
       </div>
 
       {/* Right panel — form */}
-      <div className="flex-1 flex items-center justify-center p-6 bg-surface-muted">
-        {children}
+      <div className="flex-1 flex items-center justify-center p-4 sm:p-8 bg-surface-muted">
+        {/* Card on mobile, frameless on desktop */}
+        <div className="w-full max-w-sm lg:max-w-md bg-white lg:bg-transparent rounded-2xl lg:rounded-none shadow-xl lg:shadow-none p-6 sm:p-8 lg:p-0">
+          {children}
+        </div>
       </div>
     </div>
   );

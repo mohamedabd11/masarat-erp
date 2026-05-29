@@ -45,9 +45,9 @@ export default function LoginPage() {
     setResetError('');
     try {
       const auth = getAuth();
-      const appUrl = window.location.origin;
       await sendPasswordResetEmail(auth, resetEmail.trim(), {
-        url: `${appUrl}/${locale}/login`,
+        url: `${window.location.origin}/${locale}/auth/action`,
+        handleCodeInApp: false,
       });
     } catch (err: unknown) {
       const code = (err as { code?: string }).code ?? '';
@@ -56,8 +56,7 @@ export default function LoginPage() {
         setResetSending(false);
         return;
       }
-      // For all other errors (including user-not-found when protection is off),
-      // show the ambiguous success message to avoid revealing registered emails.
+      // For all other errors (including user-not-found), show ambiguous success.
     } finally {
       setResetSending(false);
     }
@@ -87,7 +86,10 @@ export default function LoginPage() {
   return (
     <div className="w-full max-w-sm">
       {/* Logo */}
-      <div className="flex justify-center mb-8">
+      <div className="flex justify-center mb-8 lg:hidden">
+        <MasaratLogo size={140} variant="full" />
+      </div>
+      <div className="hidden lg:flex justify-center mb-8">
         <MasaratLogo size={160} variant="full" />
       </div>
 
