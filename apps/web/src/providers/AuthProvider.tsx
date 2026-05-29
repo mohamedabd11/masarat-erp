@@ -18,7 +18,8 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
   const isAuthPage = pathname?.includes('/login')
                   || pathname?.includes('/register')
-                  || pathname?.includes('/reset-password');
+                  || pathname?.includes('/reset-password')
+                  || pathname?.includes('/action');   // /auth/action (password reset) and /action (email verify)
 
   // /admin handles its own auth + 403 logic — don't redirect away from it
   const isStandalonePage = pathname?.includes('/admin');

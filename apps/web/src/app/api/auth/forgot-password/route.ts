@@ -18,10 +18,8 @@ function htmlAr(resetUrl: string) {
 
         <!-- Header -->
         <tr><td style="background:linear-gradient(135deg,#1e3a5f 0%,#2563eb 100%);padding:32px 40px;text-align:center">
-          <div style="display:inline-block;background:rgba(255,255,255,.15);border-radius:12px;padding:12px 24px">
-            <span style="color:#ffffff;font-size:22px;font-weight:800;letter-spacing:1px">مسارات</span>
-            <div style="color:#93c5fd;font-size:11px;margin-top:2px">نظام إدارة وكالات السفر</div>
-          </div>
+          <img src="https://masarat-erp.com/masarat-logo.png" alt="مسارات" width="90" height="90" style="display:block;margin:0 auto 12px;border-radius:50%;border:3px solid rgba(255,255,255,0.25)" />
+          <div style="color:#93c5fd;font-size:13px;margin-top:4px">نظام إدارة وكالات السفر</div>
         </td></tr>
 
         <!-- Body -->
@@ -72,10 +70,8 @@ function htmlEn(resetUrl: string) {
       <table width="100%" style="max-width:520px;background:#ffffff;border-radius:16px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,.08)">
 
         <tr><td style="background:linear-gradient(135deg,#1e3a5f 0%,#2563eb 100%);padding:32px 40px;text-align:center">
-          <div style="display:inline-block;background:rgba(255,255,255,.15);border-radius:12px;padding:12px 24px">
-            <span style="color:#ffffff;font-size:22px;font-weight:800">Masarat</span>
-            <div style="color:#93c5fd;font-size:11px;margin-top:2px">Travel Agency Management</div>
-          </div>
+          <img src="https://masarat-erp.com/masarat-logo.png" alt="Masarat" width="90" height="90" style="display:block;margin:0 auto 12px;border-radius:50%;border:3px solid rgba(255,255,255,0.25)" />
+          <div style="color:#93c5fd;font-size:13px;margin-top:4px">Travel Agency Management</div>
         </td></tr>
 
         <tr><td style="padding:40px 40px 32px">
