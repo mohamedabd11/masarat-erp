@@ -1,10 +1,16 @@
 import { NextResponse } from 'next/server';
-import { ensureAdminApp } from '@/lib/firebase-admin';
+import { neon } from '@neondatabase/serverless';
 
 const SUPER_ADMIN_EMAIL = process.env['SUPER_ADMIN_EMAIL'];
 if (!SUPER_ADMIN_EMAIL) throw new Error('SUPER_ADMIN_EMAIL env var is not configured');
 
 type AdminAction = 'activate_month' | 'activate_year' | 'activate_lifetime' | 'suspend' | 'extend_trial';
+
+function adminSql() {
+  const url = process.env['ADMIN_DATABASE_URL'] ?? process.env['DATABASE_URL'];
+  if (!url) throw new Error('DATABASE_URL is not configured');
+  return neon(url);
+}
 
 async function verifySuperAdmin(request: Request) {
   const authHeader = request.headers.get('Authorization') ?? '';
@@ -19,6 +25,7 @@ async function verifySuperAdmin(request: Request) {
 
 export async function POST(request: Request) {
   try {
+    const { ensureAdminApp } = await import('@/lib/firebase-admin');
     ensureAdminApp();
     await verifySuperAdmin(request);
 
@@ -29,81 +36,93 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'agencyId و action مطلوبان' }, { status: 400 });
     }
 
-    const { getFirestore, Timestamp } = await import('firebase-admin/firestore');
-    const db  = getFirestore();
-    const now = Timestamp.now();
-    const ref = db.collection('agencies').doc(agencyId);
+    const db = adminSql();
 
-    const snap = await ref.get();
-    if (!snap.exists) {
+    const [agency] = await db`SELECT id FROM agencies WHERE id = ${agencyId}::uuid`;
+    if (!agency) {
       return NextResponse.json({ error: `الوكالة ${agencyId} غير موجودة` }, { status: 404 });
     }
 
-    let update: Record<string, unknown>;
+    const now = new Date();
     let message: string;
 
     switch (action) {
-      case 'activate_month':
-        update  = {
-          subscriptionStatus:  'active',
-          plan:                'starter',
-          subscriptionEndDate: new Timestamp(Math.floor(Date.now() / 1000) + 30 * 24 * 3600, 0),
-          updatedAt: now,
-        };
+      case 'activate_month': {
+        const endsAt = new Date(now.getTime() + 30 * 24 * 3600_000);
+        await db`
+          UPDATE agencies
+          SET subscription_status  = 'active',
+              subscription_plan    = 'starter',
+              subscription_ends_at = ${endsAt.toISOString()},
+              updated_at           = NOW()
+          WHERE id = ${agencyId}::uuid
+        `;
         message = 'تم تفعيل الاشتراك لمدة شهر';
         break;
+      }
 
-      case 'activate_year':
-        update  = {
-          subscriptionStatus:  'active',
-          plan:                'professional',
-          subscriptionEndDate: new Timestamp(Math.floor(Date.now() / 1000) + 365 * 24 * 3600, 0),
-          isLifetime:          false,
-          updatedAt: now,
-        };
+      case 'activate_year': {
+        const endsAt = new Date(now.getTime() + 365 * 24 * 3600_000);
+        await db`
+          UPDATE agencies
+          SET subscription_status  = 'active',
+              subscription_plan    = 'professional',
+              subscription_ends_at = ${endsAt.toISOString()},
+              updated_at           = NOW()
+          WHERE id = ${agencyId}::uuid
+        `;
         message = 'تم تفعيل الاشتراك لمدة سنة';
         break;
+      }
 
-      case 'activate_lifetime':
-        update  = {
-          subscriptionStatus:  'lifetime',
-          plan:                'lifetime',
-          isLifetime:          true,
-          subscriptionEndDate: null,
-          trialEndDate:        null,
-          updatedAt: now,
-        };
-        message = 'تم تفعيل الاشتراك الدائم ♾';
+      case 'activate_lifetime': {
+        // No 'lifetime' status in enum — encode as active + far-future expiry
+        await db`
+          UPDATE agencies
+          SET subscription_status  = 'active',
+              subscription_plan    = 'enterprise',
+              subscription_ends_at = '2099-12-31 23:59:59+00',
+              trial_ends_at        = NULL,
+              updated_at           = NOW()
+          WHERE id = ${agencyId}::uuid
+        `;
+        message = 'تم تفعيل الاشتراك الدائم';
         break;
+      }
 
-      case 'suspend':
-        update  = { subscriptionStatus: 'past_due', updatedAt: now };
+      case 'suspend': {
+        await db`
+          UPDATE agencies
+          SET subscription_status = 'suspended',
+              updated_at          = NOW()
+          WHERE id = ${agencyId}::uuid
+        `;
         message = 'تم إيقاف الوكالة';
         break;
+      }
 
-      case 'extend_trial':
-        update  = {
-          subscriptionStatus: 'trial',
-          trialEndDate: new Timestamp(Math.floor(Date.now() / 1000) + 14 * 24 * 3600, 0),
-          updatedAt: now,
-        };
+      case 'extend_trial': {
+        const trialEndsAt = new Date(now.getTime() + 14 * 24 * 3600_000);
+        await db`
+          UPDATE agencies
+          SET subscription_status = 'trial',
+              trial_ends_at       = ${trialEndsAt.toISOString()},
+              updated_at          = NOW()
+          WHERE id = ${agencyId}::uuid
+        `;
         message = 'تم تمديد الفترة التجريبية 14 يوماً';
         break;
+      }
 
       default:
         return NextResponse.json({ error: `إجراء غير معروف: ${action}` }, { status: 400 });
     }
 
-    await ref.update(update);
     return NextResponse.json({ success: true, message });
   } catch (err: unknown) {
     const msg = (err as Error).message ?? '';
     if (msg === 'NO_TOKEN' || msg === 'FORBIDDEN') {
       return NextResponse.json({ error: 'ممنوع الوصول' }, { status: 403 });
-    }
-    // Validation errors thrown inside the try block return 400
-    if (msg.startsWith('VALIDATION:')) {
-      return NextResponse.json({ error: msg.replace('VALIDATION:', '').trim() }, { status: 400 });
     }
     console.error('[admin/action]', err);
     return NextResponse.json({ error: 'خطأ في الخادم' }, { status: 500 });
