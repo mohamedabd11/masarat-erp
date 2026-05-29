@@ -18,6 +18,7 @@ export interface PaymentVoucherData {
   agency: {
     nameAr: string;
     nameEn: string;
+    logoUrl?: string;
     address?: {
       streetName?: string;
       buildingNumber?: string;
@@ -131,11 +132,20 @@ export function PrintablePaymentVoucher({ data }: { data: PaymentVoucherData }) 
             )}
           </div>
 
-          {/* Title */}
+          {/* Title — logo replaces "ص" when available */}
           <div className="text-center flex flex-col items-center gap-1">
-            <div className="w-14 h-14 rounded-xl bg-red-50 border border-red-200 flex items-center justify-center text-xl font-black text-red-600 select-none">
-              ص
-            </div>
+            {data.agency.logoUrl ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={data.agency.logoUrl}
+                alt={data.agency.nameAr}
+                style={{ height: 56, width: 'auto', objectFit: 'contain', maxWidth: 120 }}
+              />
+            ) : (
+              <div className="w-14 h-14 rounded-xl bg-red-50 border border-red-200 flex items-center justify-center text-xl font-black text-red-600 select-none">
+                ص
+              </div>
+            )}
             <p className="text-base font-black text-slate-900 tracking-tight mt-1">سند صرف</p>
             <p className="text-[10px] text-slate-500 tracking-widest uppercase">Payment Voucher</p>
           </div>
