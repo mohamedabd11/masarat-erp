@@ -24,6 +24,9 @@ import type {
   AgencyAccountingConfig,
   PrincipalPaymentReceivedInput,
   AgentPaymentReceivedInput,
+  AgentServiceDeliveredInput,
+  PrincipalRevenueRecognitionInput,
+  RefundInput,
 } from '../types';
 
 // ─── Shared test config ──────────────────────────────────────────────────────
@@ -269,6 +272,206 @@ describe('نموذج الوكيل — VAT على رسوم الخدمة فقط ل
     const vatLine = result.lines.find(l => l.accountCode === '3101');
     expect(vatLine?.credit).toBe(1125);
     expect(vatLine?.credit).not.toBe(wrongVat);
+  });
+});
+
+// ─── Refund / Credit Note scenarios ─────────────────────────────────────────
+
+describe('قيد الاسترداد — سيناريوهات الدفع الجزئي والإلغاء', () => {
+  /**
+   * سيناريو 1: استرداد كامل بدون رسوم إلغاء
+   * العميل يسترد كامل مبلغه — الوكالة لا تحتجز شيئاً
+   */
+  it('استرداد كامل بدون رسوم إلغاء — القيد متوازن', () => {
+    const refundAmount = fromSAR(1_500); // 150,000 هللة
+
+    const input: RefundInput = {
+      phase: 'refund_issued',
+      refundAmountToCustomer: refundAmount,
+      cancellationFee: 0,
+      cancellationFeeVat: 0,
+      supplierRefundReceivableAccount: '2100',
+      refundPaymentAccountCode: '1110',
+      bookingRef: 'BK-REF-001',
+      customerName: 'أحمد الغامدي',
+    };
+
+    const result = generateJournalEntry(input, CONFIG);
+
+    expect(result.isBalanced).toBe(true);
+    expect(result.totalDebit).toBe(refundAmount);
+    expect(result.totalCredit).toBe(refundAmount);
+    // لا سطر VAT لأن رسوم الإلغاء صفر
+    const vatLine = result.lines.find(l => l.accountCode === '3101');
+    expect(vatLine).toBeUndefined();
+  });
+
+  /**
+   * سيناريو 2: استرداد جزئي مع رسوم إلغاء + VAT
+   * فاتورة 2000 ريال → يُسترد 1700 ريال، رسوم إلغاء 300 ريال + VAT 45 ريال
+   * إجمالي الذمة من المورد = 1700 + 300 + 45 = 2045 ريال
+   */
+  it('استرداد جزئي مع رسوم إلغاء — القيد متوازن', () => {
+    const refundToCustomer = fromSAR(1_700);  // 170,000 هللة
+    const cancellationFee  = fromSAR(300);    // 30,000 هللة
+    const cancellationVat  = calculateVat(cancellationFee, 0.15); // 4,500 هللة
+
+    const input: RefundInput = {
+      phase: 'refund_issued',
+      refundAmountToCustomer: refundToCustomer,
+      cancellationFee,
+      cancellationFeeVat: cancellationVat,
+      supplierRefundReceivableAccount: '2100',
+      refundPaymentAccountCode: '1110',
+      bookingRef: 'BK-REF-002',
+      customerName: 'منى الشهري',
+    };
+
+    const result = generateJournalEntry(input, CONFIG);
+
+    expect(result.isBalanced).toBe(true);
+    const expectedTotal = refundToCustomer + cancellationFee + cancellationVat;
+    expect(result.totalDebit).toBe(expectedTotal);
+
+    // تحقق من سطر رسوم الإلغاء
+    const feeLine = result.lines.find(l => l.accountCode === CONFIG.accounts.serviceFees);
+    expect(feeLine?.credit).toBe(cancellationFee);
+
+    // تحقق من سطر VAT
+    const vatLine = result.lines.find(l => l.accountCode === CONFIG.accounts.vatOutputAccount);
+    expect(vatLine?.credit).toBe(cancellationVat);
+  });
+
+  /**
+   * سيناريو 3: رسوم الإلغاء 100% — العميل لا يسترد شيئاً
+   */
+  it('رسوم إلغاء 100% — لا استرداد للعميل', () => {
+    const invoiceAmount = fromSAR(500); // 50,000 هللة
+    const vat = calculateVat(invoiceAmount, 0.15); // 7,500 هللة
+
+    const input: RefundInput = {
+      phase: 'refund_issued',
+      refundAmountToCustomer: 0,
+      cancellationFee: invoiceAmount,
+      cancellationFeeVat: vat,
+      supplierRefundReceivableAccount: '2100',
+      refundPaymentAccountCode: '1110',
+      bookingRef: 'BK-REF-003',
+      customerName: 'عبدالله القحطاني',
+    };
+
+    const result = generateJournalEntry(input, CONFIG);
+    expect(result.isBalanced).toBe(true);
+    expect(result.totalDebit).toBe(invoiceAmount + vat);
+
+    // لا سطر نقدي للعميل لأن الاسترداد صفر
+    const cashLine = result.lines.find(l =>
+      l.accountCode === '1110' && l.credit > 0
+    );
+    expect(cashLine).toBeUndefined();
+  });
+});
+
+// ─── دورة الحياة الكاملة لمعاملة الوكيل (Payment → Service) ────────────────
+
+describe('دورة الحياة الكاملة — نموذج الوكيل', () => {
+  /**
+   * الخطوة 1: استلام الدفعة من العميل (قبل إصدار التذكرة)
+   * الخطوة 2: إصدار التذكرة (اعتراف بالإيراد)
+   * التحقق: كل مرحلة متوازنة على حدة
+   */
+  it('مرحلة 1 ثم مرحلة 2 — كل منهما متوازنة مستقلاً', () => {
+    const costPrice  = fromSAR(850);  // 85,000 هللة
+    const serviceFee = fromSAR(75);   // 7,500 هللة
+    const feeVat     = calculateVat(serviceFee, 0.15); // 1,125 هللة
+
+    const phase1: AgentPaymentReceivedInput = {
+      phase: 'agent_payment_received',
+      bookingType: 'flight',
+      isInternational: true,
+      costPrice,
+      serviceFee,
+      serviceFeeVatCategory: 'S',
+      serviceFeeVatAmount: feeVat,
+      receivingAccountCode: '1002',
+      bookingRef: 'BK-AGENT-FULL-001',
+      customerName: 'سارة العتيبي',
+    };
+
+    const phase2: AgentServiceDeliveredInput = {
+      phase: 'agent_service_delivered',
+      bookingType: 'flight',
+      isInternational: true,
+      customerDepositAmount: costPrice,
+      netCostToSupplier: costPrice,
+      serviceFee,
+      supplierPayableAccountCode: '3001',
+      bookingRef: 'BK-AGENT-FULL-001',
+    };
+
+    const r1 = generateJournalEntry(phase1, CONFIG);
+    const r2 = generateJournalEntry(phase2, CONFIG);
+
+    expect(r1.isBalanced).toBe(true);
+    expect(r2.isBalanced).toBe(true);
+    // مجموع المدين في المرحلتين يساوي مجموع الدائن
+    expect(r1.totalDebit + r2.totalDebit).toBe(r1.totalCredit + r2.totalCredit);
+  });
+});
+
+// ─── دورة الحياة الكاملة لنموذج الأصيل (Package) ────────────────────────────
+
+describe('دورة الحياة الكاملة — نموذج الأصيل (باقة عمرة)', () => {
+  /**
+   * باقة عمرة بـ 5000 ريال + VAT 15% = 5750 ريال
+   * الخطوة 1: استلام الدفعة → إيراد مؤجل
+   * الخطوة 2: اعتراف بالإيراد بعد تقديم الخدمة
+   */
+  const sellingExclVat = fromSAR(5_000); // 500,000 هللة
+  const vatAmount      = calculateVat(sellingExclVat, 0.15); // 75,000 هللة
+  const totalAmount    = sellingExclVat + vatAmount;
+
+  it('مرحلة 1 (استلام دفعة أصيل) — متوازنة', () => {
+    const input: PrincipalPaymentReceivedInput = {
+      phase: 'principal_payment_received',
+      bookingType: 'umrah',
+      sellingPriceExclVat: sellingExclVat,
+      vatAmount,
+      totalAmount,
+      vatCategory: 'S',
+      receivingAccountCode: '1002',
+      bookingRef: 'UM-2026-001',
+      customerName: 'عائلة الزهراني',
+    };
+
+    const result = generateJournalEntry(input, CONFIG);
+    expect(result.isBalanced).toBe(true);
+    expect(result.totalDebit).toBe(totalAmount);
+    expect(result.totalCredit).toBe(totalAmount);
+  });
+
+  it('مرحلة 2 (اعتراف بالإيراد) — متوازنة ومبلغ الإيراد صحيح', () => {
+    const totalCostPrice = fromSAR(3_800); // 380,000 هللة — تكلفة الموردين
+
+    const input: PrincipalRevenueRecognitionInput = {
+      phase: 'principal_revenue_recognition',
+      bookingType: 'umrah',
+      sellingPriceExclVat: sellingExclVat,
+      totalCostPrice,
+      supplierBreakdown: [
+        { accountCode: '3003', amount: fromSAR(3_000), description: 'شركة العمرة' },
+        { accountCode: '3002', amount: fromSAR(800),   description: 'فندق المدينة' },
+      ],
+      bookingRef: 'UM-2026-001',
+    };
+
+    const result = generateJournalEntry(input, CONFIG);
+    expect(result.isBalanced).toBe(true);
+    // العمرة تستخدم commissionUmrahHajj (6005) لا packageRevenue (6101)
+    // هامش الربح الإجمالي = 5000 - 3800 = 1200 ريال يظهر في الإيراد
+    const revenueLine = result.lines.find(l => l.accountCode === CONFIG.accounts.commissionUmrahHajj);
+    expect(revenueLine).toBeDefined();
+    expect(revenueLine?.credit).toBe(sellingExclVat);
   });
 });
 

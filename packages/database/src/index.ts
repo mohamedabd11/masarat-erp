@@ -18,11 +18,7 @@ export { createDbClient, db } from './lib/client.js';
 export type { Database } from './lib/client.js';
 
 // Tenant middleware
-export {
-  withTenantContext,
-  withAuthenticatedTenant,
-  getDbForRequest,
-} from './lib/tenant-middleware.js';
+export { withTenantContext } from './lib/tenant-middleware.js';
 
 // Schema (re-exported for convenience)
 export * from './schema/index.js';

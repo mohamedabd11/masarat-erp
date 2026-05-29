@@ -97,6 +97,9 @@ export async function registerAgencyAction(
   const agencyId = crypto.randomUUID();
   const trialEndsAt = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000);
 
+  // نحتفظ بـ UID خارج الـ try حتى نتمكن من حذف مستخدم Firebase عند فشل PostgreSQL
+  let firebaseUid: string | null = null;
+
   try {
     // إنشاء مستخدم Firebase
     const userRecord = await getAuth().createUser({
@@ -105,9 +108,10 @@ export async function registerAgencyAction(
       emailVerified: false,
       disabled: false,
     });
+    firebaseUid = userRecord.uid;
 
     // تعيين Custom Claims
-    await getAuth().setCustomUserClaims(userRecord.uid, {
+    await getAuth().setCustomUserClaims(firebaseUid, {
       agencyId,
       role: 'admin',
       subscriptionPlan: 'trial',
@@ -119,7 +123,6 @@ export async function registerAgencyAction(
 
     // كتابة كل شيء في PostgreSQL داخل transaction واحد
     // لا نستخدم withTransaction هنا لأن agencyId جديد (RLS لم يُضبط بعد)
-    // نستخدم بدلاً منه app_migrations role
     const db = getHttpClient();
 
     await db.transaction(async (tx) => {
@@ -133,7 +136,7 @@ export async function registerAgencyAction(
         trialEndsAt,
         maxUsers: 2,
         isActive: true,
-        firebaseAdminUid: userRecord.uid,
+        firebaseAdminUid: firebaseUid,
       });
 
       // إعدادات المحاسبة
@@ -180,7 +183,7 @@ export async function registerAgencyAction(
       // المستخدم
       await tx.insert(users).values({
         agencyId,
-        firebaseUid: userRecord.uid,
+        firebaseUid,
         email,
         nameAr: input.adminNameAr.trim(),
         nameEn: input.adminNameEn?.trim() || input.adminNameAr.trim(),
@@ -207,9 +210,18 @@ export async function registerAgencyAction(
 
     return {
       success: true,
-      data: { agencyId, userId: userRecord.uid, setupLink },
+      data: { agencyId, userId: firebaseUid, setupLink },
     };
   } catch (err) {
+    // Rollback: إذا نجح إنشاء مستخدم Firebase لكن فشلت PostgreSQL، نحذف مستخدم Firebase
+    // لمنع وجود مستخدم "معلق" يستطيع تسجيل الدخول بدون بيانات في النظام
+    if (firebaseUid) {
+      try {
+        await getAuth().deleteUser(firebaseUid);
+      } catch (deleteErr) {
+        console.error('[registerAgency] Firebase rollback failed — orphaned UID:', firebaseUid, deleteErr);
+      }
+    }
     return {
       success: false,
       error: err instanceof Error ? err.message : 'فشل في تسجيل الوكالة',
@@ -291,14 +303,18 @@ export async function inviteUserAction(
     }
   }
 
+  // نحتفظ بـ UID خارج الـ try لإمكانية حذف مستخدم Firebase عند فشل PostgreSQL
+  let invitedFirebaseUid: string | null = null;
+
   try {
     const userRecord = await getAuth().createUser({
       email,
       displayName: input.nameAr.trim(),
       emailVerified: false,
     });
+    invitedFirebaseUid = userRecord.uid;
 
-    await getAuth().setCustomUserClaims(userRecord.uid, {
+    await getAuth().setCustomUserClaims(invitedFirebaseUid, {
       agencyId,
       role: input.role,
     });
@@ -307,7 +323,7 @@ export async function inviteUserAction(
 
     await db.insert(users).values({
       agencyId,
-      firebaseUid: userRecord.uid,
+      firebaseUid: invitedFirebaseUid,
       email,
       nameAr: input.nameAr.trim(),
       nameEn: input.nameEn?.trim() || input.nameAr.trim(),
@@ -317,8 +333,16 @@ export async function inviteUserAction(
       createdBy: auth.uid as unknown as undefined,
     });
 
-    return { success: true, data: { userId: userRecord.uid, setupLink } };
+    return { success: true, data: { userId: invitedFirebaseUid, setupLink } };
   } catch (err) {
+    // Rollback: إذا نجح إنشاء مستخدم Firebase لكن فشلت PostgreSQL، نحذف مستخدم Firebase
+    if (invitedFirebaseUid) {
+      try {
+        await getAuth().deleteUser(invitedFirebaseUid);
+      } catch (deleteErr) {
+        console.error('[inviteUser] Firebase rollback failed — orphaned UID:', invitedFirebaseUid, deleteErr);
+      }
+    }
     return {
       success: false,
       error: err instanceof Error ? err.message : 'فشل في دعوة المستخدم',
