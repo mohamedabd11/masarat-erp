@@ -16,10 +16,9 @@ import { getHttpClient } from '@/lib/db/client';
 export const runtime = 'nodejs';
 export const maxDuration = 60;
 
-export async function POST(request: Request): Promise<Response> {
-  // التحقق من هوية الـ cron job
-  const cronSecret = request.headers.get('x-cron-secret');
-  if (cronSecret !== process.env['CRON_SECRET']) {
+export async function GET(request: Request): Promise<Response> {
+  const cronSecret = process.env['CRON_SECRET'];
+  if (!cronSecret || request.headers.get('Authorization') !== `Bearer ${cronSecret}`) {
     return Response.json({ error: 'Unauthorized' }, { status: 401 });
   }
 

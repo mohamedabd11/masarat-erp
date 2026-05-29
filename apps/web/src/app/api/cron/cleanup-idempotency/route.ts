@@ -4,8 +4,9 @@
  */
 export const runtime = 'nodejs';
 
-export async function POST(request: Request): Promise<Response> {
-  if (request.headers.get('x-cron-secret') !== process.env['CRON_SECRET']) {
+export async function GET(request: Request): Promise<Response> {
+  const cronSecret = process.env['CRON_SECRET'];
+  if (!cronSecret || request.headers.get('Authorization') !== `Bearer ${cronSecret}`) {
     return Response.json({ error: 'Unauthorized' }, { status: 401 });
   }
 

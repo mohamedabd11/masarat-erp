@@ -29,8 +29,8 @@
 ### Blocking (must fix before production)
 - [ ] Set `ADMIN_DATABASE_URL` in Vercel to a connection string with `BYPASSRLS` role (or confirm Neon owner role suffices)
 - [ ] Store ZATCA private key **only** in Vercel encrypted secrets, not `.env` / Git
-- [ ] Verify `supplier_payments` and `service_types` tables exist in migrations and are exported from schema index
-- [ ] Add `CRON_SECRET` check to `/api/cron/check-subscriptions` (currently only checks `x-vercel-cron` header which is bypassed locally)
+- [x] ~~Verify `supplier_payments` and `service_types` tables exist~~ — confirmed: both defined and exported via wildcard in schema/index.ts
+- [x] ~~Add `CRON_SECRET` check~~ — fixed: all 3 cron routes now use `GET` + `Authorization: Bearer ${CRON_SECRET}` (Vercel standard)
 
 ### High Priority
 - [ ] Wire Upstash Redis rate-limiting on `/api/admin/*` routes (vars already in `.env.example`)
@@ -60,4 +60,6 @@
 | `ZATCA_ENVIRONMENT` | ✅ | Server only | simulation \| production |
 | `BLOB_READ_WRITE_TOKEN` | ✅ prod | Server only | Invoice PDF/XML storage |
 | `DATABASE_URL_TEST` | CI only | Server only | RLS integration tests |
+| `CRON_SECRET` | ✅ prod | Server only | Vercel cron job auth (`openssl rand -hex 32`) |
+| `ZATCA_API_SECRET` | ✅ prod | Server only | ZATCA API Basic auth secret |
 | `UPSTASH_REDIS_REST_URL/TOKEN` | optional | Server only | Rate limiting |

@@ -1,6 +1,7 @@
 /**
  * Cron: Daily subscription expiry check — runs at 08:00 UTC
  * يفحص الوكالات التي انتهت اشتراكاتها أو على وشك الانتهاء
+ * Triggered by Vercel Cron (GET). Vercel adds Authorization: Bearer ${CRON_SECRET}.
  */
 export const runtime = 'nodejs';
 
@@ -9,8 +10,10 @@ import { agencies } from '@masarat/database/schema';
 import { getHttpClient } from '@/lib/db/client';
 import { logger } from '@/lib/logger';
 
-export async function POST(request: Request): Promise<Response> {
-  if (request.headers.get('x-cron-secret') !== process.env['CRON_SECRET']) {
+export async function GET(request: Request): Promise<Response> {
+  const cronSecret = process.env['CRON_SECRET'];
+  const authHeader = request.headers.get('Authorization');
+  if (!cronSecret || authHeader !== `Bearer ${cronSecret}`) {
     return Response.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
