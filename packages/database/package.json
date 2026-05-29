@@ -1,0 +1,34 @@
+{
+  "name": "@masarat/database",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Masarat ERP — PostgreSQL/Neon database layer with Drizzle ORM",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./schema": "./src/schema/index.ts",
+    "./client": "./src/lib/client.ts",
+    "./migrations": "./src/migrations/index.ts"
+  },
+  "scripts": {
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "drizzle-kit migrate",
+    "db:push": "drizzle-kit push",
+    "db:studio": "drizzle-kit studio",
+    "db:seed": "tsx src/lib/seed.ts",
+    "type-check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@neondatabase/serverless": "^0.9.5",
+    "drizzle-orm": "^0.31.4"
+  },
+  "devDependencies": {
+    "drizzle-kit": "^0.22.8",
+    "tsx": "^4.16.2",
+    "typescript": "^5.5.3",
+    "@types/node": "^20"
+  },
+  "peerDependencies": {
+    "zod": "^3.23.8"
+  }
+}
