@@ -400,7 +400,7 @@ function EmployeesTab({ isAr, agencyId, locale }: { isAr: boolean; agencyId: str
               <label className={labelCls}>{isAr ? 'المنصب' : 'Role'}</label>
               <select value={form.role} onChange={e => setForm(p => ({ ...p, role: e.target.value as EmployeeRole }))}
                 className={inputCls}>
-                {(Object.keys(ROLE_LABELS) as EmployeeRole[]).map(r => (
+                {(Object.keys(ROLE_LABELS) as EmployeeRole[]).filter(r => r !== 'admin').map(r => (
                   <option key={r} value={r}>{isAr ? ROLE_LABELS[r].ar : ROLE_LABELS[r].en}</option>
                 ))}
               </select>

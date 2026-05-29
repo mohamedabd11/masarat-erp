@@ -121,17 +121,6 @@ export function PrintableReceiptVoucher({ data }: { data: ReceiptVoucherData }) 
     >
       {/* ── Agency Header ──────────────────────────────────────────────────── */}
       <div className="border-b-2 border-slate-700 pb-4 mb-4 px-8 pt-6">
-        {/* Logo centered above the two-column name block */}
-        {data.agency.logoUrl && (
-          <div className="flex justify-center mb-3">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src={data.agency.logoUrl}
-              alt={data.agency.nameAr}
-              style={{ height: 72, width: 'auto', objectFit: 'contain', maxWidth: 200 }}
-            />
-          </div>
-        )}
         <div className="flex justify-between items-start">
           {/* Arabic side */}
           <div className="text-right">
@@ -146,11 +135,20 @@ export function PrintableReceiptVoucher({ data }: { data: ReceiptVoucherData }) 
             )}
           </div>
 
-          {/* Document title (center) */}
+          {/* Document title (center) — logo replaces "ق" when available */}
           <div className="text-center flex flex-col items-center gap-1">
-            <div className="w-14 h-14 rounded-xl bg-brand-50 border border-brand-200 flex items-center justify-center text-xl font-black text-brand-600 select-none">
-              ق
-            </div>
+            {data.agency.logoUrl ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={data.agency.logoUrl}
+                alt={data.agency.nameAr}
+                style={{ height: 56, width: 'auto', objectFit: 'contain', maxWidth: 120 }}
+              />
+            ) : (
+              <div className="w-14 h-14 rounded-xl bg-brand-50 border border-brand-200 flex items-center justify-center text-xl font-black text-brand-600 select-none">
+                ق
+              </div>
+            )}
             <p className="text-base font-black text-slate-900 tracking-tight mt-1">سند قبض</p>
             <p className="text-[10px] text-slate-500 tracking-widest uppercase">Receipt Voucher</p>
           </div>

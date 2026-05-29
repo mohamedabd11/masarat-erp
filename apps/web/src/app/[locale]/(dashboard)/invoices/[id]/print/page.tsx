@@ -42,18 +42,27 @@ export default function PrintInvoicePage({
 
         const rawItems = (inv.items as Record<string, unknown>[] | null) ?? [];
         const rawLines: PrintableInvoiceData['lines'] = rawItems.length > 0
-          ? rawItems.map((l, idx) => ({
-              id:                      String(l['id'] ?? idx + 1),
-              nameAr:                  String(l['nameAr'] ?? ''),
-              nameEn:                  String(l['nameEn'] ?? ''),
-              quantity:                Number(l['quantity'] ?? 1),
-              unitCode:                String(l['unitCode'] ?? 'PCE'),
-              unitPriceExclVatHalalas: Number(l['unitPriceExclVatHalalas'] ?? 0),
-              totalExclVatHalalas:     Number(l['totalExclVatHalalas'] ?? 0),
-              vatRate:                 Number(l['vatRate'] ?? 0),
-              vatAmountHalalas:        Number(l['vatAmountHalalas'] ?? 0),
-              totalInclVatHalalas:     Number(l['totalInclVatHalalas'] ?? 0),
-            }))
+          ? rawItems.map((l, idx) => {
+              const qty          = Number(l['quantity'] ?? 1);
+              // Stored as unitPriceHalalas (new format) or unitPriceExclVatHalalas (legacy)
+              const unitPriceExcl = Number(l['unitPriceHalalas'] ?? l['unitPriceExclVatHalalas'] ?? 0);
+              const vatAmt       = Number(l['vatHalalas'] ?? l['vatAmountHalalas'] ?? 0);
+              const totalIncl    = Number(l['totalHalalas'] ?? l['totalInclVatHalalas'] ?? 0);
+              const totalExcl    = unitPriceExcl * qty;
+              const vatRate      = totalExcl > 0 ? vatAmt / totalExcl : Number(l['vatRate'] ?? 0);
+              return {
+                id:                      String(l['id'] ?? idx + 1),
+                nameAr:                  String(l['description'] ?? l['nameAr'] ?? ''),
+                nameEn:                  String(l['descriptionEn'] ?? l['nameEn'] ?? ''),
+                quantity:                qty,
+                unitCode:                'PCE',
+                unitPriceExclVatHalalas: unitPriceExcl,
+                totalExclVatHalalas:     totalExcl,
+                vatRate,
+                vatAmountHalalas:        vatAmt,
+                totalInclVatHalalas:     totalIncl,
+              };
+            })
           : [{
               id: '1',
               nameAr: 'خدمة سفر',
