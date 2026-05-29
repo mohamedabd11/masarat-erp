@@ -5,7 +5,7 @@ import { useTranslations, useLocale } from 'next-intl';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { signInWithEmailAndPassword, sendPasswordResetEmail } from 'firebase/auth';
+import { signInWithEmailAndPassword } from 'firebase/auth';
 import { getAuth } from 'firebase/auth';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
@@ -40,23 +40,23 @@ export default function LoginPage() {
   });
 
   async function handlePasswordReset() {
-    if (!resetEmail.trim()) return;
+    const email = resetEmail.trim();
+    if (!email) return;
+    // Basic email format check before calling API
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      setResetError(isAr ? 'صيغة البريد الإلكتروني غير صحيحة' : 'Invalid email format');
+      return;
+    }
     setResetSending(true);
     setResetError('');
     try {
-      const auth = getAuth();
-      await sendPasswordResetEmail(auth, resetEmail.trim(), {
-        url: `${window.location.origin}/${locale}/auth/action`,
-        handleCodeInApp: false,
+      // Custom API sends branded email via Resend with masarat-erp.com link
+      await fetch('/api/auth/forgot-password', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ email, locale }),
       });
-    } catch (err: unknown) {
-      const code = (err as { code?: string }).code ?? '';
-      if (code === 'auth/invalid-email') {
-        setResetError(isAr ? 'صيغة البريد الإلكتروني غير صحيحة' : 'Invalid email format');
-        setResetSending(false);
-        return;
-      }
-      // For all other errors (including user-not-found), show ambiguous success.
+      // Always show success (never reveal if email exists)
     } finally {
       setResetSending(false);
     }
