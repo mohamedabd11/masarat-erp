@@ -138,6 +138,7 @@ CREATE TABLE IF NOT EXISTS bookings (
 CREATE INDEX IF NOT EXISTS idx_bookings_agency    ON bookings(agency_id);
 CREATE INDEX IF NOT EXISTS idx_bookings_customer  ON bookings(customer_id);
 CREATE INDEX IF NOT EXISTS idx_bookings_created   ON bookings(agency_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_bookings_status    ON bookings(agency_id, status);
 
 -- ══ QUOTES ═══════════════════════════════════════════════════════════════════
 CREATE TABLE IF NOT EXISTS quotes (
@@ -200,6 +201,7 @@ CREATE INDEX IF NOT EXISTS idx_invoices_agency   ON invoices(agency_id);
 CREATE INDEX IF NOT EXISTS idx_invoices_customer ON invoices(customer_id);
 CREATE INDEX IF NOT EXISTS idx_invoices_booking  ON invoices(booking_id);
 CREATE INDEX IF NOT EXISTS idx_invoices_created  ON invoices(agency_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_invoices_status   ON invoices(agency_id, status);
 CREATE UNIQUE INDEX IF NOT EXISTS invoices_one_per_booking ON invoices(booking_id, agency_id) WHERE type = '380' AND booking_id IS NOT NULL;
 
 -- ══ PAYMENTS ═════════════════════════════════════════════════════════════════

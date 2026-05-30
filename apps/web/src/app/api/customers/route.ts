@@ -1,25 +1,38 @@
 import { NextResponse } from 'next/server';
 import { eq, and, desc, count, sum } from 'drizzle-orm';
 import { db } from '@/lib/db';
-import { customers, bookings, payments } from '@/lib/schema';
+import { customers, bookings } from '@/lib/schema';
 import { verifyAuth, ApiAuthError } from '@/lib/api-auth';
+
+const DEFAULT_LIMIT = 50;
+const MAX_LIMIT     = 200;
 
 export async function GET(request: Request) {
   try {
     const { agencyId } = await verifyAuth(request);
+    const url    = new URL(request.url);
+    const page   = Math.max(1, parseInt(url.searchParams.get('page')  ?? '1',  10) || 1);
+    const limit  = Math.min(MAX_LIMIT, Math.max(1, parseInt(url.searchParams.get('limit') ?? String(DEFAULT_LIMIT), 10) || DEFAULT_LIMIT));
+    const offset = (page - 1) * limit;
+
+    const [{ total }] = await db
+      .select({ total: count() })
+      .from(customers)
+      .where(eq(customers.agencyId, agencyId));
 
     const rows = await db
       .select()
       .from(customers)
       .where(eq(customers.agencyId, agencyId))
-      .orderBy(desc(customers.createdAt));
+      .orderBy(desc(customers.createdAt))
+      .limit(limit)
+      .offset(offset);
 
-    // Aggregate booking counts and total spent per customer
     const bookingStats = await db
       .select({
-        customerId:    bookings.customerId,
-        bookingCount:  count(bookings.id),
-        totalSpent:    sum(bookings.totalPriceHalalas),
+        customerId:   bookings.customerId,
+        bookingCount: count(bookings.id),
+        totalSpent:   sum(bookings.totalPriceHalalas),
       })
       .from(bookings)
       .where(and(eq(bookings.agencyId, agencyId)))
@@ -27,13 +40,19 @@ export async function GET(request: Request) {
 
     const statsMap = new Map(bookingStats.map(s => [s.customerId, s]));
 
-    const result = rows.map(c => ({
+    const data = rows.map(c => ({
       ...c,
-      bookingCount:       statsMap.get(c.id)?.bookingCount ?? 0,
-      totalSpentHalalas:  Number(statsMap.get(c.id)?.totalSpent ?? 0),
+      bookingCount:      statsMap.get(c.id)?.bookingCount ?? 0,
+      totalSpentHalalas: Number(statsMap.get(c.id)?.totalSpent ?? 0),
     }));
 
-    return NextResponse.json({ customers: result });
+    return NextResponse.json({
+      data,
+      total,
+      page,
+      limit,
+      hasMore: offset + data.length < total,
+    });
   } catch (err) {
     if (err instanceof ApiAuthError) return NextResponse.json({ error: err.message }, { status: err.status });
     return NextResponse.json({ error: 'خطأ في الخادم' }, { status: 500 });
