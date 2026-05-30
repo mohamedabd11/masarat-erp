@@ -4,12 +4,14 @@ import { db } from '@/lib/db';
 import { customers, bookings } from '@/lib/schema';
 import { verifyAuth, ApiAuthError } from '@/lib/api-auth';
 import { getPoolStatus } from '@/lib/pool-status';
+import { ensureMigrations } from '@/lib/auto-migrate';
 
 const DEFAULT_LIMIT = 50;
 const MAX_LIMIT     = 200;
 
 export async function GET(request: Request) {
   try {
+    await ensureMigrations();
     const { agencyId } = await verifyAuth(request);
     const url    = new URL(request.url);
     const page   = Math.max(1, parseInt(url.searchParams.get('page')  ?? '1',  10) || 1);
@@ -53,7 +55,7 @@ export async function GET(request: Request) {
     );
   } catch (err) {
     if (err instanceof ApiAuthError) return NextResponse.json({ error: err.message }, { status: err.status });
-    return NextResponse.json({ error: `DB_ERR: ${String(err).slice(0, 300)}` }, { status: 500 });
+    return NextResponse.json({ error: 'خطأ في الخادم' }, { status: 500 });
   }
 }
 
@@ -82,6 +84,6 @@ export async function POST(request: Request) {
     return NextResponse.json({ success: true, id, customer: row });
   } catch (err) {
     if (err instanceof ApiAuthError) return NextResponse.json({ error: err.message }, { status: err.status });
-    return NextResponse.json({ error: `DB_ERR: ${String(err).slice(0, 300)}` }, { status: 500 });
+    return NextResponse.json({ error: 'خطأ في الخادم' }, { status: 500 });
   }
 }
