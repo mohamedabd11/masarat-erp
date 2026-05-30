@@ -47,12 +47,15 @@ export type ComputedStatus =
   | 'pending_sync';
 
 // Derives the user-facing status from stored fields.
-// Priority: definitive DB status → sync failure → expiry → active
+// Priority: definitive DB status → sync failure → client-side expiry check → active
+// Note: status='expired' is set authoritatively by the expire-pnrs cron job.
+// The expiresAt fallback covers the window before the job next runs.
 export function computeStatus(pnr: PnrRow): ComputedStatus {
   if (pnr.status === 'cancelled') return 'cancelled';
   if (pnr.status === 'ticketed')  return 'ticketed';
   if (pnr.status === 'voided')    return 'voided';
   if (pnr.status === 'refunded')  return 'refunded';
+  if (pnr.status === 'expired')   return 'expired';
   if (pnr.syncStatus === 'failed')  return 'sync_failed';
   if (pnr.syncStatus === 'pending') return 'pending_sync';
   if (pnr.expiresAt && new Date(pnr.expiresAt) < new Date()) return 'expired';
