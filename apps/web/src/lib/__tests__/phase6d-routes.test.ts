@@ -409,7 +409,7 @@ describe('POST /api/travel/pnr', () => {
     expect(inserted['passengerCount']).toBe(1);
     expect(inserted['totalHalalas']).toBe(60000);
     expect(inserted['status']).toBe('active');
-    expect(inserted['expiresAt']).toBe('2026-06-02T08:00:00.000Z');
+    expect(inserted['expiresAt']).toEqual(new Date('2026-06-02T08:00:00.000Z'));
   });
 
   it('passengerNames in DB insert is a JSON array of full names', async () => {
@@ -432,8 +432,7 @@ describe('POST /api/travel/pnr', () => {
     await pnrPost(req);
 
     const inserted = insertValues.mock.calls[0]?.[0] as Record<string, unknown>;
-    const names = JSON.parse(inserted['passengerNames'] as string) as string[];
-    expect(names).toEqual(['Ahmed AlSaudi', 'Fatima AlZahrani']);
+    expect(inserted['passengerNames']).toEqual(['Ahmed AlSaudi', 'Fatima AlZahrani']);
   });
 
   it('returns 400 when credentialId is missing', async () => {
