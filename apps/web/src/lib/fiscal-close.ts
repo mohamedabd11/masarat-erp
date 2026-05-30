@@ -13,6 +13,68 @@ import type { Tx } from '@/lib/db';
 
 const RE = { code: '3200', ar: 'الأرباح المحتجزة', en: 'Retained Earnings' };
 
+// ── Pure calculation helper (exported for unit testing) ───────────────────
+
+export interface PlRow {
+  accountCode:   string | null;
+  accountNameAr: string | null;
+  accountNameEn: string | null;
+  totalDebit:    number;
+  totalCredit:   number;
+}
+
+export interface ClosingLine {
+  code: string;
+  ar:   string;
+  en:   string;
+  dr:   number;
+  cr:   number;
+}
+
+export interface ClosingCalculation {
+  lines:            ClosingLine[];
+  netIncomeHalalas: number;
+}
+
+export function calculateClosingLines(plRows: PlRow[]): ClosingCalculation {
+  const jLines: ClosingLine[] = [];
+  let netIncome = 0;
+
+  for (const row of plRows) {
+    const debit  = Number(row.totalDebit)  || 0;
+    const credit = Number(row.totalCredit) || 0;
+    const code   = row.accountCode ?? '';
+    const ar     = row.accountNameAr ?? code;
+    const en     = row.accountNameEn ?? '';
+
+    if (code.startsWith('4')) {
+      // Revenue: normal credit balance → Dr to zero; surplus flows to net income
+      const netCredit = credit - debit;
+      if (netCredit !== 0) {
+        jLines.push({ code, ar, en, dr: netCredit > 0 ? netCredit : 0, cr: netCredit < 0 ? -netCredit : 0 });
+        netIncome += netCredit;
+      }
+    } else if (code.startsWith('5')) {
+      // Expense: normal debit balance → Cr to zero; reduces net income
+      const netDebit = debit - credit;
+      if (netDebit !== 0) {
+        jLines.push({ code, ar, en, dr: netDebit < 0 ? -netDebit : 0, cr: netDebit > 0 ? netDebit : 0 });
+        netIncome -= netDebit;
+      }
+    }
+  }
+
+  if (netIncome > 0) {
+    jLines.push({ ...RE, dr: 0, cr: netIncome });
+  } else if (netIncome < 0) {
+    jLines.push({ ...RE, dr: -netIncome, cr: 0 });
+  }
+
+  return { lines: jLines, netIncomeHalalas: netIncome };
+}
+
+// ── DB-dependent logic ────────────────────────────────────────────────────
+
 export interface YearClosingResult {
   closingEntryId:   string | null;
   netIncomeHalalas: number;
@@ -69,43 +131,10 @@ export async function createYearEndClosingEntry(
       journalLines.accountNameEn,
     );
 
-  type JLine = { code: string; ar: string; en: string; dr: number; cr: number };
-  const jLines: JLine[] = [];
-  let netIncome = 0;
-
-  for (const row of plRows) {
-    const debit  = Number(row.totalDebit)  || 0;
-    const credit = Number(row.totalCredit) || 0;
-    const code   = row.accountCode ?? '';
-    const ar     = row.accountNameAr ?? code;
-    const en     = row.accountNameEn ?? '';
-
-    if (code.startsWith('4')) {
-      // Revenue: normal credit balance → Dr to zero, Cr delta goes to net income
-      const netCredit = credit - debit;
-      if (netCredit !== 0) {
-        jLines.push({ code, ar, en, dr: netCredit > 0 ? netCredit : 0, cr: netCredit < 0 ? -netCredit : 0 });
-        netIncome += netCredit;
-      }
-    } else if (code.startsWith('5')) {
-      // Expense: normal debit balance → Cr to zero, Dr delta reduces net income
-      const netDebit = debit - credit;
-      if (netDebit !== 0) {
-        jLines.push({ code, ar, en, dr: netDebit < 0 ? -netDebit : 0, cr: netDebit > 0 ? netDebit : 0 });
-        netIncome -= netDebit;
-      }
-    }
-  }
+  const { lines: jLines, netIncomeHalalas: netIncome } = calculateClosingLines(plRows);
 
   if (jLines.length === 0) {
     return { closingEntryId: null, netIncomeHalalas: 0, alreadyClosed: false };
-  }
-
-  // Transfer net income/loss to Retained Earnings (3200)
-  if (netIncome > 0) {
-    jLines.push({ ...RE, dr: 0, cr: netIncome });
-  } else if (netIncome < 0) {
-    jLines.push({ ...RE, dr: -netIncome, cr: 0 });
   }
 
   const jeId     = crypto.randomUUID();
