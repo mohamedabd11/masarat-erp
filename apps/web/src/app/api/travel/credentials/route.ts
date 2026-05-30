@@ -117,6 +117,8 @@ export async function POST(request: Request) {
       providerCode: providerCode as ProviderCode,
       label:        label.trim(),
       encryptedPayload,
+      keyVersion:   1,
+      encryptedAt:  new Date(),
       isActive:     true,
       createdBy:    uid,
     });
