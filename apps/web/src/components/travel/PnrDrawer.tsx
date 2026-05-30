@@ -419,22 +419,29 @@ export function PnrDrawer({ pnr, computedStatus, isAr, onClose, onRefresh }: Pro
 
           {/* Row 2: Sync + Cancel */}
           {cancelConfirm ? (
-            <div className="grid grid-cols-2 gap-2">
-              <button
-                onClick={() => void handleCancel()}
-                disabled={cancelling}
-                className={confirmBtn}
-              >
-                {cancelling ? <Loader2 size={13} className="animate-spin" /> : <Ban size={13} />}
-                {isAr ? 'تأكيد الإلغاء' : 'Confirm Cancel'}
-              </button>
-              <button
-                onClick={() => setCancelConfirm(false)}
-                disabled={cancelling}
-                className={dismissBtn}
-              >
-                {isAr ? 'تراجع' : 'Dismiss'}
-              </button>
+            <div className="space-y-2">
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  onClick={() => void handleCancel()}
+                  disabled={cancelling}
+                  className={confirmBtn}
+                >
+                  {cancelling ? <Loader2 size={13} className="animate-spin" /> : <Ban size={13} />}
+                  {isAr ? 'تأكيد الإلغاء' : 'Confirm Cancel'}
+                </button>
+                <button
+                  onClick={() => setCancelConfirm(false)}
+                  disabled={cancelling}
+                  className={dismissBtn}
+                >
+                  {isAr ? 'تراجع' : 'Dismiss'}
+                </button>
+              </div>
+              <p className="text-[11px] text-amber-600 bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-1.5 leading-relaxed">
+                {isAr
+                  ? '⚠️ يُلغى السجل داخل النظام فقط — تأكد من إلغاء الحجز عند المزود أولاً.'
+                  : '⚠️ This marks the record cancelled locally only — ensure the booking is cancelled with the provider first.'}
+              </p>
             </div>
           ) : (
             <div className={`grid gap-2 ${pnr.gds ? 'grid-cols-2' : 'grid-cols-1'}`}>

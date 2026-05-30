@@ -70,12 +70,12 @@ export async function POST(request: Request, { params }: { params: { id: string 
 
       void logTravelEvent({
         agencyId,
-        eventType:    'pnr_sync_completed',
+        eventType:    'pnr_sync_failed',
         provider:     providerCode,
         resourceId:   pnr.id,
         resourceType: 'pnr',
         actorId:      uid,
-        payload:      { pnrCode: pnr.pnrCode, success: false, error: String(err), durationMs },
+        payload:      { pnrCode: pnr.pnrCode, error: String(err), durationMs },
       });
       void logProviderSync({
         agencyId,
@@ -149,7 +149,7 @@ export async function POST(request: Request, { params }: { params: { id: string 
       resourceId:   pnr.id,
       resourceType: 'pnr',
       actorId:      uid,
-      payload:      { pnrCode: pnr.pnrCode, success: true, durationMs },
+      payload:      { pnrCode: pnr.pnrCode, durationMs },
     });
     void logProviderSync({
       agencyId,

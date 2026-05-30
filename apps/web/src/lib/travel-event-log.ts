@@ -4,7 +4,7 @@ import { randomUUID } from 'crypto';
 
 interface TravelEventParams {
   agencyId:      string;
-  eventType:     string;  // pnr_created|ticket_issued|ticket_voided|ticket_refunded|pnr_cancelled|pnr_linked_to_booking|pnr_linked_to_customer|pnr_sync_started|pnr_sync_completed|search
+  eventType:     string;  // pnr_created|ticket_issued|ticket_voided|ticket_refunded|pnr_cancelled|pnr_linked_to_booking|pnr_linked_to_customer|pnr_sync_started|pnr_sync_completed|pnr_sync_failed|search
   provider:      string;  // amadeus|galileo|sabre|mock
   resourceId?:   string;
   resourceType?: 'pnr' | 'ticket';
