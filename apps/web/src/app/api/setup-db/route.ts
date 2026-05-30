@@ -562,31 +562,52 @@ CREATE INDEX IF NOT EXISTS idx_salary_advances_emp ON salary_advances(employee_i
 CREATE TABLE IF NOT EXISTS pnr_records (
   id               TEXT PRIMARY KEY,
   agency_id        TEXT NOT NULL REFERENCES agencies(id) ON DELETE CASCADE,
+  -- GDS identifiers
   pnr_code         TEXT NOT NULL,
   gds              TEXT,
+  -- Scalar route fields (fast queries)
   airline          TEXT,
-  flight_numbers   JSONB,
   origin           TEXT,
   destination      TEXT,
   departure_date   TEXT,
   return_date      TEXT,
-  passenger_count  INTEGER NOT NULL DEFAULT 1,
-  passenger_names  JSONB,
+  -- JSONB structured data (Phase 6-E)
+  segments         JSONB,           -- full multi-segment detail [{from,to,carrier,flightNumber,...}]
+  passengers       JSONB,           -- full passenger list [{type,firstName,lastName,...}]
+  flight_numbers   JSONB,           -- legacy (deprecated → use segments)
+  passenger_names  JSONB,           -- legacy (deprecated → use passengers)
   ticket_numbers   JSONB,
+  -- Financials
+  passenger_count  INTEGER NOT NULL DEFAULT 1,
   fare_halalas     INTEGER NOT NULL DEFAULT 0,
   tax_halalas      INTEGER NOT NULL DEFAULT 0,
   total_halalas    INTEGER NOT NULL DEFAULT 0,
-  booking_id       TEXT,
-  customer_id      TEXT,
+  -- Relations (nullable)
+  booking_id       TEXT REFERENCES bookings(id),
+  customer_id      TEXT REFERENCES customers(id),
+  -- Status: active | ticketed | cancelled | expired | voided | refunded
   status           TEXT NOT NULL DEFAULT 'active',
+  -- PNR expiry (TIMESTAMPTZ — not TEXT)
+  expires_at       TIMESTAMPTZ,
+  -- Provider sync tracking
+  synced_at        TIMESTAMPTZ,
+  sync_status      TEXT,            -- success | failed | pending
+  sync_error       TEXT,
+  -- Soft delete & cancellation (no hard DELETE)
+  deleted_at       TIMESTAMPTZ,
+  cancelled_at     TIMESTAMPTZ,
+  cancelled_by     TEXT,
+  -- Misc
   notes            TEXT,
-  expires_at       TEXT,
   created_by       TEXT,
   created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 CREATE UNIQUE INDEX IF NOT EXISTS pnr_agency_code_uq ON pnr_records(agency_id, pnr_code);
-CREATE INDEX IF NOT EXISTS idx_pnr_agency ON pnr_records(agency_id);
+CREATE INDEX IF NOT EXISTS idx_pnr_agency   ON pnr_records(agency_id);
+CREATE INDEX IF NOT EXISTS idx_pnr_deleted  ON pnr_records(agency_id, deleted_at)  WHERE deleted_at  IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_pnr_expires  ON pnr_records(agency_id, expires_at)  WHERE expires_at  IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_pnr_sync     ON pnr_records(agency_id, synced_at)   WHERE synced_at   IS NOT NULL;
 
 -- ══ APPOINTMENTS ══════════════════════════════════════════════════════════════
 CREATE TABLE IF NOT EXISTS appointments (

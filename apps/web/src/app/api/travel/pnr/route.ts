@@ -120,32 +120,64 @@ export async function POST(request: Request) {
     const durationMs = Date.now() - start;
 
     // Persist PNR to local database
-    const pnrDbId    = crypto.randomUUID();
-    const firstSeg   = pnrResult.segments[0];
+    const pnrDbId  = crypto.randomUUID();
+    const firstSeg = pnrResult.segments[0];
+
+    // Build JSONB segments array (Phase 6-E format)
+    const segmentsJson = pnrResult.segments.map(s => ({
+      from:          s.origin,
+      to:            s.destination,
+      carrier:       s.airline,
+      flightNumber:  s.flightNumber,
+      departureDate: s.departureDate,
+      departureTime: s.departureTime,
+      arrivalDate:   s.arrivalDate,
+      arrivalTime:   s.arrivalTime,
+      bookingClass:  s.bookingClass,
+      fareBasis:     s.fareBasis,
+      status:        s.status,
+    }));
+
+    // Build JSONB passengers array (Phase 6-E format)
+    const passengersJson = pnrResult.passengers.map(p => ({
+      type:            p.type,
+      firstName:       p.firstName,
+      lastName:        p.lastName,
+      passportNumber:  p.passportNumber  ?? undefined,
+      nationality:     p.nationality     ?? undefined,
+      dateOfBirth:     p.dateOfBirth     ?? undefined,
+    }));
 
     await db.insert(pnrRecords).values({
       id:             pnrDbId,
       agencyId,
       pnrCode:        pnrResult.pnrCode,
-      gds:            pnrResult.gds,
-      airline:        firstSeg?.airline            ?? offer.airline,
-      flightNumbers:  JSON.stringify(
-        pnrResult.segments.map(s => s.flightNumber),
-      ),
-      origin:         firstSeg?.origin             ?? offer.origin,
-      destination:    firstSeg?.destination        ?? offer.destination,
-      departureDate:  firstSeg?.departureDate       ?? offer.departureAt.slice(0, 10),
+      gds:            String(pnrResult.gds),
+      // Scalar route fields (fast queries) — firstSeg is SegmentInfo, not PnrSegmentJson
+      airline:        firstSeg?.airline       ?? offer.airline,
+      origin:         firstSeg?.origin        ?? offer.origin,
+      destination:    firstSeg?.destination   ?? offer.destination,
+      departureDate:  firstSeg?.departureDate ?? offer.departureAt.slice(0, 10),
+      // JSONB structured data
+      segments:       segmentsJson,
+      passengers:     passengersJson,
+      // Legacy fields (kept for backward compat)
+      flightNumbers:  pnrResult.segments.map(s => s.flightNumber),
+      passengerNames: pnrResult.passengers.map(p => `${p.firstName} ${p.lastName}`),
+      // Financials
       passengerCount: passengers.length,
-      passengerNames: JSON.stringify(
-        pnrResult.passengers.map(p => `${p.firstName} ${p.lastName}`),
-      ),
       fareHalalas:    offer.fareHalalas,
       taxHalalas:     offer.taxHalalas,
       totalHalalas:   pnrResult.totalHalalas,
+      // Relations
       bookingId:      body.bookingId  ?? null,
       customerId:     body.customerId ?? null,
+      // Status & expiry
       status:         'active',
-      expiresAt:      pnrResult.expiresAt ?? null,
+      expiresAt:      pnrResult.expiresAt ? new Date(pnrResult.expiresAt) : null,
+      // Sync tracking — just created, counts as initial sync
+      syncedAt:       new Date(),
+      syncStatus:     'success',
       createdBy:      uid,
     });
 
