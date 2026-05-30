@@ -3,6 +3,7 @@ import { db } from '@/lib/db';
 import { receiptVouchers, journalEntries, journalLines } from '@/lib/schema';
 import { verifyAuth, ApiAuthError, BusinessError } from '@/lib/api-auth';
 import { getNextReceiptNumber, getNextJournalNumber } from '@/lib/invoice-counter';
+import { assertPeriodOpen } from '@/lib/period-lock';
 
 interface StandaloneReceiptBody {
   customerNameAr:  string;
@@ -41,6 +42,8 @@ export async function POST(request: Request) {
       const now   = new Date();
       const year  = now.getFullYear();
       const today = now.toISOString().split('T')[0]!;
+
+      await assertPeriodOpen(agencyId, today, tx);
 
       const voucherNumber = await getNextReceiptNumber(agencyId, year, tx);
       const jeNumber      = await getNextJournalNumber(agencyId, year, tx);

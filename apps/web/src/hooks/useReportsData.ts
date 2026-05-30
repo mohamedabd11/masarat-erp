@@ -73,13 +73,13 @@ export function useReportsData(agencyId: string | null): ReportsData {
     setLoading(true);
 
     Promise.all([
-      apiFetch<{ invoices: Invoice[] }>('/api/invoices'),
-      apiFetch<{ bookings: Booking[] }>('/api/bookings'),
+      apiFetch<{ data: Invoice[]; total: number }>('/api/invoices'),
+      apiFetch<{ data: Booking[]; total: number }>('/api/bookings'),
     ])
       .then(([invData, bkData]) => {
         if (!cancelled) {
-          setInvoices(invData.invoices);
-          setBookings(bkData.bookings);
+          setInvoices(invData.data ?? []);
+          setBookings(bkData.data ?? []);
         }
       })
       .catch(() => {})

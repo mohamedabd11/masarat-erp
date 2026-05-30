@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { eq, and, desc, sum, count } from 'drizzle-orm';
+import { eq, and, desc, sum, count, isNull } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { customers, invoices, bookings } from '@/lib/schema';
 import { verifyAuth, assertRole, ApiAuthError, ROLES_MANAGER_UP } from '@/lib/api-auth';
@@ -15,13 +15,13 @@ export async function GET(
     const [customer] = await db
       .select()
       .from(customers)
-      .where(and(eq(customers.id, id), eq(customers.agencyId, agencyId)));
+      .where(and(eq(customers.id, id), eq(customers.agencyId, agencyId), isNull(customers.deletedAt)));
 
     if (!customer) {
       return NextResponse.json({ error: 'العميل غير موجود' }, { status: 404 });
     }
 
-    // Customer statement: aggregate invoices + recent bookings
+    // Customer statement: aggregate invoices + recent bookings (exclude soft-deleted)
     const [invoiceSummary] = await db
       .select({
         totalInvoiced: sum(invoices.totalHalalas),
@@ -29,7 +29,7 @@ export async function GET(
         invoiceCount:  count(invoices.id),
       })
       .from(invoices)
-      .where(and(eq(invoices.customerId, id), eq(invoices.agencyId, agencyId)));
+      .where(and(eq(invoices.customerId, id), eq(invoices.agencyId, agencyId), isNull(invoices.deletedAt)));
 
     const recentInvoices = await db
       .select({
@@ -41,7 +41,7 @@ export async function GET(
         issueDate:     invoices.issueDate,
       })
       .from(invoices)
-      .where(and(eq(invoices.customerId, id), eq(invoices.agencyId, agencyId)))
+      .where(and(eq(invoices.customerId, id), eq(invoices.agencyId, agencyId), isNull(invoices.deletedAt)))
       .orderBy(desc(invoices.createdAt))
       .limit(10);
 
@@ -56,7 +56,7 @@ export async function GET(
         createdAt:         bookings.createdAt,
       })
       .from(bookings)
-      .where(and(eq(bookings.customerId, id), eq(bookings.agencyId, agencyId)))
+      .where(and(eq(bookings.customerId, id), eq(bookings.agencyId, agencyId), isNull(bookings.deletedAt)))
       .orderBy(desc(bookings.createdAt))
       .limit(10);
 
@@ -97,7 +97,7 @@ export async function PATCH(
     const [existing] = await db
       .select()
       .from(customers)
-      .where(and(eq(customers.id, id), eq(customers.agencyId, agencyId)));
+      .where(and(eq(customers.id, id), eq(customers.agencyId, agencyId), isNull(customers.deletedAt)));
 
     if (!existing) {
       return NextResponse.json({ error: 'العميل غير موجود' }, { status: 404 });
@@ -106,7 +106,7 @@ export async function PATCH(
     const [updated] = await db
       .update(customers)
       .set({ ...body, updatedAt: new Date() })
-      .where(and(eq(customers.id, id), eq(customers.agencyId, agencyId)))
+      .where(and(eq(customers.id, id), eq(customers.agencyId, agencyId), isNull(customers.deletedAt)))
       .returning();
 
     return NextResponse.json({ success: true, customer: updated });
@@ -128,7 +128,7 @@ export async function DELETE(
     const [existing] = await db
       .select()
       .from(customers)
-      .where(and(eq(customers.id, id), eq(customers.agencyId, agencyId)));
+      .where(and(eq(customers.id, id), eq(customers.agencyId, agencyId), isNull(customers.deletedAt)));
 
     if (!existing) {
       return NextResponse.json({ error: 'العميل غير موجود' }, { status: 404 });
@@ -137,7 +137,7 @@ export async function DELETE(
     const [hasInvoice] = await db
       .select({ id: invoices.id })
       .from(invoices)
-      .where(and(eq(invoices.customerId, id), eq(invoices.agencyId, agencyId)))
+      .where(and(eq(invoices.customerId, id), eq(invoices.agencyId, agencyId), isNull(invoices.deletedAt)))
       .limit(1);
     if (hasInvoice) {
       return NextResponse.json(
@@ -149,7 +149,7 @@ export async function DELETE(
     const [hasBooking] = await db
       .select({ id: bookings.id })
       .from(bookings)
-      .where(and(eq(bookings.customerId, id), eq(bookings.agencyId, agencyId)))
+      .where(and(eq(bookings.customerId, id), eq(bookings.agencyId, agencyId), isNull(bookings.deletedAt)))
       .limit(1);
     if (hasBooking) {
       return NextResponse.json(
@@ -159,7 +159,8 @@ export async function DELETE(
     }
 
     await db
-      .delete(customers)
+      .update(customers)
+      .set({ deletedAt: new Date() })
       .where(and(eq(customers.id, id), eq(customers.agencyId, agencyId)));
 
     return NextResponse.json({ success: true });

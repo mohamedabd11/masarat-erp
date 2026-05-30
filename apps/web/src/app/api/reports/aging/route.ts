@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { eq, and, inArray, sql } from 'drizzle-orm';
+import { eq, and, inArray, sql, isNull } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { invoices, customers } from '@/lib/schema';
 import { verifyAuth, assertRole, ApiAuthError, ROLES_ACCOUNTANT_UP } from '@/lib/api-auth';
@@ -83,6 +83,7 @@ export async function GET(request: Request) {
     // ── 1. Load outstanding invoices ──────────────────────────────────────────
     const conditions = [
       eq(invoices.agencyId, agencyId),
+      isNull(invoices.deletedAt),
       eq(invoices.type, '380'),
       inArray(invoices.status, ['issued', 'partial']),
       sql`${invoices.totalHalalas} > ${invoices.paidHalalas}`,
@@ -114,7 +115,7 @@ export async function GET(request: Request) {
       const custRows = await db
         .select({ id: customers.id, nameAr: customers.nameAr, nameEn: customers.nameEn })
         .from(customers)
-        .where(and(eq(customers.agencyId, agencyId), inArray(customers.id, customerIds)));
+        .where(and(eq(customers.agencyId, agencyId), isNull(customers.deletedAt), inArray(customers.id, customerIds)));
       for (const c of custRows) customerMap[c.id] = { nameAr: c.nameAr, nameEn: c.nameEn ?? null };
     }
 

@@ -67,8 +67,8 @@ export function SuppliersClient({ locale }: SuppliersClientProps) {
   useEffect(() => {
     if (!agencyId) { setLoading(false); return; }
     let cancelled = false;
-    apiFetch<{ suppliers: Supplier[] }>('/api/suppliers')
-      .then(d => { if (!cancelled) setSuppliers(d.suppliers); })
+    apiFetch<{ data: Supplier[]; total: number }>('/api/suppliers')
+      .then(d => { if (!cancelled) setSuppliers(d.data ?? []); })
       .catch(() => {})
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };

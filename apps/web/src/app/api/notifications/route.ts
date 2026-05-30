@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { eq, and, sql } from 'drizzle-orm';
+import { eq, and, sql, isNull } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { invoices, bookings, agencies, appointments, leaveRequests, recurringInvoices } from '@/lib/schema';
 import { verifyAuth, ApiAuthError, ROLES_MANAGER_UP } from '@/lib/api-auth';
@@ -39,6 +39,7 @@ export async function GET(request: Request) {
       .from(invoices)
       .where(and(
         eq(invoices.agencyId, agencyId),
+        isNull(invoices.deletedAt),
         sql`${invoices.status} IN ('issued','partial')`,
       ));
 
@@ -64,6 +65,7 @@ export async function GET(request: Request) {
       .from(bookings)
       .where(and(
         eq(bookings.agencyId, agencyId),
+        isNull(bookings.deletedAt),
         sql`${bookings.status} NOT IN ('cancelled','completed')`,
       ));
 

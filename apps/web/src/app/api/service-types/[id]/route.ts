@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { eq, and } from 'drizzle-orm';
+import { eq, and, isNull } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { serviceTypes, bookings } from '@/lib/schema';
 import { verifyAuth, ApiAuthError } from '@/lib/api-auth';
@@ -38,7 +38,7 @@ export async function DELETE(request: Request, { params }: { params: { id: strin
     const [usedByBooking] = await db
       .select({ id: bookings.id })
       .from(bookings)
-      .where(and(eq(bookings.customTypeId, params.id), eq(bookings.agencyId, agencyId)))
+      .where(and(eq(bookings.customTypeId, params.id), eq(bookings.agencyId, agencyId), isNull(bookings.deletedAt)))
       .limit(1);
     if (usedByBooking) {
       return NextResponse.json(

@@ -138,6 +138,7 @@ CREATE TABLE IF NOT EXISTS bookings (
 CREATE INDEX IF NOT EXISTS idx_bookings_agency    ON bookings(agency_id);
 CREATE INDEX IF NOT EXISTS idx_bookings_customer  ON bookings(customer_id);
 CREATE INDEX IF NOT EXISTS idx_bookings_created   ON bookings(agency_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_bookings_status    ON bookings(agency_id, status);
 
 -- ══ QUOTES ═══════════════════════════════════════════════════════════════════
 CREATE TABLE IF NOT EXISTS quotes (
@@ -200,6 +201,7 @@ CREATE INDEX IF NOT EXISTS idx_invoices_agency   ON invoices(agency_id);
 CREATE INDEX IF NOT EXISTS idx_invoices_customer ON invoices(customer_id);
 CREATE INDEX IF NOT EXISTS idx_invoices_booking  ON invoices(booking_id);
 CREATE INDEX IF NOT EXISTS idx_invoices_created  ON invoices(agency_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_invoices_status   ON invoices(agency_id, status);
 CREATE UNIQUE INDEX IF NOT EXISTS invoices_one_per_booking ON invoices(booking_id, agency_id) WHERE type = '380' AND booking_id IS NOT NULL;
 
 -- ══ PAYMENTS ═════════════════════════════════════════════════════════════════
@@ -308,6 +310,8 @@ CREATE TABLE IF NOT EXISTS journal_entries (
 );
 CREATE INDEX IF NOT EXISTS idx_journal_entries_agency ON journal_entries(agency_id);
 CREATE INDEX IF NOT EXISTS idx_journal_entries_date   ON journal_entries(agency_id, date DESC);
+ALTER TABLE journal_entries ADD COLUMN IF NOT EXISTS is_reversed   BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE journal_entries ADD COLUMN IF NOT EXISTS reversal_of   TEXT;
 
 -- ══ JOURNAL LINES ════════════════════════════════════════════════════════════
 CREATE TABLE IF NOT EXISTS journal_lines (
@@ -558,31 +562,52 @@ CREATE INDEX IF NOT EXISTS idx_salary_advances_emp ON salary_advances(employee_i
 CREATE TABLE IF NOT EXISTS pnr_records (
   id               TEXT PRIMARY KEY,
   agency_id        TEXT NOT NULL REFERENCES agencies(id) ON DELETE CASCADE,
+  -- GDS identifiers
   pnr_code         TEXT NOT NULL,
   gds              TEXT,
+  -- Scalar route fields (fast queries)
   airline          TEXT,
-  flight_numbers   JSONB,
   origin           TEXT,
   destination      TEXT,
   departure_date   TEXT,
   return_date      TEXT,
-  passenger_count  INTEGER NOT NULL DEFAULT 1,
-  passenger_names  JSONB,
+  -- JSONB structured data (Phase 6-E)
+  segments         JSONB,           -- full multi-segment detail [{from,to,carrier,flightNumber,...}]
+  passengers       JSONB,           -- full passenger list [{type,firstName,lastName,...}]
+  flight_numbers   JSONB,           -- legacy (deprecated → use segments)
+  passenger_names  JSONB,           -- legacy (deprecated → use passengers)
   ticket_numbers   JSONB,
+  -- Financials
+  passenger_count  INTEGER NOT NULL DEFAULT 1,
   fare_halalas     INTEGER NOT NULL DEFAULT 0,
   tax_halalas      INTEGER NOT NULL DEFAULT 0,
   total_halalas    INTEGER NOT NULL DEFAULT 0,
-  booking_id       TEXT,
-  customer_id      TEXT,
+  -- Relations (nullable)
+  booking_id       TEXT REFERENCES bookings(id),
+  customer_id      TEXT REFERENCES customers(id),
+  -- Status: active | ticketed | cancelled | expired | voided | refunded
   status           TEXT NOT NULL DEFAULT 'active',
+  -- PNR expiry (TIMESTAMPTZ — not TEXT)
+  expires_at       TIMESTAMPTZ,
+  -- Provider sync tracking
+  synced_at        TIMESTAMPTZ,
+  sync_status      TEXT,            -- success | failed | pending
+  sync_error       TEXT,
+  -- Soft delete & cancellation (no hard DELETE)
+  deleted_at       TIMESTAMPTZ,
+  cancelled_at     TIMESTAMPTZ,
+  cancelled_by     TEXT,
+  -- Misc
   notes            TEXT,
-  expires_at       TEXT,
   created_by       TEXT,
   created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 CREATE UNIQUE INDEX IF NOT EXISTS pnr_agency_code_uq ON pnr_records(agency_id, pnr_code);
-CREATE INDEX IF NOT EXISTS idx_pnr_agency ON pnr_records(agency_id);
+CREATE INDEX IF NOT EXISTS idx_pnr_agency   ON pnr_records(agency_id);
+CREATE INDEX IF NOT EXISTS idx_pnr_deleted  ON pnr_records(agency_id, deleted_at)  WHERE deleted_at  IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_pnr_expires  ON pnr_records(agency_id, expires_at)  WHERE expires_at  IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_pnr_sync     ON pnr_records(agency_id, synced_at)   WHERE synced_at   IS NOT NULL;
 
 -- ══ APPOINTMENTS ══════════════════════════════════════════════════════════════
 CREATE TABLE IF NOT EXISTS appointments (
@@ -701,7 +726,156 @@ CREATE TABLE IF NOT EXISTS accounting_periods (
 );
 CREATE UNIQUE INDEX IF NOT EXISTS accounting_periods_agency_ym_uq ON accounting_periods(agency_id, period_year, period_month);
 
+-- ══ SOFT DELETE COLUMNS ══════════════════════════════════════════════════════
+-- Safe to re-run: ADD COLUMN IF NOT EXISTS is idempotent
+ALTER TABLE bookings  ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;
+ALTER TABLE invoices  ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;
+ALTER TABLE customers ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;
+ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;
+
+-- ══ PARTIAL INDEXES ══════════════════════════════════════════════════════════
+-- Speeds up cron scan for expiring subscriptions — only indexes rows that matter
+CREATE INDEX IF NOT EXISTS idx_agencies_sub_expiry
+  ON agencies(subscription_end_date)
+  WHERE subscription_end_date IS NOT NULL
+    AND subscription_status IN ('active', 'trial');
+
+-- Speeds up overdue invoice queries — only unresolved invoices
+CREATE INDEX IF NOT EXISTS idx_invoices_overdue
+  ON invoices(agency_id, issue_date)
+  WHERE status IN ('issued', 'partial')
+    AND deleted_at IS NULL;
+
+-- Speeds up soft-delete filtered queries on bookings
+CREATE INDEX IF NOT EXISTS idx_bookings_active
+  ON bookings(agency_id, created_at DESC)
+  WHERE deleted_at IS NULL;
+
+-- ══ TRAVEL OPERATIONS ════════════════════════════════════════════════════════
+
+-- Stores encrypted GDS/hotel provider credentials per agency.
+-- Payload is AES-256-GCM encrypted; plaintext never persisted.
+CREATE TABLE IF NOT EXISTS provider_credentials (
+  id                TEXT PRIMARY KEY,
+  agency_id         TEXT NOT NULL REFERENCES agencies(id) ON DELETE CASCADE,
+  provider_code     TEXT NOT NULL,
+  label             TEXT NOT NULL,
+  encrypted_payload TEXT NOT NULL,
+  is_active         BOOLEAN NOT NULL DEFAULT TRUE,
+  created_by        TEXT NOT NULL,
+  created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE (agency_id, provider_code, label)
+);
+CREATE INDEX IF NOT EXISTS idx_provider_creds_agency ON provider_credentials(agency_id);
+ALTER TABLE provider_credentials ADD COLUMN IF NOT EXISTS key_version INTEGER NOT NULL DEFAULT 1;
+ALTER TABLE provider_credentials ADD COLUMN IF NOT EXISTS encrypted_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
+
+CREATE TABLE IF NOT EXISTS provider_sync_logs (
+  id            TEXT PRIMARY KEY,
+  agency_id     TEXT NOT NULL REFERENCES agencies(id) ON DELETE CASCADE,
+  provider      TEXT NOT NULL,
+  operation     TEXT NOT NULL,
+  status        TEXT NOT NULL,
+  request_id    TEXT,
+  reference_id  TEXT,
+  duration_ms   INTEGER,
+  error_message TEXT,
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_provider_sync_logs_agency   ON provider_sync_logs(agency_id);
+CREATE INDEX IF NOT EXISTS idx_provider_sync_logs_provider ON provider_sync_logs(provider, operation);
+CREATE INDEX IF NOT EXISTS idx_provider_sync_logs_created  ON provider_sync_logs(created_at DESC);
+
+CREATE TABLE IF NOT EXISTS tickets (
+  id              TEXT PRIMARY KEY,
+  agency_id       TEXT NOT NULL REFERENCES agencies(id) ON DELETE CASCADE,
+  pnr_id          TEXT REFERENCES pnr_records(id),
+  booking_id      TEXT REFERENCES bookings(id),
+  ticket_number   TEXT NOT NULL,
+  passenger_name  TEXT NOT NULL,
+  passenger_type  TEXT NOT NULL DEFAULT 'ADT',
+  status          TEXT NOT NULL DEFAULT 'issued',
+  fare_halalas    INTEGER NOT NULL DEFAULT 0,
+  tax_halalas     INTEGER NOT NULL DEFAULT 0,
+  total_halalas   INTEGER NOT NULL DEFAULT 0,
+  currency        TEXT NOT NULL DEFAULT 'SAR',
+  issued_at       TIMESTAMPTZ,
+  voided_at       TIMESTAMPTZ,
+  refunded_at     TIMESTAMPTZ,
+  created_by      TEXT,
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE (agency_id, ticket_number)
+);
+CREATE INDEX IF NOT EXISTS idx_tickets_agency ON tickets(agency_id);
+CREATE INDEX IF NOT EXISTS idx_tickets_pnr    ON tickets(pnr_id) WHERE pnr_id IS NOT NULL;
+
+CREATE TABLE IF NOT EXISTS ticket_segments (
+  id              TEXT PRIMARY KEY,
+  ticket_id       TEXT NOT NULL REFERENCES tickets(id) ON DELETE CASCADE,
+  agency_id       TEXT NOT NULL,
+  segment_number  INTEGER NOT NULL DEFAULT 1,
+  airline         TEXT NOT NULL,
+  flight_number   TEXT NOT NULL,
+  origin          TEXT NOT NULL,
+  destination     TEXT NOT NULL,
+  departure_date  TEXT NOT NULL,
+  departure_time  TEXT,
+  arrival_date    TEXT,
+  arrival_time    TEXT,
+  cabin           TEXT NOT NULL DEFAULT 'Y',
+  booking_class   TEXT,
+  fare_basis      TEXT,
+  segment_status  TEXT NOT NULL DEFAULT 'HK',
+  coupon_status   TEXT NOT NULL DEFAULT 'open'
+);
+CREATE INDEX IF NOT EXISTS idx_ticket_segments_ticket ON ticket_segments(ticket_id);
+
+CREATE TABLE IF NOT EXISTS ticket_coupons (
+  id             TEXT PRIMARY KEY,
+  ticket_id      TEXT NOT NULL REFERENCES tickets(id) ON DELETE CASCADE,
+  segment_id     TEXT REFERENCES ticket_segments(id),
+  agency_id      TEXT NOT NULL,
+  coupon_number  INTEGER NOT NULL DEFAULT 1,
+  coupon_status  TEXT NOT NULL DEFAULT 'open',
+  used_at        TIMESTAMPTZ,
+  UNIQUE (ticket_id, coupon_number)
+);
+
+CREATE TABLE IF NOT EXISTS refund_requests (
+  id               TEXT PRIMARY KEY,
+  agency_id        TEXT NOT NULL REFERENCES agencies(id) ON DELETE CASCADE,
+  ticket_id        TEXT NOT NULL REFERENCES tickets(id),
+  requested_by     TEXT NOT NULL,
+  reason           TEXT,
+  penalty_halalas  INTEGER NOT NULL DEFAULT 0,
+  refund_halalas   INTEGER NOT NULL DEFAULT 0,
+  status           TEXT NOT NULL DEFAULT 'pending',
+  processed_at     TIMESTAMPTZ,
+  created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_refund_requests_agency  ON refund_requests(agency_id);
+CREATE INDEX IF NOT EXISTS idx_refund_requests_ticket  ON refund_requests(ticket_id);
+
+-- ══ TRAVEL EVENTS (immutable audit log) ══════════════════════════════════════
+CREATE TABLE IF NOT EXISTS travel_events (
+  id            TEXT PRIMARY KEY,
+  agency_id     TEXT NOT NULL REFERENCES agencies(id) ON DELETE CASCADE,
+  event_type    TEXT NOT NULL,
+  provider      TEXT NOT NULL,
+  resource_id   TEXT,
+  resource_type TEXT,
+  actor_id      TEXT,
+  payload       JSONB,
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_travel_events_agency   ON travel_events(agency_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_travel_events_resource ON travel_events(resource_id) WHERE resource_id IS NOT NULL;
+
 `;
+
 
 const SUPER_ADMIN_EMAIL = process.env['SUPER_ADMIN_EMAIL'] ?? '';
 

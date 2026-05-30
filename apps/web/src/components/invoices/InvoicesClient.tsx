@@ -34,8 +34,8 @@ export function InvoicesClient({ locale }: InvoicesClientProps) {
   useEffect(() => {
     if (!user?.agencyId) { setLoading(false); return; }
     let cancelled = false;
-    apiFetch<{ invoices: Invoice[] }>('/api/invoices')
-      .then(d => { if (!cancelled) { setInvoices(d.invoices); } })
+    apiFetch<{ data: Invoice[]; total: number }>('/api/invoices')
+      .then(d => { if (!cancelled) { setInvoices(d.data ?? []); } })
       .catch(() => {})
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
@@ -282,8 +282,8 @@ export function InvoicesClient({ locale }: InvoicesClientProps) {
             setShowCreate(false);
             // Reload invoices list to show the new one
             if (user?.agencyId) {
-              apiFetch<{ invoices: Invoice[] }>('/api/invoices')
-                .then(d => setInvoices(d.invoices))
+              apiFetch<{ data: Invoice[]; total: number }>('/api/invoices')
+                .then(d => setInvoices(d.data ?? []))
                 .catch(() => {});
             }
           }}

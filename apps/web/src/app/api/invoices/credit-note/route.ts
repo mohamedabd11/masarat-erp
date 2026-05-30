@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { eq, and } from 'drizzle-orm';
+import { eq, and, isNull } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { invoices, journalEntries, journalLines } from '@/lib/schema';
 import { verifyAuth, assertRole, ApiAuthError, ROLES_MANAGER_UP } from '@/lib/api-auth';
@@ -43,7 +43,7 @@ export async function POST(request: Request) {
     let originalInvoice: typeof invoices.$inferSelect | null = null;
     if (body.originalInvoiceId) {
       const [orig] = await db.select().from(invoices)
-        .where(and(eq(invoices.id, body.originalInvoiceId), eq(invoices.agencyId, agencyId)));
+        .where(and(eq(invoices.id, body.originalInvoiceId), eq(invoices.agencyId, agencyId), isNull(invoices.deletedAt)));
       if (!orig) return NextResponse.json({ error: 'الفاتورة الأصلية غير موجودة' }, { status: 404 });
       if (orig.status === 'cancelled') return NextResponse.json({ error: 'الفاتورة الأصلية ملغاة' }, { status: 422 });
       originalInvoice = orig;

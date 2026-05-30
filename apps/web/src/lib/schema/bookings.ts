@@ -27,6 +27,7 @@ export const bookings = pgTable('bookings', {
   createdBy:        text('created_by'),
   createdAt:        timestamp('created_at').notNull().defaultNow(),
   updatedAt:        timestamp('updated_at').notNull().defaultNow(),
+  deletedAt:        timestamp('deleted_at'),
 });
 
 export type Booking    = typeof bookings.$inferSelect;

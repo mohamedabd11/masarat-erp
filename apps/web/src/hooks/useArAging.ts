@@ -53,11 +53,11 @@ export function useArAging() {
     let cancelled = false;
     setLoading(true);
 
-    apiFetch<{ invoices: Invoice[] }>('/api/invoices')
+    apiFetch<{ data: Invoice[]; total: number }>('/api/invoices')
       .then(data => {
         if (cancelled) return;
         const result: ArAgingRow[] = [];
-        for (const inv of data.invoices) {
+        for (const inv of (data.data ?? [])) {
           const due = inv.totalHalalas - inv.paidHalalas;
           if (due <= 0) continue;
           if (inv.status === 'cancelled' || inv.status === 'refunded') continue;

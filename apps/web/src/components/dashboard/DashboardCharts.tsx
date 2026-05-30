@@ -71,8 +71,8 @@ export function DashboardCharts({ locale }: { locale: string }) {
     let cancelled = false;
 
     Promise.all([
-      apiFetch<{ invoices: Record<string, unknown>[] }>('/api/invoices'),
-      apiFetch<{ bookings: Record<string, unknown>[] }>('/api/bookings'),
+      apiFetch<{ data: Record<string, unknown>[]; total: number }>('/api/invoices'),
+      apiFetch<{ data: Record<string, unknown>[]; total: number }>('/api/bookings'),
     ])
       .then(([invData, bkData]) => {
         if (cancelled) return;
@@ -85,7 +85,7 @@ export function DashboardCharts({ locale }: { locale: string }) {
           revenueMap[`${d.getFullYear()}-${d.getMonth()}`] = 0;
         }
 
-        for (const inv of invData.invoices) {
+        for (const inv of (invData.data ?? [])) {
           const date = inv.createdAt ? new Date(inv.createdAt as string) : null;
           if (!date) continue;
           const key = `${date.getFullYear()}-${date.getMonth()}`;
@@ -105,7 +105,7 @@ export function DashboardCharts({ locale }: { locale: string }) {
 
         // ── Booking types ────────────────────────────────────────────────────
         const typeCount: Record<string, number> = {};
-        for (const bk of bkData.bookings) {
+        for (const bk of (bkData.data ?? [])) {
           const t = String(bk.serviceType ?? bk.type ?? 'other');
           typeCount[t] = (typeCount[t] ?? 0) + 1;
         }

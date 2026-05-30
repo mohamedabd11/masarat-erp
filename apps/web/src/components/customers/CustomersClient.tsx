@@ -55,8 +55,8 @@ export function CustomersClient({ locale }: CustomersClientProps) {
   useEffect(() => {
     if (!user?.agencyId) { setLoading(false); return; }
     let cancelled = false;
-    apiFetch<{ customers: CustomerWithStats[] }>('/api/customers')
-      .then(d => { if (!cancelled) setCustomers(d.customers); })
+    apiFetch<{ data: CustomerWithStats[]; total: number }>('/api/customers')
+      .then(d => { if (!cancelled) setCustomers(d.data ?? []); })
       .catch(() => {})
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };

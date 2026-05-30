@@ -1,8 +1,9 @@
 import { NextResponse } from 'next/server';
-import { eq, and, gte, lt, sql, sum } from 'drizzle-orm';
+import { eq, and, gte, lt, sql, sum, isNull } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { invoices, bookings } from '@/lib/schema';
 import { verifyAuth, ApiAuthError } from '@/lib/api-auth';
+import { getPoolStatus } from '@/lib/pool-status';
 
 export async function GET(request: Request) {
   try {
@@ -25,6 +26,7 @@ export async function GET(request: Request) {
       .from(invoices)
       .where(and(
         eq(invoices.agencyId, agencyId),
+        isNull(invoices.deletedAt),
         gte(invoices.createdAt, startOfMonth),
         lt(invoices.createdAt, startOfNext),
         sql`${invoices.status} NOT IN ('cancelled','refunded')`,
@@ -43,6 +45,7 @@ export async function GET(request: Request) {
       .from(bookings)
       .where(and(
         eq(bookings.agencyId, agencyId),
+        isNull(bookings.deletedAt),
         gte(bookings.createdAt, startOfMonth),
         lt(bookings.createdAt, startOfNext),
         sql`${bookings.status} NOT IN ('cancelled')`,
@@ -60,6 +63,7 @@ export async function GET(request: Request) {
       .from(invoices)
       .where(and(
         eq(invoices.agencyId, agencyId),
+        isNull(invoices.deletedAt),
         sql`${invoices.status} NOT IN ('cancelled','refunded','paid')`,
       ));
 
@@ -71,6 +75,7 @@ export async function GET(request: Request) {
       .from(bookings)
       .where(and(
         eq(bookings.agencyId, agencyId),
+        isNull(bookings.deletedAt),
         gte(bookings.createdAt, startOfMonth),
         lt(bookings.createdAt, startOfNext),
       ));
@@ -82,9 +87,10 @@ export async function GET(request: Request) {
       if (bk.status === 'draft')     pendingBookings++;
     }
 
-    return NextResponse.json({
-      stats: { monthRevenue, monthVat, monthCost, monthProfit, activeBookings, pendingBookings, arOutstanding },
-    });
+    return NextResponse.json(
+      { stats: { monthRevenue, monthVat, monthCost, monthProfit, activeBookings, pendingBookings, arOutstanding } },
+      { headers: { 'X-DB-Pool-Status': getPoolStatus() } },
+    );
   } catch (err) {
     if (err instanceof ApiAuthError) return NextResponse.json({ error: err.message }, { status: err.status });
     return NextResponse.json({ error: 'خطأ في الخادم' }, { status: 500 });

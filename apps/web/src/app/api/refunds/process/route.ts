@@ -1,10 +1,11 @@
 import { NextResponse } from 'next/server';
-import { eq, and } from 'drizzle-orm';
+import { eq, and, isNull } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { invoices, bookings, payments, journalEntries, journalLines, idempotencyKeys } from '@/lib/schema';
 import { verifyAuth, ApiAuthError, BusinessError } from '@/lib/api-auth';
 import { withIdempotency, buildIdempotencyInsert } from '@/lib/idempotency';
 import { getNextInvoiceNumber, getNextJournalNumber } from '@/lib/invoice-counter';
+import { assertPeriodOpen } from '@/lib/period-lock';
 
 interface RefundBody {
   bookingId:              string;
@@ -46,13 +47,13 @@ export async function POST(request: Request) {
 
         // ── 1. Read ────────────────────────────────────────────────────────
         const [invoice] = await tx.select().from(invoices).where(
-          and(eq(invoices.id, originalInvoiceId), eq(invoices.agencyId, agencyId)),
+          and(eq(invoices.id, originalInvoiceId), eq(invoices.agencyId, agencyId), isNull(invoices.deletedAt)),
         );
         if (!invoice) throw new BusinessError(`الفاتورة ${originalInvoiceId} غير موجودة`, 404);
         if (invoice.status === 'cancelled') throw new BusinessError('الفاتورة ملغاة بالفعل', 400);
 
         const [booking] = await tx.select().from(bookings).where(
-          and(eq(bookings.id, bookingId), eq(bookings.agencyId, agencyId)),
+          and(eq(bookings.id, bookingId), eq(bookings.agencyId, agencyId), isNull(bookings.deletedAt)),
         );
         if (!booking) throw new BusinessError(`الحجز ${bookingId} غير موجود`, 404);
         if (booking.status === 'cancelled') throw new BusinessError('الحجز ملغى بالفعل', 400);
@@ -86,12 +87,15 @@ export async function POST(request: Request) {
         const now  = new Date();
         const year = now.getFullYear();
 
+        const today            = now.toISOString().split('T')[0]!;
+
+        await assertPeriodOpen(agencyId, today, tx);
+
         const creditNoteNumber = await getNextInvoiceNumber(agencyId, 'creditNote', year, tx);
         const jeNumber         = await getNextJournalNumber(agencyId, year, tx);
         const creditNoteId     = crypto.randomUUID();
         const jeId             = crypto.randomUUID();
         const refundPaymentId  = crypto.randomUUID();
-        const today            = now.toISOString().split('T')[0]!;
 
         // ── 5. Build journal lines (reversal + cancellation fee) ────────────
         type JLine = { code: string; ar: string; en: string; dr: number; cr: number };

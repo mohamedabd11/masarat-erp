@@ -1,14 +1,40 @@
 import { NextResponse } from 'next/server';
-import { eq, desc } from 'drizzle-orm';
+import { eq, and, desc, count, isNull } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { suppliers } from '@/lib/schema';
 import { verifyAuth, ApiAuthError } from '@/lib/api-auth';
+import { getPoolStatus } from '@/lib/pool-status';
+import { ensureMigrations } from '@/lib/auto-migrate';
+
+const DEFAULT_LIMIT = 50;
+const MAX_LIMIT     = 200;
 
 export async function GET(request: Request) {
   try {
+    await ensureMigrations();
     const { agencyId } = await verifyAuth(request);
-    const rows = await db.select().from(suppliers).where(eq(suppliers.agencyId, agencyId)).orderBy(desc(suppliers.createdAt));
-    return NextResponse.json({ suppliers: rows });
+    const url    = new URL(request.url);
+    const page   = Math.max(1, parseInt(url.searchParams.get('page')  ?? '1',  10) || 1);
+    const limit  = Math.min(MAX_LIMIT, Math.max(1, parseInt(url.searchParams.get('limit') ?? String(DEFAULT_LIMIT), 10) || DEFAULT_LIMIT));
+    const offset = (page - 1) * limit;
+
+    const [{ total }] = await db
+      .select({ total: count() })
+      .from(suppliers)
+      .where(and(eq(suppliers.agencyId, agencyId), isNull(suppliers.deletedAt)));
+
+    const data = await db
+      .select()
+      .from(suppliers)
+      .where(and(eq(suppliers.agencyId, agencyId), isNull(suppliers.deletedAt)))
+      .orderBy(desc(suppliers.createdAt))
+      .limit(limit)
+      .offset(offset);
+
+    return NextResponse.json(
+      { data, total, page, limit, hasMore: offset + data.length < total },
+      { headers: { 'X-DB-Pool-Status': getPoolStatus() } },
+    );
   } catch (err) {
     if (err instanceof ApiAuthError) return NextResponse.json({ error: err.message }, { status: err.status });
     return NextResponse.json({ error: 'خطأ في الخادم' }, { status: 500 });
