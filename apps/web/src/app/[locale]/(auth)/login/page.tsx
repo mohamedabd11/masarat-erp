@@ -84,9 +84,8 @@ export default function LoginPage() {
     <div className="w-full max-w-sm">
       {/* Mobile logo */}
       <div className="flex justify-center mb-8 lg:hidden">
-        <div className="w-14 h-14 bg-brand-600 rounded-2xl flex items-center justify-center">
-          <span className="text-2xl font-bold text-white">م</span>
-        </div>
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src="/logo-mark.svg" alt="مسارات" className="w-16 h-16" />
       </div>
 
       {resetMode ? (
