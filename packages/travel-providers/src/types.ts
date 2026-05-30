@@ -65,6 +65,12 @@ export interface FlightOffer {
   seatsAvailable: number | null;
   fareClass:      string;
   fareBasis:      string;
+  /**
+   * Provider-native offer payload — opaque to business layer.
+   * Set by the provider that created this offer; read back by the same
+   * provider in createPNR(). Never used in bookings/invoices/accounting.
+   */
+  readonly _raw?: unknown;
 }
 
 // ── PNR ───────────────────────────────────────────────────────────────────────

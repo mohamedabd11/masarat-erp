@@ -47,6 +47,8 @@ export const RATE_LIMITS = {
   register: { limit: 5, windowMs: 60 * 60_000 },    // 5 طلبات/ساعة
   // دعوة المستخدمين
   invite: { limit: 10, windowMs: 60 * 60_000 },     // 10 طلبات/ساعة
+  // GDS flight search — منع استنزاف quota المزود وحماية حساب Amadeus
+  gds_search: { limit: 30, windowMs: 60_000 },        // 30 بحث/دقيقة لكل وكالة
   // API عامة
   api: { limit: 100, windowMs: 60_000 },             // 100 طلب/دقيقة
   // تسجيل الدخول
