@@ -1,25 +1,28 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import {
   X, Plane, User, RefreshCw, AlertTriangle,
-  CheckCircle2, Clock, Hash, Link2, FileText,
+  CheckCircle2, Clock, Link2, FileText,
+  BookOpen, Ban, Loader2,
 } from 'lucide-react';
 import type { PnrSegmentJson, PnrPassengerJson } from '@/lib/schema/pnr';
 import {
   type PnrRow,
   type ComputedStatus,
   STATUS_CONFIG,
-  formatDate,
   formatDateTime,
   formatHalalas,
 } from './pnr-types';
+import { apiFetch } from '@/lib/api-client';
+import { PnrLinkModal } from './PnrLinkModal';
 
 interface Props {
   pnr:            PnrRow;
   computedStatus: ComputedStatus;
   isAr:           boolean;
   onClose:        () => void;
+  onRefresh:      (pnrId: string) => void;
 }
 
 function StatusBadge({ status, isAr }: { status: ComputedStatus; isAr: boolean }) {
@@ -33,16 +36,16 @@ function StatusBadge({ status, isAr }: { status: ComputedStatus; isAr: boolean }
 }
 
 const PASSENGER_TYPE: Record<string, { ar: string; en: string }> = {
-  ADT: { ar: 'بالغ',    en: 'Adult' },
-  CHD: { ar: 'طفل',    en: 'Child' },
-  INF: { ar: 'رضيع',   en: 'Infant' },
+  ADT: { ar: 'بالغ',  en: 'Adult'  },
+  CHD: { ar: 'طفل',   en: 'Child'  },
+  INF: { ar: 'رضيع',  en: 'Infant' },
 };
 
 const SEGMENT_STATUS: Record<string, { ar: string; en: string; color: string }> = {
-  HK: { ar: 'مؤكد',    en: 'Confirmed', color: 'text-emerald-600' },
-  TK: { ar: 'مؤكد(TK)', en: 'OK (TK)',   color: 'text-emerald-600' },
-  UN: { ar: 'غير مؤكد', en: 'Unconfirmed', color: 'text-orange-600' },
-  NO: { ar: 'لا يوجد', en: 'No Action',  color: 'text-slate-400' },
+  HK: { ar: 'مؤكد',     en: 'Confirmed',   color: 'text-emerald-600' },
+  TK: { ar: 'مؤكد(TK)', en: 'OK (TK)',      color: 'text-emerald-600' },
+  UN: { ar: 'غير مؤكد', en: 'Unconfirmed',  color: 'text-orange-600'  },
+  NO: { ar: 'لا يوجد',  en: 'No Action',    color: 'text-slate-400'   },
 };
 
 function SectionTitle({ children }: { children: React.ReactNode }) {
@@ -62,24 +65,65 @@ function InfoRow({ label, value }: { label: string; value: React.ReactNode }) {
   );
 }
 
-export function PnrDrawer({ pnr, computedStatus, isAr, onClose }: Props) {
-  // Close on Escape
+export function PnrDrawer({ pnr, computedStatus, isAr, onClose, onRefresh }: Props) {
+  const [linkMode,     setLinkMode]     = useState<'booking' | 'customer' | null>(null);
+  const [syncing,      setSyncing]      = useState(false);
+  const [syncError,    setSyncError]    = useState<string | null>(null);
+  const [cancelConfirm, setCancelConfirm] = useState(false);
+  const [cancelling,   setCancelling]   = useState(false);
+
+  // Close on Escape (only when no modal open)
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
-      if (e.key === 'Escape') onClose();
+      if (e.key === 'Escape' && !linkMode) onClose();
     }
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [onClose]);
+  }, [onClose, linkMode]);
 
-  const segments:  PnrSegmentJson[]   = Array.isArray(pnr.segments)  ? pnr.segments  as PnrSegmentJson[]  : [];
+  const segments:   PnrSegmentJson[]   = Array.isArray(pnr.segments)  ? pnr.segments  as PnrSegmentJson[]   : [];
   const passengers: PnrPassengerJson[] = Array.isArray(pnr.passengers) ? pnr.passengers as PnrPassengerJson[] : [];
 
   const syncIcon =
-    pnr.syncStatus === 'success'  ? <CheckCircle2 size={14} className="text-emerald-500" /> :
-    pnr.syncStatus === 'failed'   ? <AlertTriangle size={14} className="text-rose-500" />   :
-    pnr.syncStatus === 'pending'  ? <Clock size={14} className="text-yellow-500" />         :
+    pnr.syncStatus === 'success' ? <CheckCircle2 size={14} className="text-emerald-500" /> :
+    pnr.syncStatus === 'failed'  ? <AlertTriangle size={14} className="text-rose-500" />   :
+    pnr.syncStatus === 'pending' ? <Clock size={14} className="text-yellow-500" />         :
     <RefreshCw size={14} className="text-slate-400" />;
+
+  async function handleSync() {
+    setSyncing(true);
+    setSyncError(null);
+    try {
+      await apiFetch(`/api/pnr/${pnr.id}/sync`, { method: 'POST' });
+      onRefresh(pnr.id);
+    } catch (err) {
+      setSyncError(String(err));
+    } finally {
+      setSyncing(false);
+    }
+  }
+
+  async function handleCancel() {
+    setCancelling(true);
+    try {
+      await apiFetch(`/api/pnr/${pnr.id}`, {
+        method: 'PATCH',
+        body:   JSON.stringify({ status: 'cancelled' }),
+      });
+      setCancelConfirm(false);
+      onRefresh(pnr.id);
+    } catch {
+      setCancelling(false);
+    }
+  }
+
+  const actionBtn = 'flex items-center justify-center gap-1.5 text-xs font-medium rounded-xl py-2 px-3 transition-colors disabled:opacity-40 border';
+  const defaultBtn = `${actionBtn} text-slate-600 border-slate-200 hover:text-brand-600 hover:bg-brand-50 hover:border-brand-200`;
+  const dangerBtn  = `${actionBtn} text-rose-600 border-rose-200 hover:text-rose-700 hover:bg-rose-50`;
+  const confirmBtn = `${actionBtn} text-white bg-rose-500 border-rose-500 hover:bg-rose-600 font-semibold`;
+  const dismissBtn = `${actionBtn} text-slate-500 border-slate-200 hover:bg-slate-50`;
+
+  const isBusy = syncing || cancelling;
 
   return (
     <>
@@ -140,47 +184,25 @@ export function PnrDrawer({ pnr, computedStatus, isAr, onClose }: Props) {
                 }
               />
               {pnr.departureDate && (
-                <InfoRow
-                  label={isAr ? 'تاريخ الذهاب' : 'Departure'}
-                  value={pnr.departureDate}
-                />
+                <InfoRow label={isAr ? 'تاريخ الذهاب' : 'Departure'} value={pnr.departureDate} />
               )}
               {pnr.returnDate && (
-                <InfoRow
-                  label={isAr ? 'تاريخ العودة' : 'Return'}
-                  value={pnr.returnDate}
-                />
+                <InfoRow label={isAr ? 'تاريخ العودة' : 'Return'} value={pnr.returnDate} />
               )}
-              <InfoRow
-                label={isAr ? 'عدد الركاب' : 'Passengers'}
-                value={pnr.passengerCount}
-              />
+              <InfoRow label={isAr ? 'عدد الركاب' : 'Passengers'} value={pnr.passengerCount} />
               {pnr.totalHalalas > 0 && (
                 <InfoRow
                   label={isAr ? 'الإجمالي' : 'Total'}
-                  value={
-                    <span className="font-semibold text-slate-900">
-                      SAR {formatHalalas(pnr.totalHalalas)}
-                    </span>
-                  }
+                  value={<span className="font-semibold text-slate-900">SAR {formatHalalas(pnr.totalHalalas)}</span>}
                 />
               )}
               {pnr.fareHalalas > 0 && (
-                <InfoRow
-                  label={isAr ? 'السعر الأساسي' : 'Base Fare'}
-                  value={`SAR ${formatHalalas(pnr.fareHalalas)}`}
-                />
+                <InfoRow label={isAr ? 'السعر الأساسي' : 'Base Fare'} value={`SAR ${formatHalalas(pnr.fareHalalas)}`} />
               )}
               {pnr.taxHalalas > 0 && (
-                <InfoRow
-                  label={isAr ? 'الضرائب' : 'Taxes'}
-                  value={`SAR ${formatHalalas(pnr.taxHalalas)}`}
-                />
+                <InfoRow label={isAr ? 'الضرائب' : 'Taxes'} value={`SAR ${formatHalalas(pnr.taxHalalas)}`} />
               )}
-              <InfoRow
-                label={isAr ? 'تاريخ الإنشاء' : 'Created'}
-                value={formatDateTime(pnr.createdAt, isAr)}
-              />
+              <InfoRow label={isAr ? 'تاريخ الإنشاء' : 'Created'} value={formatDateTime(pnr.createdAt, isAr)} />
               {pnr.expiresAt && (
                 <InfoRow
                   label={isAr ? 'ينتهي في' : 'Expires'}
@@ -324,18 +346,11 @@ export function PnrDrawer({ pnr, computedStatus, isAr, onClose }: Props) {
                   </span>
                 }
               />
-              <InfoRow
-                label={isAr ? 'آخر مزامنة' : 'Last Synced'}
-                value={formatDateTime(pnr.syncedAt, isAr)}
-              />
+              <InfoRow label={isAr ? 'آخر مزامنة' : 'Last Synced'} value={formatDateTime(pnr.syncedAt, isAr)} />
               {pnr.syncError && (
                 <InfoRow
                   label={isAr ? 'رسالة الخطأ' : 'Error'}
-                  value={
-                    <span className="text-rose-600 text-[10px] font-mono break-all">
-                      {pnr.syncError}
-                    </span>
-                  }
+                  value={<span className="text-rose-600 text-[10px] font-mono break-all">{pnr.syncError}</span>}
                 />
               )}
             </div>
@@ -379,12 +394,92 @@ export function PnrDrawer({ pnr, computedStatus, isAr, onClose }: Props) {
           </section>
         </div>
 
-        {/* ── Footer hint ───────────────────────────────────── */}
-        <div className="px-5 py-3 border-t border-slate-100 bg-slate-50 text-[11px] text-slate-400 flex items-center gap-1.5">
-          <Hash size={11} />
-          {isAr ? 'قراءة فقط — Phase 7-A' : 'Read-only view — Phase 7-A'}
+        {/* ── Actions footer ────────────────────────────────── */}
+        <div className="px-5 py-4 border-t border-slate-100 bg-white space-y-2">
+
+          {/* Row 1: Link actions */}
+          <div className="grid grid-cols-2 gap-2">
+            <button
+              onClick={() => { setSyncError(null); setLinkMode('booking'); }}
+              disabled={isBusy}
+              className={defaultBtn}
+            >
+              <BookOpen size={13} />
+              {isAr ? 'ربط بحجز' : 'Link to Booking'}
+            </button>
+            <button
+              onClick={() => { setSyncError(null); setLinkMode('customer'); }}
+              disabled={isBusy}
+              className={defaultBtn}
+            >
+              <User size={13} />
+              {isAr ? 'ربط بعميل' : 'Link to Customer'}
+            </button>
+          </div>
+
+          {/* Row 2: Sync + Cancel */}
+          {cancelConfirm ? (
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                onClick={() => void handleCancel()}
+                disabled={cancelling}
+                className={confirmBtn}
+              >
+                {cancelling ? <Loader2 size={13} className="animate-spin" /> : <Ban size={13} />}
+                {isAr ? 'تأكيد الإلغاء' : 'Confirm Cancel'}
+              </button>
+              <button
+                onClick={() => setCancelConfirm(false)}
+                disabled={cancelling}
+                className={dismissBtn}
+              >
+                {isAr ? 'تراجع' : 'Dismiss'}
+              </button>
+            </div>
+          ) : (
+            <div className={`grid gap-2 ${pnr.gds ? 'grid-cols-2' : 'grid-cols-1'}`}>
+              {pnr.gds && (
+                <button
+                  onClick={() => { setSyncError(null); void handleSync(); }}
+                  disabled={isBusy}
+                  className={defaultBtn}
+                >
+                  {syncing
+                    ? <Loader2 size={13} className="animate-spin" />
+                    : <RefreshCw size={13} />}
+                  {isAr ? 'مزامنة' : 'Sync'}
+                </button>
+              )}
+              {pnr.status !== 'cancelled' && (
+                <button
+                  onClick={() => setCancelConfirm(true)}
+                  disabled={isBusy}
+                  className={dangerBtn}
+                >
+                  <Ban size={13} />
+                  {isAr ? 'إلغاء PNR' : 'Cancel PNR'}
+                </button>
+              )}
+            </div>
+          )}
+
+          {/* Sync error */}
+          {syncError && (
+            <p className="text-[11px] text-rose-600 font-mono break-all">{syncError}</p>
+          )}
         </div>
       </aside>
+
+      {/* ── Link modal (above drawer) ─────────────────────── */}
+      {linkMode && (
+        <PnrLinkModal
+          pnrId={pnr.id}
+          mode={linkMode}
+          isAr={isAr}
+          onClose={() => setLinkMode(null)}
+          onLinked={() => { setLinkMode(null); onRefresh(pnr.id); }}
+        />
+      )}
     </>
   );
 }

@@ -4,6 +4,7 @@ import { db } from '@/lib/db';
 import { pnrRecords } from '@/lib/schema';
 import { verifyAuth, assertRole, ApiAuthError, ROLES_MANAGER_UP } from '@/lib/api-auth';
 import { logAudit } from '@/lib/audit';
+import { logTravelEvent } from '@/lib/travel-event-log';
 
 export async function GET(request: Request, { params }: { params: { id: string } }) {
   try {
@@ -68,6 +69,18 @@ export async function PATCH(request: Request, { params }: { params: { id: string
       .where(and(eq(pnrRecords.id, params.id), eq(pnrRecords.agencyId, agencyId)));
 
     await logAudit({ agencyId, userId: uid, action: 'update', resource: 'pnr', resourceId: params.id, before: existing, after: patch });
+
+    // Travel event logging for key transitions
+    if (body.bookingId !== undefined && body.bookingId !== existing.bookingId) {
+      void logTravelEvent({ agencyId, eventType: 'pnr_linked_to_booking', provider: existing.gds ?? 'manual', resourceId: params.id, resourceType: 'pnr', actorId: uid, payload: { bookingId: body.bookingId } });
+    }
+    if (body.customerId !== undefined && body.customerId !== existing.customerId) {
+      void logTravelEvent({ agencyId, eventType: 'pnr_linked_to_customer', provider: existing.gds ?? 'manual', resourceId: params.id, resourceType: 'pnr', actorId: uid, payload: { customerId: body.customerId } });
+    }
+    if (body.status === 'cancelled' && existing.status !== 'cancelled') {
+      void logTravelEvent({ agencyId, eventType: 'pnr_cancelled', provider: existing.gds ?? 'manual', resourceId: params.id, resourceType: 'pnr', actorId: uid });
+    }
+
     return NextResponse.json({ success: true });
   } catch (err) {
     if (err instanceof ApiAuthError) return NextResponse.json({ error: err.message }, { status: err.status });

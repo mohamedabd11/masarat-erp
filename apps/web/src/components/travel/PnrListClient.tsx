@@ -81,10 +81,20 @@ export function PnrListClient() {
     };
   }, [search, status, fetchRecords]);
 
-  // Keep drawer in sync if its record is updated elsewhere
   function handleRowClick(pnr: PnrRow) {
     setSelected(pnr);
   }
+
+  const handlePnrRefresh = useCallback(async (pnrId: string) => {
+    try {
+      const data = await apiFetch<{ pnr: PnrRow }>(`/api/pnr/${pnrId}`);
+      const updated = data.pnr;
+      setRecords(prev => prev.map(r => r.id === pnrId ? updated : r));
+      setSelected(updated);
+    } catch {
+      setSelected(null);
+    }
+  }, []);
 
   // ── Render ─────────────────────────────────────────────────────────────────
 
@@ -328,6 +338,7 @@ export function PnrListClient() {
           computedStatus={computeStatus(selected)}
           isAr={isAr}
           onClose={() => setSelected(null)}
+          onRefresh={pnrId => void handlePnrRefresh(pnrId)}
         />
       )}
     </div>
