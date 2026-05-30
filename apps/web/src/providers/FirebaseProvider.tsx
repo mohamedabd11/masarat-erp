@@ -1,39 +1,37 @@
 'use client';
 
-import { useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
 import { initFirebase } from '@masarat/firebase';
 
-interface Props {
-  children: ReactNode;
+// Initialize Firebase synchronously at module-load time (client only).
+// Module-level code runs before any React useEffect, ensuring Firebase is
+// ready when useAuth's effect subscribes to onAuthStateChanged.
+let _initError = false;
+if (typeof window !== 'undefined') {
+  try {
+    const apiKey = process.env.NEXT_PUBLIC_FIREBASE_API_KEY;
+    const authDomain = process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN;
+    const projectId = process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID;
+    const storageBucket = process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET;
+    const messagingSenderId = process.env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID;
+    const appId = process.env.NEXT_PUBLIC_FIREBASE_APP_ID;
+
+    if (!apiKey || !authDomain || !projectId || !storageBucket || !messagingSenderId || !appId) {
+      console.error('[Firebase] Missing NEXT_PUBLIC_FIREBASE_* environment variables');
+      _initError = true;
+    } else {
+      initFirebase({ apiKey, authDomain, projectId, storageBucket, messagingSenderId, appId });
+    }
+  } catch (err) {
+    console.error('[Firebase] Initialization failed:', err);
+    _initError = true;
+  }
 }
 
+interface Props { children: ReactNode; }
+
 export function FirebaseProvider({ children }: Props) {
-  const [configError, setConfigError] = useState(false);
-
-  useEffect(() => {
-    try {
-      const apiKey = process.env.NEXT_PUBLIC_FIREBASE_API_KEY;
-      const authDomain = process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN;
-      const projectId = process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID;
-      const storageBucket = process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET;
-      const messagingSenderId = process.env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID;
-      const appId = process.env.NEXT_PUBLIC_FIREBASE_APP_ID;
-
-      if (!apiKey || !authDomain || !projectId || !storageBucket || !messagingSenderId || !appId) {
-        console.error('[FirebaseProvider] Missing NEXT_PUBLIC_FIREBASE_* environment variables');
-        setConfigError(true);
-        return;
-      }
-
-      initFirebase({ apiKey, authDomain, projectId, storageBucket, messagingSenderId, appId });
-    } catch (err) {
-      console.error('[FirebaseProvider] Firebase initialization failed:', err);
-      setConfigError(true);
-    }
-  }, []);
-
-  if (configError) {
+  if (_initError) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-slate-50 p-6" dir="rtl">
         <div className="max-w-sm text-center">
