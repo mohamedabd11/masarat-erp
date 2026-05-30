@@ -5,16 +5,12 @@
   "framework": "nextjs",
   "crons": [
     {
-      "path": "/api/zatca/process-queue",
-      "schedule": "* * * * *"
-    },
-    {
-      "path": "/api/cron/cleanup-idempotency",
-      "schedule": "0 */6 * * *"
-    },
-    {
       "path": "/api/cron/check-subscriptions",
       "schedule": "0 8 * * *"
+    },
+    {
+      "path": "/api/zatca/process-queue",
+      "schedule": "0 6 * * *"
     }
   ]
 }
