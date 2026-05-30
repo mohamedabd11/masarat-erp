@@ -134,14 +134,14 @@ export default function CustomerDetailPage({ params }: { params: { locale: strin
 
         // 2. Bookings, invoices, and payments in parallel
         const [bookingsRes, invoicesRes, paymentsRes] = await Promise.all([
-          apiFetch<{ bookings: ApiBooking[] }>(`/api/bookings?customerId=${id}`),
-          apiFetch<{ invoices: ApiInvoice[] }>(`/api/invoices?customerId=${id}`),
+          apiFetch<{ data: ApiBooking[]; total: number }>(`/api/bookings?customerId=${id}`),
+          apiFetch<{ data: ApiInvoice[]; total: number }>(`/api/invoices?customerId=${id}`),
           apiFetch<{ payments: ApiPayment[] }>(`/api/payments?customerId=${id}`),
         ]);
         if (cancelled) return;
 
-        const bookingList = bookingsRes.bookings;
-        const invoiceList = invoicesRes.invoices;
+        const bookingList = bookingsRes.data ?? [];
+        const invoiceList = invoicesRes.data ?? [];
         const paymentList = paymentsRes.payments;
 
         // 3. Build statement entries

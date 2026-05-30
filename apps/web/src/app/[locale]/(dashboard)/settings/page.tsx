@@ -447,10 +447,10 @@ export default function SettingsPage() {
       const { apiFetch } = await import('@/lib/api-client');
       const [usersData, bookingsData] = await Promise.all([
         apiFetch<{ agency: unknown; users: unknown[] }>('/api/settings'),
-        apiFetch<{ bookings: unknown[] }>('/api/bookings'),
+        apiFetch<{ data: unknown[]; total: number }>('/api/bookings'),
       ]);
       setUsersCount(usersData.users.length);
-      setBookingsCount(bookingsData.bookings.length);
+      setBookingsCount(bookingsData.total ?? (bookingsData.data ?? []).length);
     }
     void load();
   }, [agencyId, activeTab]);

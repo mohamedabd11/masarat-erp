@@ -39,9 +39,11 @@ export function useFirestoreBookings(options: UseFirestoreBookingsOptions = {}):
     if (options.status) params.set('status', options.status);
     if (options.type)   params.set('type',   options.type);
 
-    apiFetch<{ bookings: Booking[] }>(`/api/bookings?${params}`)
-      .then(data => {
-        if (!cancelled) { setBookings(data.bookings); setError(null); }
+    apiFetch<{ data: Booking[]; total: number; page: number; limit: number; hasMore: boolean }>(
+      `/api/bookings?${params}`,
+    )
+      .then(res => {
+        if (!cancelled) { setBookings(res.data ?? []); setError(null); }
       })
       .catch(e => { if (!cancelled) setError(e.message); })
       .finally(() => { if (!cancelled) setLoading(false); });

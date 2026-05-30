@@ -291,8 +291,8 @@ export function CustomerSearch({ agencyId, onSelect, placeholder, className }: C
     setLoading(true);
     try {
       if (!allCustomersRef.current) {
-        const data = await apiFetch<{ customers: Array<{ id: string; nameAr: string; nameEn?: string | null; phone?: string | null; email?: string | null; nationality?: string | null; tier?: string | null }> }>('/api/customers');
-        allCustomersRef.current = data.customers.map(c => ({
+        const data = await apiFetch<{ data: Array<{ id: string; nameAr: string; nameEn?: string | null; phone?: string | null; email?: string | null; nationality?: string | null; tier?: string | null }>; total: number }>('/api/customers');
+        allCustomersRef.current = (data.data ?? []).map(c => ({
           id:          c.id,
           nameAr:      c.nameAr,
           nameEn:      c.nameEn ?? undefined,
