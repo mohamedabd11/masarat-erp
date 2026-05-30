@@ -189,6 +189,7 @@ function getRequest(url: string): Request {
 // ── Shared beforeEach ──────────────────────────────────────────────────────────
 
 beforeEach(() => {
+  vi.clearAllMocks();
   vi.mocked(resolveFlightProvider).mockResolvedValue(RESOLVED_PROVIDER);
   vi.mocked(checkRateLimit).mockResolvedValue({ success: true, limit: 30, remaining: 28, resetAt: new Date() });
   vi.mocked(verifyAuth).mockResolvedValue({ uid: 'user_test_uid', agencyId: 'agency_test_id', role: 'admin' });

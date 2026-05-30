@@ -12,13 +12,13 @@
  * No real network calls — fetch is mocked for every test.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { AmadeusProvider } from '../../../../packages/travel-providers/src/providers/amadeus/AmadeusProvider';
-import { MockFlightProvider } from '../../../../packages/travel-providers/src/providers/mock/MockFlightProvider';
+import { AmadeusProvider }    from '@masarat/travel-providers';
+import { MockFlightProvider }  from '@masarat/travel-providers';
 import type {
   ProviderCredentials,
   PassengerInfo,
   FlightOffer,
-} from '../../../../packages/travel-providers/src/types';
+} from '@masarat/travel-providers';
 
 // ── Test fixtures ──────────────────────────────────────────────────────────────
 

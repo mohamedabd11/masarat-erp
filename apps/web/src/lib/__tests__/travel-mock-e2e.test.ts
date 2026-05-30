@@ -5,8 +5,8 @@
  * purely static in-memory logic. No database or network required.
  */
 import { describe, it, expect } from 'vitest';
-import { MockFlightProvider } from '../../../../packages/travel-providers/src/providers/mock/MockFlightProvider';
-import type { ProviderCredentials, PassengerInfo } from '../../../../packages/travel-providers/src/types';
+import { MockFlightProvider } from '@masarat/travel-providers';
+import type { ProviderCredentials, PassengerInfo } from '@masarat/travel-providers';
 
 // Dummy credentials — mock provider never inspects them
 const MOCK_CREDS: ProviderCredentials = {
