@@ -310,6 +310,8 @@ CREATE TABLE IF NOT EXISTS journal_entries (
 );
 CREATE INDEX IF NOT EXISTS idx_journal_entries_agency ON journal_entries(agency_id);
 CREATE INDEX IF NOT EXISTS idx_journal_entries_date   ON journal_entries(agency_id, date DESC);
+ALTER TABLE journal_entries ADD COLUMN IF NOT EXISTS is_reversed   BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE journal_entries ADD COLUMN IF NOT EXISTS reversal_of   TEXT;
 
 -- ══ JOURNAL LINES ════════════════════════════════════════════════════════════
 CREATE TABLE IF NOT EXISTS journal_lines (

@@ -34,10 +34,12 @@ export const journalEntries = pgTable('journal_entries', {
   descriptionAr: text('description_ar'),
   descriptionEn: text('description_en'),
   reference:     text('reference'),
-  source:        text('source').notNull().default('manual'), // manual|invoice|payment|receipt|salary
+  source:        text('source').notNull().default('manual'), // manual|invoice|payment|receipt|salary|reversal|closing
   sourceId:      text('source_id'),
   serviceType:   text('service_type'),                       // flight|hotel|package|umrah|hajj|visa|insurance|transport
   isPosted:      boolean('is_posted').notNull().default(true),
+  isReversed:    boolean('is_reversed').notNull().default(false),  // true when a reversal entry exists
+  reversalOf:    text('reversal_of'),                              // points to the original entry being reversed
   totalDebitHalalas:  integer('total_debit_halalas').notNull().default(0),
   totalCreditHalalas: integer('total_credit_halalas').notNull().default(0),
   createdBy:     text('created_by'),
