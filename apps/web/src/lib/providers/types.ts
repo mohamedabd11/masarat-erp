@@ -16,7 +16,7 @@ export interface PassengerInfo {
   passportNumber?: string;
   dateOfBirth?:    string;
   nationality?:    string;
-  ticketNumber?:   string;  // populated if already ticketed
+  ticketNumber?:   string;  // populated if already ticketed at provider
 }
 
 /** Full PNR snapshot from the provider */
@@ -33,13 +33,48 @@ export interface IssuedTicketInfo {
   fareHalalas?:   number;
   taxHalalas?:    number;
   totalHalalas?:  number;
-  /** One status per segment, in segment order — defaults to 'open' if provider doesn't return */
+  /** One status per segment in segment order — defaults to 'open' if provider omits */
   couponStatuses: ('open' | 'used' | 'void' | 'refunded')[];
 }
 
 /** Result of provider.issueTicket() — one entry per passenger */
 export interface IssuanceResult {
   tickets: IssuedTicketInfo[];
+}
+
+/** Result of provider.voidTicket() */
+export interface VoidResult {
+  success: boolean;
+}
+
+/** Parameters for provider.refundTicket() */
+export interface RefundParams {
+  reason?: 'voluntary' | 'involuntary' | 'schedule_change' | 'medical';
+  notes?:  string;
+}
+
+/** Result of provider.refundTicket() */
+export interface RefundResult {
+  refundReference?:    string;   // provider-assigned refund ID
+  refundAmountHalalas?: number;  // may differ from original fare after penalties
+}
+
+/** Parameters for provider.exchangeTicket() */
+export interface ExchangeParams {
+  newPnrId?:      string;   // if exchange targets a different PNR in our system
+  fareHalalas?:   number;
+  taxHalalas?:    number;
+  totalHalalas?:  number;
+}
+
+/** Result of provider.exchangeTicket() — stored in pendingOperationPayload for Phase 3 replay */
+export interface ExchangeResult {
+  newTicketNumber: string;
+  newPnrId?:       string;   // if provider created a new PNR (rare)
+  newFareHalalas?:   number;
+  newTaxHalalas?:    number;
+  newTotalHalalas?:  number;
+  couponStatuses:  ('open' | 'used' | 'void' | 'refunded')[];
 }
 
 /**
@@ -49,6 +84,16 @@ export interface IssuanceResult {
 export interface FlightProvider {
   /** Retrieve current PNR state from the GDS */
   retrievePNR(pnrCode: string, credentials: unknown): Promise<PnrData>;
+
   /** Issue tickets for all passengers in the PNR */
   issueTicket(pnrCode: string, credentials: unknown): Promise<IssuanceResult>;
+
+  /** Void a specific ticket (usually same-day BSP window) */
+  voidTicket(ticketNumber: string, credentials: unknown): Promise<VoidResult>;
+
+  /** Submit a refund request for a ticket */
+  refundTicket(ticketNumber: string, credentials: unknown, params?: RefundParams): Promise<RefundResult>;
+
+  /** Exchange a ticket for a new itinerary */
+  exchangeTicket(ticketNumber: string, credentials: unknown, params?: ExchangeParams): Promise<ExchangeResult>;
 }

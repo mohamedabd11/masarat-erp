@@ -2,29 +2,40 @@ import { pgTable, text, jsonb, timestamp, index } from 'drizzle-orm/pg-core';
 import { agencies } from './agencies';
 
 /**
- * Canonical event taxonomy — do not add ad-hoc strings.
+ * Canonical event taxonomy — do not add ad-hoc strings outside this list.
  *
  * PNR lifecycle:
- *   pnr_sync_started       provider sync initiated
- *   pnr_sync_completed     provider sync succeeded (success path only — separate from failed)
- *   pnr_sync_failed        provider sync failed   (separate event for queryability)
- *   pnr_linked_to_booking  PNR associated with a booking record
- *   pnr_linked_to_customer PNR associated with a customer record
- *   pnr_cancelled          PNR marked cancelled in system (local only — provider cancel is separate)
- *   pnr_expired            PNR expired — set by cron job, not by user action
+ *   pnr_sync_started         provider sync initiated
+ *   pnr_sync_completed       provider sync succeeded (success path only)
+ *   pnr_sync_failed          provider sync failed    (separate from completed for queryability)
+ *   pnr_linked_to_booking    PNR associated with a booking record
+ *   pnr_linked_to_customer   PNR associated with a customer record
+ *   pnr_cancelled            PNR marked cancelled in system (local only)
+ *   pnr_expired              PNR expired — set by cron, not user action
  *
- * Ticket lifecycle:
- *   ticket_issued           provider.issueTicket() succeeded, ticket record activated
- *   ticket_issue_failed     provider.issueTicket() failed before or after local write
- *   ticket_reconciled       reconciliation cron healed a 'pending' ticket after Phase 3 failure
- *   ticket_reconcile_failed pending ticket >24h old with no provider ticket found — voided
- *   ticket_voided           ticket voided operationally (Credit Note is a separate financial step)
- *   ticket_refunded         refund processed (Refund Request + Payment Voucher are separate)
- *   ticket_exchanged        ticket exchanged for a new itinerary
+ * Ticket issuance:
+ *   ticket_issued            Phase 3 committed: ticket active, PNR ticketed
+ *   ticket_issue_failed      provider.issueTicket() failed (Phase 2 failure)
+ *
+ * Ticket void:
+ *   ticket_voided            Phase 3 committed: ticket void, coupons void
+ *   ticket_void_failed       provider.voidTicket() failed (Phase 2 failure)
+ *
+ * Ticket refund:
+ *   ticket_refunded          Phase 3 committed: ticket refunded
+ *   ticket_refund_failed     provider.refundTicket() failed (Phase 2 failure)
+ *
+ * Ticket exchange:
+ *   ticket_exchanged         Phase 3 committed: old exchanged, new ticket created
+ *   ticket_exchange_failed   provider.exchangeTicket() failed (Phase 2 failure)
+ *
+ * Reconciliation:
+ *   ticket_reconciled        cron healed a pending_* ticket successfully
+ *   ticket_reconcile_failed  ticket exceeded attempt threshold — voided or reset
  *
  * Idempotency note:
- *   pnr_sync_completed ≠ pnr_sync_failed (not success:boolean in payload)
- *   Reason: WHERE event_type='pnr_sync_failed' >> WHERE payload->>'success'='false'
+ *   *_completed / *_issued  ≠  *_failed  (never a success:boolean in payload)
+ *   Reason: WHERE event_type='ticket_refund_failed' >> WHERE payload->>'success'='false'
  */
 export const travelEvents = pgTable('travel_events', {
   id:           text('id').primaryKey(),
