@@ -4,11 +4,9 @@ import { db } from '@/lib/db';
 import { agencies, users } from '@/lib/schema';
 import { eq, count } from 'drizzle-orm';
 
-const EMAIL_RE  = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const EMAIL_RE  = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 const MAX_NAME  = 100;
 const MAX_EMAIL = 254;
-
-const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 type UserRole = 'admin' | 'agent' | 'accountant' | 'viewer';
 
 interface InviteUserRequest {
@@ -116,55 +114,4 @@ export async function POST(request: Request) {
     console.error(JSON.stringify({ event: 'auth_invite_failed', error: (err as Error).message ?? String(err) }));
     return NextResponse.json({ error: 'خطأ في الخادم' }, { status: 500 });
   }
-
-  let idToken: string;
-  try {
-    idToken = extractBearerToken(request);
-  } catch (err) {
-    return NextResponse.json(
-      { error: err instanceof Error ? err.message : 'Unauthorized' },
-      { status: 401 }
-    );
-  }
-
-  let body: InviteBody;
-  try {
-    body = (await request.json()) as InviteBody;
-  } catch {
-    return NextResponse.json({ error: 'بيانات غير صالحة' }, { status: 400 });
-  }
-
-  const { nameAr, nameEn, mobile, role } = body;
-  const email = body.email?.trim().toLowerCase();
-  const VALID_ROLES: UserRole[] = ['admin', 'agent', 'accountant', 'viewer'];
-
-  if (!email || !EMAIL_RE.test(email)) {
-    return NextResponse.json({ error: 'بريد إلكتروني غير صالح' }, { status: 400 });
-  }
-  if (!nameAr?.trim()) {
-    return NextResponse.json({ error: 'اسم المستخدم مطلوب' }, { status: 400 });
-  }
-  if (!VALID_ROLES.includes(role)) {
-    return NextResponse.json({ error: 'الدور الوظيفي غير صالح' }, { status: 400 });
-  }
-
-  const result = await inviteUserAction(idToken, {
-    email,
-    nameAr: nameAr.trim(),
-    nameEn: nameEn?.trim() || nameAr.trim(),
-    mobile: mobile?.trim() || '',
-    role,
-  });
-
-  if (!result.success) {
-    const status = result.error.includes('مسجّل مسبقاً') ? 409
-      : result.error.includes('Unauthorized') || result.error.includes('PERMISSION') ? 403
-      : 400;
-    return NextResponse.json({ error: result.error }, { status });
-  }
-
-  return NextResponse.json(
-    { userId: result.data.userId, setupLink: result.data.setupLink },
-    { headers: rateLimitHeaders(rateLimit) }
-  );
 }

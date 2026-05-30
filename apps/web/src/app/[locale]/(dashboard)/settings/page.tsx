@@ -912,7 +912,6 @@ export default function SettingsPage() {
                     />
                   </div>
                 </div>
-                )}
 
                 {/* Contact info section */}
                 <div className="border-t border-surface-border pt-5">

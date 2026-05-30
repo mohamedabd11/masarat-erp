@@ -1,6 +1,5 @@
 import { NextResponse } from 'next/server';
 import { eq } from 'drizzle-orm';
-import { ensureAdminApp } from '@/lib/firebase-admin';
 import { db } from '@/lib/db';
 import { agencies } from '@/lib/schema';
 import { TRIAL_DAYS, SUBSCRIPTION_MONTHLY_DAYS, SUBSCRIPTION_YEARLY_DAYS } from '@masarat/accounting';
@@ -9,12 +8,6 @@ const SUPER_ADMIN_EMAIL = process.env['SUPER_ADMIN_EMAIL'];
 if (!SUPER_ADMIN_EMAIL) throw new Error('SUPER_ADMIN_EMAIL env var is not configured');
 
 type AdminAction = 'activate_month' | 'activate_year' | 'activate_lifetime' | 'suspend' | 'extend_trial';
-
-function adminSql() {
-  const url = process.env['ADMIN_DATABASE_URL'] ?? process.env['DATABASE_URL'];
-  if (!url) throw new Error('DATABASE_URL is not configured');
-  return neon(url);
-}
 
 async function verifySuperAdmin(request: Request) {
   const superAdminEmail = process.env['SUPER_ADMIN_EMAIL'];
@@ -49,7 +42,6 @@ export async function POST(request: Request) {
     }
 
     const now = new Date();
-
     let update: Partial<typeof agencies.$inferInsert>;
     let message: string;
 
@@ -63,7 +55,6 @@ export async function POST(request: Request) {
         };
         message = 'تم تفعيل الاشتراك لمدة شهر';
         break;
-      }
 
       case 'activate_year':
         update  = {
@@ -74,7 +65,6 @@ export async function POST(request: Request) {
         };
         message = 'تم تفعيل الاشتراك لمدة سنة';
         break;
-      }
 
       case 'activate_lifetime':
         update  = {
@@ -86,28 +76,23 @@ export async function POST(request: Request) {
         };
         message = 'تم تفعيل الاشتراك الدائم ♾';
         break;
-      }
 
-      case 'suspend': {
-        await db`
-          UPDATE agencies
-          SET subscription_status = 'suspended',
-              updated_at          = NOW()
-          WHERE id = ${agencyId}::uuid
-        `;
+      case 'suspend':
+        update  = {
+          subscriptionStatus: 'suspended',
+          updatedAt:          now,
+        };
         message = 'تم إيقاف الوكالة';
         break;
-      }
 
       case 'extend_trial':
         update  = {
           subscriptionStatus: 'trial',
-          trialEndDate: new Date(Date.now() + TRIAL_DAYS * 24 * 3600 * 1000),
-          updatedAt:    now,
+          trialEndDate:       new Date(Date.now() + TRIAL_DAYS * 24 * 3600 * 1000),
+          updatedAt:          now,
         };
         message = 'تم تمديد الفترة التجريبية 14 يوماً';
         break;
-      }
 
       default:
         return NextResponse.json({ error: `إجراء غير معروف: ${action}` }, { status: 400 });
