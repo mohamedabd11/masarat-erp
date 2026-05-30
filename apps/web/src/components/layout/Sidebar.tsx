@@ -192,10 +192,10 @@ export function Sidebar({ collapsed = false, onToggle, onClose }: SidebarProps) 
         'flex items-center border-b border-surface-border flex-shrink-0',
         collapsed ? 'h-16 justify-center px-2' : 'h-16 px-5 gap-3',
       )}>
-        <div className="flex items-center justify-center w-9 h-9 rounded-lg bg-brand-600 text-white font-bold text-lg flex-shrink-0 overflow-hidden">
+        <div className="flex items-center justify-center w-9 h-9 flex-shrink-0 overflow-hidden">
           {logoUrl
-            ? <img src={logoUrl} alt="logo" className="w-full h-full object-contain p-0.5" />
-            : 'م'
+            ? <img src={logoUrl} alt="logo" className="w-full h-full object-contain rounded-lg" />
+            : <img src="/logo-mark.svg" alt="مسارات" className="w-full h-full" />
           }
         </div>
         {!collapsed && (

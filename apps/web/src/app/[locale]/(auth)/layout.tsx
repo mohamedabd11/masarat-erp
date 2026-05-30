@@ -6,8 +6,9 @@ export default function AuthLayout({ children }: { children: ReactNode }) {
       {/* Left panel — illustration/branding (hidden on mobile) */}
       <div className="hidden lg:flex lg:w-1/2 bg-gradient-to-br from-brand-700 via-brand-600 to-brand-500 flex-col items-center justify-center p-12 text-white">
         <div className="max-w-md text-center">
-          <div className="w-20 h-20 bg-white/20 rounded-2xl flex items-center justify-center mx-auto mb-8">
-            <span className="text-4xl font-bold">م</span>
+          <div className="w-24 h-24 mx-auto mb-8">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src="/logo-mark.svg" alt="مسارات" className="w-full h-full drop-shadow-lg" />
           </div>
           <h1 className="text-4xl font-bold mb-4 font-arabic">مسارات</h1>
           <p className="text-xl text-brand-100 mb-2 font-arabic">نظام إدارة وكالات السفر المتكامل</p>

@@ -16,6 +16,7 @@ import type {
   BookingType,
   RevenueModel,
   RefundInput,
+  Halalas,
 } from './types';
 
 import {
@@ -129,7 +130,7 @@ export function generateJournalEntry(
     metadata: {
       revenueModel,
       bookingType,
-      isInternational,
+      ...(isInternational !== undefined && { isInternational }),
       generatedAt: new Date(),
       hadRoundingCorrection,
     },
@@ -176,16 +177,19 @@ function buildRefundLines(
       credit: 0,
       description: `طلب استرداد من المورد — ${bookingRef}`,
     },
-    // CR: ما يُعاد للعميل نقداً أو تحويلاً
-    {
-      lineNumber: 2,
+  ];
+
+  // CR: ما يُعاد للعميل نقداً أو تحويلاً — يُضاف فقط إذا كان المبلغ أكبر من صفر
+  if (refundAmountToCustomer > 0) {
+    lines.push({
+      lineNumber: lines.length + 1,
       accountCode: refundPaymentAccountCode,
       accountName: { ar: 'النقد / البنك — استرداد للعميل', en: 'Cash / Bank — Customer Refund' },
       debit: 0,
       credit: refundAmountToCustomer,
       description: `استرداد للعميل ${customerName} — ${bookingRef}`,
-    },
-  ];
+    });
+  }
 
   // CR: رسوم الإلغاء (إيراد للوكالة)
   if (cancellationFee > 0) {

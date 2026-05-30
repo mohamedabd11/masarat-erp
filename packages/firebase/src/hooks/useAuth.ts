@@ -47,7 +47,16 @@ export function useAuth(): UseAuthReturn {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    const auth = getAuth(getApp());
+    let app: ReturnType<typeof getApp> | null = null;
+    try {
+      app = getApp();
+    } catch {
+      setLoading(false);
+      setError('Firebase غير مهيأ');
+      return;
+    }
+
+    const auth = getAuth(app);
 
     const unsub = onAuthStateChanged(auth, async (firebaseUser) => {
       if (!firebaseUser) {
@@ -57,7 +66,6 @@ export function useAuth(): UseAuthReturn {
       }
 
       try {
-        // جلب الـ Custom Claims من الـ token
         const token = await firebaseUser.getIdTokenResult();
         const claims = token.claims as unknown as MasaratClaims;
 

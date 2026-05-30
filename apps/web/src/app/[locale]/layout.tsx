@@ -3,6 +3,7 @@ import type { Metadata } from 'next';
 import { NextIntlClientProvider } from 'next-intl';
 import { getMessages } from 'next-intl/server';
 import { notFound } from 'next/navigation';
+import { Analytics } from '@vercel/analytics/next';
 import { locales, type Locale } from '@/i18n';
 import { FirebaseProvider } from '@/providers/FirebaseProvider';
 import { AuthProvider } from '@/providers/AuthProvider';
@@ -47,6 +48,7 @@ export default async function LocaleLayout({ children, params: { locale } }: Loc
             </DirectionProvider>
           </FirebaseProvider>
         </NextIntlClientProvider>
+        <Analytics />
       </body>
     </html>
   );
