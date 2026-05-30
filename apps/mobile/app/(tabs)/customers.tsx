@@ -1,178 +1,97 @@
 import {
-  View,
-  Text,
-  FlatList,
-  TouchableOpacity,
-  TextInput,
-  StyleSheet,
-  RefreshControl,
-  Alert,
+  View, Text, FlatList, TouchableOpacity, TextInput,
+  StyleSheet, RefreshControl, Alert, ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useTranslation } from 'react-i18next';
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
+import { fetchCustomers, type ApiCustomer } from '@/src/lib/api-client';
 
-interface Customer {
-  id: string;
-  nameAr: string;
-  nameEn: string;
-  phone: string;
-  email: string;
-  totalBookings: number;
-  totalSpentSAR: number;
-  avatarColor: string;
+const AVATAR_COLORS = ['#0284c7', '#7c3aed', '#059669', '#d97706', '#dc2626', '#0891b2', '#9333ea', '#0d9488'];
+
+function avatarColor(id: string): string {
+  let h = 0;
+  for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) & 0xffff;
+  return AVATAR_COLORS[h % AVATAR_COLORS.length]!;
 }
-
-const DEMO_CUSTOMERS: Customer[] = [
-  {
-    id: 'C-001',
-    nameAr: 'أحمد محمد العمري',
-    nameEn: 'Ahmed Al-Omari',
-    phone: '+966 50 123 4567',
-    email: 'ahmed@example.com',
-    totalBookings: 8,
-    totalSpentSAR: 42500,
-    avatarColor: '#0284c7',
-  },
-  {
-    id: 'C-002',
-    nameAr: 'فاطمة علي الزهراني',
-    nameEn: 'Fatima Al-Zahrani',
-    phone: '+966 55 234 5678',
-    email: 'fatima@example.com',
-    totalBookings: 5,
-    totalSpentSAR: 18750,
-    avatarColor: '#7c3aed',
-  },
-  {
-    id: 'C-003',
-    nameAr: 'خالد إبراهيم السعد',
-    nameEn: 'Khalid Al-Saad',
-    phone: '+966 54 345 6789',
-    email: 'khalid@example.com',
-    totalBookings: 12,
-    totalSpentSAR: 67300,
-    avatarColor: '#059669',
-  },
-  {
-    id: 'C-004',
-    nameAr: 'منى عبدالله القحطاني',
-    nameEn: 'Mona Al-Qahtani',
-    phone: '+966 56 456 7890',
-    email: 'mona@example.com',
-    totalBookings: 3,
-    totalSpentSAR: 13800,
-    avatarColor: '#d97706',
-  },
-  {
-    id: 'C-005',
-    nameAr: 'سعود محمد الغامدي',
-    nameEn: 'Saud Al-Ghamdi',
-    phone: '+966 50 567 8901',
-    email: 'saud@example.com',
-    totalBookings: 6,
-    totalSpentSAR: 29400,
-    avatarColor: '#dc2626',
-  },
-  {
-    id: 'C-006',
-    nameAr: 'نورة سالم الشهري',
-    nameEn: 'Noura Al-Shahri',
-    phone: '+966 58 678 9012',
-    email: 'noura@example.com',
-    totalBookings: 4,
-    totalSpentSAR: 21600,
-    avatarColor: '#0891b2',
-  },
-];
 
 export default function CustomersScreen() {
   const { i18n } = useTranslation();
   const isRtl = i18n.language === 'ar';
-  const [search, setSearch] = useState('');
-  const [refreshing, setRefreshing] = useState(false);
 
-  const filtered = DEMO_CUSTOMERS.filter((c) => {
-    const name = isRtl ? c.nameAr : c.nameEn;
-    return (
-      name.toLowerCase().includes(search.toLowerCase()) ||
-      c.phone.includes(search) ||
-      c.id.toLowerCase().includes(search.toLowerCase())
-    );
-  });
+  const [customers, setCustomers]     = useState<ApiCustomer[]>([]);
+  const [search, setSearch]           = useState('');
+  const [loading, setLoading]         = useState(true);
+  const [refreshing, setRefreshing]   = useState(false);
+  const [error, setError]             = useState<string | null>(null);
+  const [page, setPage]               = useState(1);
+  const [hasMore, setHasMore]         = useState(false);
+
+  const load = useCallback(async (reset = false) => {
+    const nextPage = reset ? 1 : page;
+    try {
+      setError(null);
+      const res = await fetchCustomers(nextPage, 20);
+      setCustomers(prev => reset ? res.data : [...prev, ...res.data]);
+      setHasMore(res.hasMore);
+      setPage(reset ? 2 : nextPage + 1);
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  }, [page]);
+
+  useEffect(() => {
+    load(true).finally(() => setLoading(false));
+  }, []);
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
-    await new Promise((r) => setTimeout(r, 1000));
+    await load(true);
     setRefreshing(false);
-  }, []);
+  }, [load]);
 
-  const getInitial = (nameAr: string, nameEn: string): string => {
-    const name = isRtl ? nameAr : nameEn;
-    return name.charAt(0).toUpperCase();
-  };
+  const filtered = customers.filter(c => {
+    const name = (c.nameAr ?? '') + ' ' + (c.nameEn ?? '');
+    return (
+      name.toLowerCase().includes(search.toLowerCase()) ||
+      (c.phone ?? '').includes(search)
+    );
+  });
 
-  const renderCustomer = ({ item }: { item: Customer }) => {
-    const name = isRtl ? item.nameAr : item.nameEn;
-    const initial = getInitial(item.nameAr, item.nameEn);
+  const renderCustomer = ({ item }: { item: ApiCustomer }) => {
+    const name    = isRtl ? item.nameAr : (item.nameEn ?? item.nameAr);
+    const initial = (name ?? '?').charAt(0).toUpperCase();
+    const color   = avatarColor(item.id);
+    const spent   = (item.totalInvoiced / 100).toLocaleString(isRtl ? 'ar-SA' : 'en-SA', { minimumFractionDigits: 0 });
 
     return (
       <TouchableOpacity
         style={styles.customerCard}
-        onPress={() =>
-          Alert.alert(
-            name,
-            `${item.phone}\n${item.email}\n${
-              isRtl
-                ? `${item.totalBookings} حجز · ${item.totalSpentSAR.toLocaleString('ar-SA')} ر.س`
-                : `${item.totalBookings} bookings · ${item.totalSpentSAR.toLocaleString('en-SA')} SAR`
-            }`,
-          )
-        }
+        onPress={() => Alert.alert(
+          name ?? '',
+          `${item.phone ?? ''}\n${item.email ?? ''}\n${
+            isRtl
+              ? `${item.totalBookings} حجز · ${spent} ر.س`
+              : `${item.totalBookings} bookings · ${spent} SAR`
+          }`,
+        )}
         activeOpacity={0.75}
       >
         <View style={[styles.cardRow, isRtl && styles.rtlRow]}>
-          {/* Avatar */}
-          <View
-            style={[styles.avatar, { backgroundColor: item.avatarColor }]}
-          >
+          <View style={[styles.avatar, { backgroundColor: color }]}>
             <Text style={styles.avatarText}>{initial}</Text>
           </View>
-
-          {/* Info */}
           <View style={[styles.infoBlock, isRtl && styles.infoBlockRtl]}>
-            <Text
-              style={[styles.customerName, isRtl && styles.rtlText]}
-              numberOfLines={1}
-            >
-              {name}
-            </Text>
-            <Text style={[styles.customerPhone, isRtl && styles.rtlText]}>
-              {item.phone}
-            </Text>
-            <Text style={[styles.customerEmail, isRtl && styles.rtlText]} numberOfLines={1}>
-              {item.email}
-            </Text>
+            <Text style={[styles.customerName, isRtl && styles.rtlText]} numberOfLines={1}>{name}</Text>
+            {item.phone ? <Text style={[styles.customerPhone, isRtl && styles.rtlText]}>{item.phone}</Text> : null}
+            {item.email ? <Text style={[styles.customerEmail, isRtl && styles.rtlText]} numberOfLines={1}>{item.email}</Text> : null}
           </View>
-
-          {/* Stats */}
           <View style={[styles.statsBlock, isRtl && styles.statsBlockRtl]}>
-            <View
-              style={[
-                styles.bookingsChip,
-                { borderColor: item.avatarColor + '40', backgroundColor: item.avatarColor + '12' },
-              ]}
-            >
-              <Text style={[styles.bookingsCount, { color: item.avatarColor }]}>
-                {item.totalBookings}
-              </Text>
-              <Text style={[styles.bookingsLabel, { color: item.avatarColor }]}>
-                {isRtl ? 'حجز' : 'bkgs'}
-              </Text>
+            <View style={[styles.bookingsChip, { borderColor: color + '40', backgroundColor: color + '12' }]}>
+              <Text style={[styles.bookingsCount, { color }]}>{item.totalBookings}</Text>
+              <Text style={[styles.bookingsLabel, { color }]}>{isRtl ? 'حجز' : 'bkgs'}</Text>
             </View>
-            <Text style={styles.spentAmount}>
-              {item.totalSpentSAR.toLocaleString(isRtl ? 'ar-SA' : 'en-SA')}
-            </Text>
+            <Text style={styles.spentAmount}>{spent}</Text>
             <Text style={styles.spentCurrency}>{isRtl ? 'ر.س' : 'SAR'}</Text>
           </View>
         </View>
@@ -182,26 +101,17 @@ export default function CustomersScreen() {
 
   return (
     <SafeAreaView style={styles.container} edges={['bottom']}>
-      {/* Header */}
       <View style={[styles.headerRow, isRtl && styles.rtlRow]}>
-        <Text style={[styles.headerTitle, isRtl && styles.rtlText]}>
-          {isRtl ? 'العملاء' : 'Customers'}
-        </Text>
+        <Text style={[styles.headerTitle, isRtl && styles.rtlText]}>{isRtl ? 'العملاء' : 'Customers'}</Text>
         <TouchableOpacity
           style={styles.addButton}
-          onPress={() =>
-            Alert.alert(
-              isRtl ? 'عميل جديد' : 'New Customer',
-              isRtl ? 'سيتم إضافة هذه الميزة قريباً' : 'Coming soon',
-            )
-          }
+          onPress={() => Alert.alert(isRtl ? 'عميل جديد' : 'New Customer', isRtl ? 'سيتم إضافة هذه الميزة قريباً' : 'Coming soon')}
           activeOpacity={0.8}
         >
           <Text style={styles.addButtonText}>+</Text>
         </TouchableOpacity>
       </View>
 
-      {/* Search */}
       <View style={styles.searchContainer}>
         <TextInput
           value={search}
@@ -213,44 +123,50 @@ export default function CustomersScreen() {
         />
       </View>
 
-      {/* Count */}
-      <Text style={[styles.countText, isRtl && styles.rtlText]}>
-        {filtered.length} {isRtl ? 'عميل' : 'customers'}
-      </Text>
-
-      <FlatList
-        data={filtered}
-        keyExtractor={(item) => item.id}
-        renderItem={renderCustomer}
-        contentContainerStyle={styles.listContent}
-        refreshControl={
-          <RefreshControl
-            refreshing={refreshing}
-            onRefresh={onRefresh}
-            tintColor="#0284c7"
+      {loading ? (
+        <View style={styles.centered}><ActivityIndicator size="large" color="#0284c7" /></View>
+      ) : error ? (
+        <View style={styles.centered}>
+          <Text style={styles.errorText}>{error}</Text>
+          <TouchableOpacity onPress={() => load(true)} style={styles.retryBtn}>
+            <Text style={styles.retryText}>{isRtl ? 'إعادة المحاولة' : 'Retry'}</Text>
+          </TouchableOpacity>
+        </View>
+      ) : (
+        <>
+          <Text style={[styles.countText, isRtl && styles.rtlText]}>
+            {filtered.length} {isRtl ? 'عميل' : 'customers'}
+          </Text>
+          <FlatList
+            data={filtered}
+            keyExtractor={(item) => item.id}
+            renderItem={renderCustomer}
+            contentContainerStyle={styles.listContent}
+            refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#0284c7" />}
+            onEndReached={() => { if (hasMore) load(); }}
+            onEndReachedThreshold={0.3}
+            ListEmptyComponent={
+              <View style={styles.emptyState}>
+                <Text style={styles.emptyIcon}>👥</Text>
+                <Text style={[styles.emptyText, isRtl && styles.rtlText]}>{isRtl ? 'لا يوجد عملاء' : 'No customers found'}</Text>
+              </View>
+            }
+            showsVerticalScrollIndicator={false}
           />
-        }
-        ListEmptyComponent={
-          <View style={styles.emptyState}>
-            <Text style={styles.emptyIcon}>👥</Text>
-            <Text style={[styles.emptyText, isRtl && styles.rtlText]}>
-              {isRtl ? 'لا يوجد عملاء' : 'No customers found'}
-            </Text>
-          </View>
-        }
-        showsVerticalScrollIndicator={false}
-      />
+        </>
+      )}
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
   container:       { flex: 1, backgroundColor: '#f8fafc' },
+  centered:        { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24 },
   headerRow:       { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 16, paddingTop: 14, paddingBottom: 6 },
   rtlRow:          { flexDirection: 'row-reverse' },
   headerTitle:     { fontSize: 20, fontWeight: '700', color: '#0f172a' },
-  addButton:       { width: 36, height: 36, borderRadius: 18, backgroundColor: '#0284c7', alignItems: 'center', justifyContent: 'center', shadowColor: '#0284c7', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.3, shadowRadius: 4, elevation: 4 },
-  addButtonText:   { color: 'white', fontSize: 22, lineHeight: 26, fontWeight: '400' },
+  addButton:       { width: 36, height: 36, borderRadius: 18, backgroundColor: '#0284c7', alignItems: 'center', justifyContent: 'center' },
+  addButtonText:   { color: 'white', fontSize: 22, lineHeight: 26 },
   searchContainer: { padding: 12, paddingBottom: 6 },
   searchInput:     { backgroundColor: 'white', borderRadius: 12, paddingHorizontal: 14, paddingVertical: 11, fontSize: 14, color: '#0f172a', borderWidth: 1, borderColor: '#e2e8f0' },
   rtlInput:        { textAlign: 'right' },
@@ -275,5 +191,8 @@ const styles = StyleSheet.create({
   spentCurrency:   { fontSize: 11, color: '#94a3b8' },
   emptyState:      { alignItems: 'center', paddingTop: 80 },
   emptyIcon:       { fontSize: 48, marginBottom: 12 },
-  emptyText:       { fontSize: 15, color: '#94a3b8', fontWeight: '500' },
+  emptyText:       { fontSize: 15, color: '#94a3b8' },
+  errorText:       { fontSize: 14, color: '#dc2626', textAlign: 'center', marginBottom: 12 },
+  retryBtn:        { backgroundColor: '#0284c7', borderRadius: 8, paddingHorizontal: 20, paddingVertical: 10 },
+  retryText:       { color: 'white', fontWeight: '600' },
 });

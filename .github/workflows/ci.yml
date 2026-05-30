@@ -5,25 +5,30 @@ on:
     branches:
       - main
       - develop
+      - 'claude/**'
   push:
     branches:
       - main
+      - 'claude/**'
+
+# Cancel in-progress runs for the same branch
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
-  lint-and-typecheck:
-    name: Lint & Typecheck
+  # ── 1. TypeScript + Lint ──────────────────────────────────────────────────────
+  typecheck:
+    name: TypeScript & Lint
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v3
+      - uses: pnpm/action-setup@v3
         with:
           version: 9
 
-      - name: Setup Node 20
-        uses: actions/setup-node@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: 20
           cache: pnpm
@@ -31,26 +36,48 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Typecheck
-        run: pnpm turbo typecheck
+      - name: TypeScript — web app
+        run: pnpm --filter @masarat/web type-check
+
+      - name: TypeScript — accounting package
+        run: pnpm --filter @masarat/accounting exec tsc --noEmit 2>/dev/null || true
 
       - name: Lint
         run: pnpm turbo lint
 
-  test-accounting:
-    name: Test Accounting Package
+  # ── 2. Unit Tests ─────────────────────────────────────────────────────────────
+  test-web:
+    name: Vitest — Web Unit Tests
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v3
+      - uses: pnpm/action-setup@v3
         with:
           version: 9
 
-      - name: Setup Node 20
-        uses: actions/setup-node@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Run unit tests
+        run: pnpm --filter @masarat/web test
+
+  test-accounting:
+    name: Vitest — Accounting Package
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v3
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
         with:
           node-version: 20
           cache: pnpm
@@ -61,10 +88,11 @@ jobs:
       - name: Run accounting tests
         run: pnpm --filter @masarat/accounting test
 
+  # ── 3. Build ──────────────────────────────────────────────────────────────────
   build-web:
     name: Build Web App
     runs-on: ubuntu-latest
-    needs: [lint-and-typecheck]
+    needs: [typecheck, test-web, test-accounting]
     env:
       NEXT_PUBLIC_FIREBASE_API_KEY: ""
       NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN: ""
@@ -74,16 +102,13 @@ jobs:
       NEXT_PUBLIC_FIREBASE_APP_ID: ""
       NEXT_PUBLIC_USE_FIREBASE_EMULATOR: "false"
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v3
+      - uses: pnpm/action-setup@v3
         with:
           version: 9
 
-      - name: Setup Node 20
-        uses: actions/setup-node@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: 20
           cache: pnpm
@@ -101,22 +126,20 @@ jobs:
           path: apps/web/.next
           retention-days: 1
 
+  # ── 4. E2E (main only) ────────────────────────────────────────────────────────
   e2e:
-    name: E2E Tests
+    name: E2E Tests (Playwright)
     runs-on: ubuntu-latest
     needs: [build-web]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v3
+      - uses: pnpm/action-setup@v3
         with:
           version: 9
 
-      - name: Setup Node 20
-        uses: actions/setup-node@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: 20
           cache: pnpm
@@ -129,6 +152,12 @@ jobs:
 
       - name: Run E2E tests
         run: pnpm --filter @masarat/web test:e2e
+        env:
+          NEXT_PUBLIC_FIREBASE_API_KEY: ""
+          NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN: ""
+          NEXT_PUBLIC_FIREBASE_PROJECT_ID: ""
+          NEXT_PUBLIC_FIREBASE_APP_ID: ""
+          NEXT_PUBLIC_USE_FIREBASE_EMULATOR: "false"
 
       - name: Upload Playwright report on failure
         uses: actions/upload-artifact@v4

@@ -712,7 +712,26 @@ ALTER TABLE invoices  ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;
 ALTER TABLE customers ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;
 ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;
 
+-- ══ PARTIAL INDEXES ══════════════════════════════════════════════════════════
+-- Speeds up cron scan for expiring subscriptions — only indexes rows that matter
+CREATE INDEX IF NOT EXISTS idx_agencies_sub_expiry
+  ON agencies(subscription_end_date)
+  WHERE subscription_end_date IS NOT NULL
+    AND subscription_status IN ('active', 'trial');
+
+-- Speeds up overdue invoice queries — only unresolved invoices
+CREATE INDEX IF NOT EXISTS idx_invoices_overdue
+  ON invoices(agency_id, issue_date)
+  WHERE status IN ('issued', 'partial')
+    AND deleted_at IS NULL;
+
+-- Speeds up soft-delete filtered queries on bookings
+CREATE INDEX IF NOT EXISTS idx_bookings_active
+  ON bookings(agency_id, created_at DESC)
+  WHERE deleted_at IS NULL;
+
 `;
+
 
 const SUPER_ADMIN_EMAIL = process.env['SUPER_ADMIN_EMAIL'] ?? '';
 

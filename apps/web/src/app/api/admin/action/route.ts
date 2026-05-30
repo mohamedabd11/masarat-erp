@@ -3,6 +3,7 @@ import { eq } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { agencies } from '@/lib/schema';
 import { TRIAL_DAYS, SUBSCRIPTION_MONTHLY_DAYS, SUBSCRIPTION_YEARLY_DAYS } from '@masarat/accounting';
+import { checkRateLimit, rateLimitHeaders, getClientIp } from '@/lib/rate-limit';
 
 const SUPER_ADMIN_EMAIL = process.env['SUPER_ADMIN_EMAIL'];
 if (!SUPER_ADMIN_EMAIL) throw new Error('SUPER_ADMIN_EMAIL env var is not configured');
@@ -25,6 +26,14 @@ async function verifySuperAdmin(request: Request) {
 
 export async function POST(request: Request) {
   try {
+    const rl = await checkRateLimit(getClientIp(request), 'register');
+    if (!rl.success) {
+      return NextResponse.json(
+        { error: 'طلبات كثيرة جداً، حاول لاحقاً' },
+        { status: 429, headers: rateLimitHeaders(rl) },
+      );
+    }
+
     const { ensureAdminApp } = await import('@/lib/firebase-admin');
     ensureAdminApp();
     await verifySuperAdmin(request);

@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { eq } from 'drizzle-orm';
 import { ensureAdminApp } from '@/lib/firebase-admin';
 import { db } from '@/lib/db';
+import { checkRateLimit, rateLimitHeaders, getClientIp } from '@/lib/rate-limit';
 import {
   agencies, users, bookings, invoices, payments, receiptVouchers,
   supplierPayments, journalEntries, journalLines, chartOfAccounts,
@@ -28,6 +29,14 @@ async function verifySuperAdmin(request: Request) {
 
 export async function POST(request: Request) {
   try {
+    const rl = await checkRateLimit(getClientIp(request), 'register');
+    if (!rl.success) {
+      return NextResponse.json(
+        { error: 'طلبات كثيرة جداً، حاول لاحقاً' },
+        { status: 429, headers: rateLimitHeaders(rl) },
+      );
+    }
+
     const { ensureAdminApp } = await import('@/lib/firebase-admin');
     ensureAdminApp();
     await verifySuperAdmin(request);
