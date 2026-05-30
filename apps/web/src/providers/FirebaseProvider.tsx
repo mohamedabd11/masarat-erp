@@ -9,7 +9,6 @@ interface Props {
 }
 
 export function FirebaseProvider({ children }: Props) {
-  const [ready, setReady] = useState(false);
   const [configError, setConfigError] = useState(false);
 
   useEffect(() => {
@@ -31,12 +30,8 @@ export function FirebaseProvider({ children }: Props) {
     } catch (err) {
       console.error('[FirebaseProvider] Firebase initialization failed:', err);
       setConfigError(true);
-    } finally {
-      setReady(true);
     }
   }, []);
-
-  if (!ready) return null;
 
   if (configError) {
     return (
