@@ -4,6 +4,7 @@ import { db } from '@/lib/db';
 import { supplierPayments, suppliers, journalEntries, journalLines } from '@/lib/schema';
 import { verifyAuth, assertRole, ApiAuthError, BusinessError, ROLES_ADMIN_ONLY } from '@/lib/api-auth';
 import { getNextJournalNumber } from '@/lib/invoice-counter';
+import { assertPeriodOpen } from '@/lib/period-lock';
 
 interface ReverseBody {
   supplierPaymentId: string;
@@ -58,11 +59,14 @@ export async function POST(request: Request) {
       const payeeName           = orig.payeeName ?? orig.supplierName ?? '';
       const originalVoucherNumber = orig.voucherNumber ?? supplierPaymentId;
 
+      const today               = now.toISOString().split('T')[0]!;
+
+      await assertPeriodOpen(agencyId, today, tx);
+
       const jeNumber            = await getNextJournalNumber(agencyId, year, tx);
       const reversalId          = crypto.randomUUID();
       const jeId                = crypto.randomUUID();
       const reversalVoucherNumber = `${originalVoucherNumber}-REV`;
-      const today               = now.toISOString().split('T')[0]!;
 
       const expenseAc = EXPENSE_ACCOUNT[expenseCategory] ?? EXPENSE_ACCOUNT['other']!;
       const paymentAc = METHOD_ACCOUNT[paymentMethod]    ?? METHOD_ACCOUNT['cash']!;

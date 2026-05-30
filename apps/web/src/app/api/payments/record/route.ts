@@ -5,6 +5,7 @@ import { invoices, bookings, payments, journalEntries, journalLines, idempotency
 import { verifyAuth, ApiAuthError, BusinessError } from '@/lib/api-auth';
 import { withIdempotency, buildIdempotencyInsert } from '@/lib/idempotency';
 import { getNextReceiptNumber, getNextJournalNumber } from '@/lib/invoice-counter';
+import { assertPeriodOpen } from '@/lib/period-lock';
 
 interface PaymentRecordBody {
   bookingId?:    string;
@@ -66,6 +67,8 @@ export async function POST(request: Request) {
         const jeId          = crypto.randomUUID();
         const today         = now.toISOString().split('T')[0]!;
         const cashAc        = METHOD_ACCOUNT[paymentMethod] ?? METHOD_ACCOUNT['bank_transfer']!;
+
+        await assertPeriodOpen(agencyId, today, tx);
 
         // ── 5. Write ────────────────────────────────────────────────────────
         await tx.insert(payments).values({

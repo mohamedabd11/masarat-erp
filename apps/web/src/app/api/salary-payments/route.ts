@@ -4,6 +4,7 @@ import { db } from '@/lib/db';
 import { salaryPayments, employees, journalEntries, journalLines } from '@/lib/schema';
 import { verifyAuth, assertRole, ApiAuthError, BusinessError, ROLES_ADMIN_ONLY } from '@/lib/api-auth';
 import { getNextJournalNumber } from '@/lib/invoice-counter';
+import { assertPeriodOpen } from '@/lib/period-lock';
 
 const METHOD_ACCOUNT: Record<string, { code: string; ar: string; en: string }> = {
   cash:          { code: '1100', ar: 'الصندوق النقدي', en: 'Cash' },
@@ -86,6 +87,9 @@ export async function POST(request: Request) {
       const now    = new Date();
       const year   = now.getFullYear();
       const today  = now.toISOString().split('T')[0]!;
+
+      await assertPeriodOpen(agencyId, today, tx);
+
       const jeId   = crypto.randomUUID();
       const jeNum  = await getNextJournalNumber(agencyId, year, tx);
       const payId  = crypto.randomUUID();

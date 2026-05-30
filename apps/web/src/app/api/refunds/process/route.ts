@@ -5,6 +5,7 @@ import { invoices, bookings, payments, journalEntries, journalLines, idempotency
 import { verifyAuth, ApiAuthError, BusinessError } from '@/lib/api-auth';
 import { withIdempotency, buildIdempotencyInsert } from '@/lib/idempotency';
 import { getNextInvoiceNumber, getNextJournalNumber } from '@/lib/invoice-counter';
+import { assertPeriodOpen } from '@/lib/period-lock';
 
 interface RefundBody {
   bookingId:              string;
@@ -86,12 +87,15 @@ export async function POST(request: Request) {
         const now  = new Date();
         const year = now.getFullYear();
 
+        const today            = now.toISOString().split('T')[0]!;
+
+        await assertPeriodOpen(agencyId, today, tx);
+
         const creditNoteNumber = await getNextInvoiceNumber(agencyId, 'creditNote', year, tx);
         const jeNumber         = await getNextJournalNumber(agencyId, year, tx);
         const creditNoteId     = crypto.randomUUID();
         const jeId             = crypto.randomUUID();
         const refundPaymentId  = crypto.randomUUID();
-        const today            = now.toISOString().split('T')[0]!;
 
         // ── 5. Build journal lines (reversal + cancellation fee) ────────────
         type JLine = { code: string; ar: string; en: string; dr: number; cr: number };
