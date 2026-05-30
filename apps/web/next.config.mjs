@@ -41,9 +41,23 @@ const nextConfig = {
   eslint: {
     ignoreDuringBuilds: false,
   },
-  transpilePackages: ['@masarat/firebase', '@masarat/zatca', '@masarat/accounting'],
+  transpilePackages: [
+    '@masarat/firebase',
+    '@masarat/zatca',
+    '@masarat/accounting',
+    '@masarat/database',
+  ],
   experimental: {
     typedRoutes: false,
+  },
+  webpack(config) {
+    // Allow .js extension imports to resolve to .ts/.tsx files
+    // Required because ESM packages use .js extensions in TypeScript source imports
+    config.resolve.extensionAlias = {
+      '.js': ['.ts', '.tsx', '.js', '.jsx'],
+      '.mjs': ['.mts', '.mjs'],
+    };
+    return config;
   },
   images: {
     remotePatterns: [

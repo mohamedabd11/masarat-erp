@@ -1,9 +1,6 @@
 import { NextResponse } from 'next/server';
 import { neon } from '@neondatabase/serverless';
 
-const SUPER_ADMIN_EMAIL = process.env['SUPER_ADMIN_EMAIL'];
-if (!SUPER_ADMIN_EMAIL) throw new Error('SUPER_ADMIN_EMAIL env var is not configured');
-
 type AdminAction = 'activate_month' | 'activate_year' | 'activate_lifetime' | 'suspend' | 'extend_trial';
 
 function adminSql() {
@@ -13,13 +10,16 @@ function adminSql() {
 }
 
 async function verifySuperAdmin(request: Request) {
+  const superAdminEmail = process.env['SUPER_ADMIN_EMAIL'];
+  if (!superAdminEmail) throw new Error('SUPER_ADMIN_EMAIL env var is not configured');
+
   const authHeader = request.headers.get('Authorization') ?? '';
   const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : null;
   if (!token) throw new Error('NO_TOKEN');
 
   const { getAuth } = await import('firebase-admin/auth');
   const decoded = await getAuth().verifyIdToken(token);
-  if (decoded.email !== SUPER_ADMIN_EMAIL) throw new Error('FORBIDDEN');
+  if (decoded.email !== superAdminEmail) throw new Error('FORBIDDEN');
   return decoded;
 }
 
