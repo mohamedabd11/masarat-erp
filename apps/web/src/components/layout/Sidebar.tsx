@@ -14,7 +14,7 @@ import {
   Moon, Shield, Stamp, FileText, Receipt, BarChart3, Truck, UserCog,
   Settings, HelpCircle, ChevronLeft, ChevronRight, Calculator,
   Anchor, Car, Train, Camera, Mountain, Plus, Layers, Landmark, Send, Wallet,
-  TrendingDown, TrendingUp, Lock, Zap,
+  TrendingDown, TrendingUp, Lock, Zap, Ticket,
 } from 'lucide-react';
 
 // ─── Icon map for custom service types ────────────────────────────────────────
@@ -72,6 +72,7 @@ const SERVICES_GROUP: NavGroup = {
     { key: 'insurance',  href: '/insurance', icon: <Shield size={18} />,        labelAr: 'تأمين',         labelEn: 'Insurance' },
     { key: 'visas',      href: '/visas',     icon: <Stamp size={18} />,         labelAr: 'تأشيرات',       labelEn: 'Visas' },
     { key: 'gds_search', href: '/travel/flights', icon: <Zap size={18} />, labelAr: 'حجز مباشر GDS', labelEn: 'GDS Live Search' },
+    { key: 'pnr',        href: '/pnr',            icon: <Ticket size={18} />, labelAr: 'إدارة PNR',   labelEn: 'PNR Management' },
   ],
 };
 
