@@ -747,6 +747,24 @@ CREATE TABLE IF NOT EXISTS provider_credentials (
   UNIQUE (agency_id, provider_code, label)
 );
 CREATE INDEX IF NOT EXISTS idx_provider_creds_agency ON provider_credentials(agency_id);
+ALTER TABLE provider_credentials ADD COLUMN IF NOT EXISTS key_version INTEGER NOT NULL DEFAULT 1;
+ALTER TABLE provider_credentials ADD COLUMN IF NOT EXISTS encrypted_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
+
+CREATE TABLE IF NOT EXISTS provider_sync_logs (
+  id            TEXT PRIMARY KEY,
+  agency_id     TEXT NOT NULL REFERENCES agencies(id) ON DELETE CASCADE,
+  provider      TEXT NOT NULL,
+  operation     TEXT NOT NULL,
+  status        TEXT NOT NULL,
+  request_id    TEXT,
+  reference_id  TEXT,
+  duration_ms   INTEGER,
+  error_message TEXT,
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_provider_sync_logs_agency   ON provider_sync_logs(agency_id);
+CREATE INDEX IF NOT EXISTS idx_provider_sync_logs_provider ON provider_sync_logs(provider, operation);
+CREATE INDEX IF NOT EXISTS idx_provider_sync_logs_created  ON provider_sync_logs(created_at DESC);
 
 CREATE TABLE IF NOT EXISTS tickets (
   id              TEXT PRIMARY KEY,

@@ -14,6 +14,8 @@ export const providerCredentials = pgTable('provider_credentials', {
   providerCode:     text('provider_code').notNull(),   // amadeus|galileo|sabre|hotelbeds|tbo
   label:            text('label').notNull(),            // human-readable e.g. "Production Amadeus"
   encryptedPayload: text('encrypted_payload').notNull(), // AES-256-GCM: iv:tag:ciphertext (base64url)
+  keyVersion:       integer('key_version').notNull().default(1),
+  encryptedAt:      timestamp('encrypted_at').notNull().defaultNow(),
   isActive:         boolean('is_active').notNull().default(true),
   createdBy:        text('created_by').notNull(),
   createdAt:        timestamp('created_at').notNull().defaultNow(),
@@ -113,3 +115,21 @@ export const refundRequests = pgTable('refund_requests', {
 
 export type RefundRequest    = typeof refundRequests.$inferSelect;
 export type NewRefundRequest = typeof refundRequests.$inferInsert;
+
+// ── Provider Sync Logs ────────────────────────────────────────────────────────
+
+export const providerSyncLogs = pgTable('provider_sync_logs', {
+  id:           text('id').primaryKey(),
+  agencyId:     text('agency_id').notNull().references(() => agencies.id, { onDelete: 'cascade' }),
+  provider:     text('provider').notNull(),            // amadeus|galileo|sabre|hotelbeds|tbo|mock
+  operation:    text('operation').notNull(),           // search_flights|create_pnr|issue_ticket|void_ticket|refund_ticket
+  status:       text('status').notNull(),              // success|failed|retry
+  requestId:    text('request_id'),                    // idempotency key
+  referenceId:  text('reference_id'),                  // PNR code or ticket number
+  durationMs:   integer('duration_ms'),
+  errorMessage: text('error_message'),
+  createdAt:    timestamp('created_at').notNull().defaultNow(),
+});
+
+export type ProviderSyncLog    = typeof providerSyncLogs.$inferSelect;
+export type NewProviderSyncLog = typeof providerSyncLogs.$inferInsert;

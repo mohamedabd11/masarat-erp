@@ -17,9 +17,10 @@ export type { FlightProvider }  from './contracts/FlightProvider';
 export type { HotelProvider }   from './contracts/HotelProvider';
 
 // Stub implementations
-export { AmadeusProvider } from './providers/amadeus/AmadeusProvider';
-export { GalileoProvider } from './providers/galileo/GalileoProvider';
-export { SabreProvider }   from './providers/sabre/SabreProvider';
+export { AmadeusProvider }   from './providers/amadeus/AmadeusProvider';
+export { GalileoProvider }   from './providers/galileo/GalileoProvider';
+export { SabreProvider }     from './providers/sabre/SabreProvider';
+export { MockFlightProvider } from './providers/mock/MockFlightProvider';
 
 // Static provider registry — used by the web app's credentials API
 export const SUPPORTED_PROVIDERS = [
