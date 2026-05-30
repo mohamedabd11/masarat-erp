@@ -838,6 +838,21 @@ CREATE TABLE IF NOT EXISTS refund_requests (
 CREATE INDEX IF NOT EXISTS idx_refund_requests_agency  ON refund_requests(agency_id);
 CREATE INDEX IF NOT EXISTS idx_refund_requests_ticket  ON refund_requests(ticket_id);
 
+-- ══ TRAVEL EVENTS (immutable audit log) ══════════════════════════════════════
+CREATE TABLE IF NOT EXISTS travel_events (
+  id            TEXT PRIMARY KEY,
+  agency_id     TEXT NOT NULL REFERENCES agencies(id) ON DELETE CASCADE,
+  event_type    TEXT NOT NULL,
+  provider      TEXT NOT NULL,
+  resource_id   TEXT,
+  resource_type TEXT,
+  actor_id      TEXT,
+  payload       JSONB,
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_travel_events_agency   ON travel_events(agency_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_travel_events_resource ON travel_events(resource_id) WHERE resource_id IS NOT NULL;
+
 `;
 
 

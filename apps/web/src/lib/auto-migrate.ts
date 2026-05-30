@@ -23,6 +23,19 @@ const MIGRATIONS = [
   `ALTER TABLE provider_credentials ADD COLUMN IF NOT EXISTS encrypted_at TIMESTAMPTZ NOT NULL DEFAULT NOW()`,
   // Cheques bank account link
   `ALTER TABLE cheques ADD COLUMN IF NOT EXISTS bank_account_id TEXT`,
+  // Travel events log (added in feat/amadeus-integration)
+  `CREATE TABLE IF NOT EXISTS travel_events (
+    id            TEXT PRIMARY KEY,
+    agency_id     TEXT NOT NULL REFERENCES agencies(id) ON DELETE CASCADE,
+    event_type    TEXT NOT NULL,
+    provider      TEXT NOT NULL,
+    resource_id   TEXT,
+    resource_type TEXT,
+    actor_id      TEXT,
+    payload       JSONB,
+    created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_travel_events_agency ON travel_events(agency_id, created_at DESC)`,
 ];
 
 export async function ensureMigrations(): Promise<void> {

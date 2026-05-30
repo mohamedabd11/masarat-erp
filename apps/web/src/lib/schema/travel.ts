@@ -1,4 +1,4 @@
-import { pgTable, text, integer, boolean, timestamp, uniqueIndex } from 'drizzle-orm/pg-core';
+import { pgTable, text, integer, boolean, timestamp, uniqueIndex, jsonb } from 'drizzle-orm/pg-core';
 import { agencies } from './agencies';
 import { bookings } from './bookings';
 import { pnrRecords } from './pnr';
@@ -133,3 +133,22 @@ export const providerSyncLogs = pgTable('provider_sync_logs', {
 
 export type ProviderSyncLog    = typeof providerSyncLogs.$inferSelect;
 export type NewProviderSyncLog = typeof providerSyncLogs.$inferInsert;
+
+// ── Travel Events (immutable audit log) ───────────────────────────────────────
+// Append-only event log for all GDS/travel operations.
+// Never deleted; used for audit trail, debugging, and reconciliation.
+
+export const travelEvents = pgTable('travel_events', {
+  id:           text('id').primaryKey(),
+  agencyId:     text('agency_id').notNull().references(() => agencies.id, { onDelete: 'cascade' }),
+  eventType:    text('event_type').notNull(),   // pnr_created|ticket_issued|ticket_voided|ticket_refunded|pnr_cancelled|search
+  provider:     text('provider').notNull(),     // amadeus|galileo|sabre|mock
+  resourceId:   text('resource_id'),           // PNR code or ticket number
+  resourceType: text('resource_type'),         // pnr|ticket
+  actorId:      text('actor_id'),              // Firebase UID of user who triggered
+  payload:      jsonb('payload'),              // full event data snapshot
+  createdAt:    timestamp('created_at').notNull().defaultNow(),
+});
+
+export type TravelEvent    = typeof travelEvents.$inferSelect;
+export type NewTravelEvent = typeof travelEvents.$inferInsert;
