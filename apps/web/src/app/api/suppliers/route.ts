@@ -3,6 +3,7 @@ import { eq, and, desc, count, isNull } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { suppliers } from '@/lib/schema';
 import { verifyAuth, ApiAuthError } from '@/lib/api-auth';
+import { getPoolStatus } from '@/lib/pool-status';
 
 const DEFAULT_LIMIT = 50;
 const MAX_LIMIT     = 200;
@@ -28,13 +29,10 @@ export async function GET(request: Request) {
       .limit(limit)
       .offset(offset);
 
-    return NextResponse.json({
-      data,
-      total,
-      page,
-      limit,
-      hasMore: offset + data.length < total,
-    });
+    return NextResponse.json(
+      { data, total, page, limit, hasMore: offset + data.length < total },
+      { headers: { 'X-DB-Pool-Status': getPoolStatus() } },
+    );
   } catch (err) {
     if (err instanceof ApiAuthError) return NextResponse.json({ error: err.message }, { status: err.status });
     return NextResponse.json({ error: 'خطأ في الخادم' }, { status: 500 });

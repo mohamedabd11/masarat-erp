@@ -3,6 +3,7 @@ import { eq, and, desc, count, isNull } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { bookings, invoices } from '@/lib/schema';
 import { verifyAuth, ApiAuthError } from '@/lib/api-auth';
+import { getPoolStatus } from '@/lib/pool-status';
 
 const DEFAULT_LIMIT = 50;
 const MAX_LIMIT     = 200;
@@ -64,13 +65,10 @@ export async function GET(request: Request) {
 
     const data = rows.map(r => ({ ...r, hasInvoice: r.invoiceId !== null }));
 
-    return NextResponse.json({
-      data,
-      total,
-      page,
-      limit,
-      hasMore: offset + data.length < total,
-    });
+    return NextResponse.json(
+      { data, total, page, limit, hasMore: offset + data.length < total },
+      { headers: { 'X-DB-Pool-Status': getPoolStatus() } },
+    );
   } catch (err) {
     if (err instanceof ApiAuthError) return NextResponse.json({ error: err.message }, { status: err.status });
     console.error(JSON.stringify({ event: 'bookings_list_failed', error: String(err) }));
