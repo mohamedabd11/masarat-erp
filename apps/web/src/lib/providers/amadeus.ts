@@ -18,10 +18,22 @@ interface AmadeusCredentials {
   hostname:     string;   // test.api.amadeus.com | api.amadeus.com
 }
 
+// Explicit allowlist — prevents SSRF: a malicious admin could set hostname to
+// an internal service (169.254.169.254, VPC DNS) and have the server relay requests.
+const ALLOWED_HOSTNAMES = new Set([
+  'test.api.amadeus.com',
+  'api.amadeus.com',
+]);
+
 function assertCredentials(raw: unknown): AmadeusCredentials {
   const c = raw as Record<string, string>;
   if (!c?.clientId || !c?.clientSecret || !c?.hostname) {
     throw new Error('Amadeus credentials missing: clientId, clientSecret, hostname required');
+  }
+  if (!ALLOWED_HOSTNAMES.has(c.hostname)) {
+    throw new Error(
+      `Amadeus hostname not allowed: "${c.hostname}". Accepted: ${[...ALLOWED_HOSTNAMES].join(', ')}`,
+    );
   }
   return { clientId: c.clientId, clientSecret: c.clientSecret, hostname: c.hostname };
 }
