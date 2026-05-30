@@ -32,7 +32,7 @@ export async function ensureMigrations(): Promise<void> {
   try {
     const sql = neon(process.env.DATABASE_URL);
     for (const stmt of MIGRATIONS) {
-      await sql(stmt);
+      await sql.query(stmt);
     }
     checked = true;
   } catch {
