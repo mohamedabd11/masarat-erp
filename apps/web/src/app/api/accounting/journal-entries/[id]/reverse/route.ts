@@ -14,13 +14,14 @@
  *  - Already-reversed entries cannot be reversed again
  */
 import { NextResponse } from 'next/server';
-import { eq, and, inArray } from 'drizzle-orm';
+import { eq, and } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { journalEntries, journalLines } from '@/lib/schema';
 import { verifyAuth, assertRole, ApiAuthError, BusinessError, ROLES_ACCOUNTANT_UP } from '@/lib/api-auth';
 import { assertPeriodOpen } from '@/lib/period-lock';
 import { logAudit } from '@/lib/audit';
 import { getNextJournalNumber } from '@/lib/invoice-counter';
+import { buildReversalLines, buildReversalDescription } from '@/lib/reversal';
 import type { Tx } from '@/lib/db';
 
 export async function POST(
@@ -63,17 +64,15 @@ export async function POST(
       // ── 4. Create reversal entry ────────────────────────────────────────────
       const reversalId  = crypto.randomUUID();
       const jeNumber    = await getNextJournalNumber(agencyId, year, tx);
-      const description = reason
-        ? `عكس القيد ${original.entryNumber} — ${reason}`
-        : `عكس القيد ${original.entryNumber}`;
+      const desc        = buildReversalDescription(original.entryNumber, reason);
 
       await tx.insert(journalEntries).values({
         id:                 reversalId,
         agencyId,
         entryNumber:        jeNumber,
         date:               today,
-        descriptionAr:      description,
-        descriptionEn:      `Reversal of ${original.entryNumber}${reason ? ` — ${reason}` : ''}`,
+        descriptionAr:      desc.ar,
+        descriptionEn:      desc.en,
         reference:          original.reference ?? null,
         source:             'reversal',
         sourceId:           originalId,
@@ -86,8 +85,8 @@ export async function POST(
       });
 
       // ── 5. Mirror lines with swapped Dr/Cr ─────────────────────────────────
-      for (let i = 0; i < lines.length; i++) {
-        const l = lines[i]!;
+      const reversalLines = buildReversalLines(lines);
+      for (const l of reversalLines) {
         await tx.insert(journalLines).values({
           id:            crypto.randomUUID(),
           entryId:       reversalId,
@@ -95,10 +94,10 @@ export async function POST(
           accountCode:   l.accountCode,
           accountNameAr: l.accountNameAr,
           accountNameEn: l.accountNameEn,
-          debitHalalas:  l.creditHalalas,   // swapped
-          creditHalalas: l.debitHalalas,    // swapped
+          debitHalalas:  l.debitHalalas,
+          creditHalalas: l.creditHalalas,
           description:   l.description,
-          sortOrder:     i + 1,
+          sortOrder:     l.sortOrder,
         });
       }
 
