@@ -5,9 +5,6 @@ import { db } from '@/lib/db';
 import { agencies, users } from '@/lib/schema';
 import { checkRateLimit, rateLimitHeaders, getClientIp } from '@/lib/rate-limit';
 
-const SUPER_ADMIN_EMAIL = process.env['SUPER_ADMIN_EMAIL'];
-if (!SUPER_ADMIN_EMAIL) throw new Error('SUPER_ADMIN_EMAIL env var is not configured');
-
 async function verifySuperAdmin(request: Request) {
   const superAdminEmail = process.env['SUPER_ADMIN_EMAIL'];
   if (!superAdminEmail) throw new Error('SUPER_ADMIN_EMAIL env var is not configured');
