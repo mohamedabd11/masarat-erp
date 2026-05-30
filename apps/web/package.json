@@ -21,6 +21,7 @@
     "@hookform/resolvers": "^3.9.0",
     "@masarat/accounting": "workspace:*",
     "@masarat/firebase": "workspace:*",
+    "@masarat/travel-providers": "workspace:*",
     "@masarat/zatca": "workspace:*",
     "@neondatabase/serverless": "^1.1.0",
     "@react-pdf/renderer": "^4.5.1",

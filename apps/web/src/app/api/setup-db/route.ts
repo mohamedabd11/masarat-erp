@@ -730,6 +730,96 @@ CREATE INDEX IF NOT EXISTS idx_bookings_active
   ON bookings(agency_id, created_at DESC)
   WHERE deleted_at IS NULL;
 
+-- ══ TRAVEL OPERATIONS ════════════════════════════════════════════════════════
+
+-- Stores encrypted GDS/hotel provider credentials per agency.
+-- Payload is AES-256-GCM encrypted; plaintext never persisted.
+CREATE TABLE IF NOT EXISTS provider_credentials (
+  id                TEXT PRIMARY KEY,
+  agency_id         TEXT NOT NULL REFERENCES agencies(id) ON DELETE CASCADE,
+  provider_code     TEXT NOT NULL,
+  label             TEXT NOT NULL,
+  encrypted_payload TEXT NOT NULL,
+  is_active         BOOLEAN NOT NULL DEFAULT TRUE,
+  created_by        TEXT NOT NULL,
+  created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE (agency_id, provider_code, label)
+);
+CREATE INDEX IF NOT EXISTS idx_provider_creds_agency ON provider_credentials(agency_id);
+
+CREATE TABLE IF NOT EXISTS tickets (
+  id              TEXT PRIMARY KEY,
+  agency_id       TEXT NOT NULL REFERENCES agencies(id) ON DELETE CASCADE,
+  pnr_id          TEXT REFERENCES pnr_records(id),
+  booking_id      TEXT REFERENCES bookings(id),
+  ticket_number   TEXT NOT NULL,
+  passenger_name  TEXT NOT NULL,
+  passenger_type  TEXT NOT NULL DEFAULT 'ADT',
+  status          TEXT NOT NULL DEFAULT 'issued',
+  fare_halalas    INTEGER NOT NULL DEFAULT 0,
+  tax_halalas     INTEGER NOT NULL DEFAULT 0,
+  total_halalas   INTEGER NOT NULL DEFAULT 0,
+  currency        TEXT NOT NULL DEFAULT 'SAR',
+  issued_at       TIMESTAMPTZ,
+  voided_at       TIMESTAMPTZ,
+  refunded_at     TIMESTAMPTZ,
+  created_by      TEXT,
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE (agency_id, ticket_number)
+);
+CREATE INDEX IF NOT EXISTS idx_tickets_agency ON tickets(agency_id);
+CREATE INDEX IF NOT EXISTS idx_tickets_pnr    ON tickets(pnr_id) WHERE pnr_id IS NOT NULL;
+
+CREATE TABLE IF NOT EXISTS ticket_segments (
+  id              TEXT PRIMARY KEY,
+  ticket_id       TEXT NOT NULL REFERENCES tickets(id) ON DELETE CASCADE,
+  agency_id       TEXT NOT NULL,
+  segment_number  INTEGER NOT NULL DEFAULT 1,
+  airline         TEXT NOT NULL,
+  flight_number   TEXT NOT NULL,
+  origin          TEXT NOT NULL,
+  destination     TEXT NOT NULL,
+  departure_date  TEXT NOT NULL,
+  departure_time  TEXT,
+  arrival_date    TEXT,
+  arrival_time    TEXT,
+  cabin           TEXT NOT NULL DEFAULT 'Y',
+  booking_class   TEXT,
+  fare_basis      TEXT,
+  segment_status  TEXT NOT NULL DEFAULT 'HK',
+  coupon_status   TEXT NOT NULL DEFAULT 'open'
+);
+CREATE INDEX IF NOT EXISTS idx_ticket_segments_ticket ON ticket_segments(ticket_id);
+
+CREATE TABLE IF NOT EXISTS ticket_coupons (
+  id             TEXT PRIMARY KEY,
+  ticket_id      TEXT NOT NULL REFERENCES tickets(id) ON DELETE CASCADE,
+  segment_id     TEXT REFERENCES ticket_segments(id),
+  agency_id      TEXT NOT NULL,
+  coupon_number  INTEGER NOT NULL DEFAULT 1,
+  coupon_status  TEXT NOT NULL DEFAULT 'open',
+  used_at        TIMESTAMPTZ,
+  UNIQUE (ticket_id, coupon_number)
+);
+
+CREATE TABLE IF NOT EXISTS refund_requests (
+  id               TEXT PRIMARY KEY,
+  agency_id        TEXT NOT NULL REFERENCES agencies(id) ON DELETE CASCADE,
+  ticket_id        TEXT NOT NULL REFERENCES tickets(id),
+  requested_by     TEXT NOT NULL,
+  reason           TEXT,
+  penalty_halalas  INTEGER NOT NULL DEFAULT 0,
+  refund_halalas   INTEGER NOT NULL DEFAULT 0,
+  status           TEXT NOT NULL DEFAULT 'pending',
+  processed_at     TIMESTAMPTZ,
+  created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_refund_requests_agency  ON refund_requests(agency_id);
+CREATE INDEX IF NOT EXISTS idx_refund_requests_ticket  ON refund_requests(ticket_id);
+
 `;
 
 
