@@ -2,78 +2,38 @@
 
 import { useState, useEffect } from 'react';
 import { useAuth } from '@masarat/firebase';
+import { apiFetch } from '@/lib/api-client';
 import { StatsCard } from '@/components/dashboard/StatsCard';
 import { formatCurrency, formatCount } from '@/lib/utils';
-import { TrendingUp, CheckCircle2, Clock, Wallet, Receipt } from 'lucide-react';
+import { TrendingUp, CheckCircle2, Wallet, Receipt } from 'lucide-react';
+
+interface DashboardStatsData {
+  monthRevenue:    number;
+  monthVat:        number;
+  activeBookings:  number;
+  pendingBookings: number;
+  arOutstanding:   number;
+}
 
 export function DashboardStats({ locale }: { locale: string }) {
   const { user } = useAuth();
-  const isAr = locale === 'ar';
-  const loc2 = isAr ? 'ar-SA' : 'en-SA';
-  const agencyId = (user?.agencyId as string | undefined) ?? null;
+  const isAr     = locale === 'ar';
+  const loc2     = isAr ? 'ar-SA' : 'en-SA';
 
   const [loading, setLoading] = useState(true);
-  const [stats, setStats] = useState({
-    monthRevenue:   0,
-    monthVat:       0,
-    activeBookings: 0,
-    pendingBookings: 0,
-    arOutstanding:  0,
+  const [stats, setStats]     = useState<DashboardStatsData>({
+    monthRevenue: 0, monthVat: 0, activeBookings: 0, pendingBookings: 0, arOutstanding: 0,
   });
 
   useEffect(() => {
-    if (!agencyId) { setLoading(false); return; }
+    if (!user?.agencyId) { setLoading(false); return; }
     let cancelled = false;
-
-    async function load() {
-      try {
-        const { getFirestore, collection, query, where, getDocs } = await import('firebase/firestore');
-        const { getApp } = await import('@masarat/firebase');
-        const db = getFirestore(getApp());
-
-        const [invSnap, bkSnap] = await Promise.all([
-          getDocs(query(collection(db, 'invoices'), where('agencyId', '==', agencyId))),
-          getDocs(query(collection(db, 'bookings'), where('agencyId', '==', agencyId))),
-        ]);
-
-        if (cancelled) return;
-
-        const now           = new Date();
-        const startOfMonth  = new Date(now.getFullYear(), now.getMonth(), 1);
-
-        let monthRevenue = 0, monthVat = 0, arOutstanding = 0;
-        for (const d of invSnap.docs) {
-          const inv    = d.data() as Record<string, unknown>;
-          const totals = inv.totals as Record<string, number> | undefined;
-          const ts     = inv.createdAt as { toDate?: () => Date } | undefined;
-          const date   = ts?.toDate?.() ?? new Date(0);
-
-          if (date >= startOfMonth) {
-            monthRevenue += Number(totals?.subtotalExclVat ?? 0);
-            monthVat     += Number(totals?.totalVat        ?? 0);
-          }
-
-          const grandTotal = Number(totals?.grandTotal ?? inv.amountDue ?? 0);
-          const paid       = Number((inv as Record<string, unknown>).paidHalalas ?? 0);
-          arOutstanding   += Math.max(0, grandTotal - paid);
-        }
-
-        let activeBookings = 0, pendingBookings = 0;
-        for (const d of bkSnap.docs) {
-          const status = String((d.data() as Record<string, unknown>).status ?? '');
-          if (status === 'confirmed' || status === 'in_progress') activeBookings++;
-          if (status === 'pending_approval') pendingBookings++;
-        }
-
-        setStats({ monthRevenue, monthVat, activeBookings, pendingBookings, arOutstanding });
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    }
-
-    void load();
+    apiFetch<{ stats: DashboardStatsData }>('/api/dashboard/stats')
+      .then(d => { if (!cancelled) setStats(d.stats); })
+      .catch(() => {})
+      .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [agencyId]);
+  }, [user?.agencyId]);
 
   if (loading) {
     return (

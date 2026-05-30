@@ -15,6 +15,52 @@ function computeBal(type: string, dr: number, cr: number) {
   return (type === 'asset' || type === 'expense') ? dr - cr : cr - dr;
 }
 
+function inferAccountType(code: string): string {
+  const c = code.charAt(0);
+  if (c === '1') return 'asset';
+  if (c === '2') return 'liability';
+  if (c === '3') return 'equity';
+  if (c === '4') return 'revenue';
+  if (c === '5') return 'expense';
+  return '';
+}
+
+type AccountEntry = { code: string; nameAr: string; nameEn: string; type: string; debitTotal: number; creditTotal: number };
+
+function buildAccountMap(
+  jeDocs: Array<{ data: () => Record<string, unknown> }>,
+  agencyId: string,
+): Map<string, AccountEntry> {
+  const map = new Map<string, AccountEntry>();
+  for (const jeDoc of jeDocs) {
+    const lines = (jeDoc.data()['lines'] as Array<Record<string, unknown>>) ?? [];
+    for (const line of lines) {
+      const code = String(line['accountCode'] ?? '');
+      if (!code) continue;
+      const key = `${agencyId}_${code}`;
+
+      // Support both field variants:
+      // - client-side (postJournalEntry.ts): debitHalalas / creditHalalas / accountNameAr / accountType
+      // - server API routes: debit / credit / accountName.{ar,en}  (no accountType)
+      const accountName = line['accountName'] as Record<string, string> | undefined;
+      const nameAr  = String(line['accountNameAr'] ?? accountName?.['ar'] ?? '');
+      const nameEn  = String(line['accountNameEn'] ?? accountName?.['en'] ?? '');
+      const type    = String(line['accountType'] ?? '') || inferAccountType(code);
+      const drAmt   = Number(line['debitHalalas']  ?? line['debit']  ?? 0);
+      const crAmt   = Number(line['creditHalalas'] ?? line['credit'] ?? 0);
+
+      const entry = map.get(key) ?? { code, nameAr, nameEn, type, debitTotal: 0, creditTotal: 0 };
+      entry.debitTotal  += drAmt;
+      entry.creditTotal += crAmt;
+      if (!entry.nameAr && nameAr) entry.nameAr = nameAr;
+      if (!entry.nameEn && nameEn) entry.nameEn = nameEn;
+      if (!entry.type   && type)   entry.type   = type;
+      map.set(key, entry);
+    }
+  }
+  return map;
+}
+
 interface PendingStats {
   invoices: number;
   payments: number;
@@ -39,12 +85,10 @@ export function MigrationTool({ locale }: { locale: string }) {
 
   const busy = checking || migrating || rebuilding || resetting;
 
-  async function getMigratedIds(db: unknown) {
+  async function getMigratedIds(db: import('firebase/firestore').Firestore) {
     const { collection, query, where, getDocs } = await import('firebase/firestore');
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const snap = await getDocs(query((collection as any)(db, 'journal_entries'), (where as any)('agencyId', '==', agencyId)));
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    return new Set<string>(snap.docs.map((d: any) => d.data().referenceId as string).filter(Boolean));
+    const snap = await getDocs(query(collection(db, 'journal_entries'), where('agencyId', '==', agencyId)));
+    return new Set<string>(snap.docs.map(d => (d.data() as Record<string, unknown>)['referenceId'] as string).filter(Boolean));
   }
 
   async function checkPending() {
@@ -194,34 +238,10 @@ export function MigrationTool({ locale }: { locale: string }) {
 
       const jeSnap = await getDocs(query(collection(db, 'journal_entries'), where('agencyId', '==', agencyId)));
 
-      const accountMap = new Map<string, {
-        code: string; nameAr: string; nameEn: string; type: string;
-        debitTotal: number; creditTotal: number;
-      }>();
-
-      for (const jeDoc of jeSnap.docs) {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const lines = (jeDoc.data() as any).lines as Array<Record<string, unknown>> ?? [];
-        for (const line of lines) {
-          const code = String(line['accountCode'] ?? '');
-          if (!code) continue;
-          const key = `${agencyId}_${code}`;
-          const entry = accountMap.get(key) ?? {
-            code,
-            nameAr: String(line['accountNameAr'] ?? ''),
-            nameEn: String(line['accountNameEn'] ?? ''),
-            type:   String(line['accountType']   ?? ''),
-            debitTotal:  0,
-            creditTotal: 0,
-          };
-          entry.debitTotal  += Number(line['debitHalalas']  ?? 0);
-          entry.creditTotal += Number(line['creditHalalas'] ?? 0);
-          accountMap.set(key, entry);
-        }
-      }
+      const accountMap = buildAccountMap(jeSnap.docs as Array<{ data: () => Record<string, unknown> }>, agencyId);
 
       const batch = writeBatch(db);
-      for (const [docId, ac] of accountMap.entries()) {
+      for (const [docId, ac] of Array.from(accountMap.entries())) {
         batch.set(doc(db, 'chart_of_accounts', docId), {
           agencyId,
           code:           ac.code,
@@ -351,31 +371,9 @@ export function MigrationTool({ locale }: { locale: string }) {
       // ── Phase 3: Rebuild account balances from the fresh JEs ──────────────
       setProgress(isAr ? 'إعادة بناء الأرصدة...' : 'Rebuilding balances...');
       const freshJeSnap = await getDocs(query(collection(db, 'journal_entries'), where('agencyId', '==', agencyId)));
-      const accountMap = new Map<string, {
-        code: string; nameAr: string; nameEn: string; type: string;
-        debitTotal: number; creditTotal: number;
-      }>();
-      for (const jeDoc of freshJeSnap.docs) {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const lines = (jeDoc.data() as any).lines as Array<Record<string, unknown>> ?? [];
-        for (const line of lines) {
-          const code = String(line['accountCode'] ?? '');
-          if (!code) continue;
-          const key = `${agencyId}_${code}`;
-          const entry = accountMap.get(key) ?? {
-            code,
-            nameAr: String(line['accountNameAr'] ?? ''),
-            nameEn: String(line['accountNameEn'] ?? ''),
-            type:   String(line['accountType']   ?? ''),
-            debitTotal: 0, creditTotal: 0,
-          };
-          entry.debitTotal  += Number(line['debitHalalas']  ?? 0);
-          entry.creditTotal += Number(line['creditHalalas'] ?? 0);
-          accountMap.set(key, entry);
-        }
-      }
+      const accountMap = buildAccountMap(freshJeSnap.docs as Array<{ data: () => Record<string, unknown> }>, agencyId);
       const acBatch = writeBatch(db);
-      for (const [docId, ac] of accountMap.entries()) {
+      for (const [docId, ac] of Array.from(accountMap.entries())) {
         acBatch.set(doc(db, 'chart_of_accounts', docId), {
           agencyId,
           code: ac.code, nameAr: ac.nameAr, nameEn: ac.nameEn, type: ac.type,

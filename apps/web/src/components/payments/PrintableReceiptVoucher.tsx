@@ -22,6 +22,8 @@ export interface ReceiptVoucherData {
   agency: {
     nameAr: string;
     nameEn: string;
+    logoUrl?: string;
+    isVatRegistered?: boolean;
     address?: {
       streetName?: string;
       buildingNumber?: string;
@@ -125,16 +127,28 @@ export function PrintableReceiptVoucher({ data }: { data: ReceiptVoucherData }) 
             <p className="text-xl font-bold text-slate-900 leading-snug">{data.agency.nameAr}</p>
             {addrLine && <p className="text-xs text-slate-500 mt-0.5">{addrLine}</p>}
             {data.agency.phone && <p className="text-xs text-slate-500">{data.agency.phone}</p>}
-            {data.agency.vatNumber && (
+            {data.agency.isVatRegistered && data.agency.vatNumber && (
               <p className="text-xs text-slate-500">الرقم الضريبي: {data.agency.vatNumber}</p>
+            )}
+            {!data.agency.isVatRegistered && data.agency.crNumber && (
+              <p className="text-xs text-slate-500">س.ت: {data.agency.crNumber}</p>
             )}
           </div>
 
-          {/* Document title (center) */}
+          {/* Document title (center) — logo replaces "ق" when available */}
           <div className="text-center flex flex-col items-center gap-1">
-            <div className="w-14 h-14 rounded-xl bg-brand-50 border border-brand-200 flex items-center justify-center text-xl font-black text-brand-600 select-none">
-              ق
-            </div>
+            {data.agency.logoUrl ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={data.agency.logoUrl}
+                alt={data.agency.nameAr}
+                style={{ height: 56, width: 'auto', objectFit: 'contain', maxWidth: 120 }}
+              />
+            ) : (
+              <div className="w-14 h-14 rounded-xl bg-brand-50 border border-brand-200 flex items-center justify-center text-xl font-black text-brand-600 select-none">
+                ق
+              </div>
+            )}
             <p className="text-base font-black text-slate-900 tracking-tight mt-1">سند قبض</p>
             <p className="text-[10px] text-slate-500 tracking-widest uppercase">Receipt Voucher</p>
           </div>
@@ -144,6 +158,9 @@ export function PrintableReceiptVoucher({ data }: { data: ReceiptVoucherData }) 
             <p className="text-xl font-bold text-slate-900 leading-snug">{data.agency.nameEn}</p>
             {addrLine && <p className="text-xs text-slate-500 mt-0.5" dir="ltr">{addrLine}</p>}
             {data.agency.phone && <p className="text-xs text-slate-500" dir="ltr">{data.agency.phone}</p>}
+            {data.agency.isVatRegistered && data.agency.vatNumber && (
+              <p className="text-xs text-slate-500" dir="ltr">VAT: {data.agency.vatNumber}</p>
+            )}
             {data.agency.crNumber && (
               <p className="text-xs text-slate-500" dir="ltr">CR: {data.agency.crNumber}</p>
             )}

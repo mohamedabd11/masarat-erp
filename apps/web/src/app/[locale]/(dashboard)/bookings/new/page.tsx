@@ -7,6 +7,7 @@ import { useForm, useFieldArray } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { useAuth } from '@masarat/firebase';
+import { apiFetch } from '@/lib/api-client';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Card, CardHeader, CardTitle } from '@/components/ui/Card';
@@ -17,6 +18,8 @@ import {
   Plane, Building2, Package, Moon, Shield, Stamp, Car, Anchor, Users, Layers,
   X, Check, Search, UserPlus, FileText,
 } from 'lucide-react';
+import { CustomerSearch } from '@/components/customers/CustomerSearch';
+import { COUNTRIES } from '@/lib/countries';
 
 // ─── Service Types Catalog ─────────────────────────────────────────────────────
 
@@ -89,6 +92,8 @@ const formSchema = z.object({
   hotelName:    z.string().optional(),
   roomType:     z.string().optional(),
   boardType:    z.string().optional(),
+  hotelCheckIn:  z.string().optional(),
+  hotelCheckOut: z.string().optional(),
   makkahHotel:  z.string().optional(),
   makkahNights: z.coerce.number().optional(),
   madinahHotel: z.string().optional(),
@@ -116,101 +121,22 @@ const formSchema = z.object({
 
 type FormData = z.infer<typeof formSchema>;
 
-// ─── Customer Search ───────────────────────────────────────────────────────────
+// ─── API response types ────────────────────────────────────────────────────────
 
-interface CustomerRecord {
+interface ApiCustomer {
   id: string;
   nameAr: string;
-  nameEn?: string;
-  phone: string;
-  email?: string;
+  nameEn: string | null;
+  phone: string | null;
+  email: string | null;
 }
 
-function CustomerSearch({
-  isAr,
-  agencyId,
-  onSelect,
-}: {
-  isAr: boolean;
-  agencyId: string;
-  onSelect: (c: CustomerRecord) => void;
-}) {
-  const [query, setQuery]       = useState('');
-  const [results, setResults]   = useState<CustomerRecord[]>([]);
-  const [loading, setLoading]   = useState(false);
-  const [open, setOpen]         = useState(false);
-
-  useEffect(() => {
-    if (query.trim().length < 2) { setResults([]); return; }
-    let cancelled = false;
-    setLoading(true);
-
-    async function search() {
-      const { getFirestore, collection, query: fsQuery, where, limit, getDocs } =
-        await import('firebase/firestore');
-      const { getApp } = await import('@masarat/firebase');
-      const db = getFirestore(getApp());
-
-      const snap = await getDocs(
-        fsQuery(collection(db, 'customers'), where('agencyId', '==', agencyId), limit(200))
-      );
-
-      if (cancelled) return;
-      const q = query.toLowerCase();
-      const filtered = snap.docs
-        .map(d => ({ id: d.id, ...d.data() } as CustomerRecord))
-        .filter(c =>
-          (c.nameAr ?? '').includes(q) ||
-          (c.nameEn ?? '').toLowerCase().includes(q) ||
-          (c.phone ?? '').includes(q)
-        )
-        .slice(0, 8);
-
-      setResults(filtered);
-      setLoading(false);
-    }
-
-    void search();
-    return () => { cancelled = true; };
-  }, [query, agencyId]);
-
-  return (
-    <div className="relative">
-      <div className="relative">
-        <Search size={15} className="absolute start-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
-        <input
-          type="search"
-          value={query}
-          onFocus={() => setOpen(true)}
-          onBlur={() => setTimeout(() => setOpen(false), 200)}
-          onChange={e => { setQuery(e.target.value); setOpen(true); }}
-          placeholder={isAr ? 'ابحث بالاسم أو رقم الجوال...' : 'Search by name or phone...'}
-          className="w-full rounded-lg border border-slate-200 bg-white ps-9 pe-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
-        />
-        {loading && <Spinner size="sm" className="absolute end-3 top-1/2 -translate-y-1/2" />}
-      </div>
-
-      {open && results.length > 0 && (
-        <div className="absolute z-50 top-full mt-1 start-0 end-0 bg-white border border-slate-200 rounded-xl shadow-lg overflow-hidden">
-          {results.map(c => (
-            <button
-              key={c.id}
-              onMouseDown={() => { onSelect(c); setQuery(''); setOpen(false); }}
-              className="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-brand-50 transition-colors text-start"
-            >
-              <div className="w-8 h-8 rounded-full bg-brand-100 text-brand-700 flex items-center justify-center text-xs font-bold flex-shrink-0">
-                {(c.nameAr ?? c.nameEn ?? '?')[0]}
-              </div>
-              <div className="min-w-0">
-                <p className="text-sm font-medium text-slate-900 truncate">{c.nameAr ?? c.nameEn}</p>
-                <p className="text-xs text-slate-400">{c.phone}</p>
-              </div>
-            </button>
-          ))}
-        </div>
-      )}
-    </div>
-  );
+interface ApiServiceType {
+  id: string;
+  nameAr: string;
+  nameEn: string;
+  icon: string;
+  isActive: boolean;
 }
 
 // ─── Service Grid ─────────────────────────────────────────────────────────────
@@ -221,25 +147,20 @@ function ServiceGrid({ isAr, onSelect, onAddNew }: {
   onAddNew: () => void;
 }) {
   const { user } = useAuth();
-  const [customTypes, setCustomTypes] = useState<
-    Array<{ id: string; nameAr: string; nameEn: string; icon: string }>
-  >([]);
+  const [customTypes, setCustomTypes] = useState<ApiServiceType[]>([]);
 
   useEffect(() => {
-    if (!user?.agencyId) return;
-    let unsub: (() => void) | undefined;
+    if (!user) return;
+    let cancelled = false;
     async function load() {
-      const { getFirestore, collection, query, where, onSnapshot } = await import('firebase/firestore');
-      const { getApp } = await import('@masarat/firebase');
-      const db = getFirestore(getApp());
-      const q = query(collection(db, 'service_types'), where('agencyId', '==', user!.agencyId), where('isActive', '==', true));
-      unsub = onSnapshot(q, snap => {
-        setCustomTypes(snap.docs.map(d => ({ id: d.id, ...d.data() } as { id: string; nameAr: string; nameEn: string; icon: string })));
-      });
+      try {
+        const res = await apiFetch<{ serviceTypes: ApiServiceType[] }>('/api/service-types');
+        if (!cancelled) setCustomTypes(res.serviceTypes.filter(t => t.isActive));
+      } catch { /* non-critical — built-in types still shown */ }
     }
     void load();
-    return () => unsub?.();
-  }, [user?.agencyId]);
+    return () => { cancelled = true; };
+  }, [user]);
 
   return (
     <div className="max-w-4xl mx-auto space-y-6">
@@ -310,39 +231,86 @@ function ServiceFields({
   register: ReturnType<typeof useForm<FormData>>['register'];
 }) {
   if (type === 'flight' || type === 'flight_hotel') return (
-    <div className="grid grid-cols-2 gap-3">
-      <div>
-        <label className="block text-xs font-medium text-slate-600 mb-1">{isAr ? 'مدينة المغادرة' : 'From City'}</label>
-        <input className={IC} placeholder={isAr ? 'الرياض - RUH' : 'Riyadh - RUH'} {...register('fromCity')} />
+    <div className="space-y-4">
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <label className="block text-xs font-medium text-slate-600 mb-1">{isAr ? 'مدينة المغادرة' : 'From City'}</label>
+          <input className={IC} placeholder={isAr ? 'الرياض - RUH' : 'Riyadh - RUH'} {...register('fromCity')} />
+        </div>
+        <div>
+          <label className="block text-xs font-medium text-slate-600 mb-1">{isAr ? 'مدينة الوصول' : 'To City'}</label>
+          <input className={IC} placeholder={isAr ? 'جدة - JED' : 'Jeddah - JED'} {...register('toCity')} />
+        </div>
+        <div>
+          <label className="block text-xs font-medium text-slate-600 mb-1">{isAr ? 'تاريخ الذهاب' : 'Departure'}</label>
+          <input type="date" className={IC} {...register('departureDate')} />
+        </div>
+        <div>
+          <label className="block text-xs font-medium text-slate-600 mb-1">{isAr ? 'تاريخ العودة' : 'Return'}</label>
+          <input type="date" className={IC} {...register('returnDate')} />
+        </div>
+        <div>
+          <label className="block text-xs font-medium text-slate-600 mb-1">{isAr ? 'شركة الطيران' : 'Airline'}</label>
+          <input className={IC} placeholder={isAr ? 'الخطوط السعودية، flyadeal...' : 'Saudia, flyadeal...'} {...register('airline')} />
+        </div>
+        <div>
+          <label className="block text-xs font-medium text-slate-600 mb-1">{isAr ? 'رقم الرحلة / PNR' : 'Flight No / PNR'}</label>
+          <input className={IC} dir="ltr" placeholder="SV123 / ABC123" {...register('pnr')} />
+        </div>
+        <div className="col-span-2">
+          <label className="block text-xs font-medium text-slate-600 mb-1">{isAr ? 'الدرجة' : 'Cabin Class'}</label>
+          <select className={IC} {...register('flightClass')}>
+            <option value="economy">{isAr ? 'اقتصادية' : 'Economy'}</option>
+            <option value="business">{isAr ? 'رجال الأعمال' : 'Business'}</option>
+            <option value="first">{isAr ? 'الدرجة الأولى' : 'First Class'}</option>
+          </select>
+        </div>
       </div>
-      <div>
-        <label className="block text-xs font-medium text-slate-600 mb-1">{isAr ? 'مدينة الوصول' : 'To City'}</label>
-        <input className={IC} placeholder={isAr ? 'جدة - JED' : 'Jeddah - JED'} {...register('toCity')} />
-      </div>
-      <div>
-        <label className="block text-xs font-medium text-slate-600 mb-1">{isAr ? 'تاريخ الذهاب' : 'Departure'}</label>
-        <input type="date" className={IC} {...register('departureDate')} />
-      </div>
-      <div>
-        <label className="block text-xs font-medium text-slate-600 mb-1">{isAr ? 'تاريخ العودة' : 'Return'}</label>
-        <input type="date" className={IC} {...register('returnDate')} />
-      </div>
-      <div>
-        <label className="block text-xs font-medium text-slate-600 mb-1">{isAr ? 'شركة الطيران' : 'Airline'}</label>
-        <input className={IC} placeholder={isAr ? 'الخطوط السعودية، flyadeal...' : 'Saudia, flyadeal...'} {...register('airline')} />
-      </div>
-      <div>
-        <label className="block text-xs font-medium text-slate-600 mb-1">{isAr ? 'رقم الرحلة / PNR' : 'Flight No / PNR'}</label>
-        <input className={IC} dir="ltr" placeholder="SV123 / ABC123" {...register('pnr')} />
-      </div>
-      <div className="col-span-2">
-        <label className="block text-xs font-medium text-slate-600 mb-1">{isAr ? 'الدرجة' : 'Cabin Class'}</label>
-        <select className={IC} {...register('flightClass')}>
-          <option value="economy">{isAr ? 'اقتصادية' : 'Economy'}</option>
-          <option value="business">{isAr ? 'رجال الأعمال' : 'Business'}</option>
-          <option value="first">{isAr ? 'الدرجة الأولى' : 'First Class'}</option>
-        </select>
-      </div>
+
+      {type === 'flight_hotel' && (
+        <div className="border-t border-slate-200 pt-4">
+          <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-3">
+            {isAr ? '— تفاصيل الفندق —' : '— Hotel Details —'}
+          </p>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="col-span-2">
+              <label className="block text-xs font-medium text-slate-600 mb-1">{isAr ? 'اسم الفندق' : 'Hotel Name'}</label>
+              <input className={IC} placeholder={isAr ? 'اسم الفندق' : 'Hotel name'} {...register('hotelName')} />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-slate-600 mb-1">{isAr ? 'الوجهة / المدينة' : 'City / Destination'}</label>
+              <input className={IC} placeholder={isAr ? 'دبي، إسطنبول...' : 'Dubai, Istanbul...'} {...register('destination')} />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-slate-600 mb-1">{isAr ? 'نوع الغرفة' : 'Room Type'}</label>
+              <select className={IC} {...register('roomType')}>
+                <option value="single">{isAr ? 'مفردة' : 'Single'}</option>
+                <option value="double">{isAr ? 'مزدوجة' : 'Double'}</option>
+                <option value="triple">{isAr ? 'ثلاثية' : 'Triple'}</option>
+                <option value="suite">{isAr ? 'جناح' : 'Suite'}</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-slate-600 mb-1">{isAr ? 'تاريخ الدخول' : 'Check-in'}</label>
+              <input type="date" className={IC} {...register('hotelCheckIn')} />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-slate-600 mb-1">{isAr ? 'تاريخ المغادرة' : 'Check-out'}</label>
+              <input type="date" className={IC} {...register('hotelCheckOut')} />
+            </div>
+            <div className="col-span-2">
+              <label className="block text-xs font-medium text-slate-600 mb-1">{isAr ? 'الإقامة' : 'Board Type'}</label>
+              <select className={IC} {...register('boardType')}>
+                <option value="ro">{isAr ? 'غرفة فقط' : 'Room Only'}</option>
+                <option value="bb">{isAr ? 'إفطار' : 'Bed & Breakfast'}</option>
+                <option value="hb">{isAr ? 'نصف إقامة' : 'Half Board'}</option>
+                <option value="fb">{isAr ? 'إقامة كاملة' : 'Full Board'}</option>
+                <option value="ai">{isAr ? 'شامل' : 'All Inclusive'}</option>
+              </select>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 
@@ -497,23 +465,26 @@ function NewBookingContent() {
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError]   = useState('');
   const [agencyIsVatRegistered, setAgencyIsVatRegistered] = useState(false);
+  const [agencyVatRate, setAgencyVatRate] = useState(15);
+  const [selectedCustomer, setSelectedCustomer] = useState<{
+    id: string; nameAr: string; nameEn: string; phone: string; email: string;
+  } | null>(null);
 
-  // Load agency VAT registration status
+  // Load agency VAT registration status from REST API
   useEffect(() => {
     if (!agencyId) return;
+    let cancelled = false;
     async function loadVatStatus() {
       try {
-        const { getFirestore, doc, getDoc } = await import('firebase/firestore');
-        const { getApp } = await import('@masarat/firebase');
-        const db = getFirestore(getApp());
-        const snap = await getDoc(doc(db, 'agencies', agencyId));
-        if (snap.exists()) {
-          const d = snap.data();
-          setAgencyIsVatRegistered(d.isVatRegistered ?? (d.vatNumber ?? '').trim().length > 0);
+        const res = await apiFetch<{ agency: { isVatRegistered: boolean; vatNumber?: string; vatRate?: number } }>('/api/settings');
+        if (!cancelled) {
+          setAgencyIsVatRegistered(res.agency.isVatRegistered === true);
+          setAgencyVatRate(res.agency.vatRate ?? 15);
         }
       } catch { /* default to false */ }
     }
     void loadVatStatus();
+    return () => { cancelled = true; };
   }, [agencyId]);
 
   const {
@@ -523,7 +494,7 @@ function NewBookingContent() {
     resolver: zodResolver(formSchema),
     defaultValues: {
       revenueModel: 'agent',
-      travelers: [{ nameAr: '', nationality: 'SA', gender: 'male' }],
+      travelers: [{ nameAr: '', nationality: isAr ? 'السعودية' : 'Saudi Arabia', gender: 'male' }],
       costPriceSAR:  0,
       serviceFeeSAR: 0,
     },
@@ -538,13 +509,52 @@ function NewBookingContent() {
     if (found) { setSelType(t); setSelNames({ ar: found.ar, en: found.en }); setStep(1); }
   }, [params]);
 
+  // Pre-fill customer when navigated from a quote conversion
+  useEffect(() => {
+    const nameAr = params.get('customerNameAr');
+    const phone  = params.get('customerPhone');
+    const notes  = params.get('notes');
+    if (!nameAr) return;
+    setValue('customerName',  nameAr);
+    setValue('customerPhone', phone ?? '');
+    if (notes) setValue('notes', notes);
+  }, [params, setValue]);
+
+  // Pre-fill customer when navigated from customer detail page
+  useEffect(() => {
+    const custId = params.get('customerId');
+    if (!custId || !user) return;
+    let cancelled = false;
+    async function loadPrefilledCustomer() {
+      try {
+        const res = await apiFetch<{ customer: ApiCustomer }>(`/api/customers/${custId}`);
+        if (cancelled) return;
+        const d = res.customer;
+        const cust = {
+          id:     d.id,
+          nameAr: d.nameAr ?? '',
+          nameEn: d.nameEn ?? '',
+          phone:  d.phone  ?? '',
+          email:  d.email  ?? '',
+        };
+        setSelectedCustomer(cust);
+        setValue('customerId',    cust.id);
+        setValue('customerName',  cust.nameAr || cust.nameEn);
+        setValue('customerPhone', cust.phone);
+        setValue('customerEmail', cust.email);
+      } catch { /* non-critical — user can search manually */ }
+    }
+    void loadPrefilledCustomer();
+    return () => { cancelled = true; };
+  }, [params, user, setValue]);
+
   // ── Pricing (fixed: use Number() to avoid string concatenation) ──
   const costSAR    = Number(watch('costPriceSAR'))  || 0;
   const feeSAR     = Number(watch('serviceFeeSAR')) || 0;
   const model      = watch('revenueModel');
   const sellSAR    = model === 'agent' ? costSAR + feeSAR : costSAR;
   const vatBaseSAR = model === 'agent' ? feeSAR : sellSAR;
-  const vatSAR     = agencyIsVatRegistered ? Math.round(vatBaseSAR * 15) / 100 : 0;
+  const vatSAR     = agencyIsVatRegistered ? Math.round(vatBaseSAR * agencyVatRate) / 100 : 0;
   const totalSAR   = sellSAR + vatSAR;
   const loc2       = isAr ? 'ar-SA' : 'en-SA';
   const toH        = (n: number) => Math.round(n * 100);
@@ -565,9 +575,10 @@ function NewBookingContent() {
     setSubmitting(true);
     setFormError('');
     try {
-      const { getFirestore, collection, addDoc, Timestamp } = await import('firebase/firestore');
-      const { getApp } = await import('@masarat/firebase');
-      const db = getFirestore(getApp());
+      const { getAuth } = await import('firebase/auth');
+      const { getApp }  = await import('@masarat/firebase');
+      const token = await getAuth(getApp()).currentUser?.getIdToken();
+      if (!token) throw new Error('no token');
 
       const costH  = toH(data.costPriceSAR ?? 0);
       const feeH   = toH(data.serviceFeeSAR ?? 0);
@@ -576,56 +587,54 @@ function NewBookingContent() {
       const vatH   = agencyIsVatRegistered ? Math.round(vBase * 0.15) : 0;
       const totalH = sell + vatH;
 
-      const year = new Date().getFullYear();
-      const bookingNumber = `BK-${year}-${String(Date.now()).slice(-6)}`;
-
-      const ref = await addDoc(collection(db, 'bookings'), {
-        agencyId,
-        bookingNumber,
-        type:         selType,
-        status:       'confirmed',
-        customerName: { ar: data.customerName, en: data.customerName },
-        customerPhone: data.customerPhone,
-        customerEmail: data.customerEmail ?? '',
-        customerId:    data.customerId ?? '',
-        agentId:      user.uid,
-        agentName:    user.displayName ?? '',
-        passengers: data.travelers.map((t, i) => ({
-          order: i + 1, type: 'adult',
-          nameAr: t.nameAr ?? '', nameEn: t.nameEn ?? t.nameAr ?? '',
-          passportNumber: t.passportNumber ?? '',
-          passportExpiry: t.passportExpiry ?? '',
-          nationality:    t.nationality ?? 'SA',
-          dateOfBirth:    t.dateOfBirth ?? '',
-          gender:         t.gender ?? 'male',
-          customerId: '',
-        })),
-        pricing: {
-          revenueModel: data.revenueModel, currency: 'SAR',
-          totalCost: costH, serviceFee: feeH, vatAmount: vatH,
-          totalAmount: totalH, commission: feeH,
-        },
-        paymentStatus: 'unpaid', totalPaid: 0, totalDue: totalH, invoiceIds: [],
-        supplierName:  data.supplierName ?? '',
-        supplierRef:   data.supplierRef  ?? '',
-        destination:   data.destination  ?? data.visaCountry ?? data.toCity ?? '',
-        travelDate:    data.departureDate ? Timestamp.fromDate(new Date(data.departureDate)) : Timestamp.now(),
-        returnDate:    data.returnDate    ? Timestamp.fromDate(new Date(data.returnDate))    : null,
-        notes:         data.notes ?? '',
-        details: {
-          fromCity: data.fromCity ?? null, toCity: data.toCity ?? null,
-          airline: data.airline ?? null, flightClass: data.flightClass ?? null, pnr: data.pnr ?? null,
-          hotelName: data.hotelName ?? null, roomType: data.roomType ?? null, boardType: data.boardType ?? null,
-          makkahHotel: data.makkahHotel ?? null, makkahNights: data.makkahNights ?? null,
-          madinahHotel: data.madinahHotel ?? null, madinahNights: data.madinahNights ?? null,
-          visaCountry: data.visaCountry ?? null, visaType: data.visaType ?? null,
-          visaProcessing: data.visaProcessing ?? null, visaEntries: data.visaEntries ?? null,
-        },
-        customFields: {}, source: 'web',
-        createdAt: Timestamp.now(), updatedAt: Timestamp.now(), createdBy: user.uid,
+      const res = await fetch('/api/bookings/create', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          type:         selType,
+          customerName: { ar: data.customerName, en: data.customerName },
+          customerPhone: data.customerPhone,
+          customerEmail: data.customerEmail ?? '',
+          customerId:    data.customerId ?? '',
+          passengers: data.travelers.map((t, i) => ({
+            order: i + 1, type: 'adult',
+            nameAr: t.nameAr ?? '', nameEn: t.nameEn ?? t.nameAr ?? '',
+            passportNumber: t.passportNumber ?? '',
+            passportExpiry: t.passportExpiry ?? '',
+            nationality:    t.nationality ?? 'SA',
+            dateOfBirth:    t.dateOfBirth ?? '',
+            gender:         t.gender ?? 'male',
+            customerId: '',
+          })),
+          pricing: {
+            revenueModel: data.revenueModel, currency: 'SAR',
+            totalCost: costH, serviceFee: feeH, vatAmount: vatH,
+            totalAmount: totalH, commission: feeH,
+          },
+          supplierName:  data.supplierName ?? '',
+          supplierRef:   data.supplierRef  ?? '',
+          destination:   data.destination  ?? data.visaCountry ?? data.toCity ?? '',
+          travelDate:    data.departureDate ?? null,
+          returnDate:    data.returnDate    ?? null,
+          notes:         data.notes ?? '',
+          details: {
+            fromCity: data.fromCity ?? null, toCity: data.toCity ?? null,
+            airline: data.airline ?? null, flightClass: data.flightClass ?? null, pnr: data.pnr ?? null,
+            hotelName: data.hotelName ?? null, roomType: data.roomType ?? null, boardType: data.boardType ?? null,
+            hotelCheckIn: data.hotelCheckIn ?? null, hotelCheckOut: data.hotelCheckOut ?? null,
+            hotelDestination: data.destination ?? null,
+            makkahHotel: data.makkahHotel ?? null, makkahNights: data.makkahNights ?? null,
+            madinahHotel: data.madinahHotel ?? null, madinahNights: data.madinahNights ?? null,
+            visaCountry: data.visaCountry ?? null, visaType: data.visaType ?? null,
+            visaProcessing: data.visaProcessing ?? null, visaEntries: data.visaEntries ?? null,
+          },
+        }),
       });
 
-      router.push(`/${locale}/bookings/${ref.id}`);
+      const json = await res.json() as { bookingId?: string; error?: string };
+      if (!res.ok) throw new Error(json.error ?? 'server error');
+
+      router.push(`/${locale}/bookings/${json.bookingId}`);
     } catch (err) {
       console.error('Booking save error:', err);
       setFormError(isAr ? 'حدث خطأ أثناء الحفظ، حاول مرة أخرى' : 'Error saving, please try again');
@@ -713,7 +722,7 @@ function NewBookingContent() {
         {/* ── Step 1: Customer ────────────────────────────────────────────── */}
         {formStep === 0 && (
           <div className="space-y-4">
-            {/* Customer search */}
+            {/* Customer search / selected customer */}
             {agencyId && (
               <Card>
                 <CardHeader>
@@ -722,16 +731,55 @@ function NewBookingContent() {
                     {isAr ? 'ابحث عن عميل موجود' : 'Search Existing Customer'}
                   </CardTitle>
                 </CardHeader>
-                <CustomerSearch
-                  isAr={isAr}
-                  agencyId={agencyId}
-                  onSelect={c => {
-                    setValue('customerId',    c.id);
-                    setValue('customerName',  c.nameAr ?? c.nameEn ?? '');
-                    setValue('customerPhone', c.phone ?? '');
-                    setValue('customerEmail', c.email ?? '');
-                  }}
-                />
+
+                {/* Selected customer chip */}
+                {selectedCustomer ? (
+                  <div className="flex items-center gap-3 p-3 bg-brand-50 border border-brand-200 rounded-xl mb-2">
+                    <div className="w-9 h-9 rounded-full bg-brand-600 flex items-center justify-center text-white text-sm font-bold flex-shrink-0">
+                      {selectedCustomer.nameAr[0] ?? '؟'}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-bold text-slate-900 truncate">{selectedCustomer.nameAr}</p>
+                      {selectedCustomer.nameEn && (
+                        <p className="text-xs text-slate-400 truncate">{selectedCustomer.nameEn}</p>
+                      )}
+                      <p className="text-xs text-slate-500" dir="ltr">{selectedCustomer.phone}</p>
+                    </div>
+                    <button
+                      type="button"
+                      title={isAr ? 'تغيير العميل' : 'Change customer'}
+                      onClick={() => {
+                        setSelectedCustomer(null);
+                        setValue('customerId',    '');
+                        setValue('customerName',  '');
+                        setValue('customerPhone', '');
+                        setValue('customerEmail', '');
+                      }}
+                      className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+                    >
+                      <X size={15} />
+                    </button>
+                  </div>
+                ) : (
+                  <CustomerSearch
+                    agencyId={agencyId}
+                    onSelect={c => {
+                      const cust = {
+                        id:     c.id,
+                        nameAr: c.nameAr ?? c.nameEn ?? '',
+                        nameEn: c.nameEn ?? '',
+                        phone:  c.phone  ?? '',
+                        email:  c.email  ?? '',
+                      };
+                      setSelectedCustomer(cust);
+                      setValue('customerId',    cust.id);
+                      setValue('customerName',  cust.nameAr || cust.nameEn);
+                      setValue('customerPhone', cust.phone);
+                      setValue('customerEmail', cust.email);
+                    }}
+                  />
+                )}
+
                 <p className="text-xs text-slate-400 mt-2">
                   {isAr ? 'أو أدخل بيانات عميل جديد أدناه' : 'Or enter new customer details below'}
                 </p>
@@ -873,7 +921,7 @@ function NewBookingContent() {
                       </div>
                       <div>
                         <label className="block text-[11px] font-medium text-slate-500 mb-1">{isAr ? 'الجنسية' : 'Nationality'}</label>
-                        <input className={IC} placeholder="SA" dir="ltr" {...register(`travelers.${idx}.nationality`)} />
+                        <input className={IC} list="countries-datalist" placeholder={isAr ? 'اختر أو اكتب...' : 'Select or type...'} {...register(`travelers.${idx}.nationality`)} />
                       </div>
                       <div>
                         <label className="block text-[11px] font-medium text-slate-500 mb-1">{isAr ? 'الجنس' : 'Gender'}</label>
@@ -1037,6 +1085,12 @@ function NewBookingContent() {
           </div>
         )}
       </form>
+
+      <datalist id="countries-datalist">
+        {COUNTRIES.map(c => (
+          <option key={c.code} value={isAr ? c.ar : c.en} />
+        ))}
+      </datalist>
     </div>
   );
 }

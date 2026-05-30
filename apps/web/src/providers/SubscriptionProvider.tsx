@@ -2,6 +2,7 @@
 
 import { createContext, useContext, useState, useEffect, type ReactNode } from 'react';
 import { useAuth } from '@masarat/firebase';
+import { planCanAccess, type FeatureKey } from '@/lib/plan-features';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -15,6 +16,7 @@ interface SubscriptionContextValue {
   isExpired:     boolean;
   isLifetime:    boolean;
   isLoading:     boolean;
+  canAccess:     (feature: FeatureKey) => boolean;
 }
 
 const SubscriptionContext = createContext<SubscriptionContextValue>({
@@ -25,6 +27,7 @@ const SubscriptionContext = createContext<SubscriptionContextValue>({
   isExpired:     false,
   isLifetime:    false,
   isLoading:     true,
+  canAccess:     () => true,
 });
 
 export function useSubscription() {
@@ -33,8 +36,10 @@ export function useSubscription() {
 
 // ─── Provider ─────────────────────────────────────────────────────────────────
 
+const SUPER_ADMIN_EMAIL = process.env['NEXT_PUBLIC_SUPER_ADMIN_EMAIL'] ?? '';
+
 export function SubscriptionProvider({ children }: { children: ReactNode }) {
-  const { user } = useAuth();
+  const { user, loading: authLoading } = useAuth();
   const [status,        setStatus]        = useState<SubscriptionStatus>('loading');
   const [plan,          setPlan]          = useState('');
   const [agencyName,    setAgencyName]    = useState('');
@@ -44,51 +49,51 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
   const isSuperAdmin = user?.email === process.env['NEXT_PUBLIC_SUPER_ADMIN_EMAIL'];
 
   useEffect(() => {
+    // Wait for Firebase Auth to resolve before making any access decision.
+    // Without this guard the effect fires with user=null, sets isLoading=false
+    // immediately, and UpgradeGate briefly flashes the "upgrade" screen.
+    if (authLoading) return;
+
     if (isSuperAdmin) { setStatus('active'); setPlan('super_admin'); setIsLoading(false); return; }
 
     const agencyId = user?.agencyId as string | undefined;
     if (!agencyId) { setIsLoading(false); return; }
 
-    let unsub: (() => void) | undefined;
+    setIsLoading(true);   // reset while fetching — prevents stale state between user switches
+    let cancelled = false;
 
     async function load() {
-      const { getFirestore, doc, onSnapshot } = await import('firebase/firestore');
-      const { getApp }                        = await import('@masarat/firebase');
-      const db = getFirestore(getApp());
+      try {
+        const { apiFetch } = await import('@/lib/api-client');
+        const data = await apiFetch<{ agency: { subscriptionStatus: string; plan: string; nameAr: string; nameEn?: string; trialEndDate?: string } }>('/api/settings');
+        if (cancelled) return;
+        const { agency } = data;
+        const sub = (agency.subscriptionStatus ?? 'active') as SubscriptionStatus;
+        setAgencyName(agency.nameAr ?? agency.nameEn ?? '');
+        setPlan(agency.plan ?? '');
 
-      unsub = onSnapshot(doc(db, 'agencies', agencyId!), snap => {
-        if (!snap.exists()) {
-          setStatus('cancelled');
-          setIsLoading(false);
-          return;
-        }
-
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const d   = snap.data() as Record<string, any>;
-        const sub = (d.subscriptionStatus ?? 'active') as SubscriptionStatus;
-        setStatus(sub);
-        setPlan(d.plan ?? '');
-        setAgencyName(d.nameAr ?? d.nameEn ?? '');
-
-        if (sub === 'trial') {
-          const trialEnd: Date | null = d.trialEndDate?.toDate?.() ?? null;
-          if (trialEnd) {
-            const days = Math.ceil((trialEnd.getTime() - Date.now()) / 86_400_000);
-            setDaysRemaining(Math.max(0, days));
-          } else {
-            setDaysRemaining(14);
-          }
-        } else {
-          setDaysRemaining(null);
-        }
-
-        setIsLoading(false);
-      });
+        // Compute trial days from trialEndDate regardless of subscriptionStatus.
+        // If the trial window is still open, treat the session as 'trial' so all
+        // features remain accessible even when the stored plan is 'starter'.
+        const trialDaysLeft = agency.trialEndDate
+          ? Math.ceil((new Date(agency.trialEndDate).getTime() - Date.now()) / 86_400_000)
+          : null;
+        const stillInTrial = trialDaysLeft !== null && trialDaysLeft > 0
+          && sub !== 'cancelled' && sub !== 'past_due';
+        setStatus(stillInTrial ? 'trial' : sub);
+        setDaysRemaining(trialDaysLeft !== null ? Math.max(0, trialDaysLeft) : null);
+      } catch {
+        // On network / token errors: default to full trial access.
+        // plan='trial' ensures canAccess() grants rank-10 (all features unlocked).
+        if (!cancelled) { setStatus('trial'); setPlan('trial'); setDaysRemaining(null); }
+      } finally {
+        if (!cancelled) setIsLoading(false);
+      }
     }
 
     void load();
-    return () => unsub?.();
-  }, [user?.agencyId, isSuperAdmin]);
+    return () => { cancelled = true; };
+  }, [user?.agencyId, isSuperAdmin, authLoading]);
 
   const isLifetime = status === 'lifetime';
 
@@ -98,8 +103,15 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
     status === 'cancelled'
   );
 
+  // Optimistic while loading; super-admin and trial always pass
+  function canAccess(feature: FeatureKey): boolean {
+    if (isLoading || isSuperAdmin) return true;
+    if (status === 'trial' || plan === 'trial' || plan === 'lifetime') return true;
+    return planCanAccess(plan, feature);
+  }
+
   return (
-    <SubscriptionContext.Provider value={{ status, plan, agencyName, daysRemaining, isExpired, isLifetime, isLoading }}>
+    <SubscriptionContext.Provider value={{ status, plan, agencyName, daysRemaining, isExpired, isLifetime, isLoading, canAccess }}>
       {children}
     </SubscriptionContext.Provider>
   );

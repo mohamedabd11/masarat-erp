@@ -16,6 +16,9 @@ const refundSchema = z.object({
   refundAmountSAR: z.coerce.number().min(0),
   cancellationFeeSAR: z.coerce.number().min(0),
   reason: z.string().min(5),
+}).refine(d => d.refundAmountSAR >= d.cancellationFeeSAR, {
+  message: 'رسوم الإلغاء لا يمكن أن تتجاوز مبلغ الاسترداد',
+  path: ['cancellationFeeSAR'],
 });
 
 type RefundFormData = z.infer<typeof refundSchema>;
@@ -64,12 +67,14 @@ export function ProcessRefundModal({
   async function onSubmit(data: RefundFormData) {
     if (!confirmed) { setConfirmed(true); return; }
     try {
+      const grossHalalas = Math.round(data.refundAmountSAR * 100);
+      const feeHalalas = Math.round(data.cancellationFeeSAR * 100);
       await processRefund({
         bookingId,
         invoiceId,
         agencyId,
-        refundAmountHalalas: Math.round(data.refundAmountSAR * 100),
-        cancellationFeeHalalas: Math.round(data.cancellationFeeSAR * 100),
+        refundAmountHalalas: grossHalalas - feeHalalas,
+        cancellationFeeHalalas: feeHalalas,
         reason: data.reason,
       });
       setSuccess(true);
@@ -147,7 +152,7 @@ export function ProcessRefundModal({
                 <span>- {formatCurrency(Math.round(cancellationFeeSAR * 100), isAr ? 'ar-SA' : 'en-SA')}</span>
               </div>
               <div className="flex justify-between font-bold text-slate-900 border-t border-slate-200 pt-2">
-                <span>{isAr ? 'صافي المسترد' : 'Net Refund'}</span>
+                <span>{isAr ? 'مبلغ الإشعار الدائن' : 'Credit Note Amount'}</span>
                 <span className="text-emerald-600">{formatCurrency(Math.round(netRefundSAR * 100), isAr ? 'ar-SA' : 'en-SA')}</span>
               </div>
             </div>

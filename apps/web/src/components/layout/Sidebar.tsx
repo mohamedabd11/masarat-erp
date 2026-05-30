@@ -2,16 +2,19 @@
 
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import { useLocale } from 'next-intl';
 import { useAuth } from '@masarat/firebase';
 import { cn } from '@/lib/utils';
+import { MasaratLogo } from '@/components/ui/MasaratLogo';
+import { useSubscription } from '@/providers/SubscriptionProvider';
+import { type FeatureKey } from '@/lib/plan-features';
 import {
   LayoutDashboard, ClipboardList, Users, Plane, Building2, Package,
   Moon, Shield, Stamp, FileText, Receipt, BarChart3, Truck, UserCog,
   Settings, HelpCircle, ChevronLeft, ChevronRight, Calculator,
   Anchor, Car, Train, Camera, Mountain, Plus, Layers, Landmark, Send, Wallet,
-  TrendingDown,
+  TrendingDown, TrendingUp, Lock,
 } from 'lucide-react';
 
 // ─── Icon map for custom service types ────────────────────────────────────────
@@ -45,6 +48,7 @@ interface NavItem {
   icon: React.ReactNode;
   labelAr: string;
   labelEn: string;
+  feature?: FeatureKey;
 }
 
 interface NavGroup {
@@ -75,12 +79,13 @@ const FINANCE_GROUP: NavGroup = {
   labelAr: 'المالية',
   labelEn: 'Finance',
   items: [
-    { key: 'invoices',          href: '/invoices',          icon: <FileText size={18} />,     labelAr: 'الفواتير',           labelEn: 'Invoices' },
-    { key: 'payments',          href: '/payments',          icon: <Receipt size={18} />,      labelAr: 'المدفوعات',          labelEn: 'Payments' },
-    { key: 'supplier_payments', href: '/supplier-payments', icon: <TrendingDown size={18} />, labelAr: 'سندات صرف الموردين', labelEn: 'Supplier Payments' },
-    { key: 'cheques',           href: '/cheques',           icon: <Landmark size={18} />,     labelAr: 'الشيكات',            labelEn: 'Cheques' },
-    { key: 'banking',           href: '/banking',           icon: <Wallet size={18} />,       labelAr: 'البنوك والصناديق',   labelEn: 'Banks & Cash' },
-    { key: 'accounting',        href: '/accounting',        icon: <Calculator size={18} />,   labelAr: 'المحاسبة',           labelEn: 'Accounting' },
+    { key: 'invoices',          href: '/invoices',          icon: <FileText size={18} />,     labelAr: 'الفواتير',           labelEn: 'Invoices',          feature: 'invoices' },
+    { key: 'payments',          href: '/payments',          icon: <Receipt size={18} />,      labelAr: 'المدفوعات',          labelEn: 'Payments',          feature: 'payments' },
+    { key: 'receipt_vouchers',  href: '/receipt-vouchers',  icon: <TrendingUp size={18} />,   labelAr: 'سندات القبض',        labelEn: 'Receipt Vouchers',  feature: 'receipt_vouchers' },
+    { key: 'supplier_payments', href: '/supplier-payments', icon: <TrendingDown size={18} />, labelAr: 'سندات الصرف',        labelEn: 'Payment Vouchers',  feature: 'supplier_payments' },
+    { key: 'cheques',           href: '/cheques',           icon: <Landmark size={18} />,     labelAr: 'الشيكات',            labelEn: 'Cheques',           feature: 'cheques' },
+    { key: 'banking',           href: '/banking',           icon: <Wallet size={18} />,       labelAr: 'البنوك والصناديق',   labelEn: 'Banks & Cash',      feature: 'banking' },
+    { key: 'accounting',        href: '/accounting',        icon: <Calculator size={18} />,   labelAr: 'المحاسبة',           labelEn: 'Accounting',        feature: 'accounting' },
   ],
 };
 
@@ -89,10 +94,10 @@ const MANAGEMENT_GROUP: NavGroup = {
   labelAr: 'الإدارة',
   labelEn: 'Management',
   items: [
-    { key: 'customers', href: '/customers', icon: <Users size={18} />,    labelAr: 'العملاء',   labelEn: 'Customers' },
-    { key: 'suppliers', href: '/suppliers', icon: <Truck size={18} />,    labelAr: 'الموردون',  labelEn: 'Suppliers' },
-    { key: 'employees', href: '/employees', icon: <UserCog size={18} />,  labelAr: 'الموظفون',  labelEn: 'Employees' },
-    { key: 'reports',   href: '/reports',   icon: <BarChart3 size={18} />, labelAr: 'التقارير',  labelEn: 'Reports' },
+    { key: 'customers', href: '/customers', icon: <Users size={18} />,    labelAr: 'العملاء',         labelEn: 'Customers',  feature: 'customers' },
+    { key: 'suppliers', href: '/suppliers', icon: <Truck size={18} />,    labelAr: 'الموردين',        labelEn: 'Suppliers',  feature: 'suppliers' },
+    { key: 'employees', href: '/employees', icon: <UserCog size={18} />,  labelAr: 'إدارة الموظفين', labelEn: 'Employees',  feature: 'employees' },
+    { key: 'reports',   href: '/reports',   icon: <BarChart3 size={18} />, labelAr: 'التقارير',       labelEn: 'Reports',    feature: 'reports' },
   ],
 };
 
@@ -110,38 +115,27 @@ interface SidebarProps {
 export function Sidebar({ collapsed = false, onToggle, onClose }: SidebarProps) {
   const locale = useLocale();
   const pathname = usePathname();
+  const router = useRouter();
   const isAr = locale === 'ar';
   const { user } = useAuth();
+  const agencyId = user?.agencyId ?? null;
+  const { canAccess } = useSubscription();
   const [customTypes, setCustomTypes] = useState<CustomServiceType[]>([]);
-  const [logoUrl, setLogoUrl] = useState('');
 
   useEffect(() => {
-    if (!user?.agencyId) return;
-    let unsub: (() => void) | undefined;
+    if (!agencyId) return;
 
+    let cancelled = false;
     async function load() {
-      const { getFirestore, collection, query, where, onSnapshot, doc } = await import('firebase/firestore');
-      const { getApp } = await import('@masarat/firebase');
-      const db = getFirestore(getApp());
-
-      // Listen to agency logo changes
-      onSnapshot(doc(db, 'agencies', user!.agencyId), snap => {
-        setLogoUrl((snap.data()?.logoUrl as string) ?? '');
-      });
-
-      const q = query(
-        collection(db, 'service_types'),
-        where('agencyId', '==', user!.agencyId),
-        where('isActive', '==', true),
-      );
-      unsub = onSnapshot(q, snap => {
-        setCustomTypes(snap.docs.map(d => ({ id: d.id, ...d.data() } as CustomServiceType)));
-      });
+      try {
+        const { apiFetch } = await import('@/lib/api-client');
+        const data = await apiFetch<{ serviceTypes: CustomServiceType[] }>('/api/service-types');
+        if (!cancelled) setCustomTypes(data.serviceTypes);
+      } catch { /* silently ignore */ }
     }
-
     void load();
-    return () => unsub?.();
-  }, [user?.agencyId]);
+    return () => { cancelled = true; };
+  }, [agencyId]);
 
   function isActive(href: string): boolean {
     const fullHref = `/${locale}${href}`;
@@ -158,21 +152,40 @@ export function Sidebar({ collapsed = false, onToggle, onClose }: SidebarProps) 
     : collapsed ? ChevronRight : ChevronLeft;
 
   function NavLink({ item, active }: { item: NavItem; active: boolean }) {
+    const locked = item.feature ? !canAccess(item.feature) : false;
+
+    function handleClick(e: React.MouseEvent) {
+      if (locked) {
+        e.preventDefault();
+        router.push(buildHref('/settings?tab=billing'));
+        return;
+      }
+      onClose?.();
+    }
+
     return (
       <Link
         href={buildHref(item.href)}
         title={collapsed ? (isAr ? item.labelAr : item.labelEn) : undefined}
-        onClick={onClose}
+        onClick={handleClick}
         className={cn(
-          'flex items-center rounded-lg transition-colors duration-150 text-sm font-medium',
-          collapsed ? 'justify-center px-2 py-2.5' : 'gap-3 px-3 py-2',
-          active
-            ? 'bg-brand-50 text-brand-700'
-            : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900',
+          'flex items-center rounded-xl transition-all duration-150 text-sm font-medium',
+          collapsed ? 'justify-center px-2 py-2.5' : 'gap-3 px-3 py-2.5',
+          locked
+            ? 'text-slate-400 hover:bg-slate-50 cursor-pointer'
+            : active
+              ? 'bg-brand-600 text-white shadow-sm'
+              : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900',
         )}
       >
-        <span className={cn('flex-shrink-0', active ? 'text-brand-600' : '')}>{item.icon}</span>
-        {!collapsed && <span className="truncate">{isAr ? item.labelAr : item.labelEn}</span>}
+        <span className={cn('flex-shrink-0', locked ? 'opacity-40' : active ? 'text-white' : '')}>{item.icon}</span>
+        {!collapsed && (
+          <>
+            <span className="truncate flex-1">{isAr ? item.labelAr : item.labelEn}</span>
+            {locked && <Lock size={12} className="flex-shrink-0 text-slate-300" />}
+          </>
+        )}
+        {/* In collapsed mode, locked items appear at reduced opacity */}
       </Link>
     );
   }
@@ -182,30 +195,23 @@ export function Sidebar({ collapsed = false, onToggle, onClose }: SidebarProps) 
   return (
     <aside
       className={cn(
-        'flex flex-col h-full bg-white border-e border-surface-border',
+        'flex flex-col h-full border-e border-surface-border',
         'transition-all duration-300 ease-in-out',
         collapsed ? 'w-16' : 'w-64',
       )}
+      style={{ background: 'linear-gradient(180deg, #f8faff 0%, #ffffff 120px)' }}
     >
       {/* Logo */}
       <div className={cn(
-        'flex items-center border-b border-surface-border flex-shrink-0',
-        collapsed ? 'h-16 justify-center px-2' : 'h-16 px-5 gap-3',
+        'flex items-center justify-center flex-shrink-0',
+        collapsed
+          ? 'h-16 px-2 border-b border-slate-100'
+          : 'h-32 px-6 border-b border-slate-100',
       )}>
-        <div className="flex items-center justify-center w-9 h-9 flex-shrink-0 overflow-hidden">
-          {logoUrl
-            ? <img src={logoUrl} alt="logo" className="w-full h-full object-contain rounded-lg" />
-            : <img src="/logo-mark.svg" alt="مسارات" className="w-full h-full" />
-          }
-        </div>
-        {!collapsed && (
-          <div className="min-w-0">
-            <div className="font-bold text-slate-900 text-base leading-tight">مسارات</div>
-            <div className="text-xs text-slate-400 font-light">
-              {isAr ? 'نظام إدارة الوكالات' : 'Travel Agency ERP'}
-            </div>
-          </div>
-        )}
+        {collapsed
+          ? <MasaratLogo size={42} variant="icon" />
+          : <MasaratLogo size={110} variant="full" />
+        }
       </div>
 
       {/* Navigation */}

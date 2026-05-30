@@ -2,34 +2,32 @@
 
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
-import { useAuth } from '@masarat/firebase';
 import { Card, CardHeader, CardTitle } from '@/components/ui/Card';
+import { apiFetch } from '@/lib/api-client';
 import { InvoiceStatusBadge } from '@/components/ui/StatusBadge';
 import { Spinner } from '@/components/ui/Spinner';
 import { formatCurrency, formatDate } from '@/lib/utils';
 import { cn } from '@/lib/utils';
 import {
   ArrowRight, ArrowLeft, Printer, Building2, User,
-  CalendarDays, Hash, ShieldCheck,
+  CalendarDays, Hash, ShieldCheck, Receipt, CheckCircle2,
 } from 'lucide-react';
+import { ProcessPaymentModal } from '@/components/bookings/ProcessPaymentModal';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 type ZatcaStatus = 'not_submitted' | 'submitted' | 'reported' | 'cleared' | 'rejected';
 
 interface InvoiceLine {
-  id: string;
-  nameAr: string;
-  nameEn: string;
-  quantity: number;
-  unitCode: string;
-  unitPriceExclVatHalalas: number;
-  totalExclVatHalalas: number;
-  vatRate: number;
-  vatAmountHalalas: number;
-  totalInclVatHalalas: number;
+  description:      string;
+  descriptionEn?:   string | null;
+  quantity:         number;
+  unitPriceHalalas: number;
+  vatHalalas:       number;
+  totalHalalas:     number;
 }
 
+// Postgres-backed invoice (flat fields from the invoices table)
 interface FirestoreInvoice {
   id: string;
   agencyId: string;
@@ -38,29 +36,31 @@ interface FirestoreInvoice {
   type: string;
   invoiceNumber: string;
   status: string;
-  paymentStatus: string;
-  amountPaid: number;
-  amountDue: number;
-  buyer?: { id?: string; name?: { ar?: string; en?: string }; phone?: string; vatNumber?: string };
-  seller?: {
-    name?: { ar?: string; en?: string };
-    vatNumber?: string;
-    crNumber?: string;
-    address?: Record<string, string>;
-    phone?: string;
-    email?: string;
-  };
-  totals?: { subtotalExclVat?: number; totalVat?: number; grandTotal?: number };
-  lines?: InvoiceLine[];
-  zatca?: {
-    invoiceUUID?: string;
-    invoiceTypeCode?: string;
-    submissionStatus?: ZatcaStatus;
-    qrCodeData?: string;
-  };
-  issueDate?: { toDate?: () => Date };
-  dueDate?: { toDate?: () => Date };
-  createdAt?: { toDate?: () => Date };
+  // Postgres uses status for payment status; no separate paymentStatus field
+  paymentStatus?: string;
+  paidHalalas: number;
+  subtotalHalalas: number;
+  vatHalalas: number;
+  totalHalalas: number;
+  // flat buyer fields
+  buyerNameAr?: string;
+  buyerNameEn?: string;
+  buyerPhone?: string;
+  buyerNationalId?: string;
+  // flat seller fields
+  sellerNameAr?: string;
+  sellerNameEn?: string;
+  sellerVatNumber?: string;
+  sellerCrNumber?: string;
+  sellerAddress?: string;
+  // items as JSON
+  items?: InvoiceLine[] | null;
+  // dates as ISO strings
+  issueDate?: string;
+  dueDate?: string | null;
+  createdAt?: string;
+  zatcaUuid?: string;
+  isEInvoice?: boolean;
 }
 
 // ─── ZATCA status styling ──────────────────────────────────────────────────────
@@ -83,73 +83,41 @@ interface InvoiceDetailClientProps {
 export function InvoiceDetailClient({ locale, invoiceId }: InvoiceDetailClientProps) {
   const isAr = locale === 'ar';
   const fmtLocale = isAr ? 'ar-SA' : 'en-SA';
-  const { user } = useAuth();
   const [invoice, setInvoice] = useState<FirestoreInvoice | null>(null);
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
   const [isVatRegistered, setIsVatRegistered] = useState(false);
   const [resolvedBookingNumber, setResolvedBookingNumber] = useState<string | null>(null);
+  const [amountDue, setAmountDue]   = useState(0);
+  const [amountPaid, setAmountPaid] = useState(0);
+  const [showPayment, setShowPayment] = useState(false);
 
   const BackIcon = isAr ? ArrowRight : ArrowLeft;
 
   useEffect(() => {
-    if (!user) return;
     let cancelled = false;
 
     async function load() {
       try {
-        const { getFirestore, doc, getDoc } = await import('firebase/firestore');
-        const { getApp } = await import('@masarat/firebase');
-        const db = getFirestore(getApp());
-        const agencyId = user?.agencyId as string | undefined;
-
-        const [snap, agencySnap] = await Promise.all([
-          getDoc(doc(db, 'invoices', invoiceId)),
-          agencyId ? getDoc(doc(db, 'agencies', agencyId)) : Promise.resolve(null),
-        ]);
+        const data = await apiFetch<{ invoice: FirestoreInvoice }>(`/api/invoices/${invoiceId}`);
         if (cancelled) return;
-        if (!snap.exists()) {
-          setNotFound(true);
-        } else {
-          const inv = { id: snap.id, ...snap.data() } as FirestoreInvoice;
+        const inv = data.invoice;
+        setInvoice(inv);
+        const grandTotal = inv.totalHalalas ?? 0;
+        const paid       = inv.paidHalalas  ?? 0;
+        setAmountPaid(paid);
+        setAmountDue(grandTotal - paid);
+        setIsVatRegistered(inv.isEInvoice === true || inv.vatHalalas > 0);
 
-          // Merge fresh agency data into seller info so name/address always reflects
-          // the current settings — stored invoice values are kept for amounts/IDs only
-          if (agencySnap?.exists()) {
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            const ag = agencySnap.data() as Record<string, any>;
-            setIsVatRegistered(ag.isVatRegistered === true);
-            inv.seller = {
-              ...inv.seller,
-              name: { ar: ag.nameAr ?? '', en: ag.nameEn ?? '' },
-              vatNumber:      ag.vatNumber      ?? inv.seller?.vatNumber,
-              crNumber:       ag.crNumber       ?? inv.seller?.crNumber,
-              phone:          ag.contactPhone   ?? inv.seller?.phone,
-              email:          ag.contactEmail   ?? inv.seller?.email,
-              address: {
-                streetName:     ag.streetName     ?? inv.seller?.address?.streetName,
-                buildingNumber: ag.buildingNumber ?? inv.seller?.address?.buildingNumber,
-                district:       ag.district       ?? inv.seller?.address?.district,
-                city:           ag.city           ?? inv.seller?.address?.city,
-                postalCode:     ag.postalCode     ?? inv.seller?.address?.postalCode,
-                countryCode:    'SA',
-              },
-            };
-          } else {
-            setIsVatRegistered(false);
-          }
-
-          setInvoice(inv);
-
-          // Resolve booking number: use stored field or fetch from booking doc
-          if (inv.bookingNumber) {
-            setResolvedBookingNumber(inv.bookingNumber);
-          } else if (inv.bookingId) {
-            const bkSnap = await getDoc(doc(db, 'bookings', inv.bookingId));
-            if (!cancelled && bkSnap.exists()) {
-              // eslint-disable-next-line @typescript-eslint/no-explicit-any
-              setResolvedBookingNumber((bkSnap.data() as any).bookingNumber ?? null);
-            }
+        // Resolve booking number from invoice or fetch booking
+        if (inv.bookingNumber) {
+          setResolvedBookingNumber(inv.bookingNumber);
+        } else if (inv.bookingId) {
+          try {
+            const bkData = await apiFetch<{ booking: { bookingNumber?: string } }>(`/api/bookings/${inv.bookingId}`);
+            if (!cancelled) setResolvedBookingNumber(bkData.booking.bookingNumber ?? null);
+          } catch {
+            // booking lookup is best-effort
           }
         }
       } catch {
@@ -161,7 +129,7 @@ export function InvoiceDetailClient({ locale, invoiceId }: InvoiceDetailClientPr
 
     void load();
     return () => { cancelled = true; };
-  }, [invoiceId, user]);
+  }, [invoiceId]);
 
   if (loading) {
     return <div className="flex justify-center py-24"><Spinner size="lg" /></div>;
@@ -180,39 +148,35 @@ export function InvoiceDetailClient({ locale, invoiceId }: InvoiceDetailClientPr
 
   // ── Extract data ──────────────────────────────────────────────────────────
 
-  const isCreditNote = invoice.type === 'credit_note';
-  const zatcaStatus = invoice.zatca?.submissionStatus ?? 'not_submitted';
+  const isCreditNote = invoice.type === 'credit_note' || invoice.type === '381';
+  const zatcaStatus = 'not_submitted' as ZatcaStatus;
   const zStyle = ZATCA_STYLE[zatcaStatus] ?? ZATCA_STYLE.not_submitted;
-  const uuid = invoice.zatca?.invoiceUUID ?? '';
-  const issueDate = invoice.issueDate?.toDate?.() ?? invoice.createdAt?.toDate?.() ?? new Date();
-  const dueDate = invoice.dueDate?.toDate?.() ?? null;
+  const uuid = invoice.zatcaUuid ?? '';
+  const issueDate = invoice.issueDate ? new Date(invoice.issueDate) : (invoice.createdAt ? new Date(invoice.createdAt) : new Date());
+  const dueDate = invoice.dueDate ? new Date(invoice.dueDate) : null;
 
   const customerName = isAr
-    ? (invoice.buyer?.name?.ar ?? invoice.buyer?.name?.en ?? '—')
-    : (invoice.buyer?.name?.en ?? invoice.buyer?.name?.ar ?? '—');
+    ? (invoice.buyerNameAr ?? invoice.buyerNameEn ?? '—')
+    : (invoice.buyerNameEn ?? invoice.buyerNameAr ?? '—');
 
-  const sellerNameAr = invoice.seller?.name?.ar ?? '';
-  const sellerNameEn = invoice.seller?.name?.en ?? '';
+  const sellerNameAr = invoice.sellerNameAr ?? '';
+  const sellerNameEn = invoice.sellerNameEn ?? '';
 
-  const grandTotal = invoice.totals?.grandTotal ?? 0;
-  const subtotalExclVat = invoice.totals?.subtotalExclVat ?? Math.round(grandTotal / 1.15);
-  const totalVat = invoice.totals?.totalVat ?? (grandTotal - subtotalExclVat);
+  const grandTotal = invoice.totalHalalas ?? 0;
+  const subtotalExclVat = invoice.subtotalHalalas ?? Math.round(grandTotal / 1.15);
+  const totalVat = invoice.vatHalalas ?? (grandTotal - subtotalExclVat);
 
-  // ── Line items: use stored lines or create synthetic line ─────────────────
-  const lines: InvoiceLine[] = (invoice.lines && invoice.lines.length > 0)
-    ? invoice.lines
+  // ── Line items: use stored items or create synthetic line ─────────────────
+  const lines: InvoiceLine[] = (invoice.items && invoice.items.length > 0)
+    ? invoice.items as InvoiceLine[]
     : [
         {
-          id: '1',
-          nameAr: 'خدمة سفر',
-          nameEn: 'Travel Service',
-          quantity: 1,
-          unitCode: 'PCE',
-          unitPriceExclVatHalalas: subtotalExclVat,
-          totalExclVatHalalas: subtotalExclVat,
-          vatRate: totalVat > 0 ? 0.15 : 0,
-          vatAmountHalalas: totalVat,
-          totalInclVatHalalas: grandTotal,
+          description:      isAr ? 'خدمة سفر' : 'Travel Service',
+          descriptionEn:    'Travel Service',
+          quantity:         1,
+          unitPriceHalalas: subtotalExclVat,
+          vatHalalas:       totalVat,
+          totalHalalas:     grandTotal,
         },
       ];
 
@@ -262,7 +226,7 @@ export function InvoiceDetailClient({ locale, invoiceId }: InvoiceDetailClientPr
             {/* Number + status badges */}
             <div className="flex flex-wrap items-center gap-3">
               <span className="font-mono text-lg font-bold text-slate-900">{invoice.invoiceNumber}</span>
-              <InvoiceStatusBadge status={invoice.paymentStatus as never} locale={locale} />
+              <InvoiceStatusBadge status={(invoice.paymentStatus ?? invoice.status) as never} locale={locale} />
               {isCreditNote && (
                 <span className="text-[11px] bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full font-semibold">
                   {isAr ? 'إشعار دائن' : 'Credit Note'}
@@ -314,7 +278,7 @@ export function InvoiceDetailClient({ locale, invoiceId }: InvoiceDetailClientPr
           {isVatRegistered && (
             <div className="flex flex-col items-center gap-2 flex-shrink-0">
               <div className="w-28 h-28 rounded-lg border-2 border-dashed border-slate-200 bg-slate-50 flex items-center justify-center">
-                {invoice.zatca?.qrCodeData ? (
+                {false ? (
                   <span className="text-[10px] text-slate-400 text-center px-2 break-all font-mono">
                     QR
                   </span>
@@ -358,37 +322,22 @@ export function InvoiceDetailClient({ locale, invoiceId }: InvoiceDetailClientPr
                 </dd>
               </div>
             )}
-            {isVatRegistered && invoice.seller?.vatNumber && (
+            {isVatRegistered && invoice.sellerVatNumber && (
               <div>
                 <dt className="text-xs text-slate-400">{isAr ? 'الرقم الضريبي' : 'VAT Number'}</dt>
-                <dd className="text-slate-700 font-mono mt-0.5">{invoice.seller.vatNumber}</dd>
+                <dd className="text-slate-700 font-mono mt-0.5">{invoice.sellerVatNumber}</dd>
               </div>
             )}
-            {invoice.seller?.crNumber && (
+            {invoice.sellerCrNumber && (
               <div>
                 <dt className="text-xs text-slate-400">{isAr ? 'رقم السجل التجاري' : 'CR Number'}</dt>
-                <dd className="text-slate-700 font-mono mt-0.5">{invoice.seller.crNumber}</dd>
+                <dd className="text-slate-700 font-mono mt-0.5">{invoice.sellerCrNumber}</dd>
               </div>
             )}
-            {invoice.seller?.address?.city && (
+            {invoice.sellerAddress && (
               <div>
                 <dt className="text-xs text-slate-400">{isAr ? 'العنوان' : 'Address'}</dt>
-                <dd className="text-slate-700 mt-0.5">
-                  {[invoice.seller.address.streetName, invoice.seller.address.district, invoice.seller.address.city]
-                    .filter(Boolean).join('، ')}
-                </dd>
-              </div>
-            )}
-            {invoice.seller?.phone && (
-              <div>
-                <dt className="text-xs text-slate-400">{isAr ? 'الهاتف' : 'Phone'}</dt>
-                <dd className="text-slate-700 font-mono text-xs mt-0.5" dir="rtl">{invoice.seller.phone}</dd>
-              </div>
-            )}
-            {invoice.seller?.email && (
-              <div>
-                <dt className="text-xs text-slate-400">{isAr ? 'البريد' : 'Email'}</dt>
-                <dd className="text-slate-700 text-xs mt-0.5 break-all" dir="rtl">{invoice.seller.email}</dd>
+                <dd className="text-slate-700 mt-0.5">{invoice.sellerAddress}</dd>
               </div>
             )}
             {!sellerNameAr && !sellerNameEn && (
@@ -396,6 +345,7 @@ export function InvoiceDetailClient({ locale, invoiceId }: InvoiceDetailClientPr
                 {isAr ? 'أضف بيانات الوكالة من الإعدادات' : 'Add agency info from Settings'}
               </p>
             )}
+
           </dl>
         </Card>
 
@@ -413,16 +363,16 @@ export function InvoiceDetailClient({ locale, invoiceId }: InvoiceDetailClientPr
               <dt className="text-xs text-slate-400">{isAr ? 'الاسم' : 'Name'}</dt>
               <dd className="text-slate-900 font-semibold mt-0.5">{customerName}</dd>
             </div>
-            {invoice.buyer?.phone && (
+            {invoice.buyerPhone && (
               <div>
                 <dt className="text-xs text-slate-400">{isAr ? 'رقم الهاتف' : 'Phone'}</dt>
-                <dd className="text-slate-700 font-mono mt-0.5" dir="rtl">{invoice.buyer.phone}</dd>
+                <dd className="text-slate-700 font-mono mt-0.5" dir="rtl">{invoice.buyerPhone}</dd>
               </div>
             )}
-            {invoice.buyer?.vatNumber && (
+            {invoice.buyerNationalId && (
               <div>
                 <dt className="text-xs text-slate-400">{isAr ? 'الرقم الضريبي' : 'VAT Number'}</dt>
-                <dd className="text-slate-700 font-mono mt-0.5">{invoice.buyer.vatNumber}</dd>
+                <dd className="text-slate-700 font-mono mt-0.5">{invoice.buyerNationalId}</dd>
               </div>
             )}
             <div>
@@ -477,37 +427,41 @@ export function InvoiceDetailClient({ locale, invoiceId }: InvoiceDetailClientPr
             </thead>
             <tbody className="divide-y divide-surface-border">
               {lines.map((line) => (
-                <tr key={line.id} className="hover:bg-slate-50/40 transition-colors">
+                <tr key={line.description} className="hover:bg-slate-50/40 transition-colors">
                   <td className="ps-6 pe-4 py-4">
-                    <p className="text-slate-900 font-medium">{isAr ? line.nameAr : line.nameEn}</p>
-                    {line.nameEn && line.nameAr !== line.nameEn && (
-                      <p className="text-xs text-slate-400">{isAr ? line.nameEn : line.nameAr}</p>
+                    <p className="text-slate-900 font-medium">{line.description}</p>
+                    {line.descriptionEn && line.description !== line.descriptionEn && (
+                      <p className="text-xs text-slate-400">{isAr ? line.descriptionEn : line.description}</p>
                     )}
                   </td>
                   <td className="px-4 py-4 text-center text-slate-600">
-                    {line.quantity} {line.unitCode}
+                    {line.quantity}
                   </td>
                   <td className="px-4 py-4 text-end text-slate-600">
-                    {formatCurrency(line.unitPriceExclVatHalalas, fmtLocale)}
+                    {formatCurrency(line.unitPriceHalalas, fmtLocale)}
                   </td>
                   {isVatRegistered && (
                     <>
                       <td className="px-4 py-4 text-center">
-                        {line.vatRate === 0 ? (
+                        {line.vatHalalas === 0 ? (
                           <span className="text-xs bg-slate-100 text-slate-500 px-2 py-0.5 rounded font-medium">
                             {isAr ? 'معفى' : 'Exempt'}
                           </span>
                         ) : (
-                          <span className="text-slate-600">{(line.vatRate * 100).toFixed(0)}%</span>
+                          <span className="text-slate-600">
+                            {line.unitPriceHalalas > 0
+                              ? `${Math.round(line.vatHalalas / (line.unitPriceHalalas * line.quantity) * 100)}%`
+                              : '15%'}
+                          </span>
                         )}
                       </td>
                       <td className="px-4 py-4 text-end text-slate-600">
-                        {formatCurrency(line.vatAmountHalalas, fmtLocale)}
+                        {formatCurrency(line.vatHalalas, fmtLocale)}
                       </td>
                     </>
                   )}
                   <td className="ps-4 pe-6 py-4 text-end font-semibold text-slate-900">
-                    {formatCurrency(isVatRegistered ? line.totalInclVatHalalas : line.totalExclVatHalalas, fmtLocale)}
+                    {formatCurrency(line.totalHalalas, fmtLocale)}
                   </td>
                 </tr>
               ))}
@@ -546,10 +500,55 @@ export function InvoiceDetailClient({ locale, invoiceId }: InvoiceDetailClientPr
                   </p>
                 )}
               </div>
+
+              {/* Payment summary */}
+              {amountPaid > 0 && (
+                <div className="flex items-center justify-between text-sm text-emerald-700 font-medium">
+                  <span>{isAr ? 'المدفوع' : 'Paid'}</span>
+                  <span className="tabular-nums">{formatCurrency(amountPaid, fmtLocale)}</span>
+                </div>
+              )}
+              {amountDue > 0 && (
+                <div className="flex items-center justify-between text-sm text-red-600 font-bold">
+                  <span>{isAr ? 'المتبقي' : 'Balance Due'}</span>
+                  <span className="tabular-nums">{formatCurrency(amountDue, fmtLocale)}</span>
+                </div>
+              )}
+
+              {/* Payment action */}
+              {amountDue > 0 ? (
+                <button
+                  onClick={() => setShowPayment(true)}
+                  className="mt-3 w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-brand-600 text-white text-sm font-semibold hover:bg-brand-700 transition-colors"
+                >
+                  <Receipt size={15} />
+                  {isAr ? 'تسجيل دفعة' : 'Record Payment'}
+                </button>
+              ) : grandTotal > 0 ? (
+                <div className="mt-3 flex items-center justify-center gap-2 text-sm text-emerald-700 font-medium">
+                  <CheckCircle2 size={15} />
+                  {isAr ? 'مدفوعة بالكامل' : 'Fully Paid'}
+                </div>
+              ) : null}
             </div>
           </div>
         </div>
       </Card>
+
+      {/* ── Payment modal ──────────────────────────────────────────────────────── */}
+      {showPayment && invoice && (
+        <ProcessPaymentModal
+          bookingId={invoice.bookingId ?? undefined}
+          invoiceId={invoice.id}
+          agencyId={invoice.agencyId}
+          remainingDueHalalas={amountDue}
+          onClose={() => setShowPayment(false)}
+          onSuccess={(remaining) => {
+            setAmountPaid(grandTotal - remaining);
+            setAmountDue(remaining);
+          }}
+        />
+      )}
 
       {/* ── ZATCA compliance footer — only shown for VAT-registered agencies ──── */}
       {isVatRegistered && <Card className={cn(

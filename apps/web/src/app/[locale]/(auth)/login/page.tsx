@@ -5,10 +5,11 @@ import { useTranslations, useLocale } from 'next-intl';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { signInWithEmailAndPassword, sendPasswordResetEmail } from 'firebase/auth';
+import { signInWithEmailAndPassword } from 'firebase/auth';
 import { getAuth } from 'firebase/auth';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
+import { MasaratLogo } from '@/components/ui/MasaratLogo';
 import { cn } from '@/lib/utils';
 import { Eye, EyeOff, Mail, Lock, ArrowRight } from 'lucide-react';
 
@@ -39,25 +40,32 @@ export default function LoginPage() {
   });
 
   async function handlePasswordReset() {
-    if (!resetEmail.trim()) return;
+    const email = resetEmail.trim();
+    if (!email) return;
+    // Basic email format check before calling API
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      setResetError(isAr ? 'صيغة البريد الإلكتروني غير صحيحة' : 'Invalid email format');
+      return;
+    }
     setResetSending(true);
     setResetError('');
     try {
-      const auth = getAuth();
-      await sendPasswordResetEmail(auth, resetEmail.trim());
-    } catch (err: unknown) {
-      const code = (err as { code?: string }).code ?? '';
-      if (code === 'auth/invalid-email') {
-        setResetError(isAr ? 'صيغة البريد الإلكتروني غير صحيحة' : 'Invalid email format');
-        setResetSending(false);
+      const res  = await fetch('/api/auth/forgot-password', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ email, locale }),
+      });
+      const data = await res.json() as { success: boolean; error?: string };
+      if (!data.success && data.error === 'not_found') {
+        setResetError(isAr
+          ? 'هذا البريد الإلكتروني غير مسجّل في النظام'
+          : 'This email is not registered in the system');
         return;
       }
-      // For all other errors (including user-not-found when protection is off),
-      // show the ambiguous success message to avoid revealing registered emails.
+      setResetDone(true);
     } finally {
       setResetSending(false);
     }
-    setResetDone(true);
   }
 
   async function onSubmit(data: LoginForm) {
@@ -82,10 +90,12 @@ export default function LoginPage() {
 
   return (
     <div className="w-full max-w-sm">
-      {/* Mobile logo */}
+      {/* Logo */}
       <div className="flex justify-center mb-8 lg:hidden">
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src="/logo-mark.svg" alt="مسارات" className="w-16 h-16" />
+        <MasaratLogo size={140} variant="full" />
+      </div>
+      <div className="hidden lg:flex justify-center mb-8">
+        <MasaratLogo size={160} variant="full" />
       </div>
 
       {resetMode ? (
@@ -114,8 +124,8 @@ export default function LoginPage() {
           {resetDone ? (
             <div className="rounded-xl bg-emerald-50 border border-emerald-200 px-5 py-4 text-sm text-emerald-700 text-center leading-relaxed">
               {isAr
-                ? 'إذا كان هذا البريد الإلكتروني مسجّلاً في النظام، سيصلك رابط إعادة التعيين خلال دقائق. تحقق من صندوق الوارد والبريد المزعج.'
-                : 'If this email is registered in the system, you will receive a reset link within a few minutes. Check your inbox and spam folder.'}
+                ? 'تم إرسال رابط إعادة تعيين كلمة المرور إلى بريدك الإلكتروني. تحقق من صندوق الوارد والبريد المزعج.'
+                : 'A password reset link has been sent to your email. Please check your inbox and spam folder.'}
             </div>
           ) : (
             <div className="space-y-4">

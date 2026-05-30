@@ -6,7 +6,9 @@ import { useState, useEffect } from 'react';
 import { useAuth } from '@masarat/firebase';
 import { Spinner } from '@/components/ui/Spinner';
 import { PrintableInvoice } from '@/components/invoices/PrintableInvoice';
+import { apiFetch } from '@/lib/api-client';
 import type { ComponentProps } from 'react';
+import type { Invoice } from '@/lib/schema';
 
 type PrintableInvoiceData = ComponentProps<typeof PrintableInvoice>['invoice'];
 
@@ -26,103 +28,92 @@ export default function PrintInvoicePage({
 
     async function load() {
       try {
-        const { getFirestore, doc, getDoc } = await import('firebase/firestore');
-        const { getApp } = await import('@masarat/firebase');
-        const db = getFirestore(getApp());
-        const agencyId = user?.agencyId as string | undefined;
-
-        const [snap, agencySnap] = await Promise.all([
-          getDoc(doc(db, 'invoices', params.id)),
-          agencyId ? getDoc(doc(db, 'agencies', agencyId)) : Promise.resolve(null),
+        const [{ invoice: inv }, settingsResult] = await Promise.all([
+          apiFetch<{ invoice: Invoice }>(`/api/invoices/${params.id}`),
+          apiFetch<{ agency: Record<string, unknown> }>('/api/settings').catch(() => ({ agency: {} as Record<string, unknown> })),
         ]);
+        const ag = settingsResult.agency;
         if (cancelled) return;
-        if (!snap.exists()) { setError('الفاتورة غير موجودة'); setLoading(false); return; }
 
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const d = { id: snap.id, ...snap.data() } as Record<string, any>;
-        // Always use the agency's CURRENT isVatRegistered setting — never trust what was stored on the invoice
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const agencyIsVatRegistered = agencySnap?.exists() ? (agencySnap.data() as any).isVatRegistered === true : false;
+        const grandTotal      = inv.totalHalalas;
+        const subtotalExclVat = inv.subtotalHalalas || Math.round(grandTotal / 1.15);
+        const totalVat        = inv.vatHalalas;
+        const isVatRegistered = !!(ag['isVatRegistered']) || (inv.vatHalalas > 0) || inv.isEInvoice;
 
-        const grandTotal: number = d.totals?.grandTotal ?? 0;
-        const subtotalExclVat: number = d.totals?.subtotalExclVat ?? Math.round(grandTotal / 1.15);
-        const totalVat: number = d.totals?.totalVat ?? (grandTotal - subtotalExclVat);
-
-        const isAr = params.locale === 'ar';
-
-        // Build line items from stored lines or synthetic fallback
-        const rawLines: PrintableInvoiceData['lines'] = (d.lines && d.lines.length > 0)
-          ? d.lines.map((l: Record<string, unknown>, idx: number) => ({
-              id: String(l.id ?? idx + 1),
-              nameAr: String(l.nameAr ?? ''),
-              nameEn: String(l.nameEn ?? ''),
-              quantity: Number(l.quantity ?? 1),
-              unitCode: String(l.unitCode ?? 'PCE'),
-              unitPriceExclVatHalalas: Number(l.unitPriceExclVatHalalas ?? 0),
-              totalExclVatHalalas: Number(l.totalExclVatHalalas ?? 0),
-              vatRate: Number(l.vatRate ?? 0),
-              vatAmountHalalas: Number(l.vatAmountHalalas ?? 0),
-              totalInclVatHalalas: Number(l.totalInclVatHalalas ?? 0),
-            }))
-          : [
-              {
-                id: '1',
-                nameAr: 'خدمة سفر',
-                nameEn: 'Travel Service',
-                quantity: 1,
-                unitCode: 'PCE',
-                unitPriceExclVatHalalas: subtotalExclVat,
-                totalExclVatHalalas: subtotalExclVat,
-                vatRate: totalVat > 0 ? 0.15 : 0,
-                vatAmountHalalas: totalVat,
-                totalInclVatHalalas: grandTotal,
-              },
-            ];
-
-        const seller = d.seller ?? {};
-        const issueDate = d.issueDate?.toDate?.() ?? d.createdAt?.toDate?.() ?? new Date();
-        const dueDate = d.dueDate?.toDate?.() ?? undefined;
-        const buyerName = isAr
-          ? (d.buyer?.name?.ar ?? d.buyer?.name?.en ?? '')
-          : (d.buyer?.name?.en ?? d.buyer?.name?.ar ?? '');
+        const rawItems = (inv.items as Record<string, unknown>[] | null) ?? [];
+        const rawLines: PrintableInvoiceData['lines'] = rawItems.length > 0
+          ? rawItems.map((l, idx) => {
+              const qty          = Number(l['quantity'] ?? 1);
+              // Stored as unitPriceHalalas (new format) or unitPriceExclVatHalalas (legacy)
+              const unitPriceExcl = Number(l['unitPriceHalalas'] ?? l['unitPriceExclVatHalalas'] ?? 0);
+              const vatAmt       = Number(l['vatHalalas'] ?? l['vatAmountHalalas'] ?? 0);
+              const totalIncl    = Number(l['totalHalalas'] ?? l['totalInclVatHalalas'] ?? 0);
+              const totalExcl    = unitPriceExcl * qty;
+              const vatRate      = totalExcl > 0 ? vatAmt / totalExcl : Number(l['vatRate'] ?? 0);
+              return {
+                id:                      String(l['id'] ?? idx + 1),
+                nameAr:                  String(l['description'] ?? l['nameAr'] ?? ''),
+                nameEn:                  String(l['descriptionEn'] ?? l['nameEn'] ?? ''),
+                quantity:                qty,
+                unitCode:                'PCE',
+                unitPriceExclVatHalalas: unitPriceExcl,
+                totalExclVatHalalas:     totalExcl,
+                vatRate,
+                vatAmountHalalas:        vatAmt,
+                totalInclVatHalalas:     totalIncl,
+              };
+            })
+          : [{
+              id: '1',
+              nameAr: 'خدمة سفر',
+              nameEn: 'Travel Service',
+              quantity: 1,
+              unitCode: 'PCE',
+              unitPriceExclVatHalalas: subtotalExclVat,
+              totalExclVatHalalas: subtotalExclVat,
+              vatRate: totalVat > 0 ? 0.15 : 0,
+              vatAmountHalalas: totalVat,
+              totalInclVatHalalas: grandTotal,
+            }];
 
         const mapped: PrintableInvoiceData = {
-          invoiceNumber: d.invoiceNumber ?? d.id,
-          uuid: d.zatca?.invoiceUUID ?? '',
-          issueDate,
-          dueDate,
-          invoiceTypeCode: (d.zatca?.invoiceTypeCode ?? '388') as '388' | '381' | '383',
-          currency: 'SAR',
+          invoiceNumber:   inv.invoiceNumber,
+          uuid:            inv.zatcaUuid ?? '',
+          issueDate:       new Date(inv.issueDate),
+          dueDate:         inv.dueDate ? new Date(inv.dueDate) : undefined,
+          invoiceTypeCode: (inv.type as '388' | '381' | '383') ?? '388',
+          currency:        'SAR',
           seller: {
-            nameAr: seller.name?.ar ?? '',
-            nameEn: seller.name?.en ?? '',
-            vatNumber: seller.vatNumber ?? '',
-            crNumber: seller.crNumber ?? '',
-            isVatRegistered: agencyIsVatRegistered,
+            nameAr:          (ag['nameAr'] as string | undefined) || inv.sellerNameAr || '',
+            nameEn:          (ag['nameEn'] as string | undefined) || inv.sellerNameEn || '',
+            vatNumber:       (ag['vatNumber'] as string | undefined) || inv.sellerVatNumber || '',
+            crNumber:        (ag['crNumber'] as string | undefined) || inv.sellerCrNumber || '',
+            isVatRegistered,
+            logoUrl:         (ag['logoUrl'] as string | undefined) || undefined,
             address: {
-              streetName: seller.address?.streetName ?? '',
-              buildingNumber: seller.address?.buildingNumber ?? '',
-              district: seller.address?.district ?? '',
-              city: seller.address?.city ?? '',
-              postalCode: seller.address?.postalCode ?? '',
+              streetName:     (ag['streetName'] as string | undefined) || '',
+              buildingNumber: (ag['buildingNumber'] as string | undefined) || '',
+              district:       (ag['district'] as string | undefined) || '',
+              city:           (ag['city'] as string | undefined) || inv.sellerAddress || '',
+              postalCode:     (ag['postalCode'] as string | undefined) || '',
             },
-            phone: seller.phone ?? '',
-            email: seller.email ?? '',
+            phone:           (ag['contactPhone'] as string | undefined) || (ag['phone'] as string | undefined) || '',
+            email:           (ag['contactEmail'] as string | undefined) || '',
           },
           buyer: {
-            nameAr: d.buyer?.name?.ar ?? buyerName,
-            nameEn: d.buyer?.name?.en ?? '',
-            phone: d.buyer?.phone ?? '',
-            vatNumber: d.buyer?.vatNumber,
+            nameAr:    inv.buyerNameAr ?? '',
+            nameEn:    inv.buyerNameEn ?? '',
+            phone:     inv.buyerPhone ?? '',
+            vatNumber: undefined,
           },
-          lines: rawLines,
+          lines:   rawLines,
           totals: {
             subtotalExclVatHalalas: subtotalExclVat,
-            totalVatHalalas: totalVat,
-            grandTotalHalalas: grandTotal,
+            totalVatHalalas:        totalVat,
+            grandTotalHalalas:      grandTotal,
           },
-          qrCodeData: d.zatca?.qrCodeData,
-          zatcaStatus: d.zatca?.submissionStatus ?? 'not_submitted',
+          qrCodeData:  undefined,
+          zatcaStatus: 'not_submitted',
         };
 
         setInvoice(mapped);

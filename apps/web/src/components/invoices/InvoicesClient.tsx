@@ -3,6 +3,8 @@
 import { useState, useEffect, useMemo } from 'react';
 import Link from 'next/link';
 import { useAuth } from '@masarat/firebase';
+import { apiFetch } from '@/lib/api-client';
+import type { Invoice } from '@/lib/schema';
 import { Card } from '@/components/ui/Card';
 import { Spinner } from '@/components/ui/Spinner';
 import { EmptyState } from '@/components/ui/EmptyState';
@@ -11,27 +13,11 @@ import { formatCurrency, formatDate, formatCount } from '@/lib/utils';
 import { cn } from '@/lib/utils';
 import {
   FileText, Search, X, Download, Printer, TrendingUp,
-  CheckCircle2, Clock, AlertCircle, AlertTriangle,
-  ChevronRight,
+  CheckCircle2, Clock, AlertCircle, AlertTriangle, ChevronRight, Plus,
 } from 'lucide-react';
+import { CreateDirectInvoiceModal } from './CreateDirectInvoiceModal';
 
-interface Invoice {
-  id: string;
-  invoiceNumber: string;
-  bookingId: string;
-  type: string;
-  status: string;
-  paymentStatus: string;
-  amountDue: number;
-  amountPaid: number;
-  buyer?: { name?: { ar?: string; en?: string }; phone?: string };
-  totals?: { grandTotal?: number };
-  issueDate?: { toDate?: () => Date };
-  dueDate?: { toDate?: () => Date };
-  createdAt?: { toDate?: () => Date };
-}
-
-type StatusFilter = 'all' | 'unpaid' | 'partial' | 'fully_paid' | 'overdue';
+type StatusFilter = 'all' | 'issued' | 'partial' | 'paid' | 'overdue';
 interface InvoicesClientProps { locale: string }
 
 export function InvoicesClient({ locale }: InvoicesClientProps) {
@@ -39,91 +25,107 @@ export function InvoicesClient({ locale }: InvoicesClientProps) {
   const fmtLocale = isAr ? 'ar-SA' : 'en-SA';
   const { user }  = useAuth();
 
-  const [invoices, setInvoices] = useState<Invoice[]>([]);
-  const [loading, setLoading]   = useState(true);
-  const [search, setSearch]     = useState('');
-  const [filter, setFilter]     = useState<StatusFilter>('all');
-
-  const agencyId = user?.agencyId ?? '';
+  const [invoices,    setInvoices]    = useState<Invoice[]>([]);
+  const [loading,     setLoading]     = useState(true);
+  const [search,      setSearch]      = useState('');
+  const [filter,      setFilter]      = useState<StatusFilter>('all');
+  const [showCreate,  setShowCreate]  = useState(false);
 
   useEffect(() => {
-    if (!agencyId) { setLoading(false); return; }
-    let unsub: (() => void) | undefined;
-    async function subscribe() {
-      const { getFirestore, collection, query, where, onSnapshot } = await import('firebase/firestore');
-      const { getApp } = await import('@masarat/firebase');
-      const q = query(collection(getFirestore(getApp()), 'invoices'), where('agencyId', '==', agencyId));
-      unsub = onSnapshot(q, snap => {
-        const docs = snap.docs.map(d => ({ id: d.id, ...d.data() } as Invoice));
-        docs.sort((a, b) => (b.createdAt?.toDate?.()?.getTime() ?? 0) - (a.createdAt?.toDate?.()?.getTime() ?? 0));
-        setInvoices(docs);
-        setLoading(false);
-      }, () => setLoading(false));
-    }
-    void subscribe();
-    return () => unsub?.();
-  }, [agencyId]);
+    if (!user?.agencyId) { setLoading(false); return; }
+    let cancelled = false;
+    apiFetch<{ invoices: Invoice[] }>('/api/invoices')
+      .then(d => { if (!cancelled) { setInvoices(d.invoices); } })
+      .catch(() => {})
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [user?.agencyId]);
 
   const now = Date.now();
 
   function isOverdue(inv: Invoice) {
-    if (inv.paymentStatus === 'fully_paid') return false;
-    const due = inv.dueDate?.toDate?.()?.getTime();
-    return due ? due < now : false;
+    if (inv.status === 'paid') return false;
+    if (!inv.issueDate) return false;
+    const issued = new Date(inv.issueDate).getTime();
+    return (now - issued) > 30 * 86_400_000;
   }
 
-  // ── KPIs ──────────────────────────────────────────────────────────────────
-  const totalRevenue  = invoices.reduce((s, i) => s + (i.totals?.grandTotal ?? 0), 0);
-  const totalPaid     = invoices.reduce((s, i) => s + (i.amountPaid ?? 0), 0);
-  const totalDue      = invoices.reduce((s, i) => s + (i.amountDue ?? 0), 0);
+  const totalRevenue  = invoices.reduce((s, i) => s + i.totalHalalas, 0);
+  const totalPaid     = invoices.reduce((s, i) => s + i.paidHalalas, 0);
+  const totalDue      = invoices.reduce((s, i) => s + Math.max(0, i.totalHalalas - i.paidHalalas), 0);
   const overdueCount  = invoices.filter(isOverdue).length;
 
-  // ── Filtered ──────────────────────────────────────────────────────────────
   const filtered = useMemo(() => {
     const q = search.toLowerCase();
     return invoices.filter(inv => {
-      const name = isAr ? inv.buyer?.name?.ar ?? '' : inv.buyer?.name?.en ?? inv.buyer?.name?.ar ?? '';
-      const matchSearch = !q || inv.invoiceNumber?.toLowerCase().includes(q) || name.toLowerCase().includes(q);
+      const name = isAr ? (inv.buyerNameAr ?? '') : (inv.buyerNameEn ?? inv.buyerNameAr ?? '');
+      const matchSearch = !q || inv.invoiceNumber.toLowerCase().includes(q) || name.toLowerCase().includes(q);
       let matchFilter = true;
-      if      (filter === 'overdue')    matchFilter = isOverdue(inv);
-      else if (filter !== 'all')        matchFilter = inv.paymentStatus === filter;
+      if      (filter === 'overdue') matchFilter = isOverdue(inv);
+      else if (filter !== 'all')     matchFilter = inv.status === filter;
       return matchSearch && matchFilter;
     });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [invoices, search, filter, isAr, now]);
 
   const STATUS_TABS: { key: StatusFilter; ar: string; en: string }[] = [
-    { key: 'all',        ar: 'الكل',         en: 'All' },
-    { key: 'unpaid',     ar: 'غير مدفوع',    en: 'Unpaid' },
-    { key: 'partial',    ar: 'دفع جزئي',     en: 'Partial' },
-    { key: 'fully_paid', ar: 'مدفوع',        en: 'Paid' },
-    { key: 'overdue',    ar: 'متأخر',        en: 'Overdue' },
+    { key: 'all',     ar: 'الكل',      en: 'All' },
+    { key: 'issued',  ar: 'غير مدفوع', en: 'Unpaid' },
+    { key: 'partial', ar: 'دفع جزئي',  en: 'Partial' },
+    { key: 'paid',    ar: 'مدفوع',     en: 'Paid' },
+    { key: 'overdue', ar: 'متأخر',     en: 'Overdue' },
   ];
+
+  function handleExport() {
+    const header = ['رقم الفاتورة', 'العميل', 'التاريخ', 'الإجمالي (ريال)', 'المدفوع (ريال)', 'المتبقي (ريال)', 'الحالة'];
+    const rows = filtered.map(inv => [
+      inv.invoiceNumber,
+      isAr ? (inv.buyerNameAr ?? '') : (inv.buyerNameEn ?? inv.buyerNameAr ?? ''),
+      inv.issueDate,
+      (inv.totalHalalas / 100).toFixed(2),
+      (inv.paidHalalas / 100).toFixed(2),
+      ((inv.totalHalalas - inv.paidHalalas) / 100).toFixed(2),
+      inv.status,
+    ]);
+    const csv = [header, ...rows].map(r => r.map(c => `"${String(c).replace(/"/g, '""')}"`).join(',')).join('\n');
+    const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    a.href     = url;
+    a.download = `invoices-${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
 
   if (loading) return <div className="flex items-center justify-center py-24"><Spinner size="lg" /></div>;
 
   return (
     <div className="space-y-5">
 
-      {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center gap-4">
         <div className="flex-1">
           <h1 className="text-2xl font-bold text-slate-900">{isAr ? 'الفواتير' : 'Invoices'}</h1>
           <p className="text-slate-500 text-sm mt-0.5">{isAr ? 'إدارة فواتير العملاء وتتبع المدفوعات' : 'Manage customer invoices and track payments'}</p>
         </div>
-        <button className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl border border-slate-200 text-sm text-slate-600 hover:bg-slate-50 transition-colors font-medium">
+        <button
+          onClick={() => setShowCreate(true)}
+          className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-brand-600 hover:bg-brand-700 text-white text-sm font-semibold transition-colors shadow-sm"
+        >
+          <Plus size={16} strokeWidth={2.5} />
+          {isAr ? 'إنشاء فاتورة' : 'New Invoice'}
+        </button>
+        <button onClick={handleExport} className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl border border-slate-200 text-sm text-slate-600 hover:bg-slate-50 transition-colors font-medium">
           <Download size={14} />
-          {isAr ? 'تصدير' : 'Export'}
+          {isAr ? 'تصدير CSV' : 'Export CSV'}
         </button>
       </div>
 
-      {/* KPIs */}
       <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-4">
         {[
-          { icon: TrendingUp,   bg: 'bg-brand-50',   color: 'text-brand-600',   accent: 'border-brand-500',   label: isAr ? 'إجمالي الفواتير' : 'Total Invoiced',     value: formatCurrency(totalRevenue, fmtLocale) },
-          { icon: CheckCircle2, bg: 'bg-emerald-50', color: 'text-emerald-600', accent: 'border-emerald-500', label: isAr ? 'إجمالي المحصّل' : 'Total Collected',     value: formatCurrency(totalPaid, fmtLocale) },
-          { icon: Clock,        bg: 'bg-amber-50',   color: 'text-amber-600',   accent: 'border-amber-500',   label: isAr ? 'مستحق التحصيل' : 'Outstanding',          value: formatCurrency(totalDue, fmtLocale) },
-          { icon: AlertTriangle,bg: 'bg-red-50',     color: 'text-red-600',     accent: 'border-red-500',     label: isAr ? 'متأخرة السداد' : 'Overdue',              value: formatCount(overdueCount, fmtLocale) },
+          { icon: TrendingUp,    bg: 'bg-brand-50',   color: 'text-brand-600',   accent: 'border-brand-500',   label: isAr ? 'إجمالي الفواتير' : 'Total Invoiced',   value: formatCurrency(totalRevenue, fmtLocale) },
+          { icon: CheckCircle2,  bg: 'bg-emerald-50', color: 'text-emerald-600', accent: 'border-emerald-500', label: isAr ? 'إجمالي المحصّل' : 'Total Collected',   value: formatCurrency(totalPaid, fmtLocale) },
+          { icon: Clock,         bg: 'bg-amber-50',   color: 'text-amber-600',   accent: 'border-amber-500',   label: isAr ? 'مستحق التحصيل' : 'Outstanding',        value: formatCurrency(totalDue, fmtLocale) },
+          { icon: AlertTriangle, bg: 'bg-red-50',     color: 'text-red-600',     accent: 'border-red-500',     label: isAr ? 'متأخرة السداد' : 'Overdue',            value: formatCount(overdueCount, fmtLocale) },
         ].map(k => (
           <div key={k.label} className={cn('bg-white rounded-xl border border-slate-200 shadow-sm p-4 border-s-4', k.accent)}>
             <div className="flex items-center justify-between">
@@ -139,14 +141,13 @@ export function InvoicesClient({ locale }: InvoicesClientProps) {
         ))}
       </div>
 
-      {/* Filters + Search */}
       <div className="flex flex-col sm:flex-row gap-3">
         <div className="flex gap-1 overflow-x-auto pb-px flex-1">
           {STATUS_TABS.map(tab => {
             let count = 0;
             if      (tab.key === 'all')     count = invoices.length;
             else if (tab.key === 'overdue') count = overdueCount;
-            else                            count = invoices.filter(i => i.paymentStatus === tab.key).length;
+            else                            count = invoices.filter(i => i.status === tab.key).length;
             return (
               <button key={tab.key} onClick={() => setFilter(tab.key)}
                 className={cn(
@@ -171,21 +172,53 @@ export function InvoicesClient({ locale }: InvoicesClientProps) {
         </div>
       </div>
 
-      {/* Table */}
       {filtered.length === 0 ? (
         <EmptyState icon={<FileText size={48} />}
           title={isAr ? 'لا توجد فواتير' : 'No invoices yet'}
           description={isAr ? 'ستظهر الفواتير هنا بعد تأكيد الحجوزات' : 'Invoices appear here after confirming bookings'} />
       ) : (
         <Card padding="none">
-          <div className="overflow-x-auto">
+
+          {/* Mobile */}
+          <div className="sm:hidden divide-y divide-surface-border">
+            {filtered.map(inv => {
+              const customerName = isAr ? (inv.buyerNameAr ?? '') : (inv.buyerNameEn ?? inv.buyerNameAr ?? '');
+              const balance   = inv.totalHalalas - inv.paidHalalas;
+              const overdue   = isOverdue(inv);
+              const isCN      = inv.type === '381';
+
+              return (
+                <Link key={inv.id} href={`/${locale}/invoices/${inv.id}`}
+                  className={cn('flex flex-col gap-2 px-4 py-3.5 hover:bg-slate-50 transition-colors', overdue && 'bg-red-50/40')}>
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-1.5 flex-wrap min-w-0">
+                      <span className="font-mono text-xs font-bold text-brand-700">{inv.invoiceNumber}</span>
+                      {isCN && <span className="text-[10px] bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-full font-semibold">{isAr ? 'إشعار دائن' : 'CN'}</span>}
+                      {overdue && <span className="text-[10px] bg-red-100 text-red-700 px-1.5 py-0.5 rounded-full font-semibold inline-flex items-center gap-0.5"><AlertTriangle size={9} />{isAr ? 'متأخر' : 'Overdue'}</span>}
+                    </div>
+                    <InvoiceStatusBadge status={inv.status} locale={locale} />
+                  </div>
+                  <p className="text-sm font-semibold text-slate-900 truncate">{customerName || '—'}</p>
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-xs text-slate-400">{formatDate(inv.issueDate, fmtLocale)}</span>
+                    <div className="flex items-center gap-2">
+                      {balance > 0 && <span className="text-xs font-semibold text-red-600">{isAr ? 'متبقي ' : 'Due '}{formatCurrency(balance, fmtLocale)}</span>}
+                      <span className="text-sm font-bold text-slate-900 tabular-nums">{formatCurrency(inv.totalHalalas, fmtLocale)}</span>
+                    </div>
+                  </div>
+                </Link>
+              );
+            })}
+          </div>
+
+          {/* Desktop */}
+          <div className="hidden sm:block overflow-x-auto">
             <table className="w-full">
               <thead>
                 <tr className="border-b border-surface-border bg-slate-50/60">
                   <th className="text-start ps-6 pe-3 py-3.5 text-xs font-bold text-slate-500 uppercase tracking-wider">{isAr ? 'رقم الفاتورة' : 'Invoice #'}</th>
                   <th className="text-start px-3 py-3.5 text-xs font-bold text-slate-500 uppercase tracking-wider">{isAr ? 'العميل' : 'Customer'}</th>
                   <th className="text-start px-3 py-3.5 text-xs font-bold text-slate-500 uppercase tracking-wider hidden sm:table-cell">{isAr ? 'تاريخ الإصدار' : 'Issue Date'}</th>
-                  <th className="text-start px-3 py-3.5 text-xs font-bold text-slate-500 uppercase tracking-wider hidden md:table-cell">{isAr ? 'تاريخ الاستحقاق' : 'Due Date'}</th>
                   <th className="text-start px-3 py-3.5 text-xs font-bold text-slate-500 uppercase tracking-wider">{isAr ? 'الحالة' : 'Status'}</th>
                   <th className="text-end px-3 py-3.5 text-xs font-bold text-slate-500 uppercase tracking-wider">{isAr ? 'الإجمالي' : 'Total'}</th>
                   <th className="text-end pe-5 px-3 py-3.5 text-xs font-bold text-slate-500 uppercase tracking-wider hidden lg:table-cell">{isAr ? 'المتبقي' : 'Balance'}</th>
@@ -194,70 +227,37 @@ export function InvoicesClient({ locale }: InvoicesClientProps) {
               </thead>
               <tbody className="divide-y divide-surface-border">
                 {filtered.map(inv => {
-                  const customerName = isAr ? inv.buyer?.name?.ar ?? '' : inv.buyer?.name?.en ?? inv.buyer?.name?.ar ?? '';
-                  const issueDate = inv.issueDate?.toDate?.() ?? inv.createdAt?.toDate?.() ?? null;
-                  const dueDate   = inv.dueDate?.toDate?.() ?? null;
-                  const grandTotal = inv.totals?.grandTotal ?? 0;
-                  const balance    = inv.amountDue ?? 0;
-                  const overdue    = isOverdue(inv);
-                  const isCreditNote = inv.type === 'credit_note';
+                  const customerName = isAr ? (inv.buyerNameAr ?? '') : (inv.buyerNameEn ?? inv.buyerNameAr ?? '');
+                  const balance   = inv.totalHalalas - inv.paidHalalas;
+                  const overdue   = isOverdue(inv);
+                  const isCN      = inv.type === '381';
 
                   return (
                     <tr key={inv.id} className={cn('hover:bg-slate-50/60 transition-colors group', overdue && 'bg-red-50/30')}>
                       <td className="ps-6 pe-3 py-4">
-                        <Link href={`/${locale}/invoices/${inv.id}`}
-                          className="font-mono text-sm font-bold text-brand-700 hover:underline">
-                          {inv.invoiceNumber ?? inv.id.slice(0, 10)}
-                        </Link>
-                        {isCreditNote && (
-                          <span className="ms-2 text-[10px] bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-full font-semibold">
-                            {isAr ? 'إشعار دائن' : 'Credit Note'}
-                          </span>
-                        )}
-                        {overdue && (
-                          <span className="ms-2 text-[10px] bg-red-100 text-red-700 px-1.5 py-0.5 rounded-full font-semibold flex-shrink-0 inline-flex items-center gap-0.5">
-                            <AlertTriangle size={9} />
-                            {isAr ? 'متأخر' : 'Overdue'}
-                          </span>
-                        )}
+                        <Link href={`/${locale}/invoices/${inv.id}`} className="font-mono text-sm font-bold text-brand-700 hover:underline">{inv.invoiceNumber}</Link>
+                        {isCN && <span className="ms-2 text-[10px] bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-full font-semibold">{isAr ? 'إشعار دائن' : 'Credit Note'}</span>}
+                        {overdue && <span className="ms-2 text-[10px] bg-red-100 text-red-700 px-1.5 py-0.5 rounded-full font-semibold inline-flex items-center gap-0.5"><AlertTriangle size={9} />{isAr ? 'متأخر' : 'Overdue'}</span>}
                       </td>
-                      <td className="px-3 py-4">
-                        <p className="text-sm font-semibold text-slate-900">{customerName || '—'}</p>
-                      </td>
+                      <td className="px-3 py-4"><p className="text-sm font-semibold text-slate-900">{customerName || '—'}</p></td>
                       <td className="px-3 py-4 hidden sm:table-cell">
-                        <span className="text-sm text-slate-500">{issueDate ? formatDate(issueDate, fmtLocale) : '—'}</span>
+                        <span className="text-sm text-slate-500">{formatDate(inv.issueDate, fmtLocale)}</span>
                       </td>
-                      <td className="px-3 py-4 hidden md:table-cell">
-                        {dueDate ? (
-                          <span className={cn('text-sm', overdue ? 'text-red-600 font-semibold' : 'text-slate-500')}>
-                            {formatDate(dueDate, fmtLocale)}
-                          </span>
-                        ) : <span className="text-slate-300">—</span>}
-                      </td>
-                      <td className="px-3 py-4">
-                        <InvoiceStatusBadge status={inv.paymentStatus as any} locale={locale} />
-                      </td>
+                      <td className="px-3 py-4"><InvoiceStatusBadge status={inv.status} locale={locale} /></td>
                       <td className="px-3 py-4 text-end">
-                        <span className="text-sm font-bold tabular-nums text-slate-900">
-                          {formatCurrency(grandTotal, fmtLocale)}
-                        </span>
+                        <span className="text-sm font-bold tabular-nums text-slate-900">{formatCurrency(inv.totalHalalas, fmtLocale)}</span>
                       </td>
                       <td className="pe-5 px-3 py-4 text-end hidden lg:table-cell">
-                        {balance > 0 ? (
-                          <span className="text-sm font-bold tabular-nums text-red-600">{formatCurrency(balance, fmtLocale)}</span>
-                        ) : <span className="text-slate-300">—</span>}
+                        {balance > 0
+                          ? <span className="text-sm font-bold tabular-nums text-red-600">{formatCurrency(balance, fmtLocale)}</span>
+                          : <span className="text-slate-300">—</span>}
                       </td>
                       <td className="pe-5 px-3 py-4">
                         <div className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                           <Link href={`/${locale}/invoices/${inv.id}/print`}
-                            className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-700 transition-colors"
-                            title={isAr ? 'طباعة' : 'Print'}>
-                            <Printer size={14} />
-                          </Link>
+                            className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-700 transition-colors"><Printer size={14} /></Link>
                           <Link href={`/${locale}/invoices/${inv.id}`}
-                            className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-700 transition-colors">
-                            <ChevronRight size={14} />
-                          </Link>
+                            className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-700 transition-colors"><ChevronRight size={14} /></Link>
                         </div>
                       </td>
                     </tr>
@@ -266,12 +266,28 @@ export function InvoicesClient({ locale }: InvoicesClientProps) {
               </tbody>
             </table>
           </div>
+
           <div className="px-6 py-3 border-t border-surface-border">
             <span className="text-xs text-slate-400">
               {isAr ? `${formatCount(filtered.length, fmtLocale)} فاتورة` : `${filtered.length} invoices`}
             </span>
           </div>
         </Card>
+      )}
+
+      {showCreate && (
+        <CreateDirectInvoiceModal
+          onClose={() => setShowCreate(false)}
+          onSuccess={(invoiceId, invoiceNumber) => {
+            setShowCreate(false);
+            // Reload invoices list to show the new one
+            if (user?.agencyId) {
+              apiFetch<{ invoices: Invoice[] }>('/api/invoices')
+                .then(d => setInvoices(d.invoices))
+                .catch(() => {});
+            }
+          }}
+        />
       )}
     </div>
   );

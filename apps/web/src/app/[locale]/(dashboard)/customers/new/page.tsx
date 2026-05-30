@@ -1,176 +1,212 @@
 'use client';
 
 import { useState } from 'react';
-import { useLocale, useTranslations } from 'next-intl';
+import { useLocale } from 'next-intl';
 import { useRouter } from 'next/navigation';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
-import { Select } from '@/components/ui/Select';
 import { Card, CardHeader, CardTitle } from '@/components/ui/Card';
-import { ArrowRight, ArrowLeft, UserPlus } from 'lucide-react';
+import { cn } from '@/lib/utils';
+import { ArrowRight, ArrowLeft, UserPlus, Building2, User } from 'lucide-react';
 import { useAuth } from '@masarat/firebase';
+import { apiFetch } from '@/lib/api-client';
+import { COUNTRIES } from '@/lib/countries';
 
 // ─── Schema ───────────────────────────────────────────────────────────────────
 
-const newCustomerSchema = z.object({
-  nameAr: z.string().min(2, { message: 'الاسم يجب أن يكون حرفين على الأقل' }),
-  nameEn: z.string().optional(),
-  phone: z.string().min(9, { message: 'رقم الهاتف يجب أن يكون 9 أرقام على الأقل' }),
-  email: z.string().email({ message: 'البريد الإلكتروني غير صالح' }).optional().or(z.literal('')),
-  nationalId: z
-    .string()
-    .regex(/^\d{10}$/, { message: 'رقم الهوية يجب أن يكون 10 أرقام' })
-    .optional()
-    .or(z.literal('')),
+const schema = z.object({
+  type:           z.enum(['individual', 'company']).default('individual'),
+  nameAr:         z.string().min(2, 'الاسم يجب أن يكون حرفين على الأقل'),
+  nameEn:         z.string().optional(),
+  phone:          z.string().min(9, 'رقم الهاتف يجب أن يكون 9 أرقام على الأقل'),
+  email:          z.string().email('البريد الإلكتروني غير صالح').optional().or(z.literal('')),
+  gender:         z.enum(['male', 'female']).optional(),
+  nationality:    z.string().default('SA'),
+  nationalId:     z.string().regex(/^\d{10}$/, 'رقم الهوية يجب أن يكون 10 أرقام').optional().or(z.literal('')),
   passportNumber: z.string().optional(),
   passportExpiry: z.string().optional(),
-  nationality: z.string().default('SA'),
-  dateOfBirth: z.string().optional(),
-  vatNumber: z.string().optional(),
-  notes: z.string().optional(),
+  dateOfBirth:    z.string().optional(),
+  vatNumber:      z.string().optional(),
+  notes:          z.string().optional(),
 });
 
-type NewCustomerFormData = z.infer<typeof newCustomerSchema>;
-
-// ─── Constants ────────────────────────────────────────────────────────────────
-
-const NATIONALITY_OPTIONS = [
-  { value: 'SA', labelAr: 'السعودية',   labelEn: 'Saudi Arabia' },
-  { value: 'EG', labelAr: 'مصر',        labelEn: 'Egypt' },
-  { value: 'JO', labelAr: 'الأردن',     labelEn: 'Jordan' },
-  { value: 'PK', labelAr: 'باكستان',    labelEn: 'Pakistan' },
-  { value: 'IN', labelAr: 'الهند',      labelEn: 'India' },
-  { value: 'PH', labelAr: 'الفلبين',    labelEn: 'Philippines' },
-  { value: 'BD', labelAr: 'بنغلاديش',   labelEn: 'Bangladesh' },
-  { value: 'YE', labelAr: 'اليمن',      labelEn: 'Yemen' },
-  { value: 'SY', labelAr: 'سوريا',      labelEn: 'Syria' },
-  { value: 'IQ', labelAr: 'العراق',     labelEn: 'Iraq' },
-];
+type FormData = z.infer<typeof schema>;
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export default function NewCustomerPage() {
-  const locale = useLocale();
-  const router = useRouter();
-  const t = useTranslations('customers');
-  const tCommon = useTranslations('common');
-  const isRtl = locale === 'ar';
-  const isAr = isRtl;
-
-  const { user } = useAuth();
+  const locale      = useLocale();
+  const router      = useRouter();
+  const isAr        = locale === 'ar';
+  const { user }    = useAuth();
   const [submitting, setSubmitting] = useState(false);
+  const [serverError, setServerError] = useState('');
+
+  const BackIcon = isAr ? ArrowRight : ArrowLeft;
 
   const {
     register,
     handleSubmit,
+    watch,
+    setValue,
     formState: { errors },
-  } = useForm<NewCustomerFormData>({
-    resolver: zodResolver(newCustomerSchema),
-    defaultValues: {
-      nationality: 'SA',
-    },
+  } = useForm<FormData>({
+    resolver: zodResolver(schema),
+    defaultValues: { type: 'individual', nationality: isAr ? 'السعودية' : 'Saudi Arabia', gender: 'male' },
   });
 
-  async function onSubmit(data: NewCustomerFormData) {
+  const customerType = watch('type');
+  const isCompany    = customerType === 'company';
+
+  async function onSubmit(data: FormData) {
     if (!user) return;
     setSubmitting(true);
+    setServerError('');
     try {
-      const { getFirestore, collection, addDoc, Timestamp } = await import('firebase/firestore');
-      const { getApp } = await import('@masarat/firebase');
-      const db = getFirestore(getApp());
-      const agencyId = user.agencyId;
-
-      const customerRef = await addDoc(collection(db, 'customers'), {
-        agencyId,
-        type: 'individual',
-        name: { ar: data.nameAr, en: data.nameEn ?? data.nameAr },
-        mobile: data.phone,
-        email: data.email ?? '',
-        nationalId: data.nationalId ?? '',
-        passportNumber: data.passportNumber ?? '',
-        passportExpiry: data.passportExpiry ?? '',
-        nationality: data.nationality ?? 'SA',
-        dateOfBirth: data.dateOfBirth ?? '',
-        vatNumber: data.vatNumber ?? '',
-        notes: data.notes ?? '',
-        tags: [],
-        tier: 'standard',
-        loyalty: { points: 0, totalEarned: 0 },
-        stats: { totalBookings: 0, totalSpent: 0 },
-        flags: { hasUnpaidBalance: false, isBlacklisted: false },
-        isActive: true,
-        createdAt: Timestamp.now(),
-        updatedAt: Timestamp.now(),
+      const result = await apiFetch<{ id: string }>('/api/customers', {
+        method: 'POST',
+        body: JSON.stringify({
+          nameAr:         data.nameAr,
+          nameEn:         data.nameEn || data.nameAr,
+          phone:          data.phone,
+          email:          data.email || null,
+          nationality:    data.nationality,
+          nationalId:     data.nationalId || null,
+          passportNumber: data.passportNumber || null,
+          dateOfBirth:    data.dateOfBirth || null,
+          notes:          data.notes || null,
+        }),
       });
-
-      router.push(`/${locale}/customers/${customerRef.id}`);
-    } catch (err) {
-      console.error('Failed to create customer:', err);
+      router.push(`/${locale}/customers/${result.id}`);
+    } catch {
+      setServerError(isAr ? 'حدث خطأ أثناء الحفظ، حاول مرة أخرى' : 'Error saving, please try again');
       setSubmitting(false);
     }
   }
 
-  const BackIcon = isRtl ? ArrowRight : ArrowLeft;
-
-  const nationalityOptions = NATIONALITY_OPTIONS.map((n) => ({
-    value: n.value,
-    label: isAr ? n.labelAr : n.labelEn,
-  }));
-
   return (
-    <div className="max-w-2xl mx-auto space-y-6">
-      {/* Page header */}
-      <div className="flex items-center gap-4">
+    <div className="max-w-2xl mx-auto space-y-5 pb-10">
+      {/* Header */}
+      <div className="flex items-center gap-3">
         <button
           type="button"
           onClick={() => router.back()}
           className="p-2 rounded-lg text-slate-500 hover:bg-slate-100 transition-colors"
-          aria-label={tCommon('back')}
         >
           <BackIcon size={18} />
         </button>
         <div className="flex items-center gap-2.5">
-          <UserPlus size={22} className="text-brand-600" />
-          <h1 className="text-xl font-bold text-slate-900">
-            {isAr ? 'إضافة عميل جديد' : 'New Customer'}
-          </h1>
+          <div className="w-9 h-9 rounded-xl bg-brand-100 flex items-center justify-center">
+            <UserPlus size={18} className="text-brand-600" />
+          </div>
+          <div>
+            <h1 className="text-lg font-bold text-slate-900">
+              {isAr ? 'إضافة عميل جديد' : 'New Customer'}
+            </h1>
+            <p className="text-xs text-slate-500">
+              {isAr ? 'أدخل بيانات العميل' : 'Enter customer details'}
+            </p>
+          </div>
         </div>
       </div>
 
       <form onSubmit={handleSubmit(onSubmit)} noValidate className="space-y-5">
-        {/* ── Section 1: Basic Info ─────────────────────────────────────── */}
+
+        {/* ── Customer Type Toggle ──────────────────────────────────────── */}
+        <Card>
+          <CardHeader>
+            <CardTitle>{isAr ? 'نوع العميل' : 'Customer Type'}</CardTitle>
+          </CardHeader>
+          <div className="grid grid-cols-2 gap-3">
+            {[
+              { value: 'individual', ar: 'فرد', en: 'Individual', icon: User,     descAr: 'عميل شخصي أو مسافر', descEn: 'Personal or traveler' },
+              { value: 'company',   ar: 'شركة', en: 'Company',    icon: Building2, descAr: 'شركة أو مؤسسة تجارية', descEn: 'Company or business' },
+            ].map(opt => {
+              const Icon    = opt.icon;
+              const active  = customerType === opt.value;
+              return (
+                <button
+                  key={opt.value}
+                  type="button"
+                  onClick={() => setValue('type', opt.value as 'individual' | 'company')}
+                  className={cn(
+                    'flex items-center gap-3 p-4 rounded-xl border-2 text-start transition-all',
+                    active
+                      ? 'border-brand-400 bg-brand-50 shadow-sm'
+                      : 'border-slate-200 bg-white hover:border-slate-300',
+                  )}
+                >
+                  <div className={cn(
+                    'w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0',
+                    active ? 'bg-brand-600' : 'bg-slate-100',
+                  )}>
+                    <Icon size={18} className={active ? 'text-white' : 'text-slate-500'} />
+                  </div>
+                  <div>
+                    <p className={cn('text-sm font-bold', active ? 'text-brand-700' : 'text-slate-700')}>
+                      {isAr ? opt.ar : opt.en}
+                    </p>
+                    <p className="text-xs text-slate-400 mt-0.5">
+                      {isAr ? opt.descAr : opt.descEn}
+                    </p>
+                  </div>
+                  {active && (
+                    <div className="ms-auto w-5 h-5 rounded-full bg-brand-600 flex items-center justify-center flex-shrink-0">
+                      <svg width="10" height="8" viewBox="0 0 10 8" fill="none">
+                        <path d="M1 4L3.5 6.5L9 1" stroke="white" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                      </svg>
+                    </div>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        </Card>
+
+        {/* ── Basic Info ───────────────────────────────────────────────── */}
         <Card>
           <CardHeader>
             <CardTitle>
-              {isAr ? 'البيانات الأساسية' : 'Basic Information'}
+              {isAr
+                ? isCompany ? 'بيانات الشركة' : 'البيانات الأساسية'
+                : isCompany ? 'Company Info' : 'Basic Information'}
             </CardTitle>
           </CardHeader>
-
           <div className="space-y-4">
-            {/* Name row */}
+
+            {/* Names */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <Input
-                label={isAr ? 'الاسم بالعربي' : 'Name (Arabic)'}
+                label={isAr
+                  ? isCompany ? 'اسم الشركة (عربي) *' : 'الاسم بالعربي *'
+                  : isCompany ? 'Company Name (Arabic) *' : 'Name (Arabic) *'}
                 required
-                placeholder={isAr ? 'الاسم الكامل بالعربي' : 'Full name in Arabic'}
+                placeholder={isAr
+                  ? isCompany ? 'الاسم التجاري بالعربي' : 'الاسم الكامل بالعربي'
+                  : isCompany ? 'Company Arabic name' : 'Full name in Arabic'}
                 error={errors.nameAr?.message}
                 {...register('nameAr')}
               />
               <Input
-                label={isAr ? 'الاسم بالإنجليزي' : 'Name (English)'}
-                placeholder={isAr ? 'كما في جواز السفر' : 'As in passport'}
+                label={isAr
+                  ? isCompany ? 'اسم الشركة (إنجليزي)' : 'الاسم بالإنجليزي'
+                  : isCompany ? 'Company Name (English)' : 'Name (English)'}
+                placeholder={isAr
+                  ? isCompany ? 'Commercial name' : 'كما في جواز السفر'
+                  : isCompany ? 'اختياري' : 'As in passport'}
+                dir="ltr"
                 error={errors.nameEn?.message}
                 {...register('nameEn')}
               />
             </div>
 
-            {/* Contact row */}
+            {/* Contact */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <Input
-                label={isAr ? 'رقم الهاتف' : 'Phone Number'}
+                label={isAr ? 'رقم الهاتف *' : 'Phone *'}
                 type="tel"
                 required
                 placeholder="05xxxxxxxx"
@@ -179,7 +215,7 @@ export default function NewCustomerPage() {
                 {...register('phone')}
               />
               <Input
-                label={isAr ? 'البريد الإلكتروني' : 'Email Address'}
+                label={isAr ? 'البريد الإلكتروني' : 'Email'}
                 type="email"
                 placeholder={isAr ? 'اختياري' : 'Optional'}
                 dir="ltr"
@@ -188,129 +224,151 @@ export default function NewCustomerPage() {
               />
             </div>
 
-            {/* Nationality + DOB */}
+            {/* Individual-only fields */}
+            {!isCompany && (
+              <>
+                {/* Gender + Nationality */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  {/* Gender */}
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1.5">
+                      {isAr ? 'الجنس' : 'Gender'}
+                    </label>
+                    <div className="flex gap-2">
+                      {[
+                        { value: 'male',   ar: 'ذكر',  en: 'Male'   },
+                        { value: 'female', ar: 'أنثى', en: 'Female' },
+                      ].map(g => {
+                        const current = watch('gender');
+                        const active  = current === g.value;
+                        return (
+                          <button
+                            key={g.value}
+                            type="button"
+                            onClick={() => setValue('gender', g.value as 'male' | 'female')}
+                            className={cn(
+                              'flex-1 py-2 rounded-lg border-2 text-sm font-medium transition-all',
+                              active
+                                ? 'border-brand-400 bg-brand-50 text-brand-700'
+                                : 'border-slate-200 text-slate-500 hover:border-slate-300',
+                            )}
+                          >
+                            {isAr ? g.ar : g.en}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* Nationality */}
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1.5">
+                      {isAr ? 'الجنسية' : 'Nationality'}
+                    </label>
+                    <input
+                      type="text"
+                      list="countries-datalist"
+                      className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-brand-500"
+                      placeholder={isAr ? 'اختر أو اكتب الجنسية...' : 'Select or type nationality...'}
+                      {...register('nationality')}
+                    />
+                    <datalist id="countries-datalist">
+                      {COUNTRIES.map(c => (
+                        <option key={c.code} value={isAr ? c.ar : c.en} />
+                      ))}
+                    </datalist>
+                  </div>
+                </div>
+
+                {/* DOB + National ID */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <Input
+                    label={isAr ? 'تاريخ الميلاد' : 'Date of Birth'}
+                    type="date"
+                    hint={isAr ? 'اختياري' : 'Optional'}
+                    {...register('dateOfBirth')}
+                  />
+                  <Input
+                    label={isAr ? 'رقم الهوية الوطنية' : 'National ID'}
+                    placeholder={isAr ? '10 أرقام' : '10 digits'}
+                    hint={isAr ? 'للمواطنين السعوديين' : 'Saudi nationals'}
+                    dir="ltr"
+                    error={errors.nationalId?.message}
+                    {...register('nationalId')}
+                  />
+                </div>
+              </>
+            )}
+
+            {/* Company-only: VAT number */}
+            {isCompany && (
+              <Input
+                label={isAr ? 'الرقم الضريبي (VAT)' : 'VAT Number'}
+                placeholder={isAr ? '15 رقماً (اختياري)' : '15 digits (optional)'}
+                hint={isAr ? 'للشركات المسجلة بضريبة القيمة المضافة' : 'For VAT-registered companies'}
+                dir="ltr"
+                {...register('vatNumber')}
+              />
+            )}
+
+          </div>
+        </Card>
+
+        {/* ── Passport (individuals only) ───────────────────────────────── */}
+        {!isCompany && (
+          <Card>
+            <CardHeader>
+              <CardTitle>{isAr ? 'بيانات جواز السفر' : 'Passport Details'}</CardTitle>
+            </CardHeader>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <Select
-                label={isAr ? 'الجنسية' : 'Nationality'}
-                options={nationalityOptions}
-                error={errors.nationality?.message}
-                {...register('nationality')}
+              <Input
+                label={isAr ? 'رقم جواز السفر' : 'Passport Number'}
+                placeholder="A12345678"
+                hint={isAr ? 'اختياري' : 'Optional'}
+                dir="ltr"
+                {...register('passportNumber')}
               />
               <Input
-                label={isAr ? 'تاريخ الميلاد' : 'Date of Birth'}
+                label={isAr ? 'تاريخ انتهاء الجواز' : 'Passport Expiry'}
                 type="date"
                 hint={isAr ? 'اختياري' : 'Optional'}
-                error={errors.dateOfBirth?.message}
-                {...register('dateOfBirth')}
+                {...register('passportExpiry')}
               />
             </div>
+          </Card>
+        )}
 
-            {/* National ID */}
-            <Input
-              label={isAr ? 'رقم الهوية الوطنية' : 'National ID Number'}
-              placeholder={isAr ? '10 أرقام' : '10 digits'}
-              hint={isAr ? 'يُطلب للمواطنين السعوديين' : 'Required for Saudi nationals'}
-              dir="ltr"
-              error={errors.nationalId?.message}
-              {...register('nationalId')}
-            />
-          </div>
-        </Card>
-
-        {/* ── Section 2: Passport ──────────────────────────────────────── */}
+        {/* ── Notes ────────────────────────────────────────────────────── */}
         <Card>
           <CardHeader>
-            <CardTitle>
-              {isAr ? 'بيانات جواز السفر' : 'Passport Details'}
-            </CardTitle>
+            <CardTitle>{isAr ? 'ملاحظات' : 'Notes'}</CardTitle>
           </CardHeader>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <Input
-              label={isAr ? 'رقم جواز السفر' : 'Passport Number'}
-              placeholder="A12345678"
-              hint={isAr ? 'اختياري' : 'Optional'}
-              dir="ltr"
-              error={errors.passportNumber?.message}
-              {...register('passportNumber')}
-            />
-            <Input
-              label={isAr ? 'تاريخ انتهاء الجواز' : 'Passport Expiry'}
-              type="date"
-              hint={isAr ? 'اختياري' : 'Optional'}
-              error={errors.passportExpiry?.message}
-              {...register('passportExpiry')}
+          <div>
+            <textarea
+              rows={3}
+              placeholder={isAr ? 'أي ملاحظات إضافية حول العميل...' : 'Any additional notes...'}
+              className="w-full rounded-lg border border-slate-200 px-3.5 py-2.5 text-sm placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-brand-500 resize-none transition-colors"
+              {...register('notes')}
             />
           </div>
         </Card>
 
-        {/* ── Section 3: Billing ───────────────────────────────────────── */}
-        <Card>
-          <CardHeader>
-            <CardTitle>
-              {isAr ? 'بيانات الفوترة' : 'Billing Details'}
-            </CardTitle>
-          </CardHeader>
-
-          <div className="space-y-4">
-            <Input
-              label={isAr ? 'الرقم الضريبي (للشركات)' : 'VAT Number (B2B)'}
-              placeholder={isAr ? '15 رقماً (اختياري)' : '15 digits (optional)'}
-              hint={
-                isAr
-                  ? 'أدخل الرقم الضريبي للعملاء من الشركات فقط'
-                  : 'Enter VAT number for corporate customers only'
-              }
-              dir="ltr"
-              error={errors.vatNumber?.message}
-              {...register('vatNumber')}
-            />
-
-            {/* Notes */}
-            <div className="space-y-1">
-              <label className="block text-sm font-medium text-slate-700">
-                {isAr ? 'ملاحظات' : 'Notes'}
-                <span className="text-slate-400 font-normal ms-1.5 text-xs">
-                  ({tCommon('optional')})
-                </span>
-              </label>
-              <textarea
-                rows={3}
-                placeholder={
-                  isAr
-                    ? 'أي ملاحظات إضافية حول العميل...'
-                    : 'Any additional notes about the customer...'
-                }
-                className="block w-full rounded-lg border border-slate-300 bg-white px-3.5 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent resize-none transition-colors"
-                {...register('notes')}
-              />
-              {errors.notes?.message && (
-                <p className="text-xs text-red-600">{errors.notes.message}</p>
-              )}
-            </div>
+        {serverError && (
+          <div className="rounded-lg bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700">
+            {serverError}
           </div>
-        </Card>
+        )}
 
-        {/* ── Form Actions ─────────────────────────────────────────────── */}
-        <div className="flex items-center justify-between gap-3 pb-2">
-          <Button
-            type="button"
-            variant="outline"
-            onClick={() => router.back()}
-            disabled={submitting}
-          >
+        {/* Actions */}
+        <div className="flex items-center justify-between gap-3">
+          <Button type="button" variant="outline" onClick={() => router.back()} disabled={submitting}>
             <BackIcon size={15} />
-            {tCommon('cancel')}
+            {isAr ? 'إلغاء' : 'Cancel'}
           </Button>
-
           <Button type="submit" loading={submitting}>
             {submitting
-              ? isAr
-                ? 'جارٍ الحفظ...'
-                : 'Saving...'
-              : isAr
-              ? 'حفظ العميل'
-              : 'Save Customer'}
+              ? (isAr ? 'جارٍ الحفظ...' : 'Saving...')
+              : (isAr ? 'حفظ العميل' : 'Save Customer')}
           </Button>
         </div>
       </form>

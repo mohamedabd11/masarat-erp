@@ -50,6 +50,7 @@ const nextConfig = {
   ],
   experimental: {
     typedRoutes: false,
+    instrumentationHook: true,
   },
   webpack(config) {
     // Allow .js extension imports to resolve to .ts/.tsx files

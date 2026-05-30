@@ -27,6 +27,9 @@ export {
   AccountingValidationError,
 } from './validator';
 
+// الثوابت المحاسبية
+export { VAT_RATE, TRIAL_DAYS, SUBSCRIPTION_MONTHLY_DAYS, SUBSCRIPTION_YEARLY_DAYS, DEFAULT_ACCOUNT_CODES } from './constants';
+
 // جميع الأنواع
 export type {
   Halalas,

@@ -3,11 +3,14 @@ import type { Metadata } from 'next';
 import { NextIntlClientProvider } from 'next-intl';
 import { getMessages } from 'next-intl/server';
 import { notFound } from 'next/navigation';
-import { Analytics } from '@vercel/analytics/next';
+import { Tajawal, Inter } from 'next/font/google';
 import { locales, type Locale } from '@/i18n';
 import { FirebaseProvider } from '@/providers/FirebaseProvider';
 import { AuthProvider } from '@/providers/AuthProvider';
 import { DirectionProvider } from '@/providers/DirectionProvider';
+
+const tajawal = Tajawal({ subsets: ['arabic'], weight: ['300', '400', '500', '700'], display: 'swap', variable: '--font-arabic' });
+const inter   = Inter({ subsets: ['latin'], weight: ['300', '400', '500', '600', '700'], display: 'swap', variable: '--font-sans' });
 
 export const dynamic = 'force-dynamic';
 
@@ -29,15 +32,7 @@ export default async function LocaleLayout({ children, params: { locale } }: Loc
   const dir = locale === 'ar' ? 'rtl' : 'ltr';
 
   return (
-    <html lang={locale} dir={dir} suppressHydrationWarning>
-      <head>
-        <link rel="preconnect" href="https://fonts.googleapis.com" />
-        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
-        <link
-          href="https://fonts.googleapis.com/css2?family=Tajawal:wght@300;400;500;700&family=Inter:wght@300;400;500;600;700&display=swap"
-          rel="stylesheet"
-        />
-      </head>
+    <html lang={locale} dir={dir} suppressHydrationWarning className={`${tajawal.variable} ${inter.variable}`}>
       <body className="antialiased bg-surface-muted text-slate-900 min-h-screen">
         <NextIntlClientProvider messages={messages}>
           <FirebaseProvider>

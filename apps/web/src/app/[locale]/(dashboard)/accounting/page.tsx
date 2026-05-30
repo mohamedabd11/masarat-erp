@@ -14,6 +14,7 @@ import { MigrationTool } from '@/components/accounting/MigrationTool';
 import { CurrenciesClient } from '@/components/currencies/CurrenciesClient';
 import { formatCurrency, formatDate, formatCount } from '@/lib/utils';
 import { cn } from '@/lib/utils';
+import { UpgradeGate } from '@/components/ui/UpgradeGate';
 import {
   BarChart3,
   Download,
@@ -92,17 +93,23 @@ function fsDocToEntry(docId: string, data: Record<string, unknown>): JournalEntr
     ? (data.lines as Record<string, unknown>[]).map(fsLineToLocal)
     : [];
   let date = new Date();
-  const ca = data.createdAt as { toDate?: () => Date } | undefined;
-  if (ca?.toDate) date = ca.toDate();
+  // Support Postgres ISO string date field or Firestore Timestamp
+  if (data.date && typeof data.date === 'string') {
+    date = new Date(data.date);
+  } else {
+    const ca = data.createdAt as { toDate?: () => Date } | string | undefined;
+    if (typeof ca === 'string') date = new Date(ca);
+    else if (ca?.toDate) date = ca.toDate();
+  }
   return {
-    id:        String(data.jeNumber ?? docId),
+    id:        String(data.entryNumber ?? data.jeNumber ?? docId),
     date,
-    type:      referenceTypeToEntryType(String(data.referenceType ?? '')),
-    descAr:    String(data.description ?? ''),
-    descEn:    String(data.description ?? ''),
+    type:      referenceTypeToEntryType(String(data.source ?? data.referenceType ?? '')),
+    descAr:    String(data.descriptionAr ?? data.description ?? ''),
+    descEn:    String(data.descriptionEn ?? data.description ?? ''),
     lines,
-    status:    data.isBalanced === true ? 'balanced' : 'draft',
-    reference: data.referenceId ? String(data.referenceId) : undefined,
+    status:    (data.isPosted === true || data.isBalanced === true) ? 'balanced' : 'draft',
+    reference: data.sourceId ? String(data.sourceId) : (data.referenceId ? String(data.referenceId) : undefined),
   };
 }
 
@@ -568,22 +575,21 @@ function NewEntryModal({
     if (agencyId) {
       setSaving(true);
       try {
-        const { getFirestore, collection, addDoc, Timestamp } = await import('firebase/firestore');
-        const { getApp } = await import('@masarat/firebase');
-        const db = getFirestore(getApp());
-        await addDoc(collection(db, 'journal_entries'), {
-          agencyId,
-          jeNumber,
-          description:        descAr.trim(),
-          referenceId:        reference.trim() || null,
-          referenceType:      'manual',
-          status:             'posted',
-          lines:              mappedLines,
-          totalDebitHalalas:  totalDR,
-          totalCreditHalalas: totalCR,
-          isBalanced:         true,
-          postedAt:           Timestamp.now(),
-          createdAt:          Timestamp.now(),
+        const { apiFetch } = await import('@/lib/api-client');
+        await apiFetch('/api/accounting/journal', {
+          method: 'POST',
+          body: JSON.stringify({
+            entryNumber:        jeNumber,
+            date,
+            descriptionAr:      descAr.trim(),
+            descriptionEn:      descEn.trim() || descAr.trim(),
+            reference:          reference.trim() || null,
+            source:             'manual',
+            totalDebitHalalas:  totalDR,
+            totalCreditHalalas: totalCR,
+            isPosted:           true,
+            lines:              mappedLines,
+          }),
         });
       } catch (err) {
         setError(err instanceof Error ? err.message : (isAr ? 'خطأ في الحفظ' : 'Save error'));
@@ -790,7 +796,7 @@ function NewEntryModal({
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
-type TabId = 'chart' | 'journal' | 'trial' | 'currencies' | 'tools';
+type TabId = 'chart' | 'journal' | 'currencies';
 
 export default function AccountingPage() {
   const locale = useLocale();
@@ -803,6 +809,9 @@ export default function AccountingPage() {
   const [entries, setEntries] = useState<JournalEntry[]>([]);
   const [loadingEntries, setLoadingEntries] = useState(true);
   const [showNewEntry, setShowNewEntry] = useState(false);
+  const [refreshKey, setRefreshKey] = useState(0);
+  const [fixingCodes, setFixingCodes] = useState(false);
+  const [fixResult, setFixResult] = useState<{ total: number } | null>(null);
 
   useEffect(() => {
     if (!agencyId) return;
@@ -810,17 +819,11 @@ export default function AccountingPage() {
     async function load() {
       setLoadingEntries(true);
       try {
-        const { getFirestore, collection, query, where, getDocs } = await import('firebase/firestore');
-        const { getApp } = await import('@masarat/firebase');
-        const db = getFirestore(getApp());
-        const q = query(
-          collection(db, 'journal_entries'),
-          where('agencyId', '==', agencyId),
-        );
-        const snap = await getDocs(q);
+        const { apiFetch } = await import('@/lib/api-client');
+        const data = await apiFetch<{ entries: Record<string, unknown>[] }>('/api/accounting/journal?lines=1');
         if (cancelled) return;
-        const sorted = snap.docs
-          .map(d => fsDocToEntry(d.id, d.data() as Record<string, unknown>))
+        const sorted = data.entries
+          .map(d => fsDocToEntry(String(d['entryNumber'] ?? d['id']), d))
           .sort((a, b) => b.date.getTime() - a.date.getTime());
         setEntries(sorted);
       } finally {
@@ -829,17 +832,31 @@ export default function AccountingPage() {
     }
     void load();
     return () => { cancelled = true; };
-  }, [agencyId]);
+  }, [agencyId, refreshKey]);
+
+  async function handleFixJournalCodes() {
+    setFixingCodes(true);
+    setFixResult(null);
+    try {
+      const { apiFetch } = await import('@/lib/api-client');
+      const data = await apiFetch<{ total: number }>('/api/accounting/fix-journal-codes', { method: 'POST' });
+      setFixResult(data);
+      setRefreshKey(k => k + 1);
+    } catch {
+      // server returns 403 for non-admin; user will see no result
+    } finally {
+      setFixingCodes(false);
+    }
+  }
 
   const tabs: { id: TabId; labelAr: string; labelEn: string; icon: ReactNode }[] = [
     { id: 'chart',      labelAr: 'شجرة الحسابات',   labelEn: 'Chart of Accounts', icon: <ListTree size={16} /> },
     { id: 'journal',    labelAr: 'قيود اليومية',     labelEn: 'Journal Entries',   icon: <BookOpen size={16} /> },
-    { id: 'trial',      labelAr: 'ميزان المراجعة',   labelEn: 'Trial Balance',     icon: <Scale size={16} /> },
     { id: 'currencies', labelAr: 'العملات',           labelEn: 'Currencies',        icon: <DollarSign size={16} /> },
-    { id: 'tools',      labelAr: 'أدوات',             labelEn: 'Tools',             icon: <Wrench size={16} /> },
   ];
 
   return (
+    <UpgradeGate feature="accounting">
     <div className="space-y-6">
 
       {/* ── Page header ────────────────────────────────────────────────────── */}
@@ -945,24 +962,54 @@ export default function AccountingPage() {
           )
         )}
 
-        {activeTab === 'trial' && (
-          <TrialBalanceTab locale={locale} />
-        )}
-
         {activeTab === 'currencies' && (
           <CurrenciesClient locale={locale} />
         )}
 
-        {activeTab === 'tools' && (
-          <div className="max-w-xl space-y-4">
-            <p className="text-sm text-slate-500">
-              {isAr
-                ? 'أدوات الإدارة — تُستخدم مرة واحدة أو عند الحاجة'
-                : 'Admin tools — run once or as needed'}
-            </p>
-            <MigrationTool locale={locale} />
+        {/* Data maintenance — only shown in journal tab */}
+        {activeTab === 'journal' && (
+          <div className="mt-8 pt-6 border-t border-slate-200">
+            <details className="group">
+              <summary className="flex items-center gap-2 text-xs text-slate-400 cursor-pointer hover:text-slate-600 select-none list-none">
+                <Wrench size={13} />
+                {isAr ? 'أدوات الصيانة' : 'Maintenance Tools'}
+              </summary>
+              <div className="mt-3 p-4 bg-amber-50 border border-amber-200 rounded-xl space-y-3">
+                <p className="text-xs text-amber-800 font-medium">
+                  {isAr
+                    ? 'إصلاح رموز الحسابات في سندات الصرف القديمة (تشغيل مرة واحدة)'
+                    : 'Fix account codes on old supplier payments (run once)'}
+                </p>
+                <p className="text-xs text-amber-700">
+                  {isAr
+                    ? 'يصحح هذا الإجراء رموز الحسابات الخاطئة التي أُدخلت قبل الإصلاح: 5900→5400، 5100(تشغيلي)→5400، 5200(رواتب)→5100.'
+                    : 'Corrects wrong account codes entered before the fix: 5900→5400, 5100(operational)→5400, 5200(salaries)→5100.'}
+                </p>
+                <div className="flex items-center gap-3">
+                  <button
+                    onClick={handleFixJournalCodes}
+                    disabled={fixingCodes}
+                    className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-amber-600 text-white text-xs font-medium hover:bg-amber-700 disabled:opacity-50 transition-colors"
+                  >
+                    <Wrench size={12} />
+                    {fixingCodes
+                      ? (isAr ? 'جارٍ الإصلاح...' : 'Fixing...')
+                      : (isAr ? 'تشغيل الإصلاح' : 'Run Fix')}
+                  </button>
+                  {fixResult !== null && (
+                    <span className="text-xs text-emerald-700 font-medium">
+                      {isAr
+                        ? `تم إصلاح ${fixResult.total} سطر`
+                        : `${fixResult.total} lines fixed`}
+                      {fixResult.total === 0 && (isAr ? ' — لا شيء يحتاج إصلاح' : ' — nothing to fix')}
+                    </span>
+                  )}
+                </div>
+              </div>
+            </details>
           </div>
         )}
+
       </div>
 
       {/* New Entry Modal */}
@@ -975,5 +1022,6 @@ export default function AccountingPage() {
         />
       )}
     </div>
+    </UpgradeGate>
   );
 }

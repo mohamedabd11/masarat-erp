@@ -9,6 +9,7 @@ import {
   type ReactNode,
 } from 'react';
 import { useAuth } from '@masarat/firebase';
+import { apiFetch } from '@/lib/api-client';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Spinner } from '@/components/ui/Spinner';
@@ -48,6 +49,16 @@ export interface ExchangeRate {
   agencyId: string;
 }
 
+// API response type from /api/banking
+interface ApiExchangeRate {
+  id: string;
+  fromCurrency: string;
+  toCurrency: string;
+  rate: number; // integer = rate × 10000
+  effectiveDate: string;
+  createdAt: string;
+}
+
 // ─── Default currencies ────────────────────────────────────────────────────────
 
 const DEFAULT_CURRENCIES: Omit<ExchangeRate, 'id' | 'agencyId' | 'updatedAt'>[] = [
@@ -64,6 +75,35 @@ const DEFAULT_CURRENCIES: Omit<ExchangeRate, 'id' | 'agencyId' | 'updatedAt'>[] 
   { code: 'TRY', nameAr: 'ليرة تركية',     nameEn: 'Turkish Lira',      symbol: '₺',    rateToSAR: 0.11,  buyRate: 0.109, sellRate: 0.111, isActive: true },
   { code: 'INR', nameAr: 'روبية هندية',    nameEn: 'Indian Rupee',      symbol: '₹',    rateToSAR: 0.045, buyRate: 0.044, sellRate: 0.046, isActive: true },
 ];
+
+// Map currency code to display metadata from DEFAULT_CURRENCIES
+const CURRENCY_META: Record<string, Omit<ExchangeRate, 'id' | 'agencyId' | 'updatedAt' | 'rateToSAR' | 'buyRate' | 'sellRate' | 'isActive'>> = {};
+DEFAULT_CURRENCIES.forEach(c => {
+  CURRENCY_META[c.code] = { code: c.code, nameAr: c.nameAr, nameEn: c.nameEn, symbol: c.symbol };
+});
+
+function mapApiRate(r: ApiExchangeRate): ExchangeRate {
+  const rateFloat = r.rate / 10000;
+  const meta = CURRENCY_META[r.fromCurrency] ?? {
+    code: r.fromCurrency,
+    nameAr: r.fromCurrency,
+    nameEn: r.fromCurrency,
+    symbol: r.fromCurrency,
+  };
+  return {
+    id: r.id,
+    agencyId: '',
+    code: r.fromCurrency,
+    nameAr: meta.nameAr,
+    nameEn: meta.nameEn,
+    symbol: meta.symbol,
+    rateToSAR: rateFloat,
+    buyRate: rateFloat,
+    sellRate: rateFloat,
+    isActive: true,
+    updatedAt: new Date(r.createdAt).getTime(),
+  };
+}
 
 // ─── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -911,83 +951,52 @@ export function CurrenciesClient({ locale }: CurrenciesClientProps) {
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<TabId>('rates');
   const [lastRefreshed, setLastRefreshed] = useState<number | null>(null);
+  const [tick, setTick] = useState(0);
 
-  // Keep a ref to the unsubscribe function so we can clean up
-  const unsubRef = useRef<(() => void) | null>(null);
+  // ── REST fetch & bootstrap ──────────────────────────────────────────────────
 
-  // ── Firestore bootstrap & subscription ─────────────────────────────────────
-
-  const bootstrapAndSubscribe = useCallback(async (agencyId: string) => {
+  const fetchRates = useCallback(async () => {
+    if (!user?.agencyId) return;
     try {
-      const { getFirestore, collection, query, where, onSnapshot, writeBatch, doc, serverTimestamp } =
-        await import('firebase/firestore');
-      const { getApp } = await import('@masarat/firebase');
+      const data = await apiFetch<{ accounts: unknown[]; transactions: unknown[]; rates: ApiExchangeRate[] }>('/api/banking');
+      let mapped = data.rates.map(mapApiRate);
+      mapped.sort((a, b) => a.code.localeCompare(b.code));
 
-      const db = getFirestore(getApp());
-      const colRef = collection(db, 'exchange_rates');
-      const q = query(colRef, where('agencyId', '==', agencyId));
+      // Seed defaults if empty
+      if (mapped.length === 0) {
+        const today = new Date().toISOString().slice(0, 10);
+        await Promise.all(
+          DEFAULT_CURRENCIES.map(cur =>
+            apiFetch('/api/banking/rates', {
+              method: 'POST',
+              body: JSON.stringify({
+                fromCurrency: cur.code,
+                toCurrency: 'SAR',
+                rate: cur.rateToSAR,
+                effectiveDate: today,
+              }),
+            })
+          )
+        );
+        setTick(t => t + 1);
+        return;
+      }
 
-      // Subscribe to real-time updates
-      const unsub = onSnapshot(
-        q,
-        async (snap) => {
-          if (snap.empty) {
-            // Seed default currencies via writeBatch
-            try {
-              const batch = writeBatch(db);
-              const now = Date.now();
-              DEFAULT_CURRENCIES.forEach((cur) => {
-                const ref = doc(colRef);
-                batch.set(ref, {
-                  ...cur,
-                  agencyId,
-                  updatedAt: now,
-                });
-              });
-              await batch.commit();
-              // onSnapshot will fire again with the seeded data
-            } catch (seedErr) {
-              console.error('Failed to seed currencies:', seedErr);
-            }
-            return;
-          }
-
-          const docs = snap.docs.map((d) => ({
-            id: d.id,
-            ...(d.data() as Omit<ExchangeRate, 'id'>),
-          })) as ExchangeRate[];
-
-          // Sort by code alphabetically, SAR-equivalent first
-          docs.sort((a, b) => a.code.localeCompare(b.code));
-
-          setRates(docs);
-          setLastRefreshed(Date.now());
-          setLoading(false);
-        },
-        (err) => {
-          console.error('Firestore snapshot error:', err);
-          setError(isAr ? 'خطأ في تحميل أسعار الصرف' : 'Failed to load exchange rates');
-          setLoading(false);
-        },
-      );
-
-      unsubRef.current = unsub;
+      setRates(mapped);
+      setLastRefreshed(Date.now());
+      setLoading(false);
     } catch (ex) {
-      console.error('Bootstrap error:', ex);
-      setError(isAr ? 'خطأ في الاتصال بقاعدة البيانات' : 'Database connection error');
+      console.error('Fetch rates error:', ex);
+      setError(isAr ? 'خطأ في تحميل أسعار الصرف' : 'Failed to load exchange rates');
       setLoading(false);
     }
-  }, [isAr]);
+  }, [user?.agencyId, isAr]);
 
   useEffect(() => {
     if (!user?.agencyId) return;
     setLoading(true);
-    bootstrapAndSubscribe(user.agencyId);
-
-    return () => {
-      unsubRef.current?.();
-    };
-  }, [user?.agencyId, bootstrapAndSubscribe]);
+    void fetchRates();
+  }, [user?.agencyId, fetchRates, tick]);
 
   // ── Handlers ───────────────────────────────────────────────────────────────
 
@@ -996,23 +1005,20 @@ export function CurrenciesClient({ locale }: CurrenciesClientProps) {
     data: { rateToSAR: number; buyRate: number; sellRate: number },
   ) {
     if (!user?.agencyId) return;
-    const { getFirestore, doc, updateDoc } = await import('firebase/firestore');
-    const { getApp } = await import('@masarat/firebase');
-    const db = getFirestore(getApp());
-    await updateDoc(doc(db, 'exchange_rates', id), {
-      ...data,
-      updatedAt: Date.now(),
+    await apiFetch(`/api/banking/rates/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ rate: data.rateToSAR }),
     });
+    setTick(t => t + 1);
   }
 
   async function handleToggle(id: string, current: boolean) {
     if (!user?.agencyId) return;
-    const { getFirestore, doc, updateDoc } = await import('firebase/firestore');
-    const { getApp } = await import('@masarat/firebase');
-    const db = getFirestore(getApp());
-    await updateDoc(doc(db, 'exchange_rates', id), {
-      isActive: !current,
-      updatedAt: Date.now(),
+    // Optimistic update
+    setRates(prev => prev.map(r => r.id === id ? { ...r, isActive: !current } : r));
+    await apiFetch(`/api/banking/rates/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ isActive: !current }),
     });
   }
 
@@ -1020,14 +1026,17 @@ export function CurrenciesClient({ locale }: CurrenciesClientProps) {
     data: Omit<ExchangeRate, 'id' | 'agencyId' | 'updatedAt'>,
   ) {
     if (!user?.agencyId) return;
-    const { getFirestore, collection, addDoc } = await import('firebase/firestore');
-    const { getApp } = await import('@masarat/firebase');
-    const db = getFirestore(getApp());
-    await addDoc(collection(db, 'exchange_rates'), {
-      ...data,
-      agencyId: user.agencyId,
-      updatedAt: Date.now(),
+    const today = new Date().toISOString().slice(0, 10);
+    await apiFetch('/api/banking/rates', {
+      method: 'POST',
+      body: JSON.stringify({
+        fromCurrency: data.code,
+        toCurrency: 'SAR',
+        rate: data.rateToSAR,
+        effectiveDate: today,
+      }),
     });
+    setTick(t => t + 1);
   }
 
   // ── Tab definitions ─────────────────────────────────────────────────────────
@@ -1058,7 +1067,7 @@ export function CurrenciesClient({ locale }: CurrenciesClientProps) {
           <Button variant="outline" size="sm" onClick={() => {
             setError(null);
             setLoading(true);
-            if (user?.agencyId) bootstrapAndSubscribe(user.agencyId);
+            setTick(t => t + 1);
           }}>
             <RefreshCw size={14} />
             {isAr ? 'إعادة المحاولة' : 'Retry'}

@@ -8,7 +8,6 @@
  */
 
 import { initializeApp, getApps, type FirebaseApp } from 'firebase/app';
-import { getFirestore, connectFirestoreEmulator } from 'firebase/firestore';
 import { getAuth, connectAuthEmulator } from 'firebase/auth';
 import { getStorage, connectStorageEmulator } from 'firebase/storage';
 import { getFunctions, connectFunctionsEmulator } from 'firebase/functions';
@@ -32,9 +31,8 @@ export function initFirebase(config: FirebaseConfig): FirebaseApp {
 
   app = initializeApp(config);
 
-  // تفعيل Emulators في بيئة التطوير
+  // تفعيل Emulators في بيئة التطوير (Auth/Storage/Functions فقط — Firestore أُزيل)
   if (process.env['NEXT_PUBLIC_USE_FIREBASE_EMULATOR'] === 'true') {
-    connectFirestoreEmulator(getFirestore(app), 'localhost', 8080);
     connectAuthEmulator(getAuth(app), 'http://localhost:9099');
     connectStorageEmulator(getStorage(app), 'localhost', 9199);
     connectFunctionsEmulator(getFunctions(app, 'me-central1'), 'localhost', 5001);
@@ -49,4 +47,4 @@ export function getApp(): FirebaseApp {
   return app;
 }
 
-export { getFirestore, getAuth, getStorage, getFunctions };
+export { getAuth, getStorage, getFunctions };

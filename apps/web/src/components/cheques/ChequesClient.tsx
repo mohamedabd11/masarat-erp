@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { useAuth } from '@masarat/firebase';
+import { apiFetch } from '@/lib/api-client';
 import { Card, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Spinner } from '@/components/ui/Spinner';
@@ -23,18 +24,24 @@ type FilterTab = 'all' | 'incoming' | 'outgoing' | 'pending' | 'bounced';
 interface ChequeDoc {
   id: string;
   agencyId: string;
-  direction: ChequeDirection;
+  type: ChequeDirection; // 'incoming' | 'outgoing' — maps to DB 'type' column
   chequeNumber: string;
-  bankName: string;
-  amount: number; // halalas
-  chequeDate: { toDate(): Date } | null;
-  dueDate: { toDate(): Date } | null;
+  bankName: string | null;
+  amountHalalas: number; // halalas
+  issueDate: string | null;
+  dueDate: string | null;
+  payerName: string | null;
+  payeeName: string | null;
+  status: ChequeStatus;
+  notes: string | null;
+  createdAt: string;
+  // UI-only convenience aliases populated below
+  direction: ChequeDirection;
+  amount: number;
   partyName: string;
   partyType: PartyType;
   purpose: string;
-  status: ChequeStatus;
-  notes: string;
-  createdAt: { toDate(): Date } | null;
+  chequeDate: string | null;
 }
 
 // ─── Constants ─────────────────────────────────────────────────────────────────
@@ -364,49 +371,40 @@ export function ChequesClient({ locale }: { locale: string }) {
   const [saving, setSaving] = useState(false);
 
   const agencyId = (user?.agencyId as string | undefined) ?? null;
+  const [tick, setTick] = useState(0);
 
-  // Load cheques from Firestore
+  // Load cheques from REST API
   useEffect(() => {
     if (!agencyId) {
       setLoading(false);
       return;
     }
-    let unsub: (() => void) | undefined;
-
-    async function load() {
-      const { getFirestore, collection, query, where, onSnapshot } =
-        await import('firebase/firestore');
-      const { getApp } = await import('@masarat/firebase');
-      const db = getFirestore(getApp());
-
-      const q = query(
-        collection(db, 'cheques'),
-        where('agencyId', '==', agencyId),
-      );
-
-      unsub = onSnapshot(
-        q,
-        snap => {
-          const docs = snap.docs
-            .map(d => ({ id: d.id, ...d.data() } as ChequeDoc))
-            .sort((a, b) => {
-              const aDate = a.dueDate?.toDate?.()?.getTime() ?? 0;
-              const bDate = b.dueDate?.toDate?.()?.getTime() ?? 0;
-              return aDate - bDate;
-            });
-          setCheques(docs);
-          setLoading(false);
-        },
-        err => {
-          setError(err.message);
-          setLoading(false);
-        },
-      );
-    }
-
-    void load();
-    return () => unsub?.();
-  }, [agencyId]);
+    setLoading(true);
+    apiFetch<{ cheques: ChequeDoc[] }>('/api/cheques')
+      .then(data => {
+        const docs = data.cheques
+          .map(d => ({
+            ...d,
+            direction: d.type,
+            amount: d.amountHalalas,
+            partyName: d.payerName ?? d.payeeName ?? '',
+            partyType: 'other' as PartyType,
+            purpose: '',
+            chequeDate: d.issueDate,
+          }))
+          .sort((a, b) => {
+            const aDate = a.dueDate ? new Date(a.dueDate).getTime() : 0;
+            const bDate = b.dueDate ? new Date(b.dueDate).getTime() : 0;
+            return aDate - bDate;
+          });
+        setCheques(docs);
+        setLoading(false);
+      })
+      .catch(err => {
+        setError(err.message ?? 'خطأ في التحميل');
+        setLoading(false);
+      });
+  }, [agencyId, tick]);
 
   // Filter cheques
   const filtered = cheques.filter(c => {
@@ -443,35 +441,24 @@ export function ChequesClient({ locale }: { locale: string }) {
     if (!agencyId) return;
     setSaving(true);
     try {
-      const { getFirestore, collection, addDoc, Timestamp } = await import('firebase/firestore');
-      const { getApp } = await import('@masarat/firebase');
-      const db = getFirestore(getApp());
-
       const amountHalalas = Math.round(parseFloat(form.amount) * 100);
-      const chequeDateTs = form.chequeDate
-        ? Timestamp.fromDate(new Date(form.chequeDate))
-        : Timestamp.now();
-      const dueDateTs = form.dueDate
-        ? Timestamp.fromDate(new Date(form.dueDate))
-        : Timestamp.now();
-
-      await addDoc(collection(db, 'cheques'), {
-        agencyId,
-        direction: form.direction,
-        chequeNumber: form.chequeNumber,
-        bankName: form.bankName,
-        amount: amountHalalas,
-        chequeDate: chequeDateTs,
-        dueDate: dueDateTs,
-        partyName: form.partyName,
-        partyType: form.partyType,
-        purpose: form.purpose,
-        notes: form.notes,
-        status: 'pending' as ChequeStatus,
-        createdAt: Timestamp.now(),
+      await apiFetch('/api/cheques', {
+        method: 'POST',
+        body: JSON.stringify({
+          type: form.direction,
+          chequeNumber: form.chequeNumber,
+          bankName: form.bankName,
+          amountHalalas,
+          issueDate: form.chequeDate || null,
+          dueDate: form.dueDate || null,
+          payerName: form.direction === 'incoming' ? form.partyName : null,
+          payeeName: form.direction === 'outgoing' ? form.partyName : null,
+          notes: form.notes || null,
+          status: 'pending',
+        }),
       });
-
       setShowForm(false);
+      setTick(t => t + 1);
     } catch (err) {
       console.error('Error saving cheque:', err);
     } finally {
@@ -482,10 +469,11 @@ export function ChequesClient({ locale }: { locale: string }) {
   // Change status
   async function handleStatusChange(chequeId: string, newStatus: ChequeStatus) {
     try {
-      const { getFirestore, doc, updateDoc } = await import('firebase/firestore');
-      const { getApp } = await import('@masarat/firebase');
-      const db = getFirestore(getApp());
-      await updateDoc(doc(db, 'cheques', chequeId), { status: newStatus });
+      await apiFetch(`/api/cheques/${chequeId}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ status: newStatus }),
+      });
+      setTick(t => t + 1);
     } catch (err) {
       console.error('Error updating status:', err);
     }

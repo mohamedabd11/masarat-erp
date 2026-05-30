@@ -82,8 +82,8 @@ export function DashboardRecentBookings({ locale }: DashboardRecentBookingsProps
         </thead>
         <tbody className="divide-y divide-slate-100">
           {bookings.map((booking) => {
-            const customerName = isAr ? (booking.customerName?.ar ?? '') : (booking.customerName?.en ?? '');
-            const createdDate  = booking.createdAt ? booking.createdAt.toDate() : new Date();
+            const customerName = isAr ? (booking.customerNameAr ?? booking.customerNameEn ?? '') : (booking.customerNameEn ?? booking.customerNameAr ?? '');
+            const createdDate  = booking.createdAt ? new Date(booking.createdAt as unknown as string) : new Date();
 
             return (
               <tr
@@ -93,7 +93,7 @@ export function DashboardRecentBookings({ locale }: DashboardRecentBookingsProps
                 {/* Ref # */}
                 <td className="ps-6 pe-3 py-3.5">
                   <span className="font-mono text-xs font-semibold text-brand-700 whitespace-nowrap">
-                    {booking.id}
+                    {booking.bookingNumber ?? booking.id.slice(-6).toUpperCase()}
                   </span>
                 </td>
 
@@ -107,7 +107,7 @@ export function DashboardRecentBookings({ locale }: DashboardRecentBookingsProps
                 {/* Type */}
                 <td className="px-3 py-3.5 hidden sm:table-cell">
                   <span className="text-xs font-medium text-slate-600 bg-slate-100 px-2 py-0.5 rounded-full whitespace-nowrap">
-                    {getTypeLabel(booking.type, isAr)}
+                    {getTypeLabel(booking.serviceType, isAr)}
                   </span>
                 </td>
 
@@ -121,7 +121,7 @@ export function DashboardRecentBookings({ locale }: DashboardRecentBookingsProps
                 {/* Total */}
                 <td className="px-3 py-3.5 text-end">
                   <span className="text-sm font-bold text-slate-900 tabular-nums whitespace-nowrap">
-                    {formatCurrency((booking as any).grandTotalHalalas ?? booking.pricing?.totalAmount ?? 0, loc2)}
+                    {formatCurrency(booking.totalPriceHalalas ?? 0, loc2)}
                   </span>
                 </td>
 

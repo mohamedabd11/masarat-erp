@@ -33,26 +33,20 @@ export function CreateInvoiceButton({
     if (!agencyId) return;
     let cancelled = false;
     async function loadAgency() {
-      const { getFirestore, doc, getDoc } = await import('firebase/firestore');
-      const { getApp } = await import('@masarat/firebase');
-      const snap = await getDoc(doc(getFirestore(getApp()), 'agencies', agencyId));
-      if (cancelled) return;
-      if (snap.exists()) {
-        const d = snap.data() as Record<string, unknown>;
-        setIsVatRegistered((d['isVatRegistered'] as boolean) ?? false);
-      } else {
-        setIsVatRegistered(false);
+      try {
+        const { apiFetch } = await import('@/lib/api-client');
+        const data = await apiFetch<{ agency: { isVatRegistered: boolean } }>('/api/settings');
+        if (!cancelled) setIsVatRegistered(data.agency.isVatRegistered ?? false);
+      } catch {
+        if (!cancelled) setIsVatRegistered(false);
       }
     }
     void loadAgency();
     return () => { cancelled = true; };
   }, [agencyId]);
 
-  const canCreate = bookingStatus === 'confirmed' && !existingInvoiceId;
-
-  // Hide the invoice section entirely when agency is not VAT-registered
-  // (isVatRegistered === null means still loading → keep hidden)
-  if (!isVatRegistered && !existingInvoiceId) return null;
+  const canCreate = (bookingStatus === 'confirmed' || bookingStatus === 'ticketed') && !existingInvoiceId;
+  const isLoading = isVatRegistered === null;
 
   async function handleClick() {
     if (!canCreate) return;
@@ -75,34 +69,38 @@ export function CreateInvoiceButton({
     );
   }
 
-  if (bookingStatus !== 'confirmed') {
+  if (bookingStatus !== 'confirmed' && bookingStatus !== 'ticketed') {
     return (
       <p className="text-xs text-slate-400 italic">
         {isAr
-          ? 'يجب تأكيد الحجز أولاً لإصدار الفاتورة'
-          : 'Confirm booking first to issue invoice'}
+          ? 'الفاتورة تُصدر للحجوزات المؤكدة فقط'
+          : 'Invoices can only be issued for confirmed bookings'}
       </p>
     );
   }
+
+  const invoiceLabel = isVatRegistered
+    ? (isAr ? 'إصدار فاتورة ضريبية' : 'Issue Tax Invoice')
+    : (isAr ? 'إصدار فاتورة تجارية' : 'Issue Commercial Invoice');
 
   return (
     <div className="space-y-2">
       <Button
         onClick={handleClick}
-        loading={loading}
-        disabled={loading || showSuccess}
+        loading={loading || isLoading}
+        disabled={loading || showSuccess || isLoading}
         variant={showSuccess ? 'secondary' : 'primary'}
         size="sm"
       >
         {showSuccess ? (
           <>
             <CheckCircle2 size={14} />
-            {isAr ? 'تم إصدار الفاتورة' : 'Invoice Created'}
+            {isAr ? 'تم الإصدار' : 'Issued'}
           </>
         ) : (
           <>
             <FileText size={14} />
-            {isAr ? 'فاتورة ضريبية' : 'Tax Invoice'}
+            {invoiceLabel}
           </>
         )}
       </Button>

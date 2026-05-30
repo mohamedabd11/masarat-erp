@@ -11,10 +11,14 @@ export interface PaymentVoucherData {
   reference?: string;
   notes?: string;
   bookingNumber?: string;
-  supplierName: string;
+  payeeName: string;
+  /** @deprecated use payeeName */
+  supplierName?: string;
+  expenseCategory?: string;
   agency: {
     nameAr: string;
     nameEn: string;
+    logoUrl?: string;
     address?: {
       streetName?: string;
       buildingNumber?: string;
@@ -90,10 +94,20 @@ function formatDate(d: Date): string {
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
+const EXPENSE_CATEGORY_LABELS: Record<string, { ar: string; en: string }> = {
+  supplier:    { ar: 'مورد خدمة',      en: 'Service Supplier'  },
+  operational: { ar: 'مصاريف تشغيلية', en: 'Operating Expenses' },
+  salaries:    { ar: 'رواتب وأجور',    en: 'Salaries & Wages'  },
+  office:      { ar: 'مصاريف مكتبية',  en: 'Office Expenses'   },
+  other:       { ar: 'أخرى',           en: 'Other'              },
+};
+
 export function PrintablePaymentVoucher({ data }: { data: PaymentVoucherData }) {
+  const displayName = data.payeeName || data.supplierName || '';
   const amtSAR   = formatAmountSAR(data.amountHalalas);
   const amtWords = amountInArabicWords(data.amountHalalas);
   const method   = PAYMENT_METHOD_LABELS[data.paymentMethod] ?? { ar: data.paymentMethod, en: data.paymentMethod };
+  const category = data.expenseCategory ? (EXPENSE_CATEGORY_LABELS[data.expenseCategory] ?? null) : null;
   const addr     = data.agency.address;
   const addrLine = [addr?.streetName, addr?.district, addr?.city].filter(Boolean).join('، ');
   const dateStr  = formatDate(data.issuedDate);
@@ -118,11 +132,20 @@ export function PrintablePaymentVoucher({ data }: { data: PaymentVoucherData }) 
             )}
           </div>
 
-          {/* Title */}
+          {/* Title — logo replaces "ص" when available */}
           <div className="text-center flex flex-col items-center gap-1">
-            <div className="w-14 h-14 rounded-xl bg-red-50 border border-red-200 flex items-center justify-center text-xl font-black text-red-600 select-none">
-              ص
-            </div>
+            {data.agency.logoUrl ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={data.agency.logoUrl}
+                alt={data.agency.nameAr}
+                style={{ height: 56, width: 'auto', objectFit: 'contain', maxWidth: 120 }}
+              />
+            ) : (
+              <div className="w-14 h-14 rounded-xl bg-red-50 border border-red-200 flex items-center justify-center text-xl font-black text-red-600 select-none">
+                ص
+              </div>
+            )}
             <p className="text-base font-black text-slate-900 tracking-tight mt-1">سند صرف</p>
             <p className="text-[10px] text-slate-500 tracking-widest uppercase">Payment Voucher</p>
           </div>
@@ -162,15 +185,18 @@ export function PrintablePaymentVoucher({ data }: { data: PaymentVoucherData }) 
 
         {/* Paid to */}
         <div className="border border-slate-200 rounded-lg overflow-hidden">
-          <div className="bg-slate-700 px-4 py-1.5">
+          <div className="bg-slate-700 px-4 py-1.5 flex justify-between items-center">
             <p className="text-white text-xs font-semibold">صُرف لـ / Paid to</p>
+            {category && (
+              <p className="text-slate-300 text-[10px]">{category.ar} / {category.en}</p>
+            )}
           </div>
           <div className="px-4 py-3 flex justify-between items-center">
             <div className="text-right">
-              <p className="font-bold text-slate-900 text-sm">{data.supplierName}</p>
+              <p className="font-bold text-slate-900 text-sm">{displayName}</p>
             </div>
             <div className="text-left">
-              <p className="font-bold text-slate-900 text-sm">{data.supplierName}</p>
+              <p className="font-bold text-slate-900 text-sm">{displayName}</p>
             </div>
           </div>
         </div>
@@ -236,7 +262,7 @@ export function PrintablePaymentVoucher({ data }: { data: PaymentVoucherData }) 
           <div className="flex-1 text-center">
             <p className="text-xs text-slate-500 mb-8">المستلم / Received by</p>
             <div className="border-b border-slate-400 mx-4" />
-            <p className="text-[10px] text-slate-400 mt-1">{data.supplierName}</p>
+            <p className="text-[10px] text-slate-400 mt-1">{displayName}</p>
           </div>
         </div>
       </div>

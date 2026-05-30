@@ -33,6 +33,7 @@ interface PrintableInvoiceData {
     vatNumber: string;
     crNumber: string;
     isVatRegistered?: boolean;
+    logoUrl?: string;
     address: {
       streetName: string;
       buildingNumber: string;
@@ -92,8 +93,11 @@ export function PrintableInvoice({ invoice, onClose }: PrintableInvoiceProps) {
   const locale = useLocale();
   const isAr = locale === 'ar';
   const isVatRegistered = invoice.seller.isVatRegistered === true;
+  const isBuyerBusiness = isVatRegistered && !!(invoice.buyer.vatNumber?.trim());
   const typeLabel = isVatRegistered
-    ? (INVOICE_TYPE_LABELS[invoice.invoiceTypeCode] ?? INVOICE_TYPE_LABELS['388']!)
+    ? isBuyerBusiness
+      ? (INVOICE_TYPE_LABELS[invoice.invoiceTypeCode] ?? INVOICE_TYPE_LABELS['388']!)
+      : { ar: 'فاتورة ضريبية مبسطة', en: 'Simplified Tax Invoice' }
     : { ar: 'فاتورة تجارية', en: 'Commercial Invoice' };
 
   const sellerAddress = [
@@ -153,16 +157,29 @@ export function PrintableInvoice({ invoice, onClose }: PrintableInvoiceProps) {
                 <p className="text-brand-200 text-xs mt-0.5">{invoice.seller.nameEn}</p>
               )}
             </div>
-            <div className="w-12 h-12 rounded-xl bg-white/20 flex items-center justify-center flex-shrink-0">
-              <span className="text-2xl font-black text-white">م</span>
-            </div>
+            {invoice.seller.logoUrl ? (
+              /* eslint-disable-next-line @next/next/no-img-element */
+              <img
+                src={invoice.seller.logoUrl}
+                alt={invoice.seller.nameAr}
+                style={{ height: 48, width: 'auto', objectFit: 'contain', maxWidth: 120, background: 'white', borderRadius: 8, padding: 4 }}
+              />
+            ) : (
+              <div className="w-12 h-12 rounded-xl bg-white/20 flex items-center justify-center flex-shrink-0">
+                <span className="text-2xl font-black text-white">م</span>
+              </div>
+            )}
           </div>
         </div>
 
         {/* ══ INVOICE NUMBER STRIP ═════════════════════════════════════════════ */}
         <div className="bg-brand-50 border-b border-brand-100 px-8 py-3 flex items-center justify-between">
           <p className="text-[10px] text-brand-500 uppercase tracking-widest font-semibold">
-            {isVatRegistered ? 'فاتورة إلكترونية / E-Invoice' : 'فاتورة تجارية / Commercial Invoice'}
+            {isVatRegistered
+              ? isBuyerBusiness
+                ? 'فاتورة ضريبية / Standard Tax Invoice (B2B)'
+                : 'فاتورة ضريبية مبسطة / Simplified Tax Invoice (B2C)'
+              : 'فاتورة تجارية / Commercial Invoice'}
           </p>
           <p className="font-mono font-bold text-brand-700 text-base">{invoice.invoiceNumber}</p>
         </div>

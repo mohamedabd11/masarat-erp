@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useMemo } from 'react';
 import { useAuth } from '@masarat/firebase';
+import { apiFetch } from '@/lib/api-client';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Spinner } from '@/components/ui/Spinner';
@@ -61,44 +62,35 @@ export function SuppliersClient({ locale }: SuppliersClientProps) {
 
   const agencyId = user?.agencyId ?? '';
 
+  const [tick, setTick] = useState(0);
+
   useEffect(() => {
     if (!agencyId) { setLoading(false); return; }
-    let unsub: (() => void) | undefined;
-    async function subscribe() {
-      const { getFirestore, collection, query, where, onSnapshot } = await import('firebase/firestore');
-      const { getApp } = await import('@masarat/firebase');
-      const q = query(collection(getFirestore(getApp()), 'suppliers'), where('agencyId', '==', agencyId));
-      unsub = onSnapshot(q, snap => {
-        const docs = snap.docs.map(d => ({ id: d.id, ...d.data() } as Supplier));
-        docs.sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0));
-        setSuppliers(docs);
-        setLoading(false);
-      }, () => setLoading(false));
-    }
-    void subscribe();
-    return () => unsub?.();
-  }, [agencyId]);
+    let cancelled = false;
+    apiFetch<{ suppliers: Supplier[] }>('/api/suppliers')
+      .then(d => { if (!cancelled) setSuppliers(d.suppliers); })
+      .catch(() => {})
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [agencyId, tick]);
 
   async function handleSave() {
     if (!form.nameAr || !agencyId) return;
     setSaving(true);
     try {
-      const { getFirestore, collection, addDoc, doc, updateDoc } = await import('firebase/firestore');
-      const { getApp } = await import('@masarat/firebase');
-      const db = getFirestore(getApp());
       if (editId) {
-        await updateDoc(doc(db, 'suppliers', editId), { ...form });
+        await apiFetch(`/api/suppliers/${editId}`, { method: 'PATCH', body: JSON.stringify(form) });
       } else {
-        await addDoc(collection(db, 'suppliers'), { ...form, agencyId, isActive: true, createdAt: Date.now() });
+        await apiFetch('/api/suppliers', { method: 'POST', body: JSON.stringify(form) });
       }
       setForm(EMPTY); setShowForm(false); setEditId(null);
+      setTick(t => t + 1);
     } finally { setSaving(false); }
   }
 
   async function toggleActive(s: Supplier) {
-    const { getFirestore, doc, updateDoc } = await import('firebase/firestore');
-    const { getApp } = await import('@masarat/firebase');
-    await updateDoc(doc(getFirestore(getApp()), 'suppliers', s.id), { isActive: !s.isActive });
+    await apiFetch(`/api/suppliers/${s.id}`, { method: 'PATCH', body: JSON.stringify({ isActive: !s.isActive }) });
+    setTick(t => t + 1);
   }
 
   function startEdit(s: Supplier) {
@@ -127,7 +119,7 @@ export function SuppliersClient({ locale }: SuppliersClientProps) {
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center gap-4">
         <div className="flex-1">
-          <h1 className="text-2xl font-bold text-slate-900">{isAr ? 'الموردون' : 'Suppliers'}</h1>
+          <h1 className="text-2xl font-bold text-slate-900">{isAr ? 'الموردين' : 'Suppliers'}</h1>
           <p className="text-slate-500 text-sm mt-0.5">{isAr ? 'إدارة شركاء الأعمال وموردي الخدمات' : 'Manage business partners and service providers'}</p>
         </div>
         <Button size="sm" onClick={() => { setShowForm(true); setEditId(null); setForm(EMPTY); }}>

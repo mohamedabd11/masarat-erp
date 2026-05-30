@@ -12,8 +12,47 @@ import { cn } from '@/lib/utils';
 import {
   BookOpen, Search, X, Plus, TrendingUp, CheckCircle2,
   Clock, AlertCircle, ChevronRight, Wallet, ArrowUpRight,
+  FileText, FileX, FileCheck,
 } from 'lucide-react';
-import type { BookingType } from '@masarat/firebase';
+import type { BookingType } from '@/lib/schema';
+
+// ─── Invoice status badge ─────────────────────────────────────────────────────
+
+function InvoiceBadge({
+  hasInvoice, paymentStatus, isAr,
+}: { hasInvoice: boolean; paymentStatus: string; isAr: boolean }) {
+  if (!hasInvoice) return (
+    <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded-md bg-slate-100 text-slate-400">
+      <FileX size={10} />
+      {isAr ? 'بدون فاتورة' : 'No invoice'}
+    </span>
+  );
+  if (paymentStatus === 'fully_paid') return (
+    <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded-md bg-emerald-50 text-emerald-700">
+      <FileCheck size={10} />
+      {isAr ? 'مدفوع' : 'Paid'}
+    </span>
+  );
+  if (paymentStatus === 'partial') return (
+    <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded-md bg-amber-50 text-amber-700">
+      <FileText size={10} />
+      {isAr ? 'جزئي' : 'Partial'}
+    </span>
+  );
+  if (paymentStatus === 'refunded') return (
+    <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded-md bg-purple-50 text-purple-700">
+      <FileText size={10} />
+      {isAr ? 'مُسترد' : 'Refunded'}
+    </span>
+  );
+  // unpaid
+  return (
+    <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded-md bg-red-50 text-red-600">
+      <FileText size={10} />
+      {isAr ? 'غير مدفوع' : 'Unpaid'}
+    </span>
+  );
+}
 
 interface BookingsClientProps {
   locale: string;
@@ -21,7 +60,7 @@ interface BookingsClientProps {
   initialQuery?: string;
 }
 
-type StatusFilter = 'all' | 'pending_approval' | 'confirmed' | 'in_progress' | 'completed' | 'cancelled';
+type StatusFilter = 'all' | 'pending_approval' | 'confirmed' | 'ticketed' | 'completed' | 'cancelled';
 
 const TYPE_META: Record<string, { ar: string; en: string; bg: string; text: string }> = {
   flight:       { ar: 'طيران',        en: 'Flight',        bg: 'bg-sky-100',     text: 'text-sky-700' },
@@ -37,12 +76,12 @@ const TYPE_META: Record<string, { ar: string; en: string; bg: string; text: stri
 };
 
 const STATUS_TABS: { id: StatusFilter; ar: string; en: string }[] = [
-  { id: 'all',              ar: 'الكل',            en: 'All' },
-  { id: 'pending_approval', ar: 'انتظار موافقة',   en: 'Pending' },
-  { id: 'confirmed',        ar: 'مؤكد',            en: 'Confirmed' },
-  { id: 'in_progress',      ar: 'جاري',            en: 'In Progress' },
-  { id: 'completed',        ar: 'مكتمل',           en: 'Completed' },
-  { id: 'cancelled',        ar: 'ملغي',            en: 'Cancelled' },
+  { id: 'all',              ar: 'الكل',           en: 'All' },
+  { id: 'pending_approval', ar: 'انتظار موافقة',  en: 'Pending' },
+  { id: 'confirmed',        ar: 'مؤكد',           en: 'Confirmed' },
+  { id: 'ticketed',         ar: 'صدرت التذاكر',   en: 'Ticketed' },
+  { id: 'completed',        ar: 'مكتمل',          en: 'Completed' },
+  { id: 'cancelled',        ar: 'ملغي',           en: 'Cancelled' },
 ];
 
 export function BookingsClient({ locale, bookingType, initialQuery = '' }: BookingsClientProps) {
@@ -55,10 +94,10 @@ export function BookingsClient({ locale, bookingType, initialQuery = '' }: Booki
   const fmtLocale = isAr ? 'ar-SA' : 'en-SA';
 
   // ── KPIs ────────────────────────────────────────────────────────────────────
-  const revenue   = bookings.reduce((s, b) => s + ((b as any).grandTotalHalalas ?? (b as any).pricing?.totalAmount ?? 0), 0);
-  const paid      = bookings.reduce((s, b) => s + ((b as any).paidHalalas ?? (b as any).totalPaid ?? 0), 0);
+  const revenue   = bookings.reduce((s, b) => s + (b.totalPriceHalalas ?? 0), 0);
+  const paid      = bookings.reduce((s, b) => s + (b.paidHalalas ?? 0), 0);
   const pending   = bookings.filter(b => b.status === 'pending_approval').length;
-  const active    = bookings.filter(b => b.status === 'confirmed' || (b.status as string) === 'in_progress').length;
+  const active    = bookings.filter(b => b.status === 'confirmed' || b.status === 'ticketed').length;
   const completed = bookings.filter(b => b.status === 'completed').length;
 
   // ── Filtered list ─────────────────────────────────────────────────────────
@@ -66,10 +105,11 @@ export function BookingsClient({ locale, bookingType, initialQuery = '' }: Booki
     const q = search.toLowerCase();
     return bookings.filter(b => {
       const matchStatus = statusFilter === 'all' || b.status === statusFilter;
-      const name = isAr ? (b.customerName?.ar ?? '') : (b.customerName?.en ?? '');
+      const name = isAr ? (b.customerNameAr ?? b.customerNameEn ?? '') : (b.customerNameEn ?? b.customerNameAr ?? '');
       const matchSearch = !q ||
         name.toLowerCase().includes(q) ||
-        b.id.toLowerCase().includes(q);
+        b.id.toLowerCase().includes(q) ||
+        (b.bookingNumber ?? '').toLowerCase().includes(q);
       return matchStatus && matchSearch;
     });
   }, [bookings, search, statusFilter, isAr]);
@@ -158,7 +198,7 @@ export function BookingsClient({ locale, bookingType, initialQuery = '' }: Booki
         })}
       </div>
 
-      {/* ── Table ────────────────────────────────────────────────────────── */}
+      {/* ── List ─────────────────────────────────────────────────────────── */}
       {filtered.length === 0 ? (
         <EmptyState
           icon={<BookOpen size={48} />}
@@ -167,13 +207,70 @@ export function BookingsClient({ locale, bookingType, initialQuery = '' }: Booki
         />
       ) : (
         <Card padding="none">
-          <div className="overflow-x-auto">
+
+          {/* ── Mobile cards (< sm) ───────────────────────────────────────── */}
+          <div className="sm:hidden divide-y divide-surface-border">
+            {filtered.map(b => {
+              const name      = isAr ? (b.customerNameAr ?? b.customerNameEn ?? '') : (b.customerNameEn ?? b.customerNameAr ?? '');
+              const typeMeta  = TYPE_META[b.serviceType] ?? { ar: b.serviceType, en: b.serviceType, bg: 'bg-slate-100', text: 'text-slate-600' };
+              const total     = b.totalPriceHalalas ?? 0;
+              const paidAmt   = b.paidHalalas ?? 0;
+              const paidPct   = total > 0 ? Math.min(100, Math.round((paidAmt / total) * 100)) : 0;
+              const createdAt = b.createdAt ? new Date(b.createdAt as unknown as string) : null;
+              const hasInvoice = !!(b as Record<string, unknown>)['hasInvoice'];
+              const bPaymentStatus = paidAmt >= total && total > 0 ? 'fully_paid' : paidAmt > 0 ? 'partial' : 'unpaid';
+
+              return (
+                <Link key={b.id} href={`/${locale}/bookings/${b.id}`}
+                  className="flex flex-col gap-2 px-4 py-3.5 hover:bg-slate-50 transition-colors active:bg-slate-100">
+                  {/* Row 1: number + type + invoice badge + status */}
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-1.5 min-w-0 flex-wrap">
+                      <span className="font-mono text-xs font-bold text-brand-700">
+                        {b.bookingNumber ?? b.id.slice(0, 10)}
+                      </span>
+                      <span className={cn('px-2 py-0.5 rounded-md text-[11px] font-bold', typeMeta.bg, typeMeta.text)}>
+                        {isAr ? typeMeta.ar : typeMeta.en}
+                      </span>
+                      <InvoiceBadge hasInvoice={hasInvoice} paymentStatus={bPaymentStatus} isAr={isAr} />
+                    </div>
+                    <BookingStatusBadge status={b.status} locale={locale} />
+                  </div>
+                  {/* Row 2: customer name */}
+                  <p className="text-sm font-semibold text-slate-900 truncate">{name}</p>
+                  {/* Row 3: date + payment bar + total */}
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="text-xs text-slate-400">
+                      {createdAt ? formatDate(createdAt, fmtLocale) : '—'}
+                    </span>
+                    <div className="flex items-center gap-2 flex-1 justify-end">
+                      {total > 0 && (
+                        <div className="w-16 h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                          <div
+                            className={cn('h-full rounded-full', paidPct === 100 ? 'bg-emerald-500' : 'bg-amber-400')}
+                            style={{ width: `${paidPct}%` }}
+                          />
+                        </div>
+                      )}
+                      <span className="text-sm font-bold text-slate-900 tabular-nums">
+                        {total > 0 ? formatCurrency(total, fmtLocale) : '—'}
+                      </span>
+                    </div>
+                  </div>
+                </Link>
+              );
+            })}
+          </div>
+
+          {/* ── Desktop table (sm+) ───────────────────────────────────────── */}
+          <div className="hidden sm:block overflow-x-auto">
             <table className="w-full">
               <thead>
                 <tr className="border-b border-surface-border bg-slate-50/60">
                   <th className="text-start ps-6 pe-3 py-3.5 text-xs font-bold text-slate-500 uppercase tracking-wider">{isAr ? 'رقم الحجز' : 'Booking #'}</th>
                   <th className="text-start px-3 py-3.5 text-xs font-bold text-slate-500 uppercase tracking-wider">{isAr ? 'العميل' : 'Customer'}</th>
                   <th className="text-start px-3 py-3.5 text-xs font-bold text-slate-500 uppercase tracking-wider hidden md:table-cell">{isAr ? 'الخدمة' : 'Service'}</th>
+                  <th className="text-start px-3 py-3.5 text-xs font-bold text-slate-500 uppercase tracking-wider hidden md:table-cell">{isAr ? 'الفاتورة' : 'Invoice'}</th>
                   <th className="text-start px-3 py-3.5 text-xs font-bold text-slate-500 uppercase tracking-wider hidden lg:table-cell">{isAr ? 'التاريخ' : 'Date'}</th>
                   <th className="text-start px-3 py-3.5 text-xs font-bold text-slate-500 uppercase tracking-wider hidden xl:table-cell">{isAr ? 'الدفع' : 'Payment'}</th>
                   <th className="text-start px-3 py-3.5 text-xs font-bold text-slate-500 uppercase tracking-wider">{isAr ? 'الحالة' : 'Status'}</th>
@@ -182,18 +279,20 @@ export function BookingsClient({ locale, bookingType, initialQuery = '' }: Booki
               </thead>
               <tbody className="divide-y divide-surface-border">
                 {filtered.map(b => {
-                  const name       = isAr ? (b.customerName?.ar ?? b.customerName?.en ?? '') : (b.customerName?.en ?? b.customerName?.ar ?? '');
-                  const typeMeta   = TYPE_META[b.type] ?? { ar: b.type, en: b.type, bg: 'bg-slate-100', text: 'text-slate-600' };
-                  const total      = (b as any).grandTotalHalalas ?? (b as any).pricing?.totalAmount ?? 0;
-                  const paidAmt    = (b as any).paidHalalas ?? (b as any).totalPaid ?? 0;
+                  const name       = isAr ? (b.customerNameAr ?? b.customerNameEn ?? '') : (b.customerNameEn ?? b.customerNameAr ?? '');
+                  const typeMeta   = TYPE_META[b.serviceType] ?? { ar: b.serviceType, en: b.serviceType, bg: 'bg-slate-100', text: 'text-slate-600' };
+                  const total      = b.totalPriceHalalas ?? 0;
+                  const paidAmt    = b.paidHalalas ?? 0;
                   const paidPct    = total > 0 ? Math.min(100, Math.round((paidAmt / total) * 100)) : 0;
-                  const createdAt  = (b as any).createdAt?.toDate?.() ?? null;
+                  const createdAt  = b.createdAt ? new Date(b.createdAt as unknown as string) : null;
+                  const hasInvoice = !!(b as Record<string, unknown>)['hasInvoice'];
+                  const bPaymentStatus = paidAmt >= total && total > 0 ? 'fully_paid' : paidAmt > 0 ? 'partial' : 'unpaid';
 
                   return (
                     <tr key={b.id} className="hover:bg-slate-50/60 transition-colors group">
                       <td className="ps-6 pe-3 py-4">
                         <Link href={`/${locale}/bookings/${b.id}`} className="font-mono text-sm font-semibold text-brand-700 hover:text-brand-800 hover:underline">
-                          {b.id.slice(0, 12)}…
+                          {b.bookingNumber ?? b.id.slice(0, 12) + '…'}
                         </Link>
                       </td>
                       <td className="px-3 py-4">
@@ -203,6 +302,9 @@ export function BookingsClient({ locale, bookingType, initialQuery = '' }: Booki
                         <span className={cn('inline-flex items-center px-2.5 py-1 rounded-lg text-xs font-bold', typeMeta.bg, typeMeta.text)}>
                           {isAr ? typeMeta.ar : typeMeta.en}
                         </span>
+                      </td>
+                      <td className="px-3 py-4 hidden md:table-cell">
+                        <InvoiceBadge hasInvoice={hasInvoice} paymentStatus={bPaymentStatus} isAr={isAr} />
                       </td>
                       <td className="px-3 py-4 hidden lg:table-cell">
                         <span className="text-sm text-slate-500">{createdAt ? formatDate(createdAt, fmtLocale) : '—'}</span>
@@ -224,16 +326,13 @@ export function BookingsClient({ locale, bookingType, initialQuery = '' }: Booki
                         </div>
                       </td>
                       <td className="px-3 py-4">
-                        <BookingStatusBadge status={b.status as any} locale={locale} />
+                        <BookingStatusBadge status={b.status} locale={locale} />
                       </td>
                       <td className="pe-5 px-3 py-4 text-end">
                         <span className="text-sm font-bold tabular-nums text-slate-900">
                           {total > 0 ? formatCurrency(total, fmtLocale) : '—'}
                         </span>
-                        <Link
-                          href={`/${locale}/bookings/${b.id}`}
-                          className="ms-2 opacity-0 group-hover:opacity-100 transition-opacity inline-flex"
-                        >
+                        <Link href={`/${locale}/bookings/${b.id}`} className="ms-2 opacity-0 group-hover:opacity-100 transition-opacity inline-flex">
                           <ChevronRight size={14} className="text-brand-500" />
                         </Link>
                       </td>
@@ -252,11 +351,8 @@ export function BookingsClient({ locale, bookingType, initialQuery = '' }: Booki
                 : `${filtered.length} of ${bookings.length} bookings`}
             </span>
             {hasMore && (
-              <button
-                onClick={loadNextPage}
-                disabled={loadingMore}
-                className="flex items-center gap-1.5 text-xs text-brand-600 hover:text-brand-700 font-medium disabled:opacity-50"
-              >
+              <button onClick={loadNextPage} disabled={loadingMore}
+                className="flex items-center gap-1.5 text-xs text-brand-600 hover:text-brand-700 font-medium disabled:opacity-50">
                 {loadingMore ? <Spinner size="sm" /> : <ArrowUpRight size={13} />}
                 {isAr ? 'تحميل المزيد' : 'Load more'}
               </button>

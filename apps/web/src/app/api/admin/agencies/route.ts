@@ -1,11 +1,11 @@
 import { NextResponse } from 'next/server';
-import { neon } from '@neondatabase/serverless';
+import { eq, count } from 'drizzle-orm';
+import { ensureAdminApp } from '@/lib/firebase-admin';
+import { db } from '@/lib/db';
+import { agencies, users } from '@/lib/schema';
 
-function adminSql() {
-  const url = process.env['ADMIN_DATABASE_URL'] ?? process.env['DATABASE_URL'];
-  if (!url) throw new Error('DATABASE_URL is not configured');
-  return neon(url);
-}
+const SUPER_ADMIN_EMAIL = process.env['SUPER_ADMIN_EMAIL'];
+if (!SUPER_ADMIN_EMAIL) throw new Error('SUPER_ADMIN_EMAIL env var is not configured');
 
 async function verifySuperAdmin(request: Request) {
   const superAdminEmail = process.env['SUPER_ADMIN_EMAIL'];
@@ -27,35 +27,38 @@ export async function GET(request: Request) {
     ensureAdminApp();
     await verifySuperAdmin(request);
 
-    const db = adminSql();
+    const allAgencies = await db.select().from(agencies);
 
-    const rows = await db`
-      SELECT
-        a.id,
-        a.name_ar             AS "nameAr",
-        a.name_en             AS "nameEn",
-        a.vat_number          AS "vatNumber",
-        a.subscription_plan   AS "subscriptionPlan",
-        a.subscription_status AS "subscriptionStatus",
-        a.trial_ends_at       AS "trialEndsAt",
-        a.subscription_ends_at AS "subscriptionEndsAt",
-        a.max_users           AS "maxUsers",
-        a.is_active           AS "isActive",
-        a.created_at          AS "createdAt",
-        COUNT(u.id)::int      AS "userCount"
-      FROM agencies a
-      LEFT JOIN users u ON u.agency_id = a.id
-      GROUP BY a.id
-      ORDER BY a.created_at DESC
-    `;
+    const result = await Promise.all(
+      allAgencies.map(async (a) => {
+        const [{ total }] = await db
+          .select({ total: count() })
+          .from(users)
+          .where(eq(users.agencyId, a.id));
 
-    return NextResponse.json({ agencies: rows });
+        return {
+          id:                  a.id,
+          nameAr:              a.nameAr,
+          nameEn:              a.nameEn ?? '',
+          contactEmail:        a.email ?? '',
+          subscriptionStatus:  a.subscriptionStatus,
+          plan:                a.plan,
+          trialEndDate:        a.trialEndDate?.toISOString()        ?? null,
+          subscriptionEndDate: a.subscriptionEndDate?.toISOString() ?? null,
+          createdAt:           a.createdAt?.toISOString()           ?? null,
+          isActive:            a.isActive,
+          userCount:           total ?? 0,
+        };
+      }),
+    );
+
+    return NextResponse.json({ agencies: result });
   } catch (err: unknown) {
     const msg = (err as Error).message ?? '';
     if (msg === 'NO_TOKEN' || msg === 'FORBIDDEN') {
       return NextResponse.json({ error: 'ممنوع الوصول' }, { status: 403 });
     }
-    console.error('[admin/agencies]', msg);
+    console.error(JSON.stringify({ event: 'admin_agencies_failed', error: msg }));
     return NextResponse.json({ error: 'خطأ في تحميل البيانات' }, { status: 500 });
   }
 }

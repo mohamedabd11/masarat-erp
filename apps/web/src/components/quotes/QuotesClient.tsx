@@ -1,7 +1,9 @@
 'use client';
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
+import Link from 'next/link';
 import { useAuth } from '@masarat/firebase';
+import { apiFetch } from '@/lib/api-client';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Spinner } from '@/components/ui/Spinner';
@@ -43,7 +45,7 @@ interface Quote {
   notes: string;
   terms: string;
   convertedToBookingId?: string;
-  createdAt: number;
+  createdAt: string;
 }
 
 interface QuotesClientProps { locale: string }
@@ -236,12 +238,13 @@ function QuoteRow({ q, isAr, fmtLocale, locale, onStatusChange }: {
                     </>
                   )}
                   {q.status === 'accepted' && (
-                    <button
+                    <Link
+                      href={`/${locale}/bookings/new?customerNameAr=${encodeURIComponent(q.customerNameAr)}&customerPhone=${encodeURIComponent(q.customerPhone ?? '')}&notes=${encodeURIComponent((isAr ? 'من عرض سعر ' : 'From quote ') + q.quoteNumber)}`}
                       onClick={e => { e.stopPropagation(); onStatusChange(q.id, 'converted'); }}
                       className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-brand-600 text-white text-xs font-semibold hover:bg-brand-700 transition-colors"
                     >
                       <ArrowRight size={12} /> {isAr ? 'تحويل لحجز' : 'Convert to Booking'}
-                    </button>
+                    </Link>
                   )}
                 </div>
               </div>
@@ -273,9 +276,27 @@ function NewQuoteModal({ isAr, onClose, onSave }: {
   const [terms, setTerms]   = useState(isAr ? DEFAULT_TERMS_AR : DEFAULT_TERMS_EN);
   const [error, setError]   = useState('');
   const [saving, setSaving] = useState(false);
+  const [agencyIsVat, setAgencyIsVat] = useState(false);
+  const [agencyVatRate, setAgencyVatRate] = useState(15);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function loadAgency() {
+      try {
+        const { apiFetch } = await import('@/lib/api-client');
+        const res = await apiFetch<{ agency: { isVatRegistered: boolean; vatRate?: number } }>('/api/settings');
+        if (!cancelled) {
+          setAgencyIsVat(res.agency.isVatRegistered === true);
+          setAgencyVatRate(res.agency.vatRate ?? 15);
+        }
+      } catch { /* keep defaults */ }
+    }
+    void loadAgency();
+    return () => { cancelled = true; };
+  }, []);
 
   const subtotalHalalas = items.reduce((s, i) => s + i.quantity * i.unitPriceSAR * 100, 0);
-  const vatHalalas      = Math.round(subtotalHalalas * 0.15);
+  const vatHalalas      = agencyIsVat ? Math.round(subtotalHalalas * agencyVatRate / 100) : 0;
   const grandTotalHalalas = subtotalHalalas + vatHalalas;
 
   function updateItem(idx: number, field: keyof QuoteItem, value: string | number) {
@@ -305,7 +326,7 @@ function NewQuoteModal({ isAr, onClose, onSave }: {
       grandTotalHalalas,
       notes: notes.trim(),
       terms: terms.trim(),
-      createdAt: Date.now(),
+      createdAt: new Date().toISOString(),
     });
     setSaving(false);
     onClose();
@@ -489,35 +510,30 @@ export function QuotesClient({ locale }: QuotesClientProps) {
 
   const agencyId = user?.agencyId ?? '';
 
+  const [tick, setTick] = useState(0);
+
   useEffect(() => {
     if (!agencyId) { setLoading(false); return; }
-    let unsub: (() => void) | undefined;
-    async function subscribe() {
-      const { getFirestore, collection, query, where, onSnapshot } = await import('firebase/firestore');
-      const { getApp } = await import('@masarat/firebase');
-      const q = query(collection(getFirestore(getApp()), 'quotes'), where('agencyId', '==', agencyId));
-      unsub = onSnapshot(q, snap => {
-        const docs = snap.docs.map(d => ({ id: d.id, ...d.data() } as Quote));
-        docs.sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0));
+    setLoading(true);
+    apiFetch<{ quotes: Quote[] }>('/api/quotes')
+      .then(data => {
+        const docs = data.quotes;
+        docs.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
         setQuotes(docs);
         setLoading(false);
-      }, () => setLoading(false));
-    }
-    void subscribe();
-    return () => unsub?.();
-  }, [agencyId]);
+      })
+      .catch(() => setLoading(false));
+  }, [agencyId, tick]);
 
   async function handleSave(data: Omit<Quote, 'id'>) {
     if (!agencyId) return;
-    const { getFirestore, collection, addDoc } = await import('firebase/firestore');
-    const { getApp } = await import('@masarat/firebase');
-    await addDoc(collection(getFirestore(getApp()), 'quotes'), { ...data, agencyId });
+    await apiFetch('/api/quotes', { method: 'POST', body: JSON.stringify(data) });
+    setTick(t => t + 1);
   }
 
   async function handleStatusChange(id: string, status: QuoteStatus) {
-    const { getFirestore, doc, updateDoc } = await import('firebase/firestore');
-    const { getApp } = await import('@masarat/firebase');
-    await updateDoc(doc(getFirestore(getApp()), 'quotes', id), { status, updatedAt: Date.now() });
+    await apiFetch(`/api/quotes/${id}`, { method: 'PATCH', body: JSON.stringify({ status }) });
+    setTick(t => t + 1);
   }
 
   const now = Date.now();

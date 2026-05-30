@@ -1,124 +1,43 @@
-/**
- * Idempotency Guard — PostgreSQL Implementation
- *
- * يمنع تكرار العمليات المالية عند إعادة المحاولة بعد انقطاع الشبكة
- * يُعادل Firestore idempotency_keys collection
- *
- * آلية العمل:
- * 1. قبل تنفيذ العملية: تحقق من وجود المفتاح
- * 2. إذا موجود + ناجح → أعد النتيجة المحفوظة
- * 3. إذا غير موجود → نفذ العملية واحفظ النتيجة
- * 4. إذا موجود + فشل → أعد المحاولة (ربما عملية قيد التنفيذ)
- */
+import { db } from './db';
+import type { Tx } from './db';
+import { idempotencyKeys } from './schema';
+import { eq } from 'drizzle-orm';
 
-import { eq, sql } from 'drizzle-orm';
-import { idempotencyKeys } from '@masarat/database/schema';
-import { getHttpClient } from './db/client.js';
+const TTL_MS = 24 * 60 * 60 * 1000;
 
-export class IdempotencyConflictError extends Error {
-  constructor(public readonly cachedResult: unknown) {
-    super('Idempotency key already used with different parameters');
-    this.name = 'IdempotencyConflictError';
-  }
-}
-
-/**
- * تنفيذ عملية مع حماية Idempotency
- *
- * @param key - مفتاح UUID فريد يُولِّده الـ client
- * @param agencyId - معرف الوكالة
- * @param operation - اسم العملية
- * @param fn - الدالة التي تُنفِّذ العملية
- */
 export async function withIdempotency<T>(
   key: string,
   agencyId: string,
   operation: string,
-  fn: () => Promise<T>
+  fn: () => Promise<T>,
 ): Promise<T> {
-  const db = getHttpClient();
-  const compositeKey = `${agencyId}_${operation}_${key}`;
-  const now = new Date();
-
-  // 1. التحقق من وجود مفتاح سابق
+  const id = `${agencyId}_${operation}_${key}`;
   const [existing] = await db
     .select()
     .from(idempotencyKeys)
-    .where(eq(idempotencyKeys.key, compositeKey))
+    .where(eq(idempotencyKeys.id, id))
     .limit(1);
 
-  if (existing) {
-    if (existing.status === 'success' && existing.result) {
-      // ✅ طلب مكرر — أعد النتيجة المحفوظة بدون إعادة تنفيذ
-      return existing.result as T;
-    }
-    if (existing.status === 'processing') {
-      throw new Error('Operation is already in progress. Please wait and retry.');
-    }
-    // failed → سنعيد المحاولة
+  if (existing?.status === 'complete' && existing.expiresAt && existing.expiresAt > new Date()) {
+    return existing.result as T;
   }
 
-  // 2. تسجيل الطلب كـ "قيد التنفيذ"
-  const expiresAt = new Date(now.getTime() + 24 * 60 * 60 * 1000); // 24h
-
-  await db
-    .insert(idempotencyKeys)
-    .values({
-      agencyId,
-      key: compositeKey,
-      operation,
-      status: 'processing',
-      expiresAt,
-    })
-    .onConflictDoUpdate({
-      target: idempotencyKeys.key,
-      set: { status: 'processing' },
-    });
-
-  // 3. تنفيذ العملية
-  let result: T;
-  try {
-    result = await fn();
-  } catch (error) {
-    // فشلت العملية — سجل الفشل للـ debugging
-    await db
-      .update(idempotencyKeys)
-      .set({
-        status: 'failed',
-        errorMessage: error instanceof Error ? error.message : String(error),
-      })
-      .where(eq(idempotencyKeys.key, compositeKey));
-
-    throw error;
-  }
-
-  // 4. حفظ النتيجة للطلبات المكررة
-  await db
-    .update(idempotencyKeys)
-    .set({
-      status: 'success',
-      result: result as Record<string, unknown>,
-    })
-    .where(eq(idempotencyKeys.key, compositeKey));
-
-  return result;
+  return fn();
 }
 
-/**
- * تنظيف مفاتيح الـ Idempotency المنتهية الصلاحية
- * يُشغَّل بواسطة Vercel Cron Job
- */
-export async function cleanupExpiredKeys(): Promise<number> {
-  const db = getHttpClient();
-  const { count } = await import('drizzle-orm');
-
-  const now = new Date();
-
-  // Drizzle لا يدعم DELETE مع RETURNING count مباشرة
-  // نستخدم raw SQL
-  const result = await db.execute(
-    sql`DELETE FROM idempotency_keys WHERE expires_at < NOW()`
-  );
-
-  return (result as unknown as { rowCount: number }).rowCount ?? 0;
+export function buildIdempotencyInsert(
+  agencyId: string,
+  operation: string,
+  key: string,
+  result: unknown,
+  tx?: Tx,
+): typeof idempotencyKeys.$inferInsert {
+  void tx; // accepted but not needed here — caller inserts via tx
+  return {
+    id:        `${agencyId}_${operation}_${key}`,
+    agencyId,
+    status:    'complete',
+    result,
+    expiresAt: new Date(Date.now() + TTL_MS),
+  };
 }

@@ -1,9 +1,10 @@
 'use client';
 
 import type { ReactNode } from 'react';
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
 import { useAuth } from '@masarat/firebase';
+import { apiFetch } from '@/lib/api-client';
 
 interface AuthProviderProps {
   children: ReactNode;
@@ -13,13 +14,24 @@ export function AuthProvider({ children }: AuthProviderProps) {
   const { user, loading } = useAuth();
   const router = useRouter();
   const pathname = usePathname();
+  const syncedUidRef = useRef<string | null>(null);
 
   const isAuthPage = pathname?.includes('/login')
                   || pathname?.includes('/register')
-                  || pathname?.includes('/reset-password');
+                  || pathname?.includes('/reset-password')
+                  || pathname?.includes('/action');   // /auth/action (password reset) and /action (email verify)
 
   // /admin handles its own auth + 403 logic — don't redirect away from it
   const isStandalonePage = pathname?.includes('/admin');
+
+  // Sync Firebase Auth user to Postgres on first login (and on token refresh)
+  useEffect(() => {
+    if (!user || syncedUidRef.current === user.uid) return;
+    syncedUidRef.current = user.uid;
+    apiFetch('/api/auth/sync', { method: 'POST' }).catch(() => {
+      // Non-fatal — sync will retry on next page load
+    });
+  }, [user]);
 
   useEffect(() => {
     if (loading) return;

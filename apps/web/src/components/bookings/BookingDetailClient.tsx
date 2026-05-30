@@ -2,8 +2,8 @@
 
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
-import { useAuth } from '@masarat/firebase';
 import { Card, CardHeader, CardTitle } from '@/components/ui/Card';
+import { apiFetch } from '@/lib/api-client';
 import { Button } from '@/components/ui/Button';
 import { BookingStatusBadge } from '@/components/ui/StatusBadge';
 import { Spinner } from '@/components/ui/Spinner';
@@ -12,23 +12,121 @@ import { BookingActions } from './BookingActions';
 import {
   ArrowRight, ArrowLeft, FileText, User, MapPin, Users, Receipt,
   TrendingDown, Banknote, CreditCard, Building2, Globe, FileCheck2, ArrowUpRight,
+  CheckCircle2, Circle, Clock, BadgeCheck,
 } from 'lucide-react';
+
+// ─── Booking Progress Stepper ─────────────────────────────────────────────────
+
+type StepStatus = 'done' | 'current' | 'partial' | 'pending';
+
+interface Step {
+  labelAr: string;
+  labelEn: string;
+  status:  StepStatus;
+  subAr?:  string;
+  subEn?:  string;
+}
+
+function BookingProgressStepper({
+  steps, isAr,
+}: { steps: Step[]; isAr: boolean }) {
+  return (
+    <div className="relative flex items-start justify-between gap-0">
+      {steps.map((step, idx) => {
+        const isLast = idx === steps.length - 1;
+        const { status } = step;
+
+        const circleClass =
+          status === 'done'    ? 'bg-emerald-500 border-emerald-500 text-white' :
+          status === 'partial' ? 'bg-amber-400   border-amber-400   text-white' :
+          status === 'current' ? 'bg-brand-600   border-brand-600   text-white' :
+                                 'bg-white        border-slate-200   text-slate-400';
+
+        const lineClass =
+          status === 'done' || (idx > 0 && steps[idx - 1]?.status === 'done')
+            ? 'bg-emerald-400'
+            : 'bg-slate-200';
+
+        const labelClass =
+          status === 'done'    ? 'text-emerald-700 font-semibold' :
+          status === 'partial' ? 'text-amber-600 font-semibold' :
+          status === 'current' ? 'text-brand-700 font-semibold' :
+                                 'text-slate-400';
+
+        const Icon =
+          status === 'done'    ? CheckCircle2 :
+          status === 'partial' ? Clock :
+          status === 'current' ? Circle :
+                                 Circle;
+
+        return (
+          <div key={idx} className="flex-1 flex flex-col items-center relative">
+            {/* Connector line (before circle) */}
+            {idx > 0 && (
+              <div className={`absolute top-4 h-0.5 w-full -translate-x-1/2 ${
+                steps[idx - 1]?.status === 'done' ? 'bg-emerald-400' : 'bg-slate-200'
+              }`}
+                style={{ left: 0, right: '50%', width: '50%' }}
+              />
+            )}
+            {/* Connector line (after circle) */}
+            {!isLast && (
+              <div className={`absolute top-4 h-0.5 ${lineClass}`}
+                style={{ left: '50%', right: 0, width: '50%' }}
+              />
+            )}
+
+            {/* Circle */}
+            <div className={`relative z-10 w-8 h-8 rounded-full border-2 flex items-center justify-center flex-shrink-0 ${circleClass}`}>
+              <Icon size={14} strokeWidth={2.5} />
+            </div>
+
+            {/* Label */}
+            <div className="mt-2 text-center px-1">
+              <p className={`text-[11px] leading-tight ${labelClass}`}>
+                {isAr ? step.labelAr : step.labelEn}
+              </p>
+              {(step.subAr || step.subEn) && (
+                <p className="text-[10px] text-slate-400 mt-0.5 leading-tight">
+                  {isAr ? step.subAr : step.subEn}
+                </p>
+              )}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
 
 interface BookingDetailClientProps {
   locale: string;
   bookingId: string;
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type BookingData = Record<string, any>;
+type BookingData = Record<string, any>; // Firestore raw data – type-safe access via explicit casts below
+
+const TYPE_LABELS: Record<string, { ar: string; en: string }> = {
+  flight:       { ar: 'طيران',        en: 'Flight' },
+  hotel:        { ar: 'فندق',         en: 'Hotel' },
+  flight_hotel: { ar: 'طيران + فندق', en: 'Flight + Hotel' },
+  package:      { ar: 'باقة سياحية',  en: 'Package' },
+  umrah:        { ar: 'عمرة',         en: 'Umrah' },
+  hajj:         { ar: 'حج',           en: 'Hajj' },
+  visa:         { ar: 'تأشيرة',       en: 'Visa' },
+  insurance:    { ar: 'تأمين سفر',    en: 'Insurance' },
+  transfer:     { ar: 'نقل',          en: 'Transfer' },
+  family_visit: { ar: 'زيارة عائلية', en: 'Family Visit' },
+  cruise:       { ar: 'رحلة بحرية',   en: 'Cruise' },
+};
 
 interface SupplierPayment {
   id: string;
   supplierName: string;
   amountHalalas: number;
-  paymentMethod: string;
+  method: string;
   reference?: string;
-  createdAt: { toDate?: () => Date } | null;
+  createdAt: string | null;
 }
 
 function methodIcon(method: string) {
@@ -53,30 +151,22 @@ function methodLabel(method: string, isAr: boolean) {
 
 export function BookingDetailClient({ locale, bookingId }: BookingDetailClientProps) {
   const isAr = locale === 'ar';
-  const { user } = useAuth();
   const [booking, setBooking] = useState<BookingData | null>(null);
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
   const [supplierPayments, setSupplierPayments] = useState<SupplierPayment[]>([]);
+  const [tick, setTick] = useState(0);
 
   const BackIcon = isAr ? ArrowRight : ArrowLeft;
 
   useEffect(() => {
-    if (!user) return;
     let cancelled = false;
 
     async function fetchBooking() {
       try {
-        const { getFirestore, doc, getDoc } = await import('firebase/firestore');
-        const { getApp } = await import('@masarat/firebase');
-        const db = getFirestore(getApp());
-        const snap = await getDoc(doc(db, 'bookings', bookingId));
+        const data = await apiFetch<{ booking: BookingData }>(`/api/bookings/${bookingId}`);
         if (cancelled) return;
-        if (!snap.exists()) {
-          setNotFound(true);
-        } else {
-          setBooking({ id: snap.id, ...snap.data() });
-        }
+        setBooking(data.booking);
       } catch {
         if (!cancelled) setNotFound(true);
       } finally {
@@ -86,30 +176,25 @@ export function BookingDetailClient({ locale, bookingId }: BookingDetailClientPr
 
     void fetchBooking();
     return () => { cancelled = true; };
-  }, [bookingId, user]);
+  }, [bookingId]);
 
   useEffect(() => {
-    if (!user) return;
-    let unsub: (() => void) | undefined;
+    let cancelled = false;
 
     async function loadSupplierPayments() {
-      const { getFirestore, collection, query, where, orderBy, onSnapshot } =
-        await import('firebase/firestore');
-      const { getApp } = await import('@masarat/firebase');
-      const db = getFirestore(getApp());
-      const q = query(
-        collection(db, 'supplier_payments'),
-        where('bookingId', '==', bookingId),
-        orderBy('createdAt', 'desc'),
-      );
-      unsub = onSnapshot(q, snap => {
-        setSupplierPayments(snap.docs.map(d => ({ id: d.id, ...d.data() } as SupplierPayment)));
-      });
+      try {
+        const data = await apiFetch<{ payments: SupplierPayment[] }>(
+          `/api/supplier-payments?bookingId=${bookingId}`,
+        );
+        if (!cancelled) setSupplierPayments(data.payments);
+      } catch {
+        // silently ignore — payments list is non-critical
+      }
     }
 
     void loadSupplierPayments();
-    return () => unsub?.();
-  }, [bookingId, user]);
+    return () => { cancelled = true; };
+  }, [bookingId, tick]);
 
   if (loading) {
     return (
@@ -137,15 +222,55 @@ export function BookingDetailClient({ locale, bookingId }: BookingDetailClientPr
     : (booking.customerName?.en ?? booking.customerName?.ar ?? booking.customerName ?? '');
 
   const pricing = booking.pricing ?? {};
-  const grandTotalHalalas = pricing.totalAmount ?? 0;
-  const paidHalalas = booking.totalPaid ?? 0;
+  const grandTotalHalalas = booking.totalPriceHalalas ?? booking.grandTotalHalalas ?? pricing.totalAmount ?? 0;
+  const paidHalalas = booking.paidHalalas ?? booking.totalPaid ?? 0;
 
-  const travelDate = booking.travelDate?.toDate?.() ?? null;
-  const returnDate = booking.returnDate?.toDate?.() ?? null;
+  // Dates and passengers are stored inside the details JSONB
+  const det = (booking.details ?? {}) as Record<string, unknown>;
+  const rawTravelDate = (det['departureDate'] ?? det['travelDate'] ?? booking.travelDate) as string | undefined;
+  const rawReturnDate = (det['returnDate']    ?? booking.returnDate)                       as string | undefined;
+  const travelDate = rawTravelDate ? new Date(rawTravelDate) : null;
+  const returnDate = rawReturnDate ? new Date(rawReturnDate) : null;
 
-  const travelers: BookingData[] = booking.passengers ?? [];
+  const travelers: BookingData[] = (det['passengers'] as BookingData[] | undefined) ?? booking.passengers ?? [];
   const invoiceIds: string[] = booking.invoiceIds ?? [];
   const existingInvoiceId = invoiceIds[0];
+
+  const isCompleted = booking.status === 'completed';
+  const isPaid      = grandTotalHalalas > 0 && paidHalalas >= grandTotalHalalas;
+  const isPartial   = paidHalalas > 0 && !isPaid;
+  const hasInvoice  = !!existingInvoiceId;
+
+  const progressSteps: Step[] = [
+    {
+      labelAr: 'تم الحجز',
+      labelEn: 'Booked',
+      status:  'done',
+      subAr:   booking.bookingNumber ?? undefined,
+      subEn:   booking.bookingNumber ?? undefined,
+    },
+    {
+      labelAr: 'إصدار فاتورة',
+      labelEn: 'Invoiced',
+      status:  hasInvoice ? 'done' : 'current',
+    },
+    {
+      labelAr: isPaid ? 'مدفوع بالكامل' : isPartial ? 'دفع جزئي' : 'الدفع',
+      labelEn: isPaid ? 'Fully Paid'    : isPartial ? 'Partial'   : 'Payment',
+      status:  isPaid ? 'done' : isPartial ? 'partial' : hasInvoice ? 'current' : 'pending',
+      subAr:   isPartial
+        ? `${formatCurrency(paidHalalas, 'ar-SA')} / ${formatCurrency(grandTotalHalalas, 'ar-SA')}`
+        : undefined,
+      subEn:   isPartial
+        ? `${formatCurrency(paidHalalas, 'en-SA')} / ${formatCurrency(grandTotalHalalas, 'en-SA')}`
+        : undefined,
+    },
+    {
+      labelAr: 'مكتمل',
+      labelEn: 'Completed',
+      status:  isCompleted ? 'done' : isPaid ? 'current' : 'pending',
+    },
+  ];
 
   return (
     <div className="max-w-4xl mx-auto space-y-6">
@@ -166,7 +291,7 @@ export function BookingDetailClient({ locale, bookingId }: BookingDetailClientPr
               <BookingStatusBadge status={booking.status} locale={locale} />
             </div>
             <p className="text-slate-500 text-sm mt-0.5">
-              {booking.type} · {booking.pricing?.revenueModel === 'agent'
+              {(TYPE_LABELS[booking.type]?.[isAr ? 'ar' : 'en'] ?? booking.type)} · {booking.pricing?.revenueModel === 'agent'
                 ? (isAr ? 'نموذج وكيل' : 'Agent Model')
                 : (isAr ? 'نموذج أصيل' : 'Principal Model')}
             </p>
@@ -182,6 +307,22 @@ export function BookingDetailClient({ locale, bookingId }: BookingDetailClientPr
             </Link>
           )}
         </div>
+      </div>
+
+      {/* ── Progress stepper ─────────────────────────────────────────────── */}
+      <div className="bg-white rounded-2xl border border-surface-border shadow-sm px-6 py-5">
+        <div className="flex items-center justify-between mb-4">
+          <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">
+            {isAr ? 'مراحل الحجز' : 'Booking Progress'}
+          </p>
+          {isCompleted && (
+            <span className="inline-flex items-center gap-1 text-xs font-bold text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-full border border-emerald-200">
+              <BadgeCheck size={12} />
+              {isAr ? 'مكتمل' : 'Completed'}
+            </span>
+          )}
+        </div>
+        <BookingProgressStepper steps={progressSteps} isAr={isAr} />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -305,8 +446,8 @@ export function BookingDetailClient({ locale, bookingId }: BookingDetailClientPr
                     <div className="flex items-center gap-2">
                       <TrendingDown size={16} className="text-red-500" />
                       {isAr
-                        ? `سندات صرف الموردين (${supplierPayments.length})`
-                        : `Supplier Payments (${supplierPayments.length})`}
+                        ? `سندات الصرف (${supplierPayments.length})`
+                        : `Payment Vouchers (${supplierPayments.length})`}
                     </div>
                     <span className="text-sm font-black font-mono text-red-700 tabular-nums">
                       {formatCurrency(
@@ -319,7 +460,7 @@ export function BookingDetailClient({ locale, bookingId }: BookingDetailClientPr
               </CardHeader>
               <div className="space-y-2">
                 {supplierPayments.map(sp => {
-                  const date = sp.createdAt?.toDate?.() ?? null;
+                  const date = sp.createdAt ? new Date(sp.createdAt) : null;
                   return (
                     <div
                       key={sp.id}
@@ -329,8 +470,8 @@ export function BookingDetailClient({ locale, bookingId }: BookingDetailClientPr
                         <p className="text-sm font-medium text-slate-900 truncate">{sp.supplierName}</p>
                         <div className="flex items-center gap-2 mt-0.5">
                           <span className="inline-flex items-center gap-1 text-xs text-slate-500 bg-white px-2 py-0.5 rounded-full border border-slate-200">
-                            {methodIcon(sp.paymentMethod)}
-                            {methodLabel(sp.paymentMethod, isAr)}
+                            {methodIcon(sp.method)}
+                            {methodLabel(sp.method, isAr)}
                           </span>
                           {date && (
                             <span className="text-xs text-slate-400">
@@ -403,7 +544,7 @@ export function BookingDetailClient({ locale, bookingId }: BookingDetailClientPr
             </div>
             <BookingActions
               bookingId={booking.id}
-              agencyId={booking.agencyId ?? user?.agencyId ?? ''}
+              agencyId={booking.agencyId ?? ''}
               bookingStatus={booking.status}
               existingInvoiceId={existingInvoiceId}
               grandTotalHalalas={grandTotalHalalas}
@@ -422,8 +563,8 @@ export function BookingDetailClient({ locale, bookingId }: BookingDetailClientPr
                 <div>
                   <p className="text-sm font-medium text-slate-700">{isAr ? 'تم الإنشاء' : 'Created'}</p>
                   <p className="text-xs text-slate-400">
-                    {booking.createdAt?.toDate
-                      ? formatDate(booking.createdAt.toDate(), isAr ? 'ar-SA' : 'en-SA')
+                    {booking.createdAt
+                      ? formatDate(new Date(booking.createdAt as string), isAr ? 'ar-SA' : 'en-SA')
                       : '—'}
                   </p>
                 </div>
@@ -434,8 +575,8 @@ export function BookingDetailClient({ locale, bookingId }: BookingDetailClientPr
                   <div>
                     <p className="text-sm font-medium text-slate-700">{isAr ? 'تم التأكيد' : 'Confirmed'}</p>
                     <p className="text-xs text-slate-400">
-                      {booking.confirmedAt?.toDate
-                        ? formatDate(booking.confirmedAt.toDate(), isAr ? 'ar-SA' : 'en-SA')
+                      {booking.confirmedAt
+                        ? formatDate(new Date(booking.confirmedAt as string), isAr ? 'ar-SA' : 'en-SA')
                         : (isAr ? 'عند الإنشاء' : 'At creation')}
                     </p>
                   </div>

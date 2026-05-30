@@ -32,98 +32,70 @@ export default function ReceiptVoucherPage({
 
     async function load() {
       try {
-        const { getFirestore, doc, getDoc } = await import('firebase/firestore');
-        const { getApp } = await import('@masarat/firebase');
-        const db = getFirestore(getApp());
+        const { apiFetch } = await import('@/lib/api-client');
 
         // ── 1. Load payment ───────────────────────────────────────────────
-        const paySnap = await getDoc(doc(db, 'payments', params.paymentId));
-        if (!paySnap.exists()) {
-          setError(isAr ? 'سند الدفع غير موجود' : 'Payment not found');
-          setLoading(false);
-          return;
-        }
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const pay = paySnap.data() as Record<string, any>;
+        const payResult = await apiFetch<{ payment: Record<string, unknown> }>(`/api/payments/${params.paymentId}`);
+        const pay = payResult.payment;
 
         // ── 2. Load invoice (for invoiceNumber + customer) ────────────────
-        let invoiceNumber = pay.invoiceId ?? '';
+        let invoiceNumber = (pay['invoiceId'] as string | undefined) ?? '';
         let bookingNumber: string | undefined;
         let customerNameAr = '';
         let customerNameEn = '';
         let customerPhone = '';
 
-        if (pay.invoiceId) {
-          const invSnap = await getDoc(doc(db, 'invoices', pay.invoiceId));
-          if (invSnap.exists()) {
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            const inv = invSnap.data() as Record<string, any>;
-            invoiceNumber = inv.invoiceNumber ?? pay.invoiceId;
-            customerNameAr = inv.buyer?.name?.ar ?? '';
-            customerNameEn = inv.buyer?.name?.en ?? '';
-            customerPhone  = inv.buyer?.phone ?? '';
-          }
+        if (pay['invoiceId']) {
+          try {
+            const invResult = await apiFetch<{ invoice: Record<string, unknown> }>(`/api/invoices/${pay['invoiceId'] as string}`);
+            const inv = invResult.invoice;
+            invoiceNumber = (inv['invoiceNumber'] as string | undefined) ?? (pay['invoiceId'] as string);
+            const buyer = inv['buyer'] as Record<string, unknown> | undefined;
+            const buyerName = buyer?.['name'] as Record<string, unknown> | undefined;
+            customerNameAr = (buyerName?.['ar'] as string | undefined) ?? (inv['customerName'] as string | undefined) ?? '';
+            customerNameEn = (buyerName?.['en'] as string | undefined) ?? '';
+            customerPhone  = (buyer?.['phone'] as string | undefined) ?? (inv['customerPhone'] as string | undefined) ?? '';
+          } catch { /* invoice may not exist */ }
         }
 
         // ── 3. Load booking (for bookingNumber) ───────────────────────────
-        if (pay.bookingId) {
-          const bkSnap = await getDoc(doc(db, 'bookings', pay.bookingId));
-          if (bkSnap.exists()) {
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            const bk = bkSnap.data() as Record<string, any>;
-            bookingNumber = bk.bookingNumber;
+        if (pay['bookingId']) {
+          try {
+            const bkResult = await apiFetch<{ booking: Record<string, unknown> }>(`/api/bookings/${pay['bookingId'] as string}`);
+            const bk = bkResult.booking;
+            bookingNumber = bk['bookingNumber'] as string | undefined;
             if (!customerNameAr) {
-              customerNameAr = bk.customerName?.ar ?? bk.customerName ?? '';
-              customerNameEn = bk.customerName?.en ?? '';
+              const bkCustomer = bk['customerName'] as Record<string, unknown> | string | undefined;
+              customerNameAr = typeof bkCustomer === 'string' ? bkCustomer : ((bkCustomer?.['ar'] as string | undefined) ?? (bk['customerNameAr'] as string | undefined) ?? '');
+              customerNameEn = typeof bkCustomer === 'object' && bkCustomer ? ((bkCustomer['en'] as string | undefined) ?? '') : (bk['customerNameEn'] as string | undefined) ?? '';
             }
-            if (!customerPhone) customerPhone = bk.customerPhone ?? '';
-          }
+            if (!customerPhone) customerPhone = (bk['customerPhone'] as string | undefined) ?? '';
+          } catch { /* booking may not exist */ }
         }
+
+        // Fallback for standalone receipts not tied to an invoice
+        if (!customerNameAr) customerNameAr = (pay['customerNameAr'] as string | undefined) ?? (pay['customerName'] as string | undefined) ?? '';
+        if (!customerNameEn) customerNameEn = (pay['customerNameEn'] as string | undefined) ?? '';
+        if (!customerPhone)  customerPhone  = (pay['customerPhone']  as string | undefined) ?? '';
 
         // ── 4. Load agency (for seller info) ──────────────────────────────
-        const agencyId = pay.agencyId;
-        let agencyNameAr = '';
-        let agencyNameEn = '';
-        let agencyPhone  = '';
-        let agencyVat    = '';
-        let agencyCr     = '';
-        let agencyAddress: ReceiptVoucherData['agency']['address'] = {};
-
-        if (agencyId) {
-          const agSnap = await getDoc(doc(db, 'agencies', agencyId));
-          if (agSnap.exists()) {
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            const ag = agSnap.data() as Record<string, any>;
-            agencyNameAr = ag.nameAr ?? '';
-            agencyNameEn = ag.nameEn ?? '';
-            agencyPhone  = ag.contactPhone ?? '';
-            agencyVat    = ag.vatNumber ?? '';
-            agencyCr     = ag.crNumber ?? '';
-            agencyAddress = {
-              streetName:     ag.streetName ?? '',
-              buildingNumber: ag.buildingNumber ?? '',
-              district:       ag.district ?? '',
-              city:           ag.city ?? '',
-              postalCode:     ag.postalCode ?? '',
-            };
-          }
-        }
+        const settingsResult = await apiFetch<{ agency: Record<string, unknown> }>('/api/settings');
+        const ag = settingsResult.agency;
 
         if (cancelled) return;
 
         // ── 5. Build voucher number from paymentId ─────────────────────────
-        const year = new Date().getFullYear();
-        const seq = params.paymentId.slice(-6).toUpperCase();
-        const voucherNumber = `RV-${year}-${seq}`;
+        const voucherNumber = (pay['voucherNumber'] as string | undefined) ?? (pay['receiptNumber'] as string | undefined) ?? `RCT-${new Date().getFullYear()}-${params.paymentId.slice(-6).toUpperCase()}`;
 
+        const payCreatedAt = pay['createdAt'] as string | undefined;
         const receipt: ReceiptVoucherData = {
           voucherNumber,
           paymentId: params.paymentId,
-          issuedDate: pay.createdAt?.toDate?.() ?? new Date(),
-          amountHalalas: pay.amountHalalas ?? 0,
-          paymentMethod: pay.paymentMethod ?? 'cash',
-          reference: pay.reference || undefined,
-          notes: pay.notes || undefined,
+          issuedDate: payCreatedAt ? new Date(payCreatedAt) : new Date(),
+          amountHalalas: (pay['amountHalalas'] as number | undefined) ?? 0,
+          paymentMethod: (pay['method'] as string | undefined) ?? (pay['paymentMethod'] as string | undefined) ?? 'cash',
+          reference: (pay['reference'] as string | undefined) || undefined,
+          notes: (pay['notes'] as string | undefined) || undefined,
           invoiceNumber,
           bookingNumber,
           customer: {
@@ -132,12 +104,16 @@ export default function ReceiptVoucherPage({
             phone: customerPhone || undefined,
           },
           agency: {
-            nameAr: agencyNameAr,
-            nameEn: agencyNameEn,
-            phone: agencyPhone || undefined,
-            vatNumber: agencyVat || undefined,
-            crNumber: agencyCr || undefined,
-            address: agencyAddress,
+            nameAr: (ag['nameAr'] as string | undefined) ?? '',
+            nameEn: (ag['nameEn'] as string | undefined) ?? '',
+            logoUrl: (ag['logoUrl'] as string | undefined) || undefined,
+            isVatRegistered: (ag['isVatRegistered'] as boolean | undefined) === true,
+            phone: (ag['contactPhone'] as string | undefined) || (ag['phone'] as string | undefined) || undefined,
+            vatNumber: (ag['vatNumber'] as string | undefined) || undefined,
+            crNumber: (ag['crNumber'] as string | undefined) || undefined,
+            address: {
+              city: (ag['city'] as string | undefined) ?? '',
+            },
           },
         };
 

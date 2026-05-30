@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react';
 import { useLocale } from 'next-intl';
 import { useSearchParams } from 'next/navigation';
 import { useAuth } from '@masarat/firebase';
-import type { UserDoc } from '@masarat/firebase';
+import type { Agency, User } from '@/lib/schema';
 import { Card, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Spinner } from '@/components/ui/Spinner';
 import { Button } from '@/components/ui/Button';
@@ -52,12 +52,12 @@ type Tab = 'agency' | 'users' | 'modules' | 'zatca' | 'billing' | 'service_types
 
 // ─── Tab definitions ─────────────────────────────────────────────────────────
 
-const TABS: Array<{ key: Tab; ar: string; en: string; icon: React.ReactNode }> = [
+const ALL_TABS: Array<{ key: Tab; ar: string; en: string; icon: React.ReactNode; vatOnly?: boolean }> = [
   { key: 'agency',        ar: 'بيانات الوكالة',  en: 'Agency Info',    icon: <Building2 size={16} /> },
   { key: 'users',         ar: 'المستخدمون',       en: 'Users',          icon: <Users size={16} /> },
   { key: 'modules',       ar: 'الوحدات',          en: 'Modules',        icon: <Package size={16} /> },
   { key: 'service_types', ar: 'أنواع الخدمات',    en: 'Service Types',  icon: <Layers size={16} /> },
-  { key: 'zatca',         ar: 'ZATCA',            en: 'ZATCA',          icon: <Shield size={16} /> },
+  { key: 'zatca',         ar: 'ZATCA',            en: 'ZATCA',          icon: <Shield size={16} />, vatOnly: true },
   { key: 'billing',       ar: 'الاشتراك',         en: 'Billing',        icon: <CreditCard size={16} /> },
 ];
 
@@ -266,35 +266,70 @@ function ToggleSwitch({
 
 const WA_NUMBER = '249969837823';
 
-const PLAN_META: Record<string, { ar: string; en: string; price: string; features: { ar: string[]; en: string[] } }> = {
-  trial: {
-    ar: 'تجريبي', en: 'Trial', price: '0',
+interface PlanDef {
+  key: string;
+  ar: string; en: string;
+  billing: { ar: string; en: string };
+  badge: { ar: string; en: string } | null;
+  highlighted: boolean;
+  features: { ar: string[]; en: string[] };
+  limits: { users: number | null; bookings: number | null };
+}
+
+const PLANS: PlanDef[] = [
+  {
+    key: 'starter',
+    ar: 'المبتدئ', en: 'Starter',
+    billing: { ar: 'اشتراك شهري / سنوي', en: 'Monthly / Yearly' },
+    badge: null, highlighted: false,
     features: {
-      ar: ['حتى 3 مستخدمين', 'حتى 500 حجز شهرياً', 'الوحدات الأساسية', 'دعم بالبريد الإلكتروني'],
-      en: ['Up to 3 users', 'Up to 500 bookings / month', 'Core modules', 'Email support'],
+      ar: ['حتى 3 مستخدمين', 'حتى 500 حجز شهرياً', 'الوحدات الأساسية (حجوزات، فواتير، محاسبة)', 'دعم عبر واتساب'],
+      en: ['Up to 3 users', 'Up to 500 bookings / month', 'Core modules (bookings, invoices, accounting)', 'WhatsApp support'],
     },
+    limits: { users: 3, bookings: 500 },
   },
-  starter: {
-    ar: 'المبتدئ', en: 'Starter', price: '199',
+  {
+    key: 'professional',
+    ar: 'الاحترافي', en: 'Professional',
+    billing: { ar: 'اشتراك شهري / سنوي', en: 'Monthly / Yearly' },
+    badge: { ar: 'الأكثر شيوعاً', en: 'Most Popular' }, highlighted: true,
     features: {
-      ar: ['حتى 3 مستخدمين', 'حتى 500 حجز شهرياً', 'الوحدات الأساسية', 'دعم بالبريد الإلكتروني'],
-      en: ['Up to 3 users', 'Up to 500 bookings / month', 'Core modules', 'Email support'],
+      ar: ['مستخدمون غير محدودين', 'حجوزات غير محدودة', 'جميع الوحدات + ZATCA', 'تقارير متقدمة', 'دعم ذو أولوية عبر واتساب'],
+      en: ['Unlimited users', 'Unlimited bookings', 'All modules + ZATCA', 'Advanced reports', 'Priority WhatsApp support'],
     },
+    limits: { users: null, bookings: null },
   },
-  professional: {
-    ar: 'الاحترافي', en: 'Professional', price: '399',
+  {
+    key: 'lifetime',
+    ar: 'مدى الحياة', en: 'Lifetime',
+    billing: { ar: 'دفعة واحدة للأبد', en: 'One-time payment' },
+    badge: { ar: 'قيمة كبرى', en: 'Best Value' }, highlighted: false,
     features: {
-      ar: ['مستخدمون غير محدودين', 'حجوزات غير محدودة', 'جميع الوحدات + ZATCA', 'دعم ذو أولوية'],
-      en: ['Unlimited users', 'Unlimited bookings', 'All modules + ZATCA', 'Priority support'],
+      ar: ['كل مميزات الاحترافي', 'دفعة واحدة فقط', 'تحديثات مجانية مدى الحياة', 'دعم مدى الحياة'],
+      en: ['Everything in Professional', 'One-time payment only', 'Free lifetime updates', 'Lifetime support'],
     },
+    limits: { users: null, bookings: null },
   },
-};
+];
+
+// Map Firestore plan key → display plan key
+function resolveDisplayPlan(plan: string, status: string): string {
+  if (plan === 'lifetime') return 'lifetime';
+  if (plan === 'professional') return 'professional';
+  if (plan === 'starter') return 'starter';
+  if (status === 'trial') return 'trial';
+  return 'starter';
+}
+
+// Firestore plan keys that match a paid plan
+const PAID_PLAN_KEYS = new Set(['starter', 'professional', 'lifetime']);
 
 export default function SettingsPage() {
   const locale = useLocale();
   const isAr = locale === 'ar';
   const searchParams = useSearchParams();
   const { user } = useAuth();
+  const agencyId = user?.agencyId ?? null;
   const { status: subStatus, plan: subPlan, agencyName: subAgencyName, daysRemaining } = useSubscription();
 
   // Support ?tab=service_types URL param
@@ -307,6 +342,22 @@ export default function SettingsPage() {
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [saveError, setSaveError] = useState('');
+  const [dbSetupRunning, setDbSetupRunning] = useState(false);
+  const [dbSetupResult, setDbSetupResult] = useState<{ ok: boolean; message?: string; error?: string } | null>(null);
+
+  async function handleDbSetup() {
+    setDbSetupRunning(true);
+    setDbSetupResult(null);
+    try {
+      const { apiFetch } = await import('@/lib/api-client');
+      const data = await apiFetch<{ ok: boolean; message?: string; error?: string }>('/api/setup-db', { method: 'POST' });
+      setDbSetupResult(data);
+    } catch (err) {
+      setDbSetupResult({ ok: false, error: err instanceof Error ? err.message : 'خطأ غير معروف' });
+    } finally {
+      setDbSetupRunning(false);
+    }
+  }
   const [zatcaEnv, setZatcaEnv] = useState<'testing' | 'production'>('testing');
 
   // ── Agency info (loaded from / saved to Firestore) ────────────────────
@@ -317,9 +368,11 @@ export default function SettingsPage() {
   const [logoError, setLogoError] = useState('');
   const [logoPendingFile, setLogoPendingFile] = useState<File | null>(null);
   const [logoPendingPreview, setLogoPendingPreview] = useState('');
+  const [logoCropMode, setLogoCropMode] = useState<'fit' | 'square'>('fit');
   const [isVatRegistered, setIsVatRegistered] = useState(false);
   const [vatNumber, setVatNumber] = useState('');
   const [crNumber, setCrNumber] = useState('');
+  const [vatRate, setVatRate] = useState(15);
   const [streetName, setStreetName] = useState('');
   const [buildingNumber, setBuildingNumber] = useState('');
   const [district, setDistrict] = useState('');
@@ -327,9 +380,9 @@ export default function SettingsPage() {
   const [postalCode, setPostalCode] = useState('');
   const [contactEmail, setContactEmail] = useState('');
   const [contactPhone, setContactPhone] = useState('');
-  const [contactHours, setContactHours] = useState('');
 
   // ── Service Types state ─────────────────────────────────────────────────
+  const [tick, setTick] = useState(0);
   const [customTypes, setCustomTypes] = useState<CustomServiceType[]>([]);
   const [defaultToggles, setDefaultToggles] = useState<Record<string, boolean>>(
     Object.fromEntries(DEFAULT_SERVICE_TYPES.map(d => [d.id, true]))
@@ -341,103 +394,94 @@ export default function SettingsPage() {
   const [editForm, setEditForm] = useState({ nameAr: '', nameEn: '', icon: 'layers', color: PRESET_COLORS[0] });
 
   // ── Agency users ────────────────────────────────────────────────────────
-  const [agencyUsers, setAgencyUsers]     = useState<UserDoc[]>([]);
+  const [agencyUsers, setAgencyUsers]     = useState<User[]>([]);
   const [loadingUsers, setLoadingUsers]   = useState(false);
   const [showInviteModal, setShowInviteModal] = useState(false);
 
-  // Load all agency info from Firestore
+  // ── Billing usage stats ─────────────────────────────────────────────────
+  const [usersCount, setUsersCount]       = useState<number | null>(null);
+  const [bookingsCount, setBookingsCount] = useState<number | null>(null);
+
+  // Load all agency info from REST API
   useEffect(() => {
-    if (!user?.agencyId) return;
+    if (!agencyId) return;
 
     async function loadAgency() {
-      const { getFirestore, doc, getDoc } = await import('firebase/firestore');
-      const { getApp } = await import('@masarat/firebase');
-      const db = getFirestore(getApp());
-      const snap = await getDoc(doc(db, 'agencies', user!.agencyId));
-      if (snap.exists()) {
-        const d = snap.data();
-        if (d.nameAr)        setNameAr(d.nameAr);
-        if (d.nameEn)        setNameEn(d.nameEn);
-        if (d.logoUrl)       setLogoUrl(d.logoUrl);
-        setIsVatRegistered(d.isVatRegistered ?? (d.vatNumber ?? '').trim().length > 0);
-        if (d.vatNumber)     setVatNumber(d.vatNumber);
-        if (d.crNumber)      setCrNumber(d.crNumber);
-        if (d.streetName)    setStreetName(d.streetName);
-        if (d.buildingNumber) setBuildingNumber(d.buildingNumber);
-        if (d.district)      setDistrict(d.district);
-        if (d.city)          setCity(d.city);
-        if (d.postalCode)    setPostalCode(d.postalCode);
-        setContactEmail(d.contactEmail ?? '');
-        setContactPhone(d.contactPhone ?? '');
-        setContactHours(d.contactHours ?? '');
-      }
+      const { apiFetch } = await import('@/lib/api-client');
+      const data = await apiFetch<{ agency: Agency; users: User[] }>('/api/settings');
+      const d = data.agency;
+      if (d.nameAr)        setNameAr(d.nameAr);
+      if (d.nameEn)        setNameEn(d.nameEn);
+      if (d.logoUrl)       setLogoUrl(d.logoUrl);
+      setIsVatRegistered(d.isVatRegistered === true);
+      if (d.vatNumber)     setVatNumber(d.vatNumber);
+      if (d.crNumber)      setCrNumber(d.crNumber);
+      if (d.vatRate)       setVatRate(d.vatRate);
+      if (d.city)          setCity(d.city);
+      setContactEmail(d.contactEmail ?? '');
+      setContactPhone(d.contactPhone ?? '');
     }
 
     void loadAgency();
-  }, [user?.agencyId]);
+  }, [agencyId]);
 
-  // Load agency users from Firestore when on users tab
+  // Load agency users from REST API when on users tab
   useEffect(() => {
-    if (!user?.agencyId || activeTab !== 'users') return;
-    let unsub: (() => void) | undefined;
+    if (!agencyId || activeTab !== 'users') return;
 
     async function load() {
       setLoadingUsers(true);
-      const { getFirestore, collection, query, where, onSnapshot } = await import('firebase/firestore');
-      const { getApp } = await import('@masarat/firebase');
-      const db = getFirestore(getApp());
-      const q = query(collection(db, 'users'), where('agencyId', '==', user!.agencyId));
-      unsub = onSnapshot(q, snap => {
-        setAgencyUsers(snap.docs.map(d => ({ id: d.id, ...d.data() } as UserDoc)));
-        setLoadingUsers(false);
-      }, () => setLoadingUsers(false));
+      const { apiFetch } = await import('@/lib/api-client');
+      const data = await apiFetch<{ agency: unknown; users: User[] }>('/api/settings');
+      setAgencyUsers(data.users);
+      setLoadingUsers(false);
     }
 
     void load();
-    return () => unsub?.();
-  }, [user?.agencyId, activeTab]);
+  }, [agencyId, activeTab]);
 
-  // Load custom service types from Firestore
+  // Load usage stats when billing tab is active
   useEffect(() => {
-    if (!user?.agencyId || activeTab !== 'service_types') return;
-    let unsub: (() => void) | undefined;
+    if (!agencyId || activeTab !== 'billing') return;
+    async function load() {
+      const { apiFetch } = await import('@/lib/api-client');
+      const [usersData, bookingsData] = await Promise.all([
+        apiFetch<{ agency: unknown; users: unknown[] }>('/api/settings'),
+        apiFetch<{ bookings: unknown[] }>('/api/bookings'),
+      ]);
+      setUsersCount(usersData.users.length);
+      setBookingsCount(bookingsData.bookings.length);
+    }
+    void load();
+  }, [agencyId, activeTab]);
+
+  // Load custom service types from REST API
+  useEffect(() => {
+    if (!agencyId || activeTab !== 'service_types') return;
 
     async function load() {
-      const { getFirestore, collection, query, where, onSnapshot } = await import('firebase/firestore');
-      const { getApp } = await import('@masarat/firebase');
-      const db = getFirestore(getApp());
-      const q = query(
-        collection(db, 'service_types'),
-        where('agencyId', '==', user!.agencyId),
-      );
-      unsub = onSnapshot(q, snap => {
-        setCustomTypes(snap.docs.map(d => ({ id: d.id, ...d.data() } as CustomServiceType)));
-      });
+      const { apiFetch } = await import('@/lib/api-client');
+      const data = await apiFetch<{ serviceTypes: CustomServiceType[] }>('/api/service-types');
+      setCustomTypes(data.serviceTypes);
     }
 
     void load();
-    return () => unsub?.();
-  }, [user?.agencyId, activeTab]);
+  }, [agencyId, activeTab, tick]);
 
   // Service type handlers
   async function handleAddServiceType() {
     if (!user?.agencyId || !addForm.nameAr.trim()) return;
     setAddSaving(true);
     try {
-      const { getFirestore, collection, addDoc, Timestamp } = await import('firebase/firestore');
-      const { getApp } = await import('@masarat/firebase');
-      const db = getFirestore(getApp());
-      await addDoc(collection(db, 'service_types'), {
-        agencyId: user.agencyId,
+      const { apiFetch } = await import('@/lib/api-client');
+      await apiFetch('/api/service-types', { method: 'POST', body: JSON.stringify({
         nameAr: addForm.nameAr.trim(),
         nameEn: addForm.nameEn.trim() || addForm.nameAr.trim(),
         icon: addForm.icon,
-        color: addForm.color,
-        isActive: true,
-        createdAt: Timestamp.now(),
-      });
+      }) });
       setAddForm({ nameAr: '', nameEn: '', icon: 'layers', color: PRESET_COLORS[0] });
       setShowAddForm(false);
+      setTick(t => t + 1);
     } catch (err) {
       console.error('Error adding service type:', err);
     } finally {
@@ -447,10 +491,9 @@ export default function SettingsPage() {
 
   async function handleDeleteServiceType(id: string) {
     try {
-      const { getFirestore, doc, deleteDoc } = await import('firebase/firestore');
-      const { getApp } = await import('@masarat/firebase');
-      const db = getFirestore(getApp());
-      await deleteDoc(doc(db, 'service_types', id));
+      const { apiFetch } = await import('@/lib/api-client');
+      await apiFetch(`/api/service-types/${id}`, { method: 'DELETE' });
+      setTick(t => t + 1);
     } catch (err) {
       console.error('Error deleting service type:', err);
     }
@@ -458,16 +501,14 @@ export default function SettingsPage() {
 
   async function handleEditSave(id: string) {
     try {
-      const { getFirestore, doc, updateDoc } = await import('firebase/firestore');
-      const { getApp } = await import('@masarat/firebase');
-      const db = getFirestore(getApp());
-      await updateDoc(doc(db, 'service_types', id), {
+      const { apiFetch } = await import('@/lib/api-client');
+      await apiFetch(`/api/service-types/${id}`, { method: 'PATCH', body: JSON.stringify({
         nameAr: editForm.nameAr.trim(),
         nameEn: editForm.nameEn.trim() || editForm.nameAr.trim(),
         icon: editForm.icon,
-        color: editForm.color,
-      });
+      }) });
       setEditingId(null);
+      setTick(t => t + 1);
     } catch (err) {
       console.error('Error updating service type:', err);
     }
@@ -475,12 +516,13 @@ export default function SettingsPage() {
 
   async function handleToggleServiceType(id: string) {
     try {
-      const { getFirestore, doc, updateDoc } = await import('firebase/firestore');
-      const { getApp } = await import('@masarat/firebase');
-      const db = getFirestore(getApp());
       const current = customTypes.find(t => t.id === id);
       if (!current) return;
-      await updateDoc(doc(db, 'service_types', id), { isActive: !current.isActive });
+      const { apiFetch } = await import('@/lib/api-client');
+      await apiFetch(`/api/service-types/${id}`, { method: 'PATCH', body: JSON.stringify({
+        isActive: !current.isActive,
+      }) });
+      setTick(t => t + 1);
     } catch (err) {
       console.error('Error toggling service type:', err);
     }
@@ -498,14 +540,14 @@ export default function SettingsPage() {
       setLogoError(isAr ? 'يجب أن يكون الملف صورة' : 'File must be an image');
       return;
     }
-    if (file.size > 2 * 1024 * 1024) {
-      setLogoError(isAr ? 'حجم الصورة يجب أن يكون أقل من 2MB' : 'Image must be under 2MB');
+    if (file.size > 10 * 1024 * 1024) {
+      setLogoError(isAr ? 'حجم الصورة يجب أن يكون أقل من 10MB' : 'Image must be under 10MB');
       return;
     }
-    // Show preview immediately without uploading yet
     const objectUrl = URL.createObjectURL(file);
     setLogoPendingPreview(objectUrl);
     setLogoPendingFile(file);
+    setLogoCropMode('fit');
   }
 
   function cancelLogoPending() {
@@ -515,41 +557,54 @@ export default function SettingsPage() {
     setLogoError('');
   }
 
+  function processLogoWithCanvas(file: File, mode: 'fit' | 'square'): Promise<string> {
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      const url = URL.createObjectURL(file);
+      img.onload = () => {
+        URL.revokeObjectURL(url);
+        const MAX = 400;
+        let sx = 0, sy = 0, sw = img.naturalWidth, sh = img.naturalHeight;
+        let dw: number, dh: number;
+
+        if (mode === 'square') {
+          const size = Math.min(sw, sh);
+          sx = Math.floor((sw - size) / 2);
+          sy = Math.floor((sh - size) / 2);
+          sw = size; sh = size;
+          dw = dh = Math.min(MAX, size);
+        } else {
+          const scale = Math.min(MAX / sw, MAX / sh);
+          dw = Math.round(sw * scale);
+          dh = Math.round(sh * scale);
+        }
+
+        const canvas = document.createElement('canvas');
+        canvas.width = dw; canvas.height = dh;
+        const ctx = canvas.getContext('2d')!;
+        ctx.drawImage(img, sx, sy, sw, sh, 0, 0, dw, dh);
+        resolve(canvas.toDataURL('image/jpeg', 0.82));
+      };
+      img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('load failed')); };
+      img.src = url;
+    });
+  }
+
   async function confirmLogoUpload() {
     if (!user?.agencyId || !logoPendingFile) return;
     setLogoError('');
-
-    const bucket = process.env['NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET'];
-    if (!bucket) {
-      setLogoError(isAr ? 'خدمة التخزين غير مهيأة' : 'Storage not configured');
-      return;
-    }
-
     setLogoUploading(true);
-    const timeoutId = setTimeout(() => {
-      setLogoUploading(false);
-      setLogoError(isAr ? 'انتهت مهلة الرفع — تحقق من اتصالك' : 'Upload timed out — check your connection');
-    }, 30_000);
-
     try {
-      const { getStorage, ref, uploadBytes, getDownloadURL } = await import('firebase/storage');
-      const { getApp } = await import('@masarat/firebase');
-      const storage = getStorage(getApp());
-      const logoRef = ref(storage, `agencies/${user.agencyId}/logo`);
+      const base64 = await processLogoWithCanvas(logoPendingFile, logoCropMode);
 
-      await uploadBytes(logoRef, logoPendingFile, { contentType: logoPendingFile.type });
-      const url = await getDownloadURL(logoRef);
+      const { apiFetch } = await import('@/lib/api-client');
+      await apiFetch('/api/settings', { method: 'PATCH', body: JSON.stringify({ logoUrl: base64 }) });
 
-      const { getFirestore, doc, updateDoc } = await import('firebase/firestore');
-      const db = getFirestore(getApp());
-      await updateDoc(doc(db, 'agencies', user.agencyId), { logoUrl: url });
-
-      setLogoUrl(url);
+      setLogoUrl(base64);
       cancelLogoPending();
     } catch {
-      setLogoError(isAr ? 'فشل رفع الشعار — تحقق من إعدادات Firebase Storage' : 'Upload failed — check Firebase Storage settings');
+      setLogoError(isAr ? 'فشل معالجة الصورة — حاول مرة أخرى' : 'Failed to process image — try again');
     } finally {
-      clearTimeout(timeoutId);
       setLogoUploading(false);
     }
   }
@@ -560,28 +615,21 @@ export default function SettingsPage() {
     setSaved(false);
     setSaveError('');
     try {
-      const { getFirestore, doc, setDoc } = await import('firebase/firestore');
-      const { getApp } = await import('@masarat/firebase');
-      const db = getFirestore(getApp());
-      await setDoc(
-        doc(db, 'agencies', user.agencyId),
-        {
+      const { apiFetch } = await import('@/lib/api-client');
+      await apiFetch('/api/settings', {
+        method: 'PATCH',
+        body: JSON.stringify({
           nameAr:          nameAr.trim(),
           nameEn:          nameEn.trim(),
           isVatRegistered,
           vatNumber:       isVatRegistered ? vatNumber.trim() : '',
+          vatRate:         isVatRegistered ? vatRate : 0,
           crNumber:        crNumber.trim(),
-          streetName:      streetName.trim(),
-          buildingNumber:  buildingNumber.trim(),
-          district:        district.trim(),
           city:            city.trim(),
-          postalCode:      postalCode.trim(),
           contactEmail:    contactEmail.trim(),
           contactPhone:    contactPhone.trim(),
-          contactHours:    contactHours.trim(),
-        },
-        { merge: true },
-      );
+        }),
+      });
       setSaved(true);
       setTimeout(() => setSaved(false), 3000);
     } catch {
@@ -609,7 +657,7 @@ export default function SettingsPage() {
         <nav className="lg:w-52 flex-shrink-0">
           <Card padding="sm">
             <ul className="space-y-0.5">
-              {TABS.map(tab => (
+              {ALL_TABS.filter(t => !t.vatOnly || isVatRegistered).map(tab => (
                 <li key={tab.key}>
                   <button
                     onClick={() => setActiveTab(tab.key)}
@@ -664,46 +712,108 @@ export default function SettingsPage() {
                   />
                 </div>
 
-                {/* VAT registration toggle */}
-                <div className="border border-surface-border rounded-xl p-4 bg-slate-50 space-y-3">
-                  <div className="flex items-center justify-between gap-4">
-                    <div>
-                      <p className="text-sm font-semibold text-slate-800">
-                        {isAr
-                          ? 'هل المنشأة مسجّلة في ضريبة القيمة المضافة؟'
-                          : 'Is the agency VAT-registered?'}
-                      </p>
-                      <p className="text-xs text-slate-500 mt-0.5">
-                        {isAr
-                          ? 'يحدد نوع الوثائق المالية الصادرة: فاتورة ضريبية أو فاتورة تجارية'
-                          : 'Determines issued document type: tax invoice vs commercial invoice'}
-                      </p>
+                {/* VAT registration section */}
+                <div className="space-y-3">
+                  <div className={cn(
+                    'border-2 rounded-2xl p-4 transition-colors',
+                    isVatRegistered
+                      ? 'border-emerald-300 bg-emerald-50/60'
+                      : 'border-slate-200 bg-slate-50',
+                  )}>
+                    <div className="flex items-center justify-between gap-4 mb-3">
+                      <div>
+                        <p className="text-sm font-semibold text-slate-800">
+                          {isAr ? 'تسجيل ضريبة القيمة المضافة (VAT)' : 'VAT Registration'}
+                        </p>
+                        <p className="text-xs text-slate-500 mt-0.5">
+                          {isAr
+                            ? 'يحدد نوع الفواتير الصادرة والمعالجة المحاسبية'
+                            : 'Determines the type of issued invoices and accounting treatment'}
+                        </p>
+                      </div>
+                      <ToggleSwitch
+                        checked={isVatRegistered}
+                        onChange={() => {
+                          const next = !isVatRegistered;
+                          setIsVatRegistered(next);
+                          if (!next) setVatNumber('');
+                        }}
+                        label={isAr ? 'تسجيل ضريبة القيمة المضافة' : 'VAT Registration'}
+                      />
                     </div>
-                    <ToggleSwitch
-                      checked={isVatRegistered}
-                      onChange={() => {
-                        const next = !isVatRegistered;
-                        setIsVatRegistered(next);
-                        if (!next) setVatNumber('');
-                      }}
-                      label={isAr ? 'تسجيل ضريبة القيمة المضافة' : 'VAT Registration'}
-                    />
+
+                    {/* Feature comparison cards */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      {/* Non-VAT card */}
+                      <div className={cn(
+                        'rounded-xl p-3 border transition-all',
+                        !isVatRegistered
+                          ? 'border-brand-300 bg-white shadow-sm ring-2 ring-brand-100'
+                          : 'border-slate-200 bg-white/60 opacity-60',
+                      )}>
+                        <div className="flex items-center gap-2 mb-2">
+                          <div className="w-6 h-6 rounded-full bg-slate-100 flex items-center justify-center flex-shrink-0">
+                            <FileText size={13} className="text-slate-600" />
+                          </div>
+                          <p className="text-xs font-bold text-slate-800">
+                            {isAr ? 'سجل تجاري فقط' : 'CR Only'}
+                          </p>
+                          {!isVatRegistered && (
+                            <span className="ms-auto text-[10px] font-bold text-brand-600 bg-brand-50 px-1.5 py-0.5 rounded-full">
+                              {isAr ? 'نشط' : 'Active'}
+                            </span>
+                          )}
+                        </div>
+                        <ul className="space-y-1">
+                          {[
+                            isAr ? '✓ فاتورة تجارية بدون VAT' : '✓ Commercial invoice (no VAT)',
+                            isAr ? '✓ رقم السجل التجاري' : '✓ Commercial registration number',
+                            isAr ? '✓ قيد محاسبي مبسّط' : '✓ Simplified journal entry',
+                            isAr ? '✗ لا QR code زاتكا' : '✗ No ZATCA QR code',
+                            isAr ? '✗ لا تقرير ضريبي' : '✗ No tax report',
+                          ].map(f => (
+                            <li key={f} className={cn(
+                              'text-[11px]',
+                              f.startsWith('✓') ? 'text-slate-600' : 'text-slate-400',
+                            )}>{f}</li>
+                          ))}
+                        </ul>
+                      </div>
+
+                      {/* VAT card */}
+                      <div className={cn(
+                        'rounded-xl p-3 border transition-all',
+                        isVatRegistered
+                          ? 'border-emerald-300 bg-white shadow-sm ring-2 ring-emerald-100'
+                          : 'border-slate-200 bg-white/60 opacity-60',
+                      )}>
+                        <div className="flex items-center gap-2 mb-2">
+                          <div className="w-6 h-6 rounded-full bg-emerald-100 flex items-center justify-center flex-shrink-0">
+                            <Shield size={13} className="text-emerald-600" />
+                          </div>
+                          <p className="text-xs font-bold text-slate-800">
+                            {isAr ? 'مسجّل بضريبة القيمة المضافة' : 'VAT Registered'}
+                          </p>
+                          {isVatRegistered && (
+                            <span className="ms-auto text-[10px] font-bold text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded-full">
+                              {isAr ? 'نشط' : 'Active'}
+                            </span>
+                          )}
+                        </div>
+                        <ul className="space-y-1">
+                          {[
+                            isAr ? '✓ فاتورة ضريبية رسمية' : '✓ Official tax invoice',
+                            isAr ? '✓ QR code متوافق مع زاتكا' : '✓ ZATCA-compliant QR code',
+                            isAr ? '✓ قيد محاسبي مع ضريبة' : '✓ Journal entry with VAT',
+                            isAr ? '✓ تقرير ضريبة القيمة المضافة' : '✓ VAT report',
+                            isAr ? '✓ السجل التجاري + الرقم الضريبي' : '✓ CR + VAT numbers',
+                          ].map(f => (
+                            <li key={f} className="text-[11px] text-slate-600">{f}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    </div>
                   </div>
-                  {isVatRegistered ? (
-                    <div className="flex items-center gap-2 text-xs text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-2">
-                      <CheckCircle2 size={13} />
-                      {isAr
-                        ? 'سيتم إصدار فاتورة ضريبية مع QR code متوافق مع زاتكا'
-                        : 'Tax invoices with ZATCA-compliant QR code will be issued'}
-                    </div>
-                  ) : (
-                    <div className="flex items-center gap-2 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
-                      <AlertTriangle size={13} />
-                      {isAr
-                        ? 'سيتم إصدار فاتورة تجارية — لا تتضمن ضريبة القيمة المضافة'
-                        : 'Commercial invoices will be issued — no VAT applied'}
-                    </div>
-                  )}
                 </div>
 
                 {/* Registration numbers */}
@@ -728,8 +838,36 @@ export default function SettingsPage() {
                   />
                 </div>
 
-                {/* Address section — only required for VAT-registered agencies */}
+                {/* VAT rate — configurable for Gulf countries */}
                 {isVatRegistered && (
+                  <div className="space-y-1.5">
+                    <label className="block text-sm font-medium text-slate-700">
+                      {isAr ? 'معدل ضريبة القيمة المضافة' : 'VAT Rate'}
+                    </label>
+                    <p className="text-xs text-slate-500">
+                      {isAr ? 'السعودية 15%، الإمارات وعُمان 5%، البحرين 10%' : 'KSA 15%, UAE & Oman 5%, Bahrain 10%'}
+                    </p>
+                    <div className="flex gap-2 flex-wrap">
+                      {[{ v: 5, label: '5%' }, { v: 10, label: '10%' }, { v: 15, label: '15%' }].map(opt => (
+                        <button
+                          key={opt.v}
+                          type="button"
+                          onClick={() => setVatRate(opt.v)}
+                          className={cn(
+                            'px-4 py-2 rounded-lg border text-sm font-semibold transition-colors',
+                            vatRate === opt.v
+                              ? 'bg-brand-600 text-white border-brand-600'
+                              : 'bg-white text-slate-600 border-slate-200 hover:border-brand-300',
+                          )}
+                        >
+                          {opt.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Address section */}
                 <div className="border-t border-surface-border pt-5">
                   <div className="flex items-center gap-2 mb-4">
                     <p className="text-sm font-semibold text-slate-700">
@@ -803,14 +941,6 @@ export default function SettingsPage() {
                       placeholder="+966 11 000 0000"
                       dir="ltr"
                     />
-                    <div className="sm:col-span-2">
-                      <Input
-                        label={isAr ? 'ساعات الدعم' : 'Support Hours'}
-                        value={contactHours}
-                        onChange={e => setContactHours(e.target.value)}
-                        placeholder={isAr ? 'الأحد — الخميس، 9ص — 6م' : 'Sun — Thu, 9AM — 6PM'}
-                      />
-                    </div>
                   </div>
                 </div>
 
@@ -819,82 +949,142 @@ export default function SettingsPage() {
                   <p className="text-sm font-semibold text-slate-700 mb-3">
                     {isAr ? 'شعار الوكالة' : 'Agency Logo'}
                   </p>
-                  <div className="flex items-start gap-4">
 
-                    {/* Preview box */}
-                    <div className="w-20 h-20 rounded-xl bg-brand-50 border-2 border-dashed border-brand-200 flex items-center justify-center flex-shrink-0 overflow-hidden">
-                      {logoPendingPreview ? (
-                        <img src={logoPendingPreview} alt="preview" className="w-full h-full object-contain p-1" />
-                      ) : logoUrl ? (
-                        <img src={logoUrl} alt="logo" className="w-full h-full object-contain p-1" />
-                      ) : (
-                        <Building2 size={26} className="text-brand-300" />
-                      )}
+                  {/* ── Step 1: no pending file ── */}
+                  {!logoPendingPreview && (
+                    <div className="flex items-center gap-4">
+                      <div className="w-20 h-20 rounded-xl bg-brand-50 border-2 border-dashed border-brand-200 flex items-center justify-center flex-shrink-0 overflow-hidden">
+                        {logoUrl ? (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img src={logoUrl} alt="logo" className="w-full h-full object-contain p-1" />
+                        ) : (
+                          <Building2 size={26} className="text-brand-300" />
+                        )}
+                      </div>
+                      <div className="space-y-1.5">
+                        <input
+                          id="logo-file-input"
+                          type="file"
+                          accept="image/png,image/jpeg,image/webp,image/gif"
+                          className="hidden"
+                          onChange={e => {
+                            const file = e.target.files?.[0];
+                            if (file) handleLogoSelect(file);
+                            e.target.value = '';
+                          }}
+                        />
+                        <label
+                          htmlFor="logo-file-input"
+                          className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-brand-200 text-brand-700 bg-brand-50 hover:bg-brand-100 text-sm font-medium cursor-pointer transition-colors"
+                        >
+                          <ImagePlus size={15} />
+                          {isAr ? (logoUrl ? 'تغيير الشعار' : 'اختيار شعار') : (logoUrl ? 'Change Logo' : 'Choose Logo')}
+                        </label>
+                        <p className="text-xs text-slate-400">
+                          {isAr ? 'PNG · JPG · WebP · GIF — حد أقصى 10MB' : 'PNG · JPG · WebP · GIF — max 10MB'}
+                        </p>
+                      </div>
                     </div>
+                  )}
 
-                    <div className="space-y-2 flex-1">
-                      {/* Step 1: select file */}
-                      {!logoPendingPreview && (
-                        <>
-                          <input
-                            id="logo-file-input"
-                            type="file"
-                            accept="image/png,image/jpeg,image/webp,image/svg+xml"
-                            className="hidden"
-                            onChange={e => {
-                              const file = e.target.files?.[0];
-                              if (file) handleLogoSelect(file);
-                              e.target.value = '';
-                            }}
-                          />
-                          <label
-                            htmlFor="logo-file-input"
-                            className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-brand-200 text-brand-700 bg-brand-50 hover:bg-brand-100 text-sm font-medium cursor-pointer transition-colors"
-                          >
-                            <ImagePlus size={15} />
-                            {isAr ? (logoUrl ? 'تغيير الشعار' : 'اختيار شعار') : (logoUrl ? 'Change Logo' : 'Choose Logo')}
-                          </label>
-                          <p className="text-xs text-slate-400">
-                            {isAr ? 'PNG · JPG · SVG · WebP — حد أقصى 2MB' : 'PNG · JPG · SVG · WebP — max 2MB'}
-                          </p>
-                        </>
-                      )}
+                  {/* ── Step 2: crop selector ── */}
+                  {logoPendingPreview && (
+                    <div className="space-y-4 bg-slate-50 rounded-2xl p-4 border border-slate-200">
+                      <p className="text-sm font-semibold text-slate-700">
+                        {isAr ? 'اختر شكل الشعار' : 'Choose logo shape'}
+                      </p>
 
-                      {/* Step 2: confirm upload */}
-                      {logoPendingPreview && (
-                        <div className="space-y-2">
-                          <p className="text-xs text-slate-500">
-                            {isAr ? 'هل تريد رفع هذا الشعار؟' : 'Upload this logo?'}
-                          </p>
-                          <div className="flex gap-2">
-                            <button
-                              type="button"
-                              onClick={() => void confirmLogoUpload()}
-                              disabled={logoUploading}
-                              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 disabled:opacity-50 text-white text-sm font-medium transition-colors"
-                            >
-                              {logoUploading ? <Spinner size="sm" /> : <CheckCircle2 size={14} />}
-                              {logoUploading
-                                ? (isAr ? 'جارٍ الرفع...' : 'Uploading...')
-                                : (isAr ? 'رفع الشعار' : 'Upload')}
-                            </button>
-                            <button
-                              type="button"
-                              onClick={cancelLogoPending}
-                              disabled={logoUploading}
-                              className="px-3 py-2 rounded-lg border border-slate-200 text-slate-500 hover:bg-slate-50 disabled:opacity-50 text-sm transition-colors"
-                            >
-                              {isAr ? 'إلغاء' : 'Cancel'}
-                            </button>
+                      {/* Shape options */}
+                      <div className="flex gap-3">
+                        {/* Fit option */}
+                        <button
+                          type="button"
+                          onClick={() => setLogoCropMode('fit')}
+                          className={cn(
+                            'flex-1 flex flex-col items-center gap-2 p-3 rounded-xl border-2 transition-all',
+                            logoCropMode === 'fit'
+                              ? 'border-brand-500 bg-brand-50'
+                              : 'border-slate-200 bg-white hover:border-slate-300',
+                          )}
+                        >
+                          <div className="w-16 h-16 rounded-lg bg-slate-100 overflow-hidden flex items-center justify-center">
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            <img
+                              src={logoPendingPreview}
+                              alt="fit"
+                              className="max-w-full max-h-full object-contain p-1"
+                            />
                           </div>
-                        </div>
-                      )}
+                          <span className="text-xs font-semibold text-slate-600">
+                            {isAr ? 'كامل الصورة' : 'Full image'}
+                          </span>
+                          {logoCropMode === 'fit' && (
+                            <span className="text-[10px] text-brand-600 font-bold">✓ {isAr ? 'مختار' : 'Selected'}</span>
+                          )}
+                        </button>
 
-                      {logoError && (
-                        <p className="text-xs text-red-500">{logoError}</p>
-                      )}
+                        {/* Square option */}
+                        <button
+                          type="button"
+                          onClick={() => setLogoCropMode('square')}
+                          className={cn(
+                            'flex-1 flex flex-col items-center gap-2 p-3 rounded-xl border-2 transition-all',
+                            logoCropMode === 'square'
+                              ? 'border-brand-500 bg-brand-50'
+                              : 'border-slate-200 bg-white hover:border-slate-300',
+                          )}
+                        >
+                          <div className="w-16 h-16 rounded-lg bg-slate-100 overflow-hidden">
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            <img
+                              src={logoPendingPreview}
+                              alt="square"
+                              className="w-full h-full object-cover"
+                            />
+                          </div>
+                          <span className="text-xs font-semibold text-slate-600">
+                            {isAr ? 'قص مربع' : 'Square crop'}
+                          </span>
+                          {logoCropMode === 'square' && (
+                            <span className="text-[10px] text-brand-600 font-bold">✓ {isAr ? 'مختار' : 'Selected'}</span>
+                          )}
+                        </button>
+                      </div>
+
+                      <p className="text-xs text-slate-400">
+                        {isAr
+                          ? 'سيتم ضغط الصورة تلقائياً إلى 400×400 بكسل كحد أقصى'
+                          : 'Image will be automatically compressed to max 400×400 px'}
+                      </p>
+
+                      {/* Action buttons */}
+                      <div className="flex gap-2">
+                        <button
+                          type="button"
+                          onClick={() => void confirmLogoUpload()}
+                          disabled={logoUploading}
+                          className="flex-1 inline-flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-xl bg-brand-600 hover:bg-brand-700 disabled:opacity-50 text-white text-sm font-semibold transition-colors"
+                        >
+                          {logoUploading ? <Spinner size="sm" /> : <CheckCircle2 size={15} />}
+                          {logoUploading
+                            ? (isAr ? 'جارٍ الحفظ...' : 'Saving...')
+                            : (isAr ? 'حفظ الشعار' : 'Save Logo')}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={cancelLogoPending}
+                          disabled={logoUploading}
+                          className="px-4 py-2.5 rounded-xl border border-slate-200 text-slate-500 hover:bg-slate-100 disabled:opacity-50 text-sm font-medium transition-colors"
+                        >
+                          {isAr ? 'إلغاء' : 'Cancel'}
+                        </button>
+                      </div>
                     </div>
-                  </div>
+                  )}
+
+                  {logoError && (
+                    <p className="text-xs text-red-500 mt-2">{logoError}</p>
+                  )}
                 </div>
 
                 {/* Save button */}
@@ -942,7 +1132,7 @@ export default function SettingsPage() {
                   </p>
                 ) : (
                   agencyUsers.map(u => {
-                    const displayName  = isAr ? (u.name?.ar || u.name?.en) : (u.name?.en || u.name?.ar);
+                    const displayName  = isAr ? (u.nameAr || u.nameEn) : (u.nameEn || u.nameAr);
                     const initials     = (displayName || u.email || '?').charAt(0).toUpperCase();
                     const isCurrentUser = user?.uid === u.id;
                     return (
@@ -1458,105 +1648,225 @@ export default function SettingsPage() {
 
           {/* ── Billing ──────────────────────────────────────────────────── */}
           {activeTab === 'billing' && (() => {
-            const planKey   = subPlan && PLAN_META[subPlan] ? subPlan : (subStatus === 'trial' ? 'trial' : 'starter');
-            const planMeta  = PLAN_META[planKey] ?? PLAN_META['starter']!;
-            const planName  = isAr ? planMeta.ar : planMeta.en;
-            const planPrice = planMeta.price;
-            const planFeats = isAr ? planMeta.features.ar : planMeta.features.en;
+            const displayPlan = resolveDisplayPlan(subPlan, subStatus);
+            const isTrial = subStatus === 'trial';
+            const isActive = subStatus === 'active' || subStatus === 'lifetime';
+            const isPaidPlan = PAID_PLAN_KEYS.has(subPlan) && isActive;
 
+            // Status badge
             const statusBadge = (() => {
               if (subStatus === 'trial')     return <Badge variant="info">{isAr ? 'تجريبي' : 'Trial'}</Badge>;
               if (subStatus === 'active')    return <Badge variant="success">{isAr ? 'نشط' : 'Active'}</Badge>;
+              if (subStatus === 'lifetime')  return <Badge variant="success">{isAr ? 'مدى الحياة' : 'Lifetime'}</Badge>;
               if (subStatus === 'past_due')  return <Badge variant="warning">{isAr ? 'متأخر' : 'Past Due'}</Badge>;
               if (subStatus === 'cancelled') return <Badge variant="danger">{isAr ? 'ملغى' : 'Cancelled'}</Badge>;
               return null;
             })();
 
+            // Current plan display name
+            const currentPlanDef = PLANS.find(p => p.key === displayPlan);
+            const currentPlanName = isTrial
+              ? (isAr ? 'تجريبي' : 'Trial')
+              : (currentPlanDef ? (isAr ? currentPlanDef.ar : currentPlanDef.en) : (isAr ? 'مجاني' : 'Free'));
+
+            // Status line
             const statusLine = (() => {
-              if (subStatus === 'trial' && daysRemaining !== null) {
+              if (isTrial && daysRemaining !== null) {
                 return isAr
                   ? `متبقي ${daysRemaining} ${daysRemaining === 1 ? 'يوم' : 'أيام'} على انتهاء الفترة التجريبية`
-                  : `${daysRemaining} day${daysRemaining === 1 ? '' : 's'} remaining in free trial`;
+                  : `${daysRemaining} day${daysRemaining === 1 ? '' : 's'} left in free trial`;
               }
-              return isAr ? 'يُجدَّد بالتواصل مع فريق المبيعات' : 'Renewed via sales team';
+              if (subStatus === 'lifetime') return isAr ? 'اشتراك مدى الحياة — لا تنتهي صلاحيته' : 'Lifetime subscription — never expires';
+              if (isActive) return isAr ? 'اشتراك نشط — يُجدَّد بالتواصل مع فريق المبيعات' : 'Active — renewed via sales team';
+              return isAr ? 'يرجى التواصل مع فريق المبيعات' : 'Contact our sales team';
             })();
 
-            const waMsg = subAgencyName
-              ? `مرحباً فريق مسارات، أرغب في ترقية اشتراك وكالتي (${subAgencyName}) إلى باقة الاحترافي.`
-              : 'مرحباً فريق مسارات، أرغب في الاشتراك في باقة الاحترافي.';
-            const waUrl = `https://wa.me/${WA_NUMBER}?text=${encodeURIComponent(waMsg)}`;
+            // Usage limits for current plan
+            const userLimit = (isPaidPlan && displayPlan === 'professional') || displayPlan === 'lifetime' ? null : 3;
+            const bookingLimit = (isPaidPlan && displayPlan === 'professional') || displayPlan === 'lifetime' ? null : 500;
 
-            const isProfessional = planKey === 'professional';
+            // WhatsApp message helper
+            function waUrl(planAr: string) {
+              const msg = subAgencyName
+                ? `مرحباً فريق مسارات، أرغب في ترقية اشتراك وكالتي (${subAgencyName}) إلى باقة ${planAr}.`
+                : `مرحباً فريق مسارات، أرغب في الاشتراك في باقة ${planAr}.`;
+              return `https://wa.me/${WA_NUMBER}?text=${encodeURIComponent(msg)}`;
+            }
 
             return (
-              <div className="space-y-4">
-                {/* Current plan */}
+              <div className="space-y-6">
+
+                {/* ── Current status ─────────────────────────────────────── */}
                 <Card>
                   <CardHeader>
-                    <CardTitle>{isAr ? 'خطة الاشتراك الحالية' : 'Current Plan'}</CardTitle>
+                    <CardTitle>{isAr ? 'اشتراكك الحالي' : 'Your Current Plan'}</CardTitle>
                   </CardHeader>
-
-                  <div className="flex items-start justify-between gap-6 flex-wrap">
-                    {/* Plan details */}
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 mb-2 flex-wrap">
-                        <span className="text-2xl font-bold text-slate-900">{planName}</span>
+                  <div className="flex items-start gap-4 flex-wrap">
+                    {/* Plan name + status */}
+                    <div className="flex-1 min-w-[180px]">
+                      <div className="flex items-center gap-2 flex-wrap mb-1">
+                        <span className="text-2xl font-bold text-slate-900">{currentPlanName}</span>
                         {statusBadge}
                       </div>
-                      <p className="text-sm text-slate-500 mb-5">{statusLine}</p>
-                      <ul className="space-y-2">
-                        {planFeats.map(f => (
-                          <li key={f} className="flex items-center gap-2 text-sm text-slate-700">
-                            <CheckCircle2 size={15} className="text-emerald-500 flex-shrink-0" />
-                            {f}
-                          </li>
-                        ))}
-                      </ul>
+                      <p className="text-sm text-slate-500">{statusLine}</p>
                     </div>
-
-                    {/* Price */}
-                    <div className="text-end flex-shrink-0">
-                      {planKey === 'trial' ? (
-                        <>
-                          <p className="text-3xl font-bold text-slate-900">{isAr ? 'مجاناً' : 'Free'}</p>
-                          <p className="text-xs text-slate-400 mt-1">{isAr ? 'فترة تجريبية' : 'Trial period'}</p>
-                        </>
-                      ) : (
-                        <>
-                          <p className="text-4xl font-bold text-slate-900">{planPrice}</p>
-                          <p className="text-sm text-slate-500 mt-1">{isAr ? 'ريال سعودي / شهر' : 'SAR / month'}</p>
-                        </>
-                      )}
-                    </div>
+                    {/* Trial countdown */}
+                    {isTrial && daysRemaining !== null && (
+                      <div className={cn(
+                        'rounded-xl px-5 py-3 text-center flex-shrink-0',
+                        daysRemaining <= 3
+                          ? 'bg-red-50 border border-red-200'
+                          : 'bg-amber-50 border border-amber-200',
+                      )}>
+                        <p className={cn('text-3xl font-bold', daysRemaining <= 3 ? 'text-red-600' : 'text-amber-600')}>{daysRemaining}</p>
+                        <p className={cn('text-xs mt-0.5', daysRemaining <= 3 ? 'text-red-500' : 'text-amber-500')}>
+                          {isAr ? 'يوم متبقي' : 'days left'}
+                        </p>
+                      </div>
+                    )}
                   </div>
 
-                  {/* Upgrade CTA — only when not already on professional */}
-                  {!isProfessional && (
-                    <div className="border-t border-surface-border pt-5 mt-5">
-                      <div className="rounded-xl bg-gradient-to-br from-brand-50 to-sky-50 border border-brand-100 p-5">
-                        <p className="text-sm font-semibold text-slate-900 mb-1">
-                          {isAr ? 'هل تريد المزيد؟' : 'Need more?'}
-                        </p>
-                        <p className="text-xs text-slate-600 mb-4">
-                          {isAr
-                            ? 'خطة الاحترافي تدعم مستخدمين غير محدودين، حجوزات غير محدودة، ووصولاً كاملاً لجميع الوحدات.'
-                            : 'The Professional plan includes unlimited users, unlimited bookings, and full access to all modules.'}
-                        </p>
-                        <a
-                          href={waUrl}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="flex items-center justify-center gap-2 w-full py-2.5 rounded-xl text-sm font-bold bg-brand-600 hover:bg-brand-700 text-white transition-colors"
-                        >
-                          <MessageCircle size={16} />
-                          {isAr ? 'تواصل للترقية إلى الاحترافي' : 'Contact to Upgrade to Professional'}
-                        </a>
+                  {/* Usage meters */}
+                  {(usersCount !== null || bookingsCount !== null) && (
+                    <div className="mt-5 pt-5 border-t border-surface-border grid grid-cols-2 gap-4">
+                      {/* Users */}
+                      <div>
+                        <div className="flex items-center justify-between mb-1.5">
+                          <span className="text-xs font-medium text-slate-600">{isAr ? 'المستخدمون' : 'Users'}</span>
+                          <span className="text-xs text-slate-500">
+                            {usersCount ?? '…'} {userLimit !== null ? `/ ${userLimit}` : (isAr ? '(غير محدود)' : '(unlimited)')}
+                          </span>
+                        </div>
+                        {userLimit !== null ? (
+                          <div className="h-1.5 rounded-full bg-slate-100 overflow-hidden">
+                            <div
+                              className={cn('h-full rounded-full transition-all', (usersCount ?? 0) >= userLimit ? 'bg-red-500' : 'bg-emerald-500')}
+                              style={{ width: `${Math.min(100, ((usersCount ?? 0) / userLimit) * 100)}%` }}
+                            />
+                          </div>
+                        ) : (
+                          <div className="h-1.5 rounded-full bg-emerald-100">
+                            <div className="h-full w-full rounded-full bg-emerald-400 opacity-40" />
+                          </div>
+                        )}
+                      </div>
+                      {/* Bookings */}
+                      <div>
+                        <div className="flex items-center justify-between mb-1.5">
+                          <span className="text-xs font-medium text-slate-600">{isAr ? 'الحجوزات' : 'Bookings'}</span>
+                          <span className="text-xs text-slate-500">
+                            {bookingsCount ?? '…'} {bookingLimit !== null ? `/ ${bookingLimit}` : (isAr ? '(غير محدود)' : '(unlimited)')}
+                          </span>
+                        </div>
+                        {bookingLimit !== null ? (
+                          <div className="h-1.5 rounded-full bg-slate-100 overflow-hidden">
+                            <div
+                              className={cn('h-full rounded-full transition-all', (bookingsCount ?? 0) >= bookingLimit ? 'bg-red-500' : 'bg-brand-500')}
+                              style={{ width: `${Math.min(100, ((bookingsCount ?? 0) / bookingLimit) * 100)}%` }}
+                            />
+                          </div>
+                        ) : (
+                          <div className="h-1.5 rounded-full bg-brand-100">
+                            <div className="h-full w-full rounded-full bg-brand-400 opacity-40" />
+                          </div>
+                        )}
                       </div>
                     </div>
                   )}
                 </Card>
 
-                {/* Billing history placeholder */}
+                {/* ── Pricing plans ──────────────────────────────────────── */}
+                <div>
+                  <h3 className="text-sm font-semibold text-slate-700 mb-3">
+                    {isAr ? 'خطط الاشتراك' : 'Subscription Plans'}
+                  </h3>
+                  <div className="grid gap-4 sm:grid-cols-3">
+                    {PLANS.map(plan => {
+                      const isCurrent = displayPlan === plan.key && isPaidPlan;
+                      const feats = isAr ? plan.features.ar : plan.features.en;
+                      const name = isAr ? plan.ar : plan.en;
+
+                      return (
+                        <div
+                          key={plan.key}
+                          className={cn(
+                            'relative rounded-2xl border p-5 flex flex-col',
+                            plan.highlighted
+                              ? 'border-brand-400 bg-gradient-to-b from-brand-50 to-white shadow-md'
+                              : 'border-surface-border bg-white',
+                          )}
+                        >
+                          {/* Badge */}
+                          {plan.badge && (
+                            <div className={cn(
+                              'absolute -top-3 left-1/2 -translate-x-1/2 px-3 py-0.5 rounded-full text-xs font-bold whitespace-nowrap',
+                              plan.highlighted ? 'bg-brand-600 text-white' : 'bg-slate-700 text-white',
+                            )}>
+                              {isAr ? plan.badge.ar : plan.badge.en}
+                            </div>
+                          )}
+
+                          {/* Plan name + current indicator */}
+                          <div className="mb-3">
+                            <div className="flex items-center gap-2">
+                              <span className="font-bold text-slate-900">{name}</span>
+                              {isCurrent && (
+                                <span className="text-[10px] bg-emerald-100 text-emerald-700 font-semibold px-2 py-0.5 rounded-full">
+                                  {isAr ? 'خطتك الحالية' : 'Current'}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+
+                          {/* Billing type */}
+                          <div className="mb-4">
+                            <span className="text-sm text-slate-500">{isAr ? plan.billing.ar : plan.billing.en}</span>
+                          </div>
+
+                          {/* Features */}
+                          <ul className="space-y-2 mb-5 flex-1">
+                            {feats.map(f => (
+                              <li key={f} className="flex items-start gap-2 text-xs text-slate-700">
+                                <CheckCircle2 size={13} className="text-emerald-500 flex-shrink-0 mt-0.5" />
+                                {f}
+                              </li>
+                            ))}
+                          </ul>
+
+                          {/* CTA */}
+                          {isCurrent ? (
+                            <div className="flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                              <CheckCircle2 size={14} />
+                              {isAr ? 'خطتك الحالية' : 'Your current plan'}
+                            </div>
+                          ) : (
+                            <a
+                              href={waUrl(isAr ? plan.ar : plan.en)}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className={cn(
+                                'flex items-center justify-center gap-2 py-2.5 rounded-xl text-xs font-bold transition-colors',
+                                plan.highlighted
+                                  ? 'bg-brand-600 hover:bg-brand-700 text-white'
+                                  : 'bg-slate-800 hover:bg-slate-900 text-white',
+                              )}
+                            >
+                              <MessageCircle size={14} />
+                              {isAr ? 'تواصل للاشتراك' : 'Contact to Subscribe'}
+                            </a>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                  <p className="text-xs text-slate-400 mt-3 text-center">
+                    {isAr
+                      ? 'تواصل معنا عبر واتساب للاستفسار عن الاشتراكات'
+                      : 'Contact us via WhatsApp for subscription details'}
+                  </p>
+                </div>
+
+                {/* ── Billing history ────────────────────────────────────── */}
                 <Card>
                   <CardHeader>
                     <CardTitle>{isAr ? 'سجل الفواتير' : 'Billing History'}</CardTitle>
@@ -1568,9 +1878,49 @@ export default function SettingsPage() {
                     </p>
                     <p className="text-xs text-slate-400 mt-1">
                       {isAr
-                        ? 'ستظهر هنا فواتير الاشتراك بعد أول دفعة'
-                        : 'Subscription invoices will appear here after the first payment'}
+                        ? 'ستظهر هنا فواتير اشتراكك'
+                        : 'Your subscription invoices will appear here'}
                     </p>
+                  </div>
+                </Card>
+
+                {/* ── Database setup ─────────────────────────────────────── */}
+                <Card>
+                  <CardHeader>
+                    <CardTitle>{isAr ? 'تهيئة قاعدة البيانات' : 'Database Setup'}</CardTitle>
+                  </CardHeader>
+                  <div className="px-6 pb-6 space-y-3">
+                    <p className="text-sm text-slate-500">
+                      {isAr
+                        ? 'إذا ظهرت رسالة "خطأ في الخادم" في جميع الصفحات، اضغط الزر أدناه لإنشاء جداول قاعدة البيانات.'
+                        : 'If you see "Server Error" on all pages, click the button below to create the database tables.'}
+                    </p>
+                    <div className="flex items-center gap-3 flex-wrap">
+                      <button
+                        onClick={handleDbSetup}
+                        disabled={dbSetupRunning}
+                        className="inline-flex items-center gap-2 px-4 py-2 bg-brand-600 hover:bg-brand-700 disabled:opacity-50 text-white text-sm font-medium rounded-lg transition-colors"
+                      >
+                        {dbSetupRunning
+                          ? (isAr ? 'جارٍ الإنشاء...' : 'Running...')
+                          : (isAr ? 'إنشاء الجداول' : 'Create Tables')}
+                      </button>
+                      <a
+                        href="/api/health"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-xs text-brand-600 hover:underline"
+                      >
+                        {isAr ? 'فحص حالة قاعدة البيانات' : 'Check DB Status'}
+                      </a>
+                    </div>
+                    {dbSetupResult && (
+                      <div className={`p-3 rounded-lg text-sm ${dbSetupResult.ok ? 'bg-emerald-50 text-emerald-800' : 'bg-red-50 text-red-800'}`}>
+                        {dbSetupResult.ok
+                          ? (isAr ? '✓ تم إنشاء الجداول بنجاح. أعد تحميل الصفحة.' : '✓ Tables created successfully. Reload the page.')
+                          : (dbSetupResult.error ?? 'Error')}
+                      </div>
+                    )}
                   </div>
                 </Card>
               </div>
