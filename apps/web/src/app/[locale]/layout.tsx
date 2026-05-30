@@ -43,6 +43,7 @@ export default async function LocaleLayout({ children, params: { locale } }: Loc
             </DirectionProvider>
           </FirebaseProvider>
         </NextIntlClientProvider>
+        <Analytics />
       </body>
     </html>
   );

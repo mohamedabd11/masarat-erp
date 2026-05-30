@@ -10,19 +10,29 @@ if (!SUPER_ADMIN_EMAIL) throw new Error('SUPER_ADMIN_EMAIL env var is not config
 
 type AdminAction = 'activate_month' | 'activate_year' | 'activate_lifetime' | 'suspend' | 'extend_trial';
 
+function adminSql() {
+  const url = process.env['ADMIN_DATABASE_URL'] ?? process.env['DATABASE_URL'];
+  if (!url) throw new Error('DATABASE_URL is not configured');
+  return neon(url);
+}
+
 async function verifySuperAdmin(request: Request) {
+  const superAdminEmail = process.env['SUPER_ADMIN_EMAIL'];
+  if (!superAdminEmail) throw new Error('SUPER_ADMIN_EMAIL env var is not configured');
+
   const authHeader = request.headers.get('Authorization') ?? '';
   const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : null;
   if (!token) throw new Error('NO_TOKEN');
 
   const { getAuth } = await import('firebase-admin/auth');
   const decoded = await getAuth().verifyIdToken(token);
-  if (decoded.email !== SUPER_ADMIN_EMAIL) throw new Error('FORBIDDEN');
+  if (decoded.email !== superAdminEmail) throw new Error('FORBIDDEN');
   return decoded;
 }
 
 export async function POST(request: Request) {
   try {
+    const { ensureAdminApp } = await import('@/lib/firebase-admin');
     ensureAdminApp();
     await verifySuperAdmin(request);
 
@@ -53,6 +63,7 @@ export async function POST(request: Request) {
         };
         message = 'تم تفعيل الاشتراك لمدة شهر';
         break;
+      }
 
       case 'activate_year':
         update  = {
@@ -63,6 +74,7 @@ export async function POST(request: Request) {
         };
         message = 'تم تفعيل الاشتراك لمدة سنة';
         break;
+      }
 
       case 'activate_lifetime':
         update  = {
@@ -74,11 +86,18 @@ export async function POST(request: Request) {
         };
         message = 'تم تفعيل الاشتراك الدائم ♾';
         break;
+      }
 
-      case 'suspend':
-        update  = { subscriptionStatus: 'past_due', updatedAt: now };
+      case 'suspend': {
+        await db`
+          UPDATE agencies
+          SET subscription_status = 'suspended',
+              updated_at          = NOW()
+          WHERE id = ${agencyId}::uuid
+        `;
         message = 'تم إيقاف الوكالة';
         break;
+      }
 
       case 'extend_trial':
         update  = {
@@ -88,6 +107,7 @@ export async function POST(request: Request) {
         };
         message = 'تم تمديد الفترة التجريبية 14 يوماً';
         break;
+      }
 
       default:
         return NextResponse.json({ error: `إجراء غير معروف: ${action}` }, { status: 400 });

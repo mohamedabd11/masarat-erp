@@ -140,9 +140,9 @@ export function Header({ onMenuToggle, className }: HeaderProps) {
         <div className="relative">
           <button
             onClick={() => setUserMenuOpen(v => !v)}
-            className="flex items-center gap-2 px-3 py-1.5 rounded-lg hover:bg-slate-100 transition-colors"
+            className="flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-slate-100 transition-colors min-w-0"
           >
-            <div className="w-7 h-7 rounded-full bg-brand-100 flex items-center justify-center">
+            <div className="w-7 h-7 rounded-full bg-brand-100 flex items-center justify-center flex-shrink-0 overflow-hidden">
               <User size={14} className="text-brand-600" />
             </div>
             <span className="text-sm font-medium text-slate-700 hidden sm:block max-w-[120px] truncate">

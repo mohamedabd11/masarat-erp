@@ -8,18 +8,22 @@ const SUPER_ADMIN_EMAIL = process.env['SUPER_ADMIN_EMAIL'];
 if (!SUPER_ADMIN_EMAIL) throw new Error('SUPER_ADMIN_EMAIL env var is not configured');
 
 async function verifySuperAdmin(request: Request) {
+  const superAdminEmail = process.env['SUPER_ADMIN_EMAIL'];
+  if (!superAdminEmail) throw new Error('SUPER_ADMIN_EMAIL env var is not configured');
+
   const authHeader = request.headers.get('Authorization') ?? '';
   const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : null;
   if (!token) throw new Error('NO_TOKEN');
 
   const { getAuth } = await import('firebase-admin/auth');
   const decoded = await getAuth().verifyIdToken(token);
-  if (decoded.email !== SUPER_ADMIN_EMAIL) throw new Error('FORBIDDEN');
+  if (decoded.email !== superAdminEmail) throw new Error('FORBIDDEN');
   return decoded;
 }
 
 export async function GET(request: Request) {
   try {
+    const { ensureAdminApp } = await import('@/lib/firebase-admin');
     ensureAdminApp();
     await verifySuperAdmin(request);
 
@@ -50,7 +54,7 @@ export async function GET(request: Request) {
 
     return NextResponse.json({ agencies: result });
   } catch (err: unknown) {
-    const msg = (err as Error).message ?? 'unknown';
+    const msg = (err as Error).message ?? '';
     if (msg === 'NO_TOKEN' || msg === 'FORBIDDEN') {
       return NextResponse.json({ error: 'ممنوع الوصول' }, { status: 403 });
     }

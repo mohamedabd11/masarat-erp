@@ -46,7 +46,7 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
   const [daysRemaining, setDaysRemaining] = useState<number | null>(null);
   const [isLoading,     setIsLoading]     = useState(true);
 
-  const isSuperAdmin = user?.email === SUPER_ADMIN_EMAIL;
+  const isSuperAdmin = user?.email === process.env['NEXT_PUBLIC_SUPER_ADMIN_EMAIL'];
 
   useEffect(() => {
     // Wait for Firebase Auth to resolve before making any access decision.
