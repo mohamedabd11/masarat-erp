@@ -53,7 +53,7 @@ export async function GET(request: Request) {
     );
   } catch (err) {
     if (err instanceof ApiAuthError) return NextResponse.json({ error: err.message }, { status: err.status });
-    return NextResponse.json({ error: 'خطأ في الخادم' }, { status: 500 });
+    return NextResponse.json({ error: `DB_ERR: ${String(err).slice(0, 300)}` }, { status: 500 });
   }
 }
 
@@ -82,6 +82,6 @@ export async function POST(request: Request) {
     return NextResponse.json({ success: true, id, customer: row });
   } catch (err) {
     if (err instanceof ApiAuthError) return NextResponse.json({ error: err.message }, { status: err.status });
-    return NextResponse.json({ error: 'خطأ في الخادم' }, { status: 500 });
+    return NextResponse.json({ error: `DB_ERR: ${String(err).slice(0, 300)}` }, { status: 500 });
   }
 }
