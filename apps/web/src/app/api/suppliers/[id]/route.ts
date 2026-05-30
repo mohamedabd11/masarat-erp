@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { eq, and } from 'drizzle-orm';
+import { eq, and, isNull } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { suppliers, supplierPayments } from '@/lib/schema';
 import { verifyAuth, assertRole, ApiAuthError, ROLES_MANAGER_UP } from '@/lib/api-auth';
@@ -40,7 +40,9 @@ export async function DELETE(request: Request, { params }: { params: { id: strin
       );
     }
 
-    await db.delete(suppliers).where(and(eq(suppliers.id, params.id), eq(suppliers.agencyId, agencyId)));
+    await db.update(suppliers)
+      .set({ deletedAt: new Date() })
+      .where(and(eq(suppliers.id, params.id), eq(suppliers.agencyId, agencyId)));
     return NextResponse.json({ success: true });
   } catch (err) {
     if (err instanceof ApiAuthError) return NextResponse.json({ error: err.message }, { status: err.status });

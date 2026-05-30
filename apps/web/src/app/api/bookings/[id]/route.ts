@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { eq, and } from 'drizzle-orm';
+import { eq, and, isNull } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { bookings, invoices } from '@/lib/schema';
 import { verifyAuth, ApiAuthError } from '@/lib/api-auth';
@@ -16,7 +16,7 @@ export async function GET(request: Request, { params }: { params: { id: string }
   try {
     const { agencyId } = await verifyAuth(request);
     const [booking] = await db.select().from(bookings)
-      .where(and(eq(bookings.id, params.id), eq(bookings.agencyId, agencyId)));
+      .where(and(eq(bookings.id, params.id), eq(bookings.agencyId, agencyId), isNull(bookings.deletedAt)));
     if (!booking) return NextResponse.json({ error: 'الحجز غير موجود' }, { status: 404 });
 
     // Reconstruct pricing object from stored details + numeric columns
@@ -58,7 +58,7 @@ export async function PATCH(request: Request, { params }: { params: { id: string
     const [existing] = await db
       .select({ id: bookings.id, status: bookings.status })
       .from(bookings)
-      .where(and(eq(bookings.id, params.id), eq(bookings.agencyId, agencyId)));
+      .where(and(eq(bookings.id, params.id), eq(bookings.agencyId, agencyId), isNull(bookings.deletedAt)));
     if (!existing) return NextResponse.json({ error: 'الحجز غير موجود' }, { status: 404 });
 
     // Prevent reactivating a cancelled booking to completed

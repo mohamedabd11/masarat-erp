@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { eq, and, desc, count } from 'drizzle-orm';
+import { eq, and, desc, count, isNull } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { bookings, invoices } from '@/lib/schema';
 import { verifyAuth, ApiAuthError } from '@/lib/api-auth';
@@ -18,7 +18,7 @@ export async function GET(request: Request) {
     const limit      = Math.min(MAX_LIMIT, Math.max(1, parseInt(url.searchParams.get('limit') ?? String(DEFAULT_LIMIT), 10) || DEFAULT_LIMIT));
     const offset     = (page - 1) * limit;
 
-    const conditions = [eq(bookings.agencyId, agencyId)];
+    const conditions = [eq(bookings.agencyId, agencyId), isNull(bookings.deletedAt)];
     if (status)     conditions.push(eq(bookings.status, status));
     if (type)       conditions.push(eq(bookings.serviceType, type));
     if (customerId) conditions.push(eq(bookings.customerId, customerId));

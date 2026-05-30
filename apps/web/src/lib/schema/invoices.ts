@@ -47,6 +47,7 @@ export const invoices = pgTable('invoices', {
   createdBy:         text('created_by'),
   createdAt:         timestamp('created_at').notNull().defaultNow(),
   updatedAt:         timestamp('updated_at').notNull().defaultNow(),
+  deletedAt:         timestamp('deleted_at'),
 });
 
 export type Invoice    = typeof invoices.$inferSelect;

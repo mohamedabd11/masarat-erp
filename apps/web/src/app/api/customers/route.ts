@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { eq, and, desc, count, sum } from 'drizzle-orm';
+import { eq, and, desc, count, sum, isNull } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { customers, bookings } from '@/lib/schema';
 import { verifyAuth, ApiAuthError } from '@/lib/api-auth';
@@ -18,12 +18,12 @@ export async function GET(request: Request) {
     const [{ total }] = await db
       .select({ total: count() })
       .from(customers)
-      .where(eq(customers.agencyId, agencyId));
+      .where(and(eq(customers.agencyId, agencyId), isNull(customers.deletedAt)));
 
     const rows = await db
       .select()
       .from(customers)
-      .where(eq(customers.agencyId, agencyId))
+      .where(and(eq(customers.agencyId, agencyId), isNull(customers.deletedAt)))
       .orderBy(desc(customers.createdAt))
       .limit(limit)
       .offset(offset);
@@ -35,7 +35,7 @@ export async function GET(request: Request) {
         totalSpent:   sum(bookings.totalPriceHalalas),
       })
       .from(bookings)
-      .where(and(eq(bookings.agencyId, agencyId)))
+      .where(and(eq(bookings.agencyId, agencyId), isNull(bookings.deletedAt)))
       .groupBy(bookings.customerId);
 
     const statsMap = new Map(bookingStats.map(s => [s.customerId, s]));

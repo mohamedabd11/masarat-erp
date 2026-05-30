@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { eq, desc, count } from 'drizzle-orm';
+import { eq, and, desc, count, isNull } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { suppliers } from '@/lib/schema';
 import { verifyAuth, ApiAuthError } from '@/lib/api-auth';
@@ -18,12 +18,12 @@ export async function GET(request: Request) {
     const [{ total }] = await db
       .select({ total: count() })
       .from(suppliers)
-      .where(eq(suppliers.agencyId, agencyId));
+      .where(and(eq(suppliers.agencyId, agencyId), isNull(suppliers.deletedAt)));
 
     const data = await db
       .select()
       .from(suppliers)
-      .where(eq(suppliers.agencyId, agencyId))
+      .where(and(eq(suppliers.agencyId, agencyId), isNull(suppliers.deletedAt)))
       .orderBy(desc(suppliers.createdAt))
       .limit(limit)
       .offset(offset);

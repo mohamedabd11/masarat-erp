@@ -12,7 +12,7 @@
  * reducing the amount the customer still owes on the invoice.
  */
 import { NextResponse } from 'next/server';
-import { eq, and } from 'drizzle-orm';
+import { eq, and, isNull } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { invoices, receiptVouchers, journalEntries, journalLines } from '@/lib/schema';
 import { verifyAuth, assertRole, ApiAuthError, BusinessError, ROLES_ACCOUNTANT_UP } from '@/lib/api-auth';
@@ -38,7 +38,7 @@ export async function POST(
     const result = await db.transaction(async (tx) => {
       // ── 1. Load & validate invoice ─────────────────────────────────────────
       const [invoice] = await tx.select().from(invoices)
-        .where(and(eq(invoices.id, params.id), eq(invoices.agencyId, agencyId)));
+        .where(and(eq(invoices.id, params.id), eq(invoices.agencyId, agencyId), isNull(invoices.deletedAt)));
       if (!invoice) throw new BusinessError('الفاتورة غير موجودة', 404);
       if (invoice.status === 'cancelled') throw new BusinessError('لا يمكن التطبيق على فاتورة ملغاة', 400);
 

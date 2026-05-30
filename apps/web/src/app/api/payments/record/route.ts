@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { eq, and, sql } from 'drizzle-orm';
+import { eq, and, sql, isNull } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { invoices, bookings, payments, journalEntries, journalLines, idempotencyKeys } from '@/lib/schema';
 import { verifyAuth, ApiAuthError, BusinessError } from '@/lib/api-auth';
@@ -45,7 +45,7 @@ export async function POST(request: Request) {
 
         // ── 1. Read ────────────────────────────────────────────────────────
         const [invoice] = await tx.select().from(invoices).where(
-          and(eq(invoices.id, invoiceId), eq(invoices.agencyId, agencyId)),
+          and(eq(invoices.id, invoiceId), eq(invoices.agencyId, agencyId), isNull(invoices.deletedAt)),
         );
         if (!invoice) throw new BusinessError(`الفاتورة ${invoiceId} غير موجودة`, 404);
         if (bookingId && invoice.bookingId && invoice.bookingId !== bookingId) throw new BusinessError('الفاتورة لا تنتمي لهذا الحجز', 400);

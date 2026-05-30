@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { eq, and, gte, lt, sql, sum } from 'drizzle-orm';
+import { eq, and, gte, lt, sql, sum, isNull } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { invoices, bookings } from '@/lib/schema';
 import { verifyAuth, ApiAuthError } from '@/lib/api-auth';
@@ -25,6 +25,7 @@ export async function GET(request: Request) {
       .from(invoices)
       .where(and(
         eq(invoices.agencyId, agencyId),
+        isNull(invoices.deletedAt),
         gte(invoices.createdAt, startOfMonth),
         lt(invoices.createdAt, startOfNext),
         sql`${invoices.status} NOT IN ('cancelled','refunded')`,
@@ -43,6 +44,7 @@ export async function GET(request: Request) {
       .from(bookings)
       .where(and(
         eq(bookings.agencyId, agencyId),
+        isNull(bookings.deletedAt),
         gte(bookings.createdAt, startOfMonth),
         lt(bookings.createdAt, startOfNext),
         sql`${bookings.status} NOT IN ('cancelled')`,
@@ -60,6 +62,7 @@ export async function GET(request: Request) {
       .from(invoices)
       .where(and(
         eq(invoices.agencyId, agencyId),
+        isNull(invoices.deletedAt),
         sql`${invoices.status} NOT IN ('cancelled','refunded','paid')`,
       ));
 
@@ -71,6 +74,7 @@ export async function GET(request: Request) {
       .from(bookings)
       .where(and(
         eq(bookings.agencyId, agencyId),
+        isNull(bookings.deletedAt),
         gte(bookings.createdAt, startOfMonth),
         lt(bookings.createdAt, startOfNext),
       ));

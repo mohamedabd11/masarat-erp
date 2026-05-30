@@ -705,6 +705,13 @@ CREATE TABLE IF NOT EXISTS accounting_periods (
 );
 CREATE UNIQUE INDEX IF NOT EXISTS accounting_periods_agency_ym_uq ON accounting_periods(agency_id, period_year, period_month);
 
+-- ══ SOFT DELETE COLUMNS ══════════════════════════════════════════════════════
+-- Safe to re-run: ADD COLUMN IF NOT EXISTS is idempotent
+ALTER TABLE bookings  ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;
+ALTER TABLE invoices  ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;
+ALTER TABLE customers ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;
+ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;
+
 `;
 
 const SUPER_ADMIN_EMAIL = process.env['SUPER_ADMIN_EMAIL'] ?? '';

@@ -17,6 +17,7 @@ export const customers = pgTable('customers', {
   isActive:       boolean('is_active').notNull().default(true),
   createdAt:      timestamp('created_at').notNull().defaultNow(),
   updatedAt:      timestamp('updated_at').notNull().defaultNow(),
+  deletedAt:      timestamp('deleted_at'),
 });
 
 export type Customer    = typeof customers.$inferSelect;
