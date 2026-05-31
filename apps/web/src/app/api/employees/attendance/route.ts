@@ -2,12 +2,14 @@ import { NextResponse } from 'next/server';
 import { eq, and, sql } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { attendanceRecords, employees } from '@/lib/schema';
-import { verifyAuth, assertRole, ApiAuthError, ROLES_STAFF_UP } from '@/lib/api-auth';
+import { verifyAuth, assertRole, ApiAuthError, BusinessError, ROLES_STAFF_UP } from '@/lib/api-auth';
+import { requireFeature } from '@/lib/feature-access';
 import { logAudit } from '@/lib/audit';
 
 export async function GET(request: Request) {
   try {
     const { agencyId } = await verifyAuth(request);
+    await requireFeature(agencyId, 'attendance', db);
     const url        = new URL(request.url);
     const employeeId = url.searchParams.get('employeeId') ?? undefined;
     const month      = url.searchParams.get('month')      ?? undefined; // YYYY-MM

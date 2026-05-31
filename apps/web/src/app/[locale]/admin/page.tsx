@@ -12,8 +12,9 @@ import {
   ShieldCheck, Building2, Users, RefreshCw,
   CheckCircle2, XCircle, Clock, AlertTriangle,
   CalendarCheck, CalendarDays, Ban, Zap, Infinity,
-  Trash2, TriangleAlert,
+  Trash2, TriangleAlert, Sliders, X,
 } from 'lucide-react';
+import { FEATURE_LABEL, FEATURE_MIN_RANK, type FeatureKey } from '@/lib/plan-features';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -155,6 +156,201 @@ function WipeModal({
   );
 }
 
+// ─── Features Modal ───────────────────────────────────────────────────────────
+
+interface FeatureRow {
+  featureKey:   string;
+  minRank:      number;
+  overrideType: 'grant' | 'revoke' | null;
+  enabledBy:    string | null;
+  notes:        string | null;
+}
+
+function FeaturesModal({
+  agency,
+  onClose,
+  getIdToken: getToken,
+}: {
+  agency:      AgencyRow;
+  onClose:     () => void;
+  getIdToken:  () => Promise<string>;
+}) {
+  const [features,  setFeatures]  = useState<FeatureRow[]>([]);
+  const [loading,   setLoading]   = useState(true);
+  const [applying,  setApplying]  = useState(false);
+  const [error,     setError]     = useState('');
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError('');
+    try {
+      const token = await getToken();
+      const resp  = await fetch(`/api/admin/agencies/${agency.id}/features`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await resp.json() as { features?: FeatureRow[]; error?: string };
+      if (!resp.ok) throw new Error(data.error ?? 'خطأ');
+      setFeatures(data.features ?? []);
+    } catch (err: unknown) {
+      setError((err as { message?: string }).message ?? 'خطأ في التحميل');
+    } finally {
+      setLoading(false);
+    }
+  }, [agency.id, getToken]);
+
+  useEffect(() => { void load(); }, [load]);
+
+  async function setOverride(featureKey: string, overrideType: 'grant' | 'revoke' | 'remove') {
+    try {
+      const token = await getToken();
+      await fetch(`/api/admin/agencies/${agency.id}/features`, {
+        method:  'PUT',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body:    JSON.stringify({ featureKey, overrideType }),
+      });
+      await load();
+    } catch { /* silent */ }
+  }
+
+  async function applyTemplate(packageKey: string) {
+    if (!confirm(`تطبيق باقة "${packageKey === 'operations' ? 'التشغيل' : packageKey === 'business' ? 'الأعمال' : 'المؤسسات'}" على "${agency.nameAr}"؟\nسيتم حذف جميع الإعدادات الحالية.`)) return;
+    setApplying(true);
+    try {
+      const token = await getToken();
+      await fetch(`/api/admin/agencies/${agency.id}/features`, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body:    JSON.stringify({ packageKey }),
+      });
+      await load();
+    } catch { /* silent */ }
+    setApplying(false);
+  }
+
+  const TIER_LABELS: Record<number, string> = { 0: 'أساسي', 1: 'التشغيل', 2: 'الأعمال', 3: 'المؤسسات' };
+  const TIER_COLORS: Record<number, string> = {
+    0: 'text-slate-400',
+    1: 'text-sky-400',
+    2: 'text-violet-400',
+    3: 'text-amber-400',
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/75 z-50 flex items-center justify-center p-4" onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
+      <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-xl max-h-[88vh] flex flex-col shadow-2xl">
+
+        {/* Header */}
+        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-700">
+          <div>
+            <h2 className="font-bold text-white text-sm">{agency.nameAr}</h2>
+            <p className="text-[11px] text-slate-400 mt-0.5">إدارة ميزات الوكالة — تجاوز الخطة</p>
+          </div>
+          <button onClick={onClose} className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors">
+            <X size={16} />
+          </button>
+        </div>
+
+        {/* Package template buttons */}
+        <div className="px-5 py-3 border-b border-slate-700/50 flex items-center gap-2 flex-wrap bg-slate-800/40">
+          <span className="text-[11px] text-slate-500 font-medium me-1">تطبيق باقة:</span>
+          {(['operations', 'business', 'enterprise'] as const).map(pkg => (
+            <button
+              key={pkg}
+              onClick={() => void applyTemplate(pkg)}
+              disabled={applying || loading}
+              className={cn(
+                'px-3 py-1.5 rounded-lg text-[11px] font-bold transition-colors disabled:opacity-40',
+                pkg === 'operations' ? 'bg-sky-700 hover:bg-sky-600 text-white'
+                  : pkg === 'business'   ? 'bg-violet-700 hover:bg-violet-600 text-white'
+                  : 'bg-amber-700 hover:bg-amber-600 text-white',
+              )}
+            >
+              {pkg === 'operations' ? 'التشغيل (499)' : pkg === 'business' ? 'الأعمال (990)' : 'المؤسسات (1990)'}
+            </button>
+          ))}
+          {applying && <Spinner size="sm" />}
+        </div>
+
+        {/* Feature rows */}
+        <div className="flex-1 overflow-y-auto px-5 py-4">
+          {error && (
+            <div className="mb-3 text-xs text-red-400 bg-red-900/20 border border-red-800/40 rounded-lg px-3 py-2">{error}</div>
+          )}
+          {loading ? (
+            <div className="flex justify-center py-10"><Spinner /></div>
+          ) : (
+            <div className="space-y-5">
+              {([0, 1, 2, 3] as const).map(rank => {
+                const items = features.filter(f => f.minRank === rank);
+                if (items.length === 0) return null;
+                return (
+                  <div key={rank}>
+                    <p className={cn('text-[11px] font-bold uppercase tracking-widest mb-2', TIER_COLORS[rank])}>
+                      {TIER_LABELS[rank]}
+                    </p>
+                    <div className="space-y-1">
+                      {items.map(f => {
+                        const label = FEATURE_LABEL[f.featureKey as FeatureKey];
+                        return (
+                          <div key={f.featureKey} className="flex items-center justify-between bg-slate-800/60 rounded-xl px-3 py-2">
+                            <span className="text-[13px] text-slate-200">{label?.ar ?? f.featureKey}</span>
+                            <div className="flex items-center gap-1">
+                              {/* Grant */}
+                              <button
+                                onClick={() => void setOverride(f.featureKey, 'grant')}
+                                title="منح — يتجاوز الخطة"
+                                className={cn(
+                                  'w-7 h-7 rounded-lg text-xs font-bold transition-colors flex items-center justify-center',
+                                  f.overrideType === 'grant'
+                                    ? 'bg-emerald-500 text-white'
+                                    : 'bg-slate-700 text-slate-400 hover:bg-emerald-800 hover:text-emerald-200',
+                                )}
+                              >✓</button>
+                              {/* Default (remove override) */}
+                              <button
+                                onClick={() => void setOverride(f.featureKey, 'remove')}
+                                title="افتراضي — حسب الخطة"
+                                className={cn(
+                                  'w-7 h-7 rounded-lg text-xs font-bold transition-colors flex items-center justify-center',
+                                  !f.overrideType
+                                    ? 'bg-slate-500 text-white'
+                                    : 'bg-slate-700 text-slate-400 hover:bg-slate-600',
+                                )}
+                              >—</button>
+                              {/* Revoke */}
+                              <button
+                                onClick={() => void setOverride(f.featureKey, 'revoke')}
+                                title="حجب — يتجاوز الخطة"
+                                className={cn(
+                                  'w-7 h-7 rounded-lg text-xs font-bold transition-colors flex items-center justify-center',
+                                  f.overrideType === 'revoke'
+                                    ? 'bg-red-500 text-white'
+                                    : 'bg-slate-700 text-slate-400 hover:bg-red-900 hover:text-red-300',
+                                )}
+                              >✕</button>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
+        {/* Legend */}
+        <div className="px-5 py-3 border-t border-slate-700/50 flex gap-4 text-[11px] text-slate-500">
+          <span><span className="text-emerald-400 font-bold">✓</span> منح — يعمل حتى لو لا تشمله الخطة</span>
+          <span><span className="text-slate-400 font-bold">—</span> افتراضي — حسب الخطة</span>
+          <span><span className="text-red-400 font-bold">✕</span> حجب — لا يعمل حتى لو تشمله الخطة</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function StatusBadge({ status }: { status: string }) {
@@ -196,12 +392,13 @@ export default function SuperAdminPage() {
   const isAr   = locale === 'ar';
   const { user, loading: authLoading } = useAuth();
 
-  const [agencies,    setAgencies]    = useState<AgencyRow[]>([]);
-  const [loading,     setLoading]     = useState(true);
-  const [error,       setError]       = useState('');
-  const [toastMsg,    setToastMsg]    = useState('');
-  const [acting,      setActing]      = useState<string | null>(null);
-  const [wipeTarget,  setWipeTarget]  = useState<AgencyRow | null>(null);
+  const [agencies,        setAgencies]       = useState<AgencyRow[]>([]);
+  const [loading,         setLoading]        = useState(true);
+  const [error,           setError]          = useState('');
+  const [toastMsg,        setToastMsg]       = useState('');
+  const [acting,          setActing]         = useState<string | null>(null);
+  const [wipeTarget,      setWipeTarget]     = useState<AgencyRow | null>(null);
+  const [featuresTarget,  setFeaturesTarget] = useState<AgencyRow | null>(null);
 
   const isSuperAdmin = user?.email === SUPER_ADMIN_EMAIL;
 
@@ -298,6 +495,15 @@ export default function SuperAdminPage() {
           agency={wipeTarget}
           onClose={() => setWipeTarget(null)}
           onWiped={msg => { showToast(msg); void loadAgencies(); }}
+          getIdToken={getIdToken}
+        />
+      )}
+
+      {/* Features Modal */}
+      {featuresTarget && (
+        <FeaturesModal
+          agency={featuresTarget}
+          onClose={() => setFeaturesTarget(null)}
           getIdToken={getIdToken}
         />
       )}
@@ -480,6 +686,17 @@ export default function SuperAdminPage() {
                         ? <Spinner size="sm" />
                         : <Ban size={13} />}
                       إيقاف
+                    </button>
+
+                    {/* Features override panel */}
+                    <button
+                      onClick={() => setFeaturesTarget(agency)}
+                      disabled={!!acting}
+                      title="إدارة ميزات الوكالة"
+                      className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-700 hover:bg-brand-700 disabled:opacity-30 rounded-lg text-xs font-semibold text-slate-300 hover:text-white transition-colors"
+                    >
+                      <Sliders size={13} />
+                      الميزات
                     </button>
 
                     {/* Wipe — trial only */}

@@ -2,11 +2,13 @@ import { NextResponse } from 'next/server';
 import { eq, asc, sum } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { chartOfAccounts, journalLines } from '@/lib/schema';
-import { verifyAuth, ApiAuthError } from '@/lib/api-auth';
+import { verifyAuth, ApiAuthError, BusinessError } from '@/lib/api-auth';
+import { requireFeature } from '@/lib/feature-access';
 
 export async function GET(request: Request) {
   try {
     const { agencyId } = await verifyAuth(request);
+    await requireFeature(agencyId, 'chart_of_accounts', db);
     const [rows, balances] = await Promise.all([
       db.select().from(chartOfAccounts).where(eq(chartOfAccounts.agencyId, agencyId)).orderBy(asc(chartOfAccounts.code)),
       db.select({
@@ -28,7 +30,7 @@ export async function GET(request: Request) {
 
     return NextResponse.json({ accounts });
   } catch (err) {
-    if (err instanceof ApiAuthError) return NextResponse.json({ error: err.message }, { status: err.status });
+    if (err instanceof ApiAuthError || err instanceof BusinessError) return NextResponse.json({ error: err.message }, { status: err.status });
     return NextResponse.json({ error: 'خطأ في الخادم' }, { status: 500 });
   }
 }
@@ -36,6 +38,7 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   try {
     const { uid, agencyId } = await verifyAuth(request);
+    await requireFeature(agencyId, 'chart_of_accounts', db);
     const body = await request.json() as {
       code: string; nameAr: string; nameEn?: string; type: string;
     };
@@ -49,7 +52,7 @@ export async function POST(request: Request) {
     });
     return NextResponse.json({ success: true, id });
   } catch (err) {
-    if (err instanceof ApiAuthError) return NextResponse.json({ error: err.message }, { status: err.status });
+    if (err instanceof ApiAuthError || err instanceof BusinessError) return NextResponse.json({ error: err.message }, { status: err.status });
     return NextResponse.json({ error: 'خطأ في الخادم' }, { status: 500 });
   }
 }

@@ -51,7 +51,8 @@ import {
 } from 'lucide-react';
 import { InviteUserModal } from '@/components/settings/InviteUserModal';
 import { useSubscription } from '@/providers/SubscriptionProvider';
-import { MessageCircle } from 'lucide-react';
+import { MessageCircle, CheckCircle, XCircle as XCircleIcon, Star } from 'lucide-react';
+import { PLAN_DISPLAY, FEATURE_LABEL } from '@/lib/plan-features';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -1855,10 +1856,10 @@ export default function SettingsPage() {
 
           {/* ── Billing ──────────────────────────────────────────────────── */}
           {activeTab === 'billing' && (() => {
-            const displayPlan = resolveDisplayPlan(subPlan, subStatus);
             const isTrial = subStatus === 'trial';
             const isActive = subStatus === 'active' || subStatus === 'lifetime';
-            const isPaidPlan = PAID_PLAN_KEYS.has(subPlan) && isActive;
+            const PAID_PLAN_ALL = new Set(['operations', 'business', 'enterprise', 'starter', 'professional', 'lifetime']);
+            const isPaidPlan = PAID_PLAN_ALL.has(subPlan) && isActive;
 
             // Status badge
             const statusBadge = (() => {
@@ -1871,10 +1872,13 @@ export default function SettingsPage() {
             })();
 
             // Current plan display name
-            const currentPlanDef = PLANS.find(p => p.key === displayPlan);
+            const planKeyNorm = subPlan === 'starter' ? 'operations' : subPlan === 'professional' ? 'business' : subPlan;
+            const currentPlanDef = PLAN_DISPLAY.find(p => p.key === planKeyNorm);
             const currentPlanName = isTrial
               ? (isAr ? 'تجريبي' : 'Trial')
-              : (currentPlanDef ? (isAr ? currentPlanDef.ar : currentPlanDef.en) : (isAr ? 'مجاني' : 'Free'));
+              : subStatus === 'lifetime'
+                ? (isAr ? 'مدى الحياة' : 'Lifetime')
+                : (currentPlanDef ? (isAr ? currentPlanDef.nameAr : currentPlanDef.nameEn) : (isAr ? 'تجريبي' : 'Trial'));
 
             // Status line
             const statusLine = (() => {
@@ -1888,9 +1892,9 @@ export default function SettingsPage() {
               return isAr ? 'يرجى التواصل مع فريق المبيعات' : 'Contact our sales team';
             })();
 
-            // Usage limits for current plan
-            const userLimit = (isPaidPlan && displayPlan === 'professional') || displayPlan === 'lifetime' ? null : 3;
-            const bookingLimit = (isPaidPlan && displayPlan === 'professional') || displayPlan === 'lifetime' ? null : 500;
+            // Usage limits — all paid plans are unlimited in the new tier model
+            const userLimit    = (isPaidPlan || subStatus === 'lifetime') ? null : 3;
+            const bookingLimit = (isPaidPlan || subStatus === 'lifetime') ? null : 500;
 
             // WhatsApp message helper
             function waUrl(planAr: string) {
@@ -1984,93 +1988,168 @@ export default function SettingsPage() {
 
                 {/* ── Pricing plans ──────────────────────────────────────── */}
                 <div>
-                  <h3 className="text-sm font-semibold text-slate-700 mb-3">
-                    {isAr ? 'خطط الاشتراك' : 'Subscription Plans'}
-                  </h3>
-                  <div className="grid gap-4 sm:grid-cols-3">
-                    {PLANS.map(plan => {
-                      const isCurrent = displayPlan === plan.key && isPaidPlan;
-                      const feats = isAr ? plan.features.ar : plan.features.en;
-                      const name = isAr ? plan.ar : plan.en;
+                  <div className="flex items-center justify-between mb-4">
+                    <h3 className="text-base font-bold text-slate-800">
+                      {isAr ? 'خطط الاشتراك' : 'Subscription Plans'}
+                    </h3>
+                    <span className="text-xs text-slate-400">
+                      {isAr ? 'الأسعار بالريال السعودي / شهرياً' : 'Prices in SAR / month'}
+                    </span>
+                  </div>
+
+                  <div className="grid gap-5 sm:grid-cols-3">
+                    {PLAN_DISPLAY.map(plan => {
+                      const isCurrent = (subPlan === plan.key ||
+                        (subPlan === 'starter' && plan.key === 'operations') ||
+                        (subPlan === 'professional' && plan.key === 'business')) && isPaidPlan;
+                      const name = isAr ? plan.nameAr : plan.nameEn;
+                      const notIncluded = isAr ? plan.notIncluded.ar : plan.notIncluded.en;
 
                       return (
                         <div
                           key={plan.key}
                           className={cn(
-                            'relative rounded-2xl border p-5 flex flex-col',
+                            'relative rounded-2xl border flex flex-col transition-shadow',
                             plan.highlighted
-                              ? 'border-brand-400 bg-gradient-to-b from-brand-50 to-white shadow-md'
-                              : 'border-surface-border bg-white',
+                              ? 'border-brand-400 shadow-lg shadow-brand-100'
+                              : 'border-slate-200 shadow-sm',
+                            isCurrent && 'ring-2 ring-emerald-400',
                           )}
                         >
-                          {/* Badge */}
-                          {plan.badge && (
-                            <div className={cn(
-                              'absolute -top-3 left-1/2 -translate-x-1/2 px-3 py-0.5 rounded-full text-xs font-bold whitespace-nowrap',
-                              plan.highlighted ? 'bg-brand-600 text-white' : 'bg-slate-700 text-white',
-                            )}>
-                              {isAr ? plan.badge.ar : plan.badge.en}
+                          {/* Popular badge */}
+                          {plan.badgeAr && (
+                            <div className="absolute -top-3 inset-x-0 flex justify-center">
+                              <span className={cn(
+                                'inline-flex items-center gap-1 px-3 py-1 rounded-full text-[11px] font-bold whitespace-nowrap',
+                                plan.highlighted
+                                  ? 'bg-brand-600 text-white'
+                                  : 'bg-slate-700 text-white',
+                              )}>
+                                <Star size={10} className="fill-current" />
+                                {isAr ? plan.badgeAr : plan.badgeEn}
+                              </span>
                             </div>
                           )}
 
-                          {/* Plan name + current indicator */}
-                          <div className="mb-3">
-                            <div className="flex items-center gap-2">
-                              <span className="font-bold text-slate-900">{name}</span>
+                          {/* Header */}
+                          <div className={cn(
+                            'px-5 pt-6 pb-4 rounded-t-2xl',
+                            plan.highlighted
+                              ? 'bg-gradient-to-br from-brand-600 to-brand-700'
+                              : 'bg-slate-50',
+                          )}>
+                            <div className="flex items-center justify-between mb-1">
+                              <span className={cn(
+                                'text-sm font-bold',
+                                plan.highlighted ? 'text-white/80' : 'text-slate-500',
+                              )}>
+                                {name}
+                              </span>
                               {isCurrent && (
-                                <span className="text-[10px] bg-emerald-100 text-emerald-700 font-semibold px-2 py-0.5 rounded-full">
-                                  {isAr ? 'خطتك الحالية' : 'Current'}
+                                <span className="text-[10px] bg-emerald-100 text-emerald-700 font-bold px-2 py-0.5 rounded-full">
+                                  {isAr ? 'خطتك الحالية' : 'Current Plan'}
+                                </span>
+                              )}
+                            </div>
+                            <div className="flex items-end gap-1">
+                              <span className={cn(
+                                'text-4xl font-extrabold tracking-tight',
+                                plan.highlighted ? 'text-white' : 'text-slate-900',
+                              )}>
+                                {plan.priceMonthly ?? '–'}
+                              </span>
+                              {plan.priceMonthly && (
+                                <span className={cn(
+                                  'text-sm mb-1',
+                                  plan.highlighted ? 'text-white/70' : 'text-slate-400',
+                                )}>
+                                  {isAr ? 'ر.س / شهر' : 'SAR/mo'}
                                 </span>
                               )}
                             </div>
                           </div>
 
-                          {/* Billing type */}
-                          <div className="mb-4">
-                            <span className="text-sm text-slate-500">{isAr ? plan.billing.ar : plan.billing.en}</span>
+                          {/* Feature list */}
+                          <div className="px-5 py-4 flex-1 space-y-2">
+                            {plan.features.slice(0, 8).map(fk => {
+                              const label = FEATURE_LABEL[fk];
+                              if (!label) return null;
+                              return (
+                                <div key={fk} className="flex items-center gap-2">
+                                  <CheckCircle2 size={13} className="text-emerald-500 flex-shrink-0" />
+                                  <span className="text-xs text-slate-700">{isAr ? label.ar : label.en}</span>
+                                </div>
+                              );
+                            })}
+                            {plan.features.length > 8 && (
+                              <div className="text-xs text-brand-600 font-medium mt-1">
+                                {isAr
+                                  ? `+ ${plan.features.length - 8} ميزة إضافية`
+                                  : `+ ${plan.features.length - 8} more features`}
+                              </div>
+                            )}
+
+                            {/* Not included */}
+                            {notIncluded.length > 0 && (
+                              <div className="pt-2 mt-2 border-t border-slate-100 space-y-1.5">
+                                {notIncluded.slice(0, 4).map(f => (
+                                  <div key={f} className="flex items-center gap-2">
+                                    <XCircleIcon size={13} className="text-slate-300 flex-shrink-0" />
+                                    <span className="text-xs text-slate-400">{f}</span>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
                           </div>
 
-                          {/* Features */}
-                          <ul className="space-y-2 mb-5 flex-1">
-                            {feats.map(f => (
-                              <li key={f} className="flex items-start gap-2 text-xs text-slate-700">
-                                <CheckCircle2 size={13} className="text-emerald-500 flex-shrink-0 mt-0.5" />
-                                {f}
-                              </li>
-                            ))}
-                          </ul>
-
                           {/* CTA */}
-                          {isCurrent ? (
-                            <div className="flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
-                              <CheckCircle2 size={14} />
-                              {isAr ? 'خطتك الحالية' : 'Your current plan'}
-                            </div>
-                          ) : (
-                            <a
-                              href={waUrl(isAr ? plan.ar : plan.en)}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className={cn(
-                                'flex items-center justify-center gap-2 py-2.5 rounded-xl text-xs font-bold transition-colors',
-                                plan.highlighted
-                                  ? 'bg-brand-600 hover:bg-brand-700 text-white'
-                                  : 'bg-slate-800 hover:bg-slate-900 text-white',
-                              )}
-                            >
-                              <MessageCircle size={14} />
-                              {isAr ? 'تواصل للاشتراك' : 'Contact to Subscribe'}
-                            </a>
-                          )}
+                          <div className="px-5 pb-5">
+                            {isCurrent ? (
+                              <div className="flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                                <CheckCircle size={14} />
+                                {isAr ? 'خطتك الحالية' : 'Your current plan'}
+                              </div>
+                            ) : (
+                              <a
+                                href={waUrl(isAr ? plan.nameAr : plan.nameEn)}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className={cn(
+                                  'flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-bold transition-colors w-full',
+                                  plan.highlighted
+                                    ? 'bg-brand-600 hover:bg-brand-700 text-white'
+                                    : 'bg-slate-900 hover:bg-slate-800 text-white',
+                                )}
+                              >
+                                <MessageCircle size={14} />
+                                {isAr ? 'تواصل للاشتراك' : 'Contact to Subscribe'}
+                              </a>
+                            )}
+                          </div>
                         </div>
                       );
                     })}
                   </div>
-                  <p className="text-xs text-slate-400 mt-3 text-center">
-                    {isAr
-                      ? 'تواصل معنا عبر واتساب للاستفسار عن الاشتراكات'
-                      : 'Contact us via WhatsApp for subscription details'}
-                  </p>
+
+                  {/* Customization note */}
+                  <div className="mt-6 rounded-2xl border border-brand-100 bg-brand-50/50 px-5 py-4">
+                    <p className="text-sm text-slate-600 text-center mb-3">
+                      {isAr
+                        ? 'يمكن تخصيص الباقة حسب عدد المستخدمين أو الفروع أو احتياجات الوكالة.'
+                        : 'Plans can be customized by number of users, branches, or agency requirements.'}
+                    </p>
+                    <div className="flex justify-center">
+                      <a
+                        href={`https://wa.me/${WA_NUMBER}?text=${encodeURIComponent(isAr ? 'مرحباً فريق مسارات، أرغب في الحصول على عرض مخصص لوكالتي.' : 'Hello Masarat team, I would like a custom quote for my agency.')}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-bold transition-colors"
+                      >
+                        <MessageCircle size={16} />
+                        {isAr ? 'تواصل معنا للحصول على عرض مخصص' : 'Contact us for a custom quote'}
+                      </a>
+                    </div>
+                  </div>
                 </div>
 
                 {/* ── Billing history ────────────────────────────────────── */}

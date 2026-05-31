@@ -2,12 +2,14 @@ import { NextResponse } from 'next/server';
 import { eq, and, desc } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { payslips, employees, salaryAdvances, employeeContracts } from '@/lib/schema';
-import { verifyAuth, assertRole, ApiAuthError, ROLES_ADMIN_ONLY } from '@/lib/api-auth';
+import { verifyAuth, assertRole, ApiAuthError, BusinessError, ROLES_ADMIN_ONLY } from '@/lib/api-auth';
+import { requireFeature } from '@/lib/feature-access';
 import { logAudit } from '@/lib/audit';
 
 export async function GET(request: Request) {
   try {
     const { agencyId } = await verifyAuth(request);
+    await requireFeature(agencyId, 'payroll', db);
     const url        = new URL(request.url);
     const employeeId = url.searchParams.get('employeeId') ?? undefined;
     const month      = url.searchParams.get('month')      ?? undefined;
@@ -22,7 +24,7 @@ export async function GET(request: Request) {
 
     return NextResponse.json({ payslips: rows });
   } catch (err) {
-    if (err instanceof ApiAuthError) return NextResponse.json({ error: err.message }, { status: err.status });
+    if (err instanceof ApiAuthError || err instanceof BusinessError) return NextResponse.json({ error: err.message }, { status: err.status });
     return NextResponse.json({ error: 'خطأ في الخادم' }, { status: 500 });
   }
 }
@@ -31,6 +33,7 @@ export async function POST(request: Request) {
   try {
     const { uid, agencyId, role } = await verifyAuth(request);
     assertRole(role, [...ROLES_ADMIN_ONLY]);
+    await requireFeature(agencyId, 'payroll', db);
 
     const body = await request.json() as {
       employeeId:               string;
@@ -110,7 +113,7 @@ export async function POST(request: Request) {
     await logAudit({ agencyId, userId: uid, action: 'create', resource: 'payslip', resourceId: id, after: { employeeId: body.employeeId, month: body.month, netHalalas: net } });
     return NextResponse.json({ success: true, id, netHalalas: Math.max(0, net), advanceDeduction });
   } catch (err) {
-    if (err instanceof ApiAuthError) return NextResponse.json({ error: err.message }, { status: err.status });
+    if (err instanceof ApiAuthError || err instanceof BusinessError) return NextResponse.json({ error: err.message }, { status: err.status });
     console.error(JSON.stringify({ event: 'payslip_create_failed', error: (err as Error).message }));
     return NextResponse.json({ error: 'خطأ في الخادم' }, { status: 500 });
   }

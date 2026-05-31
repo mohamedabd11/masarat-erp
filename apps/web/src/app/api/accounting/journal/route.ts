@@ -2,10 +2,11 @@ import { NextResponse } from 'next/server';
 import { eq, and, desc, gte, lte, inArray } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { journalEntries, journalLines } from '@/lib/schema';
-import { verifyAuth, assertRole, ApiAuthError, ROLES_ACCOUNTANT_UP } from '@/lib/api-auth';
+import { verifyAuth, assertRole, ApiAuthError, BusinessError, ROLES_ACCOUNTANT_UP } from '@/lib/api-auth';
 import { assertPeriodOpen } from '@/lib/period-lock';
 import { checkRateLimit, getClientIp, rateLimitHeaders } from '@/lib/rate-limit';
 import { validateJournalLines } from '@/lib/journal-validation';
+import { requireFeature } from '@/lib/feature-access';
 
 const DEFAULT_PAGE_SIZE = 100;
 const MAX_PAGE_SIZE     = 500;
@@ -15,6 +16,7 @@ export async function POST(request: Request) {
   try {
     const { agencyId, uid, role } = await verifyAuth(request);
     assertRole(role, [...ROLES_ACCOUNTANT_UP]);
+    await requireFeature(agencyId, 'accounting', db);
 
     const rl = await checkRateLimit(`${agencyId}:${getClientIp(request)}`, 'financial');
     if (!rl.success) {
@@ -93,7 +95,7 @@ export async function POST(request: Request) {
     }
     return NextResponse.json({ success: true, id });
   } catch (err) {
-    if (err instanceof ApiAuthError) return NextResponse.json({ error: err.message }, { status: err.status });
+    if (err instanceof ApiAuthError || err instanceof BusinessError) return NextResponse.json({ error: err.message }, { status: err.status });
     console.error(JSON.stringify({ event: 'journal_create_error', error: String(err) }));
     return NextResponse.json({ error: 'خطأ في الخادم' }, { status: 500 });
   }
@@ -102,6 +104,7 @@ export async function POST(request: Request) {
 export async function GET(request: Request) {
   try {
     const { agencyId } = await verifyAuth(request);
+    await requireFeature(agencyId, 'accounting', db);
     const url       = new URL(request.url);
     const fromDate  = url.searchParams.get('from')  ?? undefined;
     const toDate    = url.searchParams.get('to')    ?? undefined;
@@ -151,7 +154,7 @@ export async function GET(request: Request) {
 
     return NextResponse.json({ entries: result, page, pageSize });
   } catch (err) {
-    if (err instanceof ApiAuthError) return NextResponse.json({ error: err.message }, { status: err.status });
+    if (err instanceof ApiAuthError || err instanceof BusinessError) return NextResponse.json({ error: err.message }, { status: err.status });
     return NextResponse.json({ error: 'خطأ في الخادم' }, { status: 500 });
   }
 }

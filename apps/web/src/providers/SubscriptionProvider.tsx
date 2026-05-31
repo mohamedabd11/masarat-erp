@@ -1,12 +1,14 @@
 'use client';
 
-import { createContext, useContext, useState, useEffect, type ReactNode } from 'react';
+import { createContext, useContext, useState, useEffect, useCallback, type ReactNode } from 'react';
 import { useAuth } from '@masarat/firebase';
 import { planCanAccess, type FeatureKey } from '@/lib/plan-features';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 export type SubscriptionStatus = 'trial' | 'active' | 'lifetime' | 'past_due' | 'cancelled' | 'loading';
+
+interface FeatureOverride { featureKey: string; overrideType: string; }
 
 interface SubscriptionContextValue {
   status:        SubscriptionStatus;
@@ -45,36 +47,26 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
   const [agencyName,    setAgencyName]    = useState('');
   const [daysRemaining, setDaysRemaining] = useState<number | null>(null);
   const [isLoading,     setIsLoading]     = useState(true);
+  const [overrides,     setOverrides]     = useState<FeatureOverride[]>([]);
 
-  const isSuperAdmin = user?.email === process.env['NEXT_PUBLIC_SUPER_ADMIN_EMAIL'];
+  const isSuperAdmin = user?.email === SUPER_ADMIN_EMAIL;
 
-  useEffect(() => {
-    // Wait for Firebase Auth to resolve before making any access decision.
-    // Without this guard the effect fires with user=null, sets isLoading=false
-    // immediately, and UpgradeGate briefly flashes the "upgrade" screen.
-    if (authLoading) return;
+  const load = useCallback(async (agencyId: string) => {
+    setIsLoading(true);
+    try {
+      const { apiFetch } = await import('@/lib/api-client');
 
-    if (isSuperAdmin) { setStatus('active'); setPlan('super_admin'); setIsLoading(false); return; }
+      const [settingsData, featuresData] = await Promise.allSettled([
+        apiFetch<{ agency: { subscriptionStatus: string; plan: string; nameAr: string; nameEn?: string; trialEndDate?: string } }>('/api/settings'),
+        apiFetch<{ overrides: FeatureOverride[] }>('/api/agencies/my-features'),
+      ]);
 
-    const agencyId = user?.agencyId as string | undefined;
-    if (!agencyId) { setIsLoading(false); return; }
-
-    setIsLoading(true);   // reset while fetching — prevents stale state between user switches
-    let cancelled = false;
-
-    async function load() {
-      try {
-        const { apiFetch } = await import('@/lib/api-client');
-        const data = await apiFetch<{ agency: { subscriptionStatus: string; plan: string; nameAr: string; nameEn?: string; trialEndDate?: string } }>('/api/settings');
-        if (cancelled) return;
-        const { agency } = data;
+      if (settingsData.status === 'fulfilled') {
+        const { agency } = settingsData.value;
         const sub = (agency.subscriptionStatus ?? 'active') as SubscriptionStatus;
         setAgencyName(agency.nameAr ?? agency.nameEn ?? '');
         setPlan(agency.plan ?? '');
 
-        // Compute trial days from trialEndDate regardless of subscriptionStatus.
-        // If the trial window is still open, treat the session as 'trial' so all
-        // features remain accessible even when the stored plan is 'starter'.
         const trialDaysLeft = agency.trialEndDate
           ? Math.ceil((new Date(agency.trialEndDate).getTime() - Date.now()) / 86_400_000)
           : null;
@@ -82,18 +74,30 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
           && sub !== 'cancelled' && sub !== 'past_due';
         setStatus(stillInTrial ? 'trial' : sub);
         setDaysRemaining(trialDaysLeft !== null ? Math.max(0, trialDaysLeft) : null);
-      } catch {
-        // On network / token errors: default to full trial access.
-        // plan='trial' ensures canAccess() grants rank-10 (all features unlocked).
-        if (!cancelled) { setStatus('trial'); setPlan('trial'); setDaysRemaining(null); }
-      } finally {
-        if (!cancelled) setIsLoading(false);
+      } else {
+        // On error: default to trial access
+        setStatus('trial');
+        setPlan('trial');
+        setDaysRemaining(null);
       }
-    }
 
-    void load();
-    return () => { cancelled = true; };
-  }, [user?.agencyId, isSuperAdmin, authLoading]);
+      if (featuresData.status === 'fulfilled') {
+        setOverrides(featuresData.value.overrides ?? []);
+      }
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (authLoading) return;
+    if (isSuperAdmin) { setStatus('active'); setPlan('super_admin'); setIsLoading(false); return; }
+
+    const agencyId = user?.agencyId as string | undefined;
+    if (!agencyId) { setIsLoading(false); return; }
+
+    void load(agencyId);
+  }, [user?.agencyId, isSuperAdmin, authLoading, load]);
 
   const isLifetime = status === 'lifetime';
 
@@ -103,9 +107,18 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
     status === 'cancelled'
   );
 
-  // Optimistic while loading; super-admin and trial always pass
+  // Build override maps for O(1) lookup
+  const grantSet  = new Set(overrides.filter(o => o.overrideType === 'grant').map(o => o.featureKey));
+  const revokeSet = new Set(overrides.filter(o => o.overrideType === 'revoke').map(o => o.featureKey));
+
   function canAccess(feature: FeatureKey): boolean {
     if (isLoading || isSuperAdmin) return true;
+
+    // Per-agency overrides take precedence
+    if (revokeSet.has(feature)) return false;
+    if (grantSet.has(feature))  return true;
+
+    // Fall back to plan-level check
     if (status === 'trial' || plan === 'trial' || plan === 'lifetime') return true;
     return planCanAccess(plan, feature);
   }

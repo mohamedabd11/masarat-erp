@@ -2,7 +2,8 @@ import { NextResponse } from 'next/server';
 import { eq, and, sql } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { journalLines, journalEntries } from '@/lib/schema';
-import { verifyAuth, assertRole, ApiAuthError, ROLES_ACCOUNTANT_UP } from '@/lib/api-auth';
+import { verifyAuth, assertRole, ApiAuthError, BusinessError, ROLES_ACCOUNTANT_UP } from '@/lib/api-auth';
+import { requireFeature } from '@/lib/feature-access';
 
 interface AccountLine {
   code:    string;
@@ -17,6 +18,7 @@ export async function GET(request: Request) {
   try {
     const { agencyId, role } = await verifyAuth(request);
     assertRole(role, [...ROLES_ACCOUNTANT_UP]);
+    await requireFeature(agencyId, 'financial_reports', db);
 
     const url  = new URL(request.url);
     const asOf = url.searchParams.get('asOf') ?? new Date().toISOString().split('T')[0]!;
@@ -74,7 +76,7 @@ export async function GET(request: Request) {
       balanced:    totalAssets === totalLiabilities + totalEquity,
     });
   } catch (err) {
-    if (err instanceof ApiAuthError) return NextResponse.json({ error: err.message }, { status: err.status });
+    if (err instanceof ApiAuthError || err instanceof BusinessError) return NextResponse.json({ error: err.message }, { status: err.status });
     console.error(JSON.stringify({ event: 'balance_sheet_failed', error: (err as Error).message }));
     return NextResponse.json({ error: 'خطأ في الخادم' }, { status: 500 });
   }

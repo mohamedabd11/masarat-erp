@@ -13,7 +13,8 @@ import { NextResponse } from 'next/server';
 import { eq, and, ne, desc, sql } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { accountingPeriods, journalEntries, journalLines } from '@/lib/schema';
-import { verifyAuth, assertRole, ApiAuthError, ROLES_ADMIN_ONLY } from '@/lib/api-auth';
+import { verifyAuth, assertRole, ApiAuthError, BusinessError, ROLES_ADMIN_ONLY } from '@/lib/api-auth';
+import { requireFeature } from '@/lib/feature-access';
 import { logAudit } from '@/lib/audit';
 import { getNextJournalNumber } from '@/lib/invoice-counter';
 import type { Tx } from '@/lib/db';
@@ -144,6 +145,7 @@ export async function GET(request: Request) {
   try {
     const { agencyId, role } = await verifyAuth(request);
     assertRole(role, [...ROLES_ADMIN_ONLY]);
+    await requireFeature(agencyId, 'accounting', db);
 
     const periods = await db.select().from(accountingPeriods)
       .where(eq(accountingPeriods.agencyId, agencyId))
@@ -151,7 +153,7 @@ export async function GET(request: Request) {
 
     return NextResponse.json({ periods });
   } catch (err) {
-    if (err instanceof ApiAuthError) return NextResponse.json({ error: err.message }, { status: err.status });
+    if (err instanceof ApiAuthError || err instanceof BusinessError) return NextResponse.json({ error: err.message }, { status: err.status });
     return NextResponse.json({ error: 'خطأ في الخادم' }, { status: 500 });
   }
 }
@@ -160,6 +162,7 @@ export async function POST(request: Request) {
   try {
     const { uid, agencyId, role } = await verifyAuth(request);
     assertRole(role, [...ROLES_ADMIN_ONLY]);
+    await requireFeature(agencyId, 'accounting', db);
 
     const body = await request.json() as {
       year:     number;
@@ -222,7 +225,7 @@ export async function POST(request: Request) {
       message: body.isLocked ? `الفترة ${label} مقفلة` : `الفترة ${label} مفتوحة`,
     });
   } catch (err) {
-    if (err instanceof ApiAuthError) return NextResponse.json({ error: err.message }, { status: err.status });
+    if (err instanceof ApiAuthError || err instanceof BusinessError) return NextResponse.json({ error: err.message }, { status: err.status });
     console.error(JSON.stringify({ event: 'accounting_periods_failed', error: String(err) }));
     return NextResponse.json({ error: 'خطأ في الخادم' }, { status: 500 });
   }

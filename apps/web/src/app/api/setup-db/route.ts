@@ -794,6 +794,20 @@ CREATE TABLE IF NOT EXISTS ticket_coupons (
 );
 CREATE INDEX IF NOT EXISTS coupons_ticket_idx ON ticket_coupons(ticket_id);
 
+-- ══ AGENCY FEATURES (per-agency feature flag overrides) ══════════════════════
+CREATE TABLE IF NOT EXISTS agency_features (
+  id            TEXT PRIMARY KEY,
+  agency_id     TEXT NOT NULL REFERENCES agencies(id) ON DELETE CASCADE,
+  feature_key   TEXT NOT NULL,
+  override_type TEXT NOT NULL,
+  enabled_by    TEXT NOT NULL,
+  notes         TEXT,
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE(agency_id, feature_key)
+);
+CREATE INDEX IF NOT EXISTS agency_features_agency_idx ON agency_features(agency_id);
+
 `;
 
 const SUPER_ADMIN_EMAIL = process.env['SUPER_ADMIN_EMAIL'] ?? '';

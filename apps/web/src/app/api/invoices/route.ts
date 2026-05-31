@@ -2,7 +2,8 @@ import { NextResponse } from 'next/server';
 import { eq, and, desc, count } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { invoices } from '@/lib/schema';
-import { verifyAuth, ApiAuthError } from '@/lib/api-auth';
+import { verifyAuth, ApiAuthError, BusinessError } from '@/lib/api-auth';
+import { requireFeature } from '@/lib/feature-access';
 
 const DEFAULT_PAGE_SIZE = 50;
 const MAX_PAGE_SIZE     = 200;
@@ -10,6 +11,7 @@ const MAX_PAGE_SIZE     = 200;
 export async function GET(request: Request) {
   try {
     const { agencyId } = await verifyAuth(request);
+    await requireFeature(agencyId, 'invoices', db);
     const url        = new URL(request.url);
     const status     = url.searchParams.get('status')     ?? undefined;
     const customerId = url.searchParams.get('customerId') ?? undefined;
@@ -39,7 +41,7 @@ export async function GET(request: Request) {
       pagination: { page, pageSize, total: Number(total), totalPages: Math.ceil(Number(total) / pageSize) },
     });
   } catch (err) {
-    if (err instanceof ApiAuthError) return NextResponse.json({ error: err.message }, { status: err.status });
+    if (err instanceof ApiAuthError || err instanceof BusinessError) return NextResponse.json({ error: err.message }, { status: err.status });
     console.error(JSON.stringify({ event: 'invoices_list_error', error: String(err) }));
     return NextResponse.json({ error: 'خطأ في الخادم' }, { status: 500 });
   }

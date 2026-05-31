@@ -63,16 +63,16 @@ const SERVICES_GROUP: NavGroup = {
   labelAr: 'الخدمات',
   labelEn: 'Services',
   items: [
-    { key: 'all_orders', href: '/bookings',  icon: <ClipboardList size={18} />, labelAr: 'كل الطلبات',    labelEn: 'All Orders' },
-    { key: 'quotes',     href: '/quotes',    icon: <Send size={18} />,          labelAr: 'عروض الأسعار',  labelEn: 'Quotations' },
-    { key: 'flights',    href: '/flights',    icon: <Plane size={18} />,         labelAr: 'طيران',         labelEn: 'Flights' },
-    { key: 'pnr',        href: '/pnr',       icon: <FileSearch size={18} />,    labelAr: 'سجلات PNR',     labelEn: 'PNR Records' },
-    { key: 'tickets',    href: '/tickets',   icon: <Ticket size={18} />,        labelAr: 'التذاكر',        labelEn: 'Tickets' },
-    { key: 'hotels',     href: '/hotels',    icon: <Building2 size={18} />,     labelAr: 'فنادق',         labelEn: 'Hotels' },
-    { key: 'packages',   href: '/packages',  icon: <Package size={18} />,       labelAr: 'باقات سياحية',  labelEn: 'Packages' },
-    { key: 'umrah',      href: '/umrah',     icon: <Moon size={18} />,          labelAr: 'عمرة وحج',      labelEn: 'Umrah & Hajj' },
-    { key: 'insurance',  href: '/insurance', icon: <Shield size={18} />,        labelAr: 'تأمين',         labelEn: 'Insurance' },
-    { key: 'visas',      href: '/visas',     icon: <Stamp size={18} />,         labelAr: 'تأشيرات',       labelEn: 'Visas' },
+    { key: 'all_orders', href: '/bookings',  icon: <ClipboardList size={18} />, labelAr: 'كل الطلبات',    labelEn: 'All Orders',    feature: 'bookings' },
+    { key: 'quotes',     href: '/quotes',    icon: <Send size={18} />,          labelAr: 'عروض الأسعار',  labelEn: 'Quotations',    feature: 'quotes' },
+    { key: 'flights',    href: '/flights',   icon: <Plane size={18} />,         labelAr: 'طيران',         labelEn: 'Flights',       feature: 'tickets' },
+    { key: 'pnr',        href: '/pnr',       icon: <FileSearch size={18} />,    labelAr: 'سجلات PNR',     labelEn: 'PNR Records',   feature: 'pnr' },
+    { key: 'tickets',    href: '/tickets',   icon: <Ticket size={18} />,        labelAr: 'التذاكر',       labelEn: 'Tickets',       feature: 'tickets' },
+    { key: 'hotels',     href: '/hotels',    icon: <Building2 size={18} />,     labelAr: 'فنادق',         labelEn: 'Hotels',        feature: 'bookings' },
+    { key: 'packages',   href: '/packages',  icon: <Package size={18} />,       labelAr: 'باقات سياحية',  labelEn: 'Packages',      feature: 'bookings' },
+    { key: 'umrah',      href: '/umrah',     icon: <Moon size={18} />,          labelAr: 'عمرة وحج',      labelEn: 'Umrah & Hajj',  feature: 'bookings' },
+    { key: 'insurance',  href: '/insurance', icon: <Shield size={18} />,        labelAr: 'تأمين',         labelEn: 'Insurance',     feature: 'bookings' },
+    { key: 'visas',      href: '/visas',     icon: <Stamp size={18} />,         labelAr: 'تأشيرات',       labelEn: 'Visas',         feature: 'bookings' },
   ],
 };
 
@@ -96,11 +96,11 @@ const MANAGEMENT_GROUP: NavGroup = {
   labelAr: 'الإدارة',
   labelEn: 'Management',
   items: [
-    { key: 'customers',  href: '/customers',  icon: <Users size={18} />,          labelAr: 'العملاء',           labelEn: 'Customers',   feature: 'customers' },
-    { key: 'suppliers',  href: '/suppliers',  icon: <Truck size={18} />,          labelAr: 'الموردين',          labelEn: 'Suppliers',   feature: 'suppliers' },
+    { key: 'customers',  href: '/customers',  icon: <Users size={18} />,          labelAr: 'العملاء',          labelEn: 'Customers',   feature: 'customers' },
+    { key: 'suppliers',  href: '/suppliers',  icon: <Truck size={18} />,          labelAr: 'الموردين',         labelEn: 'Suppliers',   feature: 'suppliers' },
     { key: 'employees',  href: '/employees',  icon: <UserCog size={18} />,        labelAr: 'إدارة الموظفين',   labelEn: 'Employees',   feature: 'employees' },
-    { key: 'reports',    href: '/reports',    icon: <BarChart3 size={18} />,      labelAr: 'التقارير',          labelEn: 'Reports',     feature: 'reports' },
-    { key: 'audit_log',  href: '/audit-log',  icon: <ClipboardCheck size={18} />, labelAr: 'سجل المراجعة',      labelEn: 'Audit Log' },
+    { key: 'reports',    href: '/reports',    icon: <BarChart3 size={18} />,      labelAr: 'التقارير',         labelEn: 'Reports',     feature: 'reports' },
+    { key: 'audit_log',  href: '/audit-log',  icon: <ClipboardCheck size={18} />, labelAr: 'سجل المراجعة',     labelEn: 'Audit Log',   feature: 'audit_logs' },
   ],
 };
 

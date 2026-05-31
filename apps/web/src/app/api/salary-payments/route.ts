@@ -3,6 +3,7 @@ import { eq, and, desc } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { salaryPayments, employees, journalEntries, journalLines } from '@/lib/schema';
 import { verifyAuth, assertRole, ApiAuthError, BusinessError, ROLES_ADMIN_ONLY } from '@/lib/api-auth';
+import { requireFeature } from '@/lib/feature-access';
 import { getNextJournalNumber } from '@/lib/invoice-counter';
 
 const METHOD_ACCOUNT: Record<string, { code: string; ar: string; en: string }> = {
@@ -16,6 +17,7 @@ const AC_SALARY = { code: '5100', ar: 'الرواتب والأجور', en: 'Sala
 export async function GET(request: Request) {
   try {
     const { agencyId } = await verifyAuth(request);
+    await requireFeature(agencyId, 'payroll', db);
     const url        = new URL(request.url);
     const employeeId = url.searchParams.get('employeeId') ?? undefined;
 
