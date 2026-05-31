@@ -2,11 +2,8 @@ import { NextResponse } from 'next/server';
 import { eq, and } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { agencies, agencyFeatures } from '@/lib/schema';
-import { FEATURE_MIN_RANK, PACKAGE_TEMPLATES, type FeatureKey } from '@/lib/plan-features';
+import { ALL_FEATURES, FEATURE_GROUPS, type FeatureKey } from '@/lib/plan-features';
 import { logAudit } from '@/lib/audit';
-
-const SUPER_ADMIN_EMAIL = process.env['SUPER_ADMIN_EMAIL'];
-if (!SUPER_ADMIN_EMAIL) throw new Error('SUPER_ADMIN_EMAIL env var is not configured');
 
 async function verifySuperAdmin(request: Request): Promise<string> {
   const superAdminEmail = process.env['SUPER_ADMIN_EMAIL'];
@@ -24,19 +21,26 @@ async function verifySuperAdmin(request: Request): Promise<string> {
   return decoded.email;
 }
 
-// ─── GET — list all features + their current state for an agency ──────────────
+function featureGroup(key: FeatureKey): string {
+  return FEATURE_GROUPS.find(g => g.features.includes(key))?.key ?? 'core';
+}
+
+// ─── GET — all features + current state for an agency ─────────────────────────
 
 export async function GET(
   request: Request,
-  { params }: { params: { id: string } },
+  { params }: { params: Promise<{ id: string }> },
 ) {
   try {
-    const agencyId = params.id;
-
+    const { id: agencyId } = await params;
     await verifySuperAdmin(request);
 
     const [agencyRow, overrides] = await Promise.all([
-      db.select({ plan: agencies.plan, subscriptionStatus: agencies.subscriptionStatus, nameAr: agencies.nameAr })
+      db.select({
+          subscriptionStatus: agencies.subscriptionStatus,
+          nameAr:             agencies.nameAr,
+          maxUsers:           agencies.maxUsers,
+        })
         .from(agencies)
         .where(eq(agencies.id, agencyId))
         .limit(1)
@@ -50,25 +54,21 @@ export async function GET(
           updatedAt:    agencyFeatures.updatedAt,
         })
         .from(agencyFeatures)
-        .where(eq(agencyFeatures.agencyId, agencyId)),
+        .where(eq(agencyFeatures.agencyId, agencyId))
+        .catch(() => [] as typeof agencyFeatures.$inferSelect[]),
     ]);
 
     if (!agencyRow) {
       return NextResponse.json({ error: 'الوكالة غير موجودة' }, { status: 404 });
     }
 
-    const overrideMap = new Map(overrides.map(o => [o.featureKey, o]));
+    const overrideMap = new Map((overrides as { featureKey: string; overrideType: string; enabledBy: string | null; notes: string | null; updatedAt: Date | null }[]).map(o => [o.featureKey, o]));
 
-    const allFeatures = Object.keys(FEATURE_MIN_RANK) as FeatureKey[];
-    const result = allFeatures.map(key => {
+    const result = ALL_FEATURES.map(key => {
       const override = overrideMap.get(key);
       return {
         featureKey:   key,
-        minRank:      FEATURE_MIN_RANK[key],
-        planAllows:   (agencyRow.plan ? FEATURE_MIN_RANK[key] <= (
-          agencyRow.subscriptionStatus === 'trial' || agencyRow.subscriptionStatus === 'lifetime' ? 10
-            : key in FEATURE_MIN_RANK ? 999 : 0
-        ) : false),
+        group:        featureGroup(key),
         overrideType: override?.overrideType ?? null,
         enabledBy:    override?.enabledBy ?? null,
         notes:        override?.notes ?? null,
@@ -86,38 +86,36 @@ export async function GET(
   }
 }
 
-// ─── PUT — set / remove feature override ─────────────────────────────────────
+// ─── PUT — set / remove override for a single feature ─────────────────────────
 
 interface PutBody {
   featureKey:   string;
-  overrideType: 'grant' | 'revoke' | 'remove';   // remove = delete the override row
+  overrideType: 'revoke' | 'remove';   // 'revoke' = disable, 'remove' = re-enable (delete record)
   notes?:       string;
 }
 
 export async function PUT(
   request: Request,
-  { params }: { params: { id: string } },
+  { params }: { params: Promise<{ id: string }> },
 ) {
   try {
-    const agencyId = params.id;
+    const { id: agencyId } = await params;
     const adminEmail = await verifySuperAdmin(request);
     const body = await request.json() as PutBody;
-
     const { featureKey, overrideType, notes } = body;
 
     if (!featureKey || !overrideType) {
       return NextResponse.json({ error: 'featureKey و overrideType مطلوبان' }, { status: 400 });
     }
-    if (!Object.keys(FEATURE_MIN_RANK).includes(featureKey)) {
+    if (!(ALL_FEATURES as readonly string[]).includes(featureKey)) {
       return NextResponse.json({ error: `featureKey غير معروف: ${featureKey}` }, { status: 400 });
     }
-    if (!['grant', 'revoke', 'remove'].includes(overrideType)) {
-      return NextResponse.json({ error: 'overrideType يجب أن يكون grant أو revoke أو remove' }, { status: 400 });
+    if (!['revoke', 'remove'].includes(overrideType)) {
+      return NextResponse.json({ error: 'overrideType يجب أن يكون revoke أو remove' }, { status: 400 });
     }
 
     const [agencyRow] = await db.select({ id: agencies.id, nameAr: agencies.nameAr })
-      .from(agencies)
-      .where(eq(agencies.id, agencyId));
+      .from(agencies).where(eq(agencies.id, agencyId));
     if (!agencyRow) return NextResponse.json({ error: 'الوكالة غير موجودة' }, { status: 404 });
 
     const [existing] = await db.select({ id: agencyFeatures.id, overrideType: agencyFeatures.overrideType })
@@ -132,33 +130,26 @@ export async function PUT(
         await db.delete(agencyFeatures)
           .where(and(eq(agencyFeatures.agencyId, agencyId), eq(agencyFeatures.featureKey, featureKey)));
       }
-    } else if (existing) {
-      await db.update(agencyFeatures)
-        .set({ overrideType, enabledBy: adminEmail, notes: notes ?? null, updatedAt: now })
-        .where(eq(agencyFeatures.id, existing.id));
     } else {
-      await db.insert(agencyFeatures).values({
-        id:           crypto.randomUUID(),
-        agencyId,
-        featureKey,
-        overrideType,
-        enabledBy:    adminEmail,
-        notes:        notes ?? null,
-        createdAt:    now,
-        updatedAt:    now,
-      });
+      if (existing) {
+        await db.update(agencyFeatures)
+          .set({ overrideType, enabledBy: adminEmail, notes: notes ?? null, updatedAt: now })
+          .where(eq(agencyFeatures.id, existing.id));
+      } else {
+        await db.insert(agencyFeatures).values({
+          id: crypto.randomUUID(), agencyId, featureKey,
+          overrideType, enabledBy: adminEmail, notes: notes ?? null,
+          createdAt: now, updatedAt: now,
+        });
+      }
     }
 
-    // Non-blocking audit log
     void logAudit({
-      agencyId,
-      userId:     adminEmail,
-      userEmail:  adminEmail,
-      action:     'update',
-      resource:   'agency_feature',
+      agencyId, userId: adminEmail, userEmail: adminEmail,
+      action: 'update', resource: 'agency_feature',
       resourceId: `${agencyId}:${featureKey}`,
-      before:     { featureKey, overrideType: beforeValue },
-      after:      { featureKey, overrideType: overrideType === 'remove' ? null : overrideType, notes },
+      before: { featureKey, overrideType: beforeValue },
+      after:  { featureKey, overrideType: overrideType === 'remove' ? null : overrideType, notes },
     });
 
     return NextResponse.json({ success: true });
@@ -172,73 +163,79 @@ export async function PUT(
   }
 }
 
-// ─── POST — apply a package template ─────────────────────────────────────────
+// ─── POST — bulk actions (enable_all / disable_group / reset) ─────────────────
 
 interface PostBody {
-  packageKey: string;   // 'operations' | 'business' | 'enterprise'
+  action: 'enable_all' | 'disable_group' | 'enable_group' | 'reset';
+  group?: string;   // for disable_group / enable_group
 }
 
 export async function POST(
   request: Request,
-  { params }: { params: { id: string } },
+  { params }: { params: Promise<{ id: string }> },
 ) {
   try {
-    const agencyId = params.id;
+    const { id: agencyId } = await params;
     const adminEmail = await verifySuperAdmin(request);
     const body = await request.json() as PostBody;
+    const { action, group } = body;
 
-    const { packageKey } = body;
-    const templateFeatures = PACKAGE_TEMPLATES[packageKey];
-    if (!templateFeatures) {
-      return NextResponse.json({ error: `الباقة غير معروفة: ${packageKey}` }, { status: 400 });
-    }
+    if (!action) return NextResponse.json({ error: 'action مطلوب' }, { status: 400 });
 
     const [agencyRow] = await db.select({ id: agencies.id })
-      .from(agencies)
-      .where(eq(agencies.id, agencyId));
+      .from(agencies).where(eq(agencies.id, agencyId));
     if (!agencyRow) return NextResponse.json({ error: 'الوكالة غير موجودة' }, { status: 404 });
 
-    const allFeatures = Object.keys(FEATURE_MIN_RANK) as FeatureKey[];
     const now = new Date();
 
-    // Delete all existing overrides then set new ones
-    await db.delete(agencyFeatures).where(eq(agencyFeatures.agencyId, agencyId));
+    if (action === 'enable_all' || action === 'reset') {
+      // Delete ALL override rows → all features enabled
+      await db.delete(agencyFeatures).where(eq(agencyFeatures.agencyId, agencyId));
 
-    // Grant all features in the template, revoke the rest
-    const toGrant  = new Set(templateFeatures);
-    const inserts  = allFeatures.map(key => ({
-      id:           crypto.randomUUID(),
-      agencyId,
-      featureKey:   key,
-      overrideType: toGrant.has(key) ? 'grant' : 'revoke',
-      enabledBy:    adminEmail,
-      notes:        `باقة ${packageKey} — طُبِّقت بواسطة Super Admin`,
-      createdAt:    now,
-      updatedAt:    now,
-    }));
+    } else if (action === 'disable_group' || action === 'enable_group') {
+      const groupDef = FEATURE_GROUPS.find(g => g.key === group);
+      if (!groupDef) return NextResponse.json({ error: `مجموعة غير معروفة: ${group}` }, { status: 400 });
 
-    if (inserts.length > 0) {
-      await db.insert(agencyFeatures).values(inserts);
+      for (const featureKey of groupDef.features) {
+        const [existing] = await db.select({ id: agencyFeatures.id })
+          .from(agencyFeatures)
+          .where(and(eq(agencyFeatures.agencyId, agencyId), eq(agencyFeatures.featureKey, featureKey)));
+
+        if (action === 'disable_group') {
+          if (existing) {
+            await db.update(agencyFeatures).set({ overrideType: 'revoke', enabledBy: adminEmail, updatedAt: now })
+              .where(eq(agencyFeatures.id, existing.id));
+          } else {
+            await db.insert(agencyFeatures).values({
+              id: crypto.randomUUID(), agencyId, featureKey, overrideType: 'revoke',
+              enabledBy: adminEmail, notes: null, createdAt: now, updatedAt: now,
+            });
+          }
+        } else {
+          // enable_group: delete revoke if present
+          if (existing) {
+            await db.delete(agencyFeatures)
+              .where(and(eq(agencyFeatures.agencyId, agencyId), eq(agencyFeatures.featureKey, featureKey)));
+          }
+        }
+      }
+    } else {
+      return NextResponse.json({ error: `action غير معروف: ${action}` }, { status: 400 });
     }
 
     void logAudit({
-      agencyId,
-      userId:     adminEmail,
-      userEmail:  adminEmail,
-      action:     'update',
-      resource:   'agency_features_bulk',
-      resourceId: agencyId,
-      before:     null,
-      after:      { packageKey, grantedFeatures: [...toGrant] },
+      agencyId, userId: adminEmail, userEmail: adminEmail,
+      action: 'update', resource: 'agency_features_bulk', resourceId: agencyId,
+      before: null, after: { action, group },
     });
 
-    return NextResponse.json({ success: true, applied: packageKey });
+    return NextResponse.json({ success: true, action });
   } catch (err: unknown) {
     const msg = (err as Error).message ?? '';
     if (msg === 'NO_TOKEN' || msg === 'FORBIDDEN') {
       return NextResponse.json({ error: 'ممنوع الوصول' }, { status: 403 });
     }
-    console.error(JSON.stringify({ event: 'admin_feature_template_error', error: String(err) }));
+    console.error(JSON.stringify({ event: 'admin_feature_bulk_error', error: String(err) }));
     return NextResponse.json({ error: 'خطأ في الخادم' }, { status: 500 });
   }
 }

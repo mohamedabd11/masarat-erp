@@ -9,9 +9,6 @@ import {
   bankAccounts, bankTransactions, cheques, exchangeRates,
 } from '@/lib/schema';
 
-const SUPER_ADMIN_EMAIL = process.env['SUPER_ADMIN_EMAIL'];
-if (!SUPER_ADMIN_EMAIL) throw new Error('SUPER_ADMIN_EMAIL env var is not configured');
-
 async function verifySuperAdmin(request: Request) {
   const superAdminEmail = process.env['SUPER_ADMIN_EMAIL'];
   if (!superAdminEmail) throw new Error('SUPER_ADMIN_EMAIL env var is not configured');

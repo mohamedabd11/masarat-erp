@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
-import { usePathname, useRouter } from 'next/navigation';
+import { usePathname } from 'next/navigation';
 import { useLocale } from 'next-intl';
 import { useAuth } from '@masarat/firebase';
 import { cn } from '@/lib/utils';
@@ -14,7 +14,7 @@ import {
   Moon, Shield, Stamp, FileText, Receipt, BarChart3, Truck, UserCog,
   Settings, HelpCircle, ChevronLeft, ChevronRight, Calculator,
   Anchor, Car, Train, Camera, Mountain, Plus, Layers, Landmark, Send, Wallet,
-  TrendingDown, TrendingUp, Lock, FileSearch, Ticket, ClipboardCheck,
+  TrendingDown, TrendingUp, FileSearch, Ticket, ClipboardCheck,
 } from 'lucide-react';
 
 // ─── Icon map for custom service types ────────────────────────────────────────
@@ -118,7 +118,6 @@ interface SidebarProps {
 export function Sidebar({ collapsed = false, onToggle, onClose }: SidebarProps) {
   const locale = useLocale();
   const pathname = usePathname();
-  const router = useRouter();
   const isAr = locale === 'ar';
   const { user } = useAuth();
   const agencyId = user?.agencyId ?? null;
@@ -155,40 +154,26 @@ export function Sidebar({ collapsed = false, onToggle, onClose }: SidebarProps) 
     : collapsed ? ChevronRight : ChevronLeft;
 
   function NavLink({ item, active }: { item: NavItem; active: boolean }) {
-    const locked = item.feature ? !canAccess(item.feature) : false;
-
-    function handleClick(e: React.MouseEvent) {
-      if (locked) {
-        e.preventDefault();
-        router.push(buildHref('/settings?tab=billing'));
-        return;
-      }
-      onClose?.();
-    }
+    // If admin disabled this feature for the agency, hide the item entirely
+    if (item.feature && !canAccess(item.feature)) return null;
 
     return (
       <Link
         href={buildHref(item.href)}
         title={collapsed ? (isAr ? item.labelAr : item.labelEn) : undefined}
-        onClick={handleClick}
+        onClick={() => onClose?.()}
         className={cn(
           'flex items-center rounded-xl transition-all duration-150 text-sm font-medium',
           collapsed ? 'justify-center px-2 py-2.5' : 'gap-3 px-3 py-2.5',
-          locked
-            ? 'text-slate-400 hover:bg-slate-50 cursor-pointer'
-            : active
-              ? 'bg-brand-600 text-white shadow-sm'
-              : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900',
+          active
+            ? 'bg-brand-600 text-white shadow-sm'
+            : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900',
         )}
       >
-        <span className={cn('flex-shrink-0', locked ? 'opacity-40' : active ? 'text-white' : '')}>{item.icon}</span>
+        <span className={cn('flex-shrink-0', active ? 'text-white' : '')}>{item.icon}</span>
         {!collapsed && (
-          <>
-            <span className="truncate flex-1">{isAr ? item.labelAr : item.labelEn}</span>
-            {locked && <Lock size={12} className="flex-shrink-0 text-slate-300" />}
-          </>
+          <span className="truncate flex-1">{isAr ? item.labelAr : item.labelEn}</span>
         )}
-        {/* In collapsed mode, locked items appear at reduced opacity */}
       </Link>
     );
   }

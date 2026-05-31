@@ -1,38 +1,38 @@
 /**
- * Server-side feature access checks.
+ * Server-side feature access checks — single-plan model.
  *
- * Call requireFeature() at the top of any API route that needs protection.
- * It merges plan-level access with per-agency overrides from agency_features.
+ * Every agency gets ALL features by default.
+ * Access is blocked only when:
+ *   1. Subscription is not active (expired / suspended)
+ *   2. Admin has explicitly disabled a feature for this agency (overrideType = 'revoke')
  *
- * Override precedence (highest wins):
- *   'revoke' override  → false  (even if plan allows it)
- *   'grant'  override  → true   (even if plan doesn't include it)
- *   plan rank          → planCanAccess()
+ * Override precedence:
+ *   'revoke' in agency_features  → BLOCKED  (even on active subscription)
+ *   no record / 'grant'          → ALLOWED  (if subscription active)
+ *   subscription expired/suspended → BLOCKED (all features)
  */
+
 import { eq, and } from 'drizzle-orm';
 import { agencyFeatures, agencies } from '@/lib/schema';
-import { planCanAccess, type FeatureKey } from '@/lib/plan-features';
 import { BusinessError } from '@/lib/api-auth';
 import type { db as DbType } from '@/lib/db';
+import type { FeatureKey } from '@/lib/plan-features';
 
 type AnyDb = typeof DbType | Parameters<Parameters<typeof DbType.transaction>[0]>[0];
 
+/** Statuses that block all feature access. */
+const BLOCKED_STATUSES = new Set(['expired', 'suspended', 'past_due', 'cancelled']);
+
 // ─── Core check ───────────────────────────────────────────────────────────────
 
-/**
- * Returns true if the agency can access the feature.
- * Fetches the agency's plan + any per-agency override from the DB.
- */
 export async function checkFeature(
   agencyId: string,
   feature:  FeatureKey,
   db:       AnyDb,
 ): Promise<boolean> {
-  // Use allSettled so a missing agency_features table (pre-migration) degrades
-  // gracefully to plan-level access instead of throwing a 500.
   const [agencyResult, overrideResult] = await Promise.allSettled([
     (db as typeof DbType)
-      .select({ plan: agencies.plan, subscriptionStatus: agencies.subscriptionStatus })
+      .select({ subscriptionStatus: agencies.subscriptionStatus })
       .from(agencies)
       .where(eq(agencies.id, agencyId))
       .limit(1)
@@ -43,35 +43,31 @@ export async function checkFeature(
       .from(agencyFeatures)
       .where(and(
         eq(agencyFeatures.agencyId, agencyId),
-        eq(agencyFeatures.featureKey, feature),
+        eq(agencyFeatures.featureKey, feature as string),
       ))
       .limit(1)
       .then(rows => rows[0]),
   ]);
 
-  const agencyRow  = agencyResult.status  === 'fulfilled' ? agencyResult.value  : null;
+  const agencyRow   = agencyResult.status   === 'fulfilled' ? agencyResult.value   : null;
   const overrideRow = overrideResult.status === 'fulfilled' ? overrideResult.value : null;
 
   if (!agencyRow) return false;
 
-  // Per-agency override takes precedence
-  if (overrideRow?.overrideType === 'revoke') return false;
-  if (overrideRow?.overrideType === 'grant')  return true;
+  const { subscriptionStatus } = agencyRow;
 
-  // Fall back to plan-level check
-  const { plan, subscriptionStatus } = agencyRow;
-  if (subscriptionStatus === 'lifetime' || subscriptionStatus === 'trial') return true;
-  return planCanAccess(plan ?? '', feature);
+  // Blocked subscription → deny everything
+  if (BLOCKED_STATUSES.has(subscriptionStatus ?? '')) return false;
+
+  // Explicit revoke by admin → deny this specific feature
+  if (overrideRow?.overrideType === 'revoke') return false;
+
+  // Active / trial / lifetime → allow
+  return true;
 }
 
 // ─── Guard helper ─────────────────────────────────────────────────────────────
 
-/**
- * Throws BusinessError(403) if the feature is not enabled for the agency.
- * Use at the top of API routes after verifyAuth():
- *
- *   await requireFeature(agencyId, 'accounting', db);
- */
 export async function requireFeature(
   agencyId: string,
   feature:  FeatureKey,
@@ -80,7 +76,7 @@ export async function requireFeature(
   const allowed = await checkFeature(agencyId, feature, db);
   if (!allowed) {
     throw new BusinessError(
-      `هذه الميزة (${feature}) غير متاحة ضمن اشتراكك الحالي — تواصل مع فريق المبيعات للترقية`,
+      `هذه الميزة (${feature}) غير متاحة — تواصل مع إدارة النظام لتفعيلها`,
       403,
     );
   }
@@ -88,10 +84,6 @@ export async function requireFeature(
 
 // ─── Bulk fetch for UI ────────────────────────────────────────────────────────
 
-/**
- * Returns all agency_features overrides for a given agency.
- * Used by SubscriptionProvider and the Admin Features panel.
- */
 export async function getAgencyFeatureOverrides(
   agencyId: string,
   db:       AnyDb,
@@ -105,7 +97,6 @@ export async function getAgencyFeatureOverrides(
       .from(agencyFeatures)
       .where(eq(agencyFeatures.agencyId, agencyId));
   } catch {
-    // agency_features table not yet created — return empty (plan-level access only)
     return [];
   }
 }

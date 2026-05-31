@@ -702,7 +702,10 @@ CREATE TABLE IF NOT EXISTS accounting_periods (
 CREATE UNIQUE INDEX IF NOT EXISTS accounting_periods_agency_ym_uq ON accounting_periods(agency_id, period_year, period_month);
 
 -- ══ AGENCIES: new columns ════════════════════════════════════════════════════
-ALTER TABLE agencies ADD COLUMN IF NOT EXISTS default_quote_terms TEXT;
+ALTER TABLE agencies ADD COLUMN IF NOT EXISTS default_quote_terms    TEXT;
+ALTER TABLE agencies ADD COLUMN IF NOT EXISTS max_users              INTEGER NOT NULL DEFAULT 5;
+ALTER TABLE agencies ADD COLUMN IF NOT EXISTS trial_starts_at        TIMESTAMPTZ;
+ALTER TABLE agencies ADD COLUMN IF NOT EXISTS subscription_starts_at TIMESTAMPTZ;
 
 -- ══ PNR: fix column types (passenger_names / ticket_numbers / flight_numbers were
 --    created as JSONB in early setup-db but the app schema expects TEXT)

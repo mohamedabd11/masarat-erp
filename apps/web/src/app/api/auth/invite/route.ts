@@ -44,19 +44,22 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'فقط مدير الوكالة يمكنه دعوة مستخدمين' }, { status: 403 });
     }
 
-    // Check plan limits
-    const [agency] = await db.select({ plan: agencies.plan }).from(agencies).where(eq(agencies.id, callerAgency));
-    const agencyPlan = agency?.plan ?? 'trial';
-    const userLimit  = agencyPlan === 'professional' ? Infinity : 3;
+    // Check user seat limit (maxUsers from agencies table)
+    const [agency] = await db
+      .select({ maxUsers: agencies.maxUsers })
+      .from(agencies)
+      .where(eq(agencies.id, callerAgency));
+
+    const maxUsers = agency?.maxUsers ?? 5;
 
     const [{ total }] = await db
       .select({ total: count() })
       .from(users)
       .where(eq(users.agencyId, callerAgency));
 
-    if ((total ?? 0) >= userLimit) {
+    if ((total ?? 0) >= maxUsers) {
       return NextResponse.json({
-        error: `وصلت للحد الأقصى (${userLimit} مستخدمين) في باقتك الحالية. يرجى ترقية الباقة للمتابعة.`,
+        error: `وصلت للحد الأقصى المسموح به (${maxUsers} مستخدمين). تواصل مع إدارة النظام لزيادة الحد.`,
       }, { status: 403 });
     }
 
