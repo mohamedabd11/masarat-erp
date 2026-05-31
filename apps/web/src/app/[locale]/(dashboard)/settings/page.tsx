@@ -47,6 +47,7 @@ import {
   EyeOff,
   Wifi,
   WifiOff,
+  Activity,
 } from 'lucide-react';
 import { InviteUserModal } from '@/components/settings/InviteUserModal';
 import { useSubscription } from '@/providers/SubscriptionProvider';
@@ -54,7 +55,7 @@ import { MessageCircle } from 'lucide-react';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
-type Tab = 'agency' | 'users' | 'modules' | 'zatca' | 'billing' | 'service_types' | 'providers';
+type Tab = 'agency' | 'users' | 'modules' | 'zatca' | 'billing' | 'service_types' | 'providers' | 'monitoring';
 
 // ─── Tab definitions ─────────────────────────────────────────────────────────
 
@@ -66,6 +67,7 @@ const ALL_TABS: Array<{ key: Tab; ar: string; en: string; icon: React.ReactNode;
   { key: 'zatca',         ar: 'ZATCA',            en: 'ZATCA',          icon: <Shield size={16} />, vatOnly: true },
   { key: 'billing',       ar: 'الاشتراك',         en: 'Billing',        icon: <CreditCard size={16} /> },
   { key: 'providers',     ar: 'مزودو GDS',        en: 'GDS Providers',  icon: <Server size={16} /> },
+  { key: 'monitoring',    ar: 'المراقبة',          en: 'Monitoring',     icon: <Activity size={16} /> },
 ];
 
 // ─── Module definitions ───────────────────────────────────────────────────────
@@ -341,7 +343,7 @@ export default function SettingsPage() {
 
   // Support ?tab=service_types URL param
   const tabParam = searchParams.get('tab') as Tab | null;
-  const validTabs: Tab[] = ['agency', 'users', 'modules', 'service_types', 'zatca', 'billing', 'providers'];
+  const validTabs: Tab[] = ['agency', 'users', 'modules', 'service_types', 'zatca', 'billing', 'providers', 'monitoring'];
   const initialTab: Tab = tabParam && validTabs.includes(tabParam) ? tabParam : 'agency';
 
   const [activeTab, setActiveTab] = useState<Tab>(initialTab);
@@ -431,6 +433,22 @@ export default function SettingsPage() {
   const [showSecret,    setShowSecret]    = useState(false);
   const [providerSaving, setProviderSaving] = useState(false);
 
+  // ── Monitoring ───────────────────────────────────────────────────────
+  type MonitoringData = {
+    statusCounts: Record<string, number>;
+    stalledByCredential: {
+      credentialId: string | null;
+      providerCode: string | null;
+      label:        string | null;
+      affectedTickets: number;
+      maxAttempts:  number;
+    }[];
+    orphanCount: number;
+  };
+  const [monitoringData,    setMonitoringData]    = useState<MonitoringData | null>(null);
+  const [loadingMonitoring, setLoadingMonitoring] = useState(false);
+  const [monitoringError,   setMonitoringError]   = useState('');
+
   // Load all agency info from REST API
   useEffect(() => {
     if (!agencyId) return;
@@ -500,6 +518,31 @@ export default function SettingsPage() {
   useEffect(() => {
     if (!agencyId || activeTab !== 'providers') return;
     void loadProviders();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [agencyId, activeTab]);
+
+  async function loadMonitoring() {
+    if (!agencyId) return;
+    setLoadingMonitoring(true);
+    setMonitoringError('');
+    try {
+      const { apiFetch } = await import('@/lib/api-client');
+      const [monData, provData] = await Promise.all([
+        apiFetch<MonitoringData>('/api/monitoring/tickets'),
+        apiFetch<{ providers: ProviderRow[] }>('/api/settings/providers'),
+      ]);
+      setMonitoringData(monData);
+      setProviders(provData.providers ?? []);
+    } catch (e) {
+      setMonitoringError((e as Error).message);
+    } finally {
+      setLoadingMonitoring(false);
+    }
+  }
+
+  useEffect(() => {
+    if (!agencyId || activeTab !== 'monitoring') return;
+    void loadMonitoring();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [agencyId, activeTab]);
 
@@ -2259,6 +2302,212 @@ export default function SettingsPage() {
                       : 'Adding or editing provider credentials requires admin or owner role.'}
                   </p>
                 </div>
+              )}
+            </div>
+          )}
+
+          {/* ── Monitoring ───────────────────────────────────────────────── */}
+          {activeTab === 'monitoring' && (
+            <div className="space-y-5">
+              {/* Refresh bar */}
+              <div className="flex items-center justify-between">
+                <p className="text-xs text-slate-500">
+                  {isAr ? 'آخر تحديث: الآن' : 'Last refreshed: now'}
+                </p>
+                <button
+                  onClick={() => void loadMonitoring()}
+                  disabled={loadingMonitoring}
+                  className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 disabled:opacity-50 transition-colors"
+                >
+                  <RefreshCw size={12} className={loadingMonitoring ? 'animate-spin' : ''} />
+                  {isAr ? 'تحديث' : 'Refresh'}
+                </button>
+              </div>
+
+              {loadingMonitoring ? (
+                <div className="py-16 flex justify-center"><Spinner size="sm" /></div>
+              ) : monitoringError ? (
+                <div className="py-10 flex flex-col items-center gap-2 text-sm text-red-600">
+                  <AlertTriangle size={20} />
+                  {monitoringError}
+                </div>
+              ) : (
+                <>
+                  {/* Provider Health */}
+                  <Card>
+                    <CardHeader>
+                      <CardTitle>{isAr ? 'حالة المزودين' : 'Provider Health'}</CardTitle>
+                      <button
+                        onClick={() => setActiveTab('providers')}
+                        className="text-xs text-brand-600 hover:underline"
+                      >
+                        {isAr ? 'إعداد المزودين' : 'Configure'}
+                      </button>
+                    </CardHeader>
+                    {providers.length === 0 ? (
+                      <div className="py-8 text-center">
+                        <Server size={28} className="mx-auto text-slate-300 mb-3" />
+                        <p className="text-sm text-slate-500">{isAr ? 'لم يتم إعداد أي مزود' : 'No providers configured'}</p>
+                      </div>
+                    ) : (
+                      <div className="divide-y divide-surface-border">
+                        {providers.map(p => (
+                          <div key={p.id} className="flex items-center justify-between py-3.5">
+                            <div className="flex items-center gap-3 min-w-0">
+                              <div className={cn(
+                                'w-2.5 h-2.5 rounded-full flex-shrink-0',
+                                p.testStatus === 'success' ? 'bg-emerald-400' :
+                                p.testStatus === 'failed'  ? 'bg-red-400'     : 'bg-slate-300',
+                              )} />
+                              <div className="min-w-0">
+                                <p className="text-sm font-medium text-slate-900">{p.label || p.providerCode.toUpperCase()}</p>
+                                <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+                                  {p.testStatus === 'success' && (
+                                    <span className="text-[10px] text-emerald-700 flex items-center gap-0.5">
+                                      <Wifi size={9} />{isAr ? 'متصل' : 'Connected'}
+                                    </span>
+                                  )}
+                                  {p.testStatus === 'failed' && (
+                                    <span className="text-[10px] text-red-600 flex items-center gap-0.5">
+                                      <WifiOff size={9} />{isAr ? 'فشل الاتصال' : 'Connection failed'}
+                                    </span>
+                                  )}
+                                  {!p.testStatus && (
+                                    <span className="text-[10px] text-slate-400">{isAr ? 'لم يختبر بعد' : 'Never tested'}</span>
+                                  )}
+                                  {p.testedAt && (
+                                    <span className="text-[10px] text-slate-400">
+                                      {isAr ? 'آخر اختبار:' : 'Tested:'} {new Date(p.testedAt).toLocaleString(isAr ? 'ar-SA' : 'en-US')}
+                                    </span>
+                                  )}
+                                </div>
+                                {p.testStatus === 'failed' && p.testError && (
+                                  <p className="text-[10px] text-red-500 mt-0.5 max-w-xs truncate" title={p.testError}>{p.testError}</p>
+                                )}
+                              </div>
+                            </div>
+                            <button
+                              onClick={() => void handleTestProvider(p.id)}
+                              disabled={testingId === p.id || !p.isActive}
+                              className="text-xs px-2.5 py-1.5 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 disabled:opacity-40 flex items-center gap-1.5 flex-shrink-0 transition-colors"
+                            >
+                              {testingId === p.id ? <Spinner size="sm" /> : <RefreshCw size={11} />}
+                              {isAr ? 'اختبار' : 'Test'}
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </Card>
+
+                  {/* Ticket Health Summary */}
+                  {monitoringData && (() => {
+                    const totalPending = Object.values(monitoringData.statusCounts).reduce((s, n) => s + n, 0);
+                    return (
+                      <>
+                        {/* Stat cards */}
+                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                          <div className={cn('p-4 rounded-xl border', totalPending > 0 ? 'bg-amber-50 border-amber-200' : 'bg-slate-50 border-slate-200')}>
+                            <p className={cn('text-2xl font-bold', totalPending > 0 ? 'text-amber-700' : 'text-slate-700')}>{totalPending}</p>
+                            <p className="text-xs text-slate-500 mt-0.5">{isAr ? 'تذكرة معلقة' : 'Pending tickets'}</p>
+                          </div>
+                          <div className={cn('p-4 rounded-xl border', monitoringData.orphanCount > 0 ? 'bg-red-50 border-red-200' : 'bg-slate-50 border-slate-200')}>
+                            <p className={cn('text-2xl font-bold', monitoringData.orphanCount > 0 ? 'text-red-600' : 'text-slate-700')}>{monitoringData.orphanCount}</p>
+                            <p className="text-xs text-slate-500 mt-0.5">{isAr ? 'تذكرة يتيمة' : 'Orphan tickets'}</p>
+                          </div>
+                          <div className="p-4 rounded-xl border bg-slate-50 border-slate-200">
+                            <p className="text-2xl font-bold text-slate-700">{monitoringData.statusCounts['pending_void'] ?? 0}</p>
+                            <p className="text-xs text-slate-500 mt-0.5">{isAr ? 'إلغاء قيد' : 'Voiding'}</p>
+                          </div>
+                          <div className="p-4 rounded-xl border bg-slate-50 border-slate-200">
+                            <p className="text-2xl font-bold text-slate-700">{monitoringData.statusCounts['pending_refund'] ?? 0}</p>
+                            <p className="text-xs text-slate-500 mt-0.5">{isAr ? 'استرداد قيد' : 'Refunding'}</p>
+                          </div>
+                        </div>
+
+                        {/* Orphan warning */}
+                        {monitoringData.orphanCount > 0 && (
+                          <div className="flex items-start gap-3 p-4 rounded-xl bg-red-50 border border-red-200">
+                            <AlertTriangle size={16} className="text-red-600 flex-shrink-0 mt-0.5" />
+                            <div>
+                              <p className="text-sm font-semibold text-red-800">
+                                {isAr
+                                  ? `${monitoringData.orphanCount} تذكرة يتيمة تحتاج مراجعة يدوية`
+                                  : `${monitoringData.orphanCount} orphan ticket${monitoringData.orphanCount !== 1 ? 's' : ''} require manual review`}
+                              </p>
+                              <p className="text-xs text-red-600 mt-0.5">
+                                {isAr
+                                  ? 'استنفدت هذه التذاكر محاولات المصالحة التلقائية (≥ 20). يلزم التدخل اليدوي.'
+                                  : 'These tickets exhausted automatic reconciliation (≥ 20 attempts). Manual intervention required.'}
+                              </p>
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Stalled by credential */}
+                        {monitoringData.stalledByCredential.length > 0 && (
+                          <Card>
+                            <CardHeader>
+                              <CardTitle>{isAr ? 'التذاكر المعلقة حسب المزود' : 'Stalled Tickets by Provider'}</CardTitle>
+                            </CardHeader>
+                            <div className="divide-y divide-surface-border">
+                              {monitoringData.stalledByCredential.map((sc, i) => (
+                                <div key={i} className="flex items-center justify-between py-3">
+                                  <div>
+                                    <p className="text-sm font-medium text-slate-900">
+                                      {sc.label ?? sc.providerCode ?? (isAr ? 'مزود غير معروف' : 'Unknown provider')}
+                                    </p>
+                                    <p className="text-xs text-slate-400 mt-0.5">{sc.providerCode}</p>
+                                  </div>
+                                  <div className="flex items-center gap-5 text-end">
+                                    <div>
+                                      <p className="text-base font-bold text-amber-600">{sc.affectedTickets}</p>
+                                      <p className="text-[10px] text-slate-400">{isAr ? 'تذكرة' : 'tickets'}</p>
+                                    </div>
+                                    <div>
+                                      <p className={cn('text-base font-bold', sc.maxAttempts >= 20 ? 'text-red-600' : 'text-slate-600')}>
+                                        {sc.maxAttempts}
+                                      </p>
+                                      <p className="text-[10px] text-slate-400">{isAr ? 'أقصى محاولة' : 'max attempts'}</p>
+                                    </div>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          </Card>
+                        )}
+
+                        {/* All clear */}
+                        {totalPending === 0 && monitoringData.orphanCount === 0 && (
+                          <div className="py-10 flex flex-col items-center gap-2">
+                            <CheckCircle2 size={36} className="text-emerald-400" />
+                            <p className="text-sm font-medium text-emerald-700">
+                              {isAr ? 'جميع التذاكر بحالة سليمة' : 'All tickets are healthy'}
+                            </p>
+                          </div>
+                        )}
+                      </>
+                    );
+                  })()}
+
+                  {/* Quick links */}
+                  <div className="flex gap-4 flex-wrap pt-1">
+                    <a
+                      href={`/${locale}/tickets`}
+                      className="flex items-center gap-1 text-sm text-brand-600 hover:text-brand-700 font-medium"
+                    >
+                      {isAr ? 'عرض جميع التذاكر' : 'View all tickets'}
+                      <ChevronRight size={14} className={isAr ? 'rotate-180' : ''} />
+                    </a>
+                    <button
+                      onClick={() => setActiveTab('providers')}
+                      className="flex items-center gap-1 text-sm text-slate-500 hover:text-slate-700 font-medium"
+                    >
+                      {isAr ? 'إعداد المزودين' : 'Configure providers'}
+                      <ChevronRight size={14} className={isAr ? 'rotate-180' : ''} />
+                    </button>
+                  </div>
+                </>
               )}
             </div>
           )}
