@@ -41,6 +41,12 @@ import {
   Mountain,
   Pencil,
   X,
+  Server,
+  RefreshCw,
+  Eye,
+  EyeOff,
+  Wifi,
+  WifiOff,
 } from 'lucide-react';
 import { InviteUserModal } from '@/components/settings/InviteUserModal';
 import { useSubscription } from '@/providers/SubscriptionProvider';
@@ -48,7 +54,7 @@ import { MessageCircle } from 'lucide-react';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
-type Tab = 'agency' | 'users' | 'modules' | 'zatca' | 'billing' | 'service_types';
+type Tab = 'agency' | 'users' | 'modules' | 'zatca' | 'billing' | 'service_types' | 'providers';
 
 // ─── Tab definitions ─────────────────────────────────────────────────────────
 
@@ -59,6 +65,7 @@ const ALL_TABS: Array<{ key: Tab; ar: string; en: string; icon: React.ReactNode;
   { key: 'service_types', ar: 'أنواع الخدمات',    en: 'Service Types',  icon: <Layers size={16} /> },
   { key: 'zatca',         ar: 'ZATCA',            en: 'ZATCA',          icon: <Shield size={16} />, vatOnly: true },
   { key: 'billing',       ar: 'الاشتراك',         en: 'Billing',        icon: <CreditCard size={16} /> },
+  { key: 'providers',     ar: 'مزودو GDS',        en: 'GDS Providers',  icon: <Server size={16} /> },
 ];
 
 // ─── Module definitions ───────────────────────────────────────────────────────
@@ -334,7 +341,7 @@ export default function SettingsPage() {
 
   // Support ?tab=service_types URL param
   const tabParam = searchParams.get('tab') as Tab | null;
-  const validTabs: Tab[] = ['agency', 'users', 'modules', 'service_types', 'zatca', 'billing'];
+  const validTabs: Tab[] = ['agency', 'users', 'modules', 'service_types', 'zatca', 'billing', 'providers'];
   const initialTab: Tab = tabParam && validTabs.includes(tabParam) ? tabParam : 'agency';
 
   const [activeTab, setActiveTab] = useState<Tab>(initialTab);
@@ -402,6 +409,28 @@ export default function SettingsPage() {
   const [usersCount, setUsersCount]       = useState<number | null>(null);
   const [bookingsCount, setBookingsCount] = useState<number | null>(null);
 
+  // ── Role helpers ────────────────────────────────────────────────────────
+  const isAdmin = ['owner', 'admin'].includes(user?.claims.role ?? '');
+
+  // ── Providers (GDS credentials) ─────────────────────────────────────────
+  type ProviderRow = {
+    id: string; providerCode: string; label: string | null; isActive: boolean;
+    testedAt: string | null; testStatus: string | null; testError: string | null;
+  };
+  const [providers,        setProviders]        = useState<ProviderRow[]>([]);
+  const [loadingProviders, setLoadingProviders] = useState(false);
+  const [providerError,    setProviderError]    = useState('');
+  const [testingId,        setTestingId]        = useState<string | null>(null);
+  // form state
+  const [showProviderForm, setShowProviderForm] = useState(false);
+  const [editingProvider,  setEditingProvider]  = useState<ProviderRow | null>(null);
+  const [providerForm,     setProviderForm]     = useState({
+    providerCode: 'amadeus', label: '',
+    clientId: '', clientSecret: '', hostname: 'test.api.amadeus.com',
+  });
+  const [showSecret,    setShowSecret]    = useState(false);
+  const [providerSaving, setProviderSaving] = useState(false);
+
   // Load all agency info from REST API
   useEffect(() => {
     if (!agencyId) return;
@@ -454,6 +483,83 @@ export default function SettingsPage() {
     }
     void load();
   }, [agencyId, activeTab]);
+
+  // ── Providers: load, test, save, delete ─────────────────────────────────
+  async function loadProviders() {
+    if (!agencyId) return;
+    setLoadingProviders(true);
+    setProviderError('');
+    try {
+      const { apiFetch } = await import('@/lib/api-client');
+      const data = await apiFetch<{ providers: ProviderRow[] }>('/api/settings/providers');
+      setProviders(data.providers ?? []);
+    } catch { setProviderError(isAr ? 'فشل تحميل المزودين' : 'Failed to load providers'); }
+    finally  { setLoadingProviders(false); }
+  }
+
+  useEffect(() => {
+    if (!agencyId || activeTab !== 'providers') return;
+    void loadProviders();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [agencyId, activeTab]);
+
+  async function handleTestProvider(id: string) {
+    setTestingId(id);
+    try {
+      const { apiFetch } = await import('@/lib/api-client');
+      await apiFetch(`/api/settings/providers/${id}/test`, { method: 'POST' });
+      await loadProviders();
+    } catch (e) {
+      await loadProviders();
+      console.error(e);
+    } finally { setTestingId(null); }
+  }
+
+  async function handleDeleteProvider(id: string) {
+    const msg = isAr ? 'هل أنت متأكد من حذف هذا المزود؟' : 'Delete this provider credential?';
+    if (!confirm(msg)) return;
+    try {
+      const { apiFetch } = await import('@/lib/api-client');
+      await apiFetch(`/api/settings/providers/${id}`, { method: 'DELETE' });
+      await loadProviders();
+    } catch { setProviderError(isAr ? 'فشل الحذف' : 'Delete failed'); }
+  }
+
+  function openAddProvider() {
+    setEditingProvider(null);
+    setProviderForm({ providerCode: 'amadeus', label: '', clientId: '', clientSecret: '', hostname: 'test.api.amadeus.com' });
+    setShowSecret(false);
+    setShowProviderForm(true);
+  }
+
+  function openEditProvider(p: ProviderRow) {
+    setEditingProvider(p);
+    setProviderForm({ providerCode: p.providerCode, label: p.label ?? '', clientId: '', clientSecret: '', hostname: 'test.api.amadeus.com' });
+    setShowSecret(false);
+    setShowProviderForm(true);
+  }
+
+  async function handleSaveProvider() {
+    setProviderSaving(true);
+    setProviderError('');
+    try {
+      const { apiFetch } = await import('@/lib/api-client');
+      const credentials = providerForm.providerCode === 'amadeus'
+        ? { clientId: providerForm.clientId, clientSecret: providerForm.clientSecret, hostname: providerForm.hostname }
+        : {};
+      if (editingProvider) {
+        const patch: Record<string, unknown> = { label: providerForm.label || null };
+        if (providerForm.clientId || providerForm.clientSecret) patch.credentials = credentials;
+        await apiFetch(`/api/settings/providers/${editingProvider.id}`, { method: 'PATCH', body: JSON.stringify(patch) });
+      } else {
+        await apiFetch('/api/settings/providers', { method: 'POST', body: JSON.stringify({ providerCode: providerForm.providerCode, label: providerForm.label || null, credentials }) });
+      }
+      setShowProviderForm(false);
+      await loadProviders();
+    } catch (e) {
+      setProviderError((e as Error).message ?? (isAr ? 'فشل الحفظ' : 'Save failed'));
+    } finally { setProviderSaving(false); }
+  }
 
   // Load custom service types from REST API
   useEffect(() => {
@@ -1925,6 +2031,237 @@ export default function SettingsPage() {
               </div>
             );
           })()}
+
+          {/* ── GDS Providers ────────────────────────────────────────────── */}
+          {activeTab === 'providers' && (
+            <div className="space-y-4">
+              <Card>
+                <CardHeader>
+                  <CardTitle>{isAr ? 'مزودو GDS' : 'GDS Providers'}</CardTitle>
+                  {isAdmin && !showProviderForm && (
+                    <Button size="sm" onClick={openAddProvider}>
+                      <Plus size={14} />
+                      {isAr ? 'إضافة مزود' : 'Add Provider'}
+                    </Button>
+                  )}
+                </CardHeader>
+
+                {/* ── Add / Edit form ── */}
+                {showProviderForm && (
+                  <div className="mb-5 p-4 rounded-xl border border-brand-200 bg-brand-50/40 space-y-3">
+                    <p className="text-sm font-semibold text-slate-800">
+                      {editingProvider
+                        ? (isAr ? 'تعديل المزود' : 'Edit Provider')
+                        : (isAr ? 'إضافة مزود جديد' : 'Add New Provider')}
+                    </p>
+
+                    {/* Provider Code — only on Add */}
+                    {!editingProvider && (
+                      <div>
+                        <label className="block text-xs font-medium text-slate-600 mb-1">
+                          {isAr ? 'المزود' : 'Provider'}
+                        </label>
+                        <select
+                          value={providerForm.providerCode}
+                          onChange={e => setProviderForm(f => ({ ...f, providerCode: e.target.value }))}
+                          className="w-full text-sm border border-slate-200 rounded-lg px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-brand-400"
+                        >
+                          <option value="amadeus">Amadeus</option>
+                          <option value="sabre">Sabre</option>
+                          <option value="galileo">Galileo</option>
+                          <option value="worldspan">Worldspan</option>
+                        </select>
+                      </div>
+                    )}
+
+                    {/* Label */}
+                    <div>
+                      <label className="block text-xs font-medium text-slate-600 mb-1">
+                        {isAr ? 'الاسم التعريفي (اختياري)' : 'Label (optional)'}
+                      </label>
+                      <Input
+                        value={providerForm.label}
+                        onChange={e => setProviderForm(f => ({ ...f, label: e.target.value }))}
+                        placeholder={isAr ? 'مثال: Amadeus إنتاج' : 'e.g. Amadeus Production'}
+                      />
+                    </div>
+
+                    {/* Amadeus-specific fields */}
+                    {providerForm.providerCode === 'amadeus' && (
+                      <>
+                        <div>
+                          <label className="block text-xs font-medium text-slate-600 mb-1">
+                            Client ID
+                            {editingProvider && <span className="text-slate-400 ms-1">({isAr ? 'اتركه فارغاً للإبقاء على القديم' : 'leave blank to keep current'})</span>}
+                          </label>
+                          <Input
+                            value={providerForm.clientId}
+                            onChange={e => setProviderForm(f => ({ ...f, clientId: e.target.value }))}
+                            placeholder="Client ID"
+                            dir="ltr"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-medium text-slate-600 mb-1">
+                            Client Secret
+                            {editingProvider && <span className="text-slate-400 ms-1">({isAr ? 'اتركه فارغاً للإبقاء على القديم' : 'leave blank to keep current'})</span>}
+                          </label>
+                          <div className="relative">
+                            <Input
+                              type={showSecret ? 'text' : 'password'}
+                              value={providerForm.clientSecret}
+                              onChange={e => setProviderForm(f => ({ ...f, clientSecret: e.target.value }))}
+                              placeholder="Client Secret"
+                              dir="ltr"
+                              className="pe-10"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => setShowSecret(s => !s)}
+                              className="absolute end-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                            >
+                              {showSecret ? <EyeOff size={15} /> : <Eye size={15} />}
+                            </button>
+                          </div>
+                        </div>
+                        <div>
+                          <label className="block text-xs font-medium text-slate-600 mb-1">
+                            {isAr ? 'البيئة' : 'Environment'}
+                          </label>
+                          <select
+                            value={providerForm.hostname}
+                            onChange={e => setProviderForm(f => ({ ...f, hostname: e.target.value }))}
+                            className="w-full text-sm border border-slate-200 rounded-lg px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-brand-400"
+                            dir="ltr"
+                          >
+                            <option value="test.api.amadeus.com">Test — test.api.amadeus.com</option>
+                            <option value="api.amadeus.com">Production — api.amadeus.com</option>
+                          </select>
+                        </div>
+                      </>
+                    )}
+
+                    {providerError && (
+                      <p className="text-xs text-red-600">{providerError}</p>
+                    )}
+
+                    <div className="flex gap-2 pt-1">
+                      <Button size="sm" onClick={handleSaveProvider} disabled={providerSaving}>
+                        {providerSaving ? <Spinner size="sm" /> : null}
+                        {isAr ? 'حفظ' : 'Save'}
+                      </Button>
+                      <Button size="sm" variant="outline" onClick={() => { setShowProviderForm(false); setProviderError(''); }}>
+                        {isAr ? 'إلغاء' : 'Cancel'}
+                      </Button>
+                    </div>
+                  </div>
+                )}
+
+                {/* ── Providers list ── */}
+                {loadingProviders ? (
+                  <div className="py-8 flex justify-center"><Spinner size="sm" /></div>
+                ) : providers.length === 0 ? (
+                  <div className="py-10 text-center">
+                    <Server size={32} className="mx-auto text-slate-300 mb-3" />
+                    <p className="text-sm text-slate-500">
+                      {isAr ? 'لم يتم إضافة أي مزود بعد' : 'No providers configured yet'}
+                    </p>
+                    <p className="text-xs text-slate-400 mt-1">
+                      {isAr ? 'أضف بيانات Amadeus للبدء في إصدار التذاكر' : 'Add Amadeus credentials to start issuing tickets'}
+                    </p>
+                  </div>
+                ) : (
+                  <div className="divide-y divide-surface-border">
+                    {providers.map(p => (
+                      <div key={p.id} className="flex items-start justify-between py-4 gap-4">
+                        <div className="flex items-start gap-3 min-w-0">
+                          <div className="w-9 h-9 rounded-lg bg-brand-50 flex items-center justify-center flex-shrink-0">
+                            <Server size={16} className="text-brand-600" />
+                          </div>
+                          <div className="min-w-0">
+                            <p className="text-sm font-semibold text-slate-900">
+                              {p.label || p.providerCode.toUpperCase()}
+                            </p>
+                            <p className="text-xs text-slate-400 mt-0.5">{p.providerCode}</p>
+                            <div className="flex items-center gap-2 mt-1.5 flex-wrap">
+                              {p.isActive
+                                ? <span className="text-[10px] bg-emerald-50 text-emerald-700 px-1.5 py-0.5 rounded-full font-medium">{isAr ? 'نشط' : 'Active'}</span>
+                                : <span className="text-[10px] bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded-full font-medium">{isAr ? 'معطّل' : 'Inactive'}</span>}
+                              {p.testStatus === 'success' && (
+                                <span className="text-[10px] bg-emerald-50 text-emerald-700 px-1.5 py-0.5 rounded-full font-medium flex items-center gap-1">
+                                  <Wifi size={9} />{isAr ? 'متصل' : 'Connected'}
+                                </span>
+                              )}
+                              {p.testStatus === 'failed' && (
+                                <span className="text-[10px] bg-red-50 text-red-600 px-1.5 py-0.5 rounded-full font-medium flex items-center gap-1">
+                                  <WifiOff size={9} />{isAr ? 'فشل الاتصال' : 'Failed'}
+                                </span>
+                              )}
+                              {p.testedAt && (
+                                <span className="text-[10px] text-slate-400">
+                                  {isAr ? 'آخر اختبار:' : 'Tested:'} {new Date(p.testedAt).toLocaleDateString(isAr ? 'ar-SA' : 'en-US')}
+                                </span>
+                              )}
+                            </div>
+                            {p.testStatus === 'failed' && p.testError && (
+                              <p className="text-[10px] text-red-500 mt-1 max-w-xs truncate" title={p.testError}>{p.testError}</p>
+                            )}
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-1.5 flex-shrink-0">
+                          <button
+                            onClick={() => handleTestProvider(p.id)}
+                            disabled={testingId === p.id || !p.isActive}
+                            className="text-xs px-2.5 py-1.5 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 disabled:opacity-40 flex items-center gap-1.5 transition-colors"
+                          >
+                            {testingId === p.id
+                              ? <Spinner size="sm" />
+                              : <RefreshCw size={11} />}
+                            {isAr ? 'اختبار' : 'Test'}
+                          </button>
+                          {isAdmin && (
+                            <>
+                              <button
+                                onClick={() => openEditProvider(p)}
+                                className="p-1.5 rounded-lg border border-slate-200 text-slate-500 hover:bg-slate-50 transition-colors"
+                                title={isAr ? 'تعديل' : 'Edit'}
+                              >
+                                <Pencil size={13} />
+                              </button>
+                              <button
+                                onClick={() => void handleDeleteProvider(p.id)}
+                                className="p-1.5 rounded-lg border border-red-100 text-red-400 hover:bg-red-50 transition-colors"
+                                title={isAr ? 'حذف' : 'Delete'}
+                              >
+                                <Trash2 size={13} />
+                              </button>
+                            </>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {providerError && !showProviderForm && (
+                  <p className="mt-3 text-xs text-red-600 flex items-center gap-1">
+                    <AlertTriangle size={12} />{providerError}
+                  </p>
+                )}
+              </Card>
+
+              {/* ── Note for non-admins ── */}
+              {!isAdmin && (
+                <div className="p-4 rounded-xl bg-amber-50 border border-amber-200">
+                  <p className="text-xs text-amber-700">
+                    {isAr
+                      ? 'إضافة أو تعديل بيانات المزود متاحة للمشرف والمالك فقط.'
+                      : 'Adding or editing provider credentials requires admin or owner role.'}
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
 
         </div>
       </div>
