@@ -309,7 +309,7 @@ export function InvoiceDetailClient({ locale, invoiceId }: InvoiceDetailClientPr
             <CardTitle>
               <div className="flex items-center gap-2">
                 <Building2 size={16} className="text-brand-600" />
-                {isAr ? 'بيانات البائع' : 'Seller Details'}
+                {isAr ? 'بيانات المورد' : 'Supplier Details'}
               </div>
             </CardTitle>
           </CardHeader>
@@ -342,7 +342,7 @@ export function InvoiceDetailClient({ locale, invoiceId }: InvoiceDetailClientPr
             )}
             {!sellerNameAr && !sellerNameEn && (
               <p className="text-xs text-slate-400 italic">
-                {isAr ? 'أضف بيانات الوكالة من الإعدادات' : 'Add agency info from Settings'}
+                {isAr ? 'أضف بيانات الوكالة من الإعدادات أو حدّد المورد عند إنشاء الفاتورة' : 'Add agency info from Settings or specify supplier when creating the invoice'}
               </p>
             )}
 

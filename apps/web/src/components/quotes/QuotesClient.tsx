@@ -21,9 +21,10 @@ import {
 type QuoteStatus = 'draft' | 'sent' | 'accepted' | 'rejected' | 'expired' | 'converted';
 
 interface QuoteItem {
-  serviceType: string;
-  description: string;
-  quantity: number;
+  serviceType:  string;
+  customLabel?: string;  // used when serviceType === 'other'
+  description:  string;
+  quantity:     number;
   unitPriceSAR: number;
 }
 
@@ -132,7 +133,7 @@ function QuoteRow({ q, isAr, fmtLocale, locale, onStatusChange }: {
           <span className="text-xs text-slate-500">
             {q.items.slice(0, 2).map(i => {
               const st = SERVICE_TYPES.find(s => s.key === i.serviceType);
-              return isAr ? st?.ar : st?.en;
+              return i.customLabel || (isAr ? st?.ar : st?.en) || i.serviceType;
             }).join(' + ')}
             {q.items.length > 2 && ` +${q.items.length - 2}`}
           </span>
@@ -171,7 +172,7 @@ function QuoteRow({ q, isAr, fmtLocale, locale, onStatusChange }: {
                       return (
                         <tr key={idx} className="border-b border-slate-100 last:border-0">
                           <td className="ps-10 pe-4 py-2.5">
-                            <p className="text-sm font-semibold text-slate-700">{isAr ? st?.ar : st?.en}</p>
+                            <p className="text-sm font-semibold text-slate-700">{item.customLabel || (isAr ? st?.ar : st?.en) || item.serviceType}</p>
                             {item.description && <p className="text-xs text-slate-400 mt-0.5">{item.description}</p>}
                           </td>
                           <td className="px-4 py-2.5 text-end text-sm text-slate-700 tabular-nums">{item.quantity}</td>
@@ -417,6 +418,15 @@ function NewQuoteModal({ isAr, onClose, onSave }: {
                           className="w-full border border-slate-200 rounded-md px-2 py-1.5 text-xs text-slate-800 bg-white focus:outline-none focus:ring-1 focus:ring-brand-400">
                           {SERVICE_TYPES.map(s => <option key={s.key} value={s.key}>{isAr ? s.ar : s.en}</option>)}
                         </select>
+                        {item.serviceType === 'other' && (
+                          <input
+                            value={item.customLabel ?? ''}
+                            onChange={e => updateItem(idx, 'customLabel', e.target.value)}
+                            placeholder={isAr ? 'اسم الخدمة…' : 'Service name…'}
+                            dir={isAr ? 'rtl' : 'ltr'}
+                            className="mt-1 w-full border border-brand-300 rounded-md px-2 py-1.5 text-xs text-slate-800 bg-brand-50 focus:outline-none focus:ring-1 focus:ring-brand-400"
+                          />
+                        )}
                       </td>
                       <td className="px-2 py-2">
                         <input value={item.description} onChange={e => updateItem(idx, 'description', e.target.value)}
