@@ -1822,7 +1822,7 @@ export default function SettingsPage() {
               }
               if (isLifetime)  return isAr ? 'اشتراك مدى الحياة — لا تنتهي صلاحيته' : 'Lifetime subscription — never expires';
               if (subStatus === 'active')  return isAr ? 'اشتراك نشط' : 'Active subscription';
-              if (isBlocked)   return isAr ? 'يرجى التواصل مع الإدارة لتفعيل الاشتراك' : 'Contact admin to reactivate your subscription';
+              if (isBlocked)   return isAr ? 'تواصل مع فريق المبيعات لتفعيل اشتراكك' : 'Contact our sales team to activate your subscription';
               return '';
             })();
 
@@ -1890,7 +1890,7 @@ export default function SettingsPage() {
                         className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-bold transition-colors"
                       >
                         <MessageCircle size={16} />
-                        {isAr ? 'تواصل مع الإدارة' : 'Contact Admin'}
+                        {isAr ? 'تواصل لتفعيل اشتراكك' : 'Activate Your Subscription'}
                       </a>
                     </div>
                   )}

@@ -52,8 +52,8 @@ export function SubscriptionExpiredOverlay() {
         </p>
         <p className="text-slate-300 text-base font-semibold mb-8">
           {isAr
-            ? 'يرجى التواصل مع الإدارة لتفعيل الاشتراك'
-            : 'Please contact the administration to activate your subscription'}
+            ? 'تواصل مع فريق المبيعات لتفعيل اشتراكك'
+            : 'Contact our sales team to activate your subscription'}
         </p>
 
         {/* Agency name */}

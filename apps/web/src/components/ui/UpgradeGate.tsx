@@ -54,7 +54,7 @@ export function UpgradeGate({ feature, children }: UpgradeGateProps) {
             className="flex items-center justify-center gap-2 px-5 py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold rounded-xl transition-colors"
           >
             <MessageCircle size={18} />
-            {isAr ? 'تواصل مع الإدارة' : 'Contact Admin'}
+            {isAr ? 'تواصل لتفعيل اشتراكك' : 'Activate Your Subscription'}
           </a>
 
           <Link
