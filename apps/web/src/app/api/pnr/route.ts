@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { eq, and, desc, or, ilike } from 'drizzle-orm';
+import { eq, and, desc, or, ilike, isNull } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { pnrRecords } from '@/lib/schema';
 import { verifyAuth, ApiAuthError } from '@/lib/api-auth';
@@ -13,7 +13,11 @@ export async function GET(request: Request) {
     const status   = url.searchParams.get('status')     ?? undefined;
     const customerId = url.searchParams.get('customerId') ?? undefined;
 
-    const conditions = [eq(pnrRecords.agencyId, agencyId)];
+    const showDeleted = url.searchParams.get('deleted') === 'true';
+    const conditions = [
+      eq(pnrRecords.agencyId, agencyId),
+      ...(showDeleted ? [] : [isNull(pnrRecords.deletedAt)]),
+    ];
     if (status)     conditions.push(eq(pnrRecords.status, status));
     if (customerId) conditions.push(eq(pnrRecords.customerId, customerId));
     if (search) {
@@ -88,7 +92,7 @@ export async function POST(request: Request) {
       totalHalalas:   body.totalHalalas   ?? 0,
       bookingId:      body.bookingId      ?? null,
       customerId:     body.customerId     ?? null,
-      expiresAt:      body.expiresAt      ?? null,
+      expiresAt:      body.expiresAt ? new Date(body.expiresAt) : null,
       notes:          body.notes          ?? null,
       createdBy:      uid,
     });

@@ -11,9 +11,10 @@
     "test:e2e": "playwright test",
     "test:e2e:ui": "playwright test --ui",
     "test:e2e:report": "playwright show-report",
-    "db:push": "drizzle-kit push",
-    "db:studio": "drizzle-kit studio",
-    "db:generate": "drizzle-kit generate"
+    "db:push": "echo 'WARNING: db:push is for local dev only — never run against production. Use db:migrate instead.' && drizzle-kit push",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "drizzle-kit migrate",
+    "db:studio": "drizzle-kit studio"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.9.0",
