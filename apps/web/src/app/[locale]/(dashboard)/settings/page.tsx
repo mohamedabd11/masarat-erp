@@ -389,6 +389,7 @@ export default function SettingsPage() {
   const [postalCode, setPostalCode] = useState('');
   const [contactEmail, setContactEmail] = useState('');
   const [contactPhone, setContactPhone] = useState('');
+  const [defaultQuoteTerms, setDefaultQuoteTerms] = useState('');
 
   // ── Service Types state ─────────────────────────────────────────────────
   const [tick, setTick] = useState(0);
@@ -467,6 +468,7 @@ export default function SettingsPage() {
       if (d.city)          setCity(d.city);
       setContactEmail(d.contactEmail ?? '');
       setContactPhone(d.contactPhone ?? '');
+      if (d.defaultQuoteTerms) setDefaultQuoteTerms(d.defaultQuoteTerms);
     }
 
     void loadAgency();
@@ -768,15 +770,16 @@ export default function SettingsPage() {
       await apiFetch('/api/settings', {
         method: 'PATCH',
         body: JSON.stringify({
-          nameAr:          nameAr.trim(),
-          nameEn:          nameEn.trim(),
+          nameAr:             nameAr.trim(),
+          nameEn:             nameEn.trim(),
           isVatRegistered,
-          vatNumber:       isVatRegistered ? vatNumber.trim() : '',
-          vatRate:         isVatRegistered ? vatRate : 0,
-          crNumber:        crNumber.trim(),
-          city:            city.trim(),
-          contactEmail:    contactEmail.trim(),
-          contactPhone:    contactPhone.trim(),
+          vatNumber:          isVatRegistered ? vatNumber.trim() : '',
+          vatRate:            isVatRegistered ? vatRate : 0,
+          crNumber:           crNumber.trim(),
+          city:               city.trim(),
+          contactEmail:       contactEmail.trim(),
+          contactPhone:       contactPhone.trim(),
+          defaultQuoteTerms:  defaultQuoteTerms.trim(),
         }),
       });
       setSaved(true);
@@ -951,13 +954,14 @@ export default function SettingsPage() {
                         </div>
                         <ul className="space-y-1">
                           {[
-                            isAr ? '✓ فاتورة ضريبية رسمية' : '✓ Official tax invoice',
-                            isAr ? '✓ QR code متوافق مع زاتكا' : '✓ ZATCA-compliant QR code',
-                            isAr ? '✓ قيد محاسبي مع ضريبة' : '✓ Journal entry with VAT',
-                            isAr ? '✓ تقرير ضريبة القيمة المضافة' : '✓ VAT report',
-                            isAr ? '✓ السجل التجاري + الرقم الضريبي' : '✓ CR + VAT numbers',
+                            { text: isAr ? '✓ فاتورة ضريبية رسمية'                      : '✓ Official tax invoice',          cls: 'text-slate-600' },
+                            { text: isAr ? '✓ QR code المرحلة الأولى (TLV)'             : '✓ QR code Phase 1 (TLV)',          cls: 'text-slate-600' },
+                            { text: isAr ? '✓ قيد محاسبي مع ضريبة'                      : '✓ Journal entry with VAT',         cls: 'text-slate-600' },
+                            { text: isAr ? '✓ تقرير ضريبة القيمة المضافة'               : '✓ VAT report',                    cls: 'text-slate-600' },
+                            { text: isAr ? '✓ السجل التجاري + الرقم الضريبي'            : '✓ CR + VAT numbers',              cls: 'text-slate-600' },
+                            { text: isAr ? '— زاتكا المرحلة الثانية: قريباً'            : '— ZATCA Phase 2: coming soon',    cls: 'text-amber-600 font-medium' },
                           ].map(f => (
-                            <li key={f} className="text-[11px] text-slate-600">{f}</li>
+                            <li key={f.text} className={`text-[11px] ${f.cls}`}>{f.text}</li>
                           ))}
                         </ul>
                       </div>
@@ -1090,6 +1094,28 @@ export default function SettingsPage() {
                       dir="ltr"
                     />
                   </div>
+                </div>
+
+                {/* Default quote terms */}
+                <div className="border-t border-surface-border pt-5">
+                  <p className="text-sm font-semibold text-slate-700 mb-1">
+                    {isAr ? 'الشروط والأحكام الافتراضية لعروض الأسعار' : 'Default Quote Terms & Conditions'}
+                  </p>
+                  <p className="text-xs text-slate-400 mb-3">
+                    {isAr
+                      ? 'تُعبَّأ تلقائياً في كل عرض سعر جديد ويمكن تعديلها عند الحاجة'
+                      : 'Auto-filled in every new quotation and can be edited per quote'}
+                  </p>
+                  <textarea
+                    value={defaultQuoteTerms}
+                    onChange={e => setDefaultQuoteTerms(e.target.value)}
+                    rows={5}
+                    dir={isAr ? 'rtl' : 'ltr'}
+                    placeholder={isAr
+                      ? '• العرض صالح حتى تاريخ الانتهاء المحدد\n• الأسعار بالريال السعودي\n• يُرجى التأكيد خطياً لحجز هذا العرض\n• شروط الإلغاء وفق سياسة المورد'
+                      : '• Quote valid until the expiry date stated above\n• Prices in SAR\n• Written confirmation required to book\n• Cancellation terms apply per supplier policy'}
+                    className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-brand-500 resize-none"
+                  />
                 </div>
 
                 {/* Logo upload */}

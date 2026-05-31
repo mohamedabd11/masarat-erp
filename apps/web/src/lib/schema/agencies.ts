@@ -35,6 +35,7 @@ export const agencies = pgTable('agencies', {
   smtpFromName:       text('smtp_from_name'),
   smtpFromEmail:      text('smtp_from_email'),
   smtpEncryption:     text('smtp_encryption').default('tls'),  // tls|ssl|none
+  defaultQuoteTerms:  text('default_quote_terms'),             // agency-level default T&C for quotations
   createdAt:          timestamp('created_at').notNull().defaultNow(),
   updatedAt:          timestamp('updated_at').notNull().defaultNow(),
 });

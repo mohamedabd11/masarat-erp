@@ -37,6 +37,7 @@ export async function PATCH(request: Request) {
       vatNumber: string; crNumber: string; isVatRegistered: boolean;
       vatRate: number; defaultCurrency: string; logoUrl: string;
       city: string; contactEmail: string; contactPhone: string; contactHours: string;
+      defaultQuoteTerms: string;
       // SMTP — only admin/owner may change
       smtpHost: string; smtpPort: number; smtpUser: string; smtpPassword: string;
       smtpFromName: string; smtpFromEmail: string; smtpEncryption: string;
@@ -73,6 +74,7 @@ export async function PATCH(request: Request) {
     const ALLOWED = [
       'nameAr','nameEn','phone','addressAr','vatNumber','crNumber','isVatRegistered',
       'vatRate','defaultCurrency','logoUrl','city','contactEmail','contactPhone','contactHours',
+      'defaultQuoteTerms',
       ...smtpFields,
     ] as const;
 

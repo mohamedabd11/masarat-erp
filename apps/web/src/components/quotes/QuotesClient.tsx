@@ -73,13 +73,13 @@ const SERVICE_TYPES = [
 const EMPTY_ITEM: QuoteItem = { serviceType: 'flight', description: '', quantity: 1, unitPriceSAR: 0 };
 
 const DEFAULT_TERMS_AR = `• العرض صالح حتى تاريخ الانتهاء المحدد أعلاه
-• الأسعار بالريال السعودي وتشمل ضريبة القيمة المضافة 15%
+• الأسعار بالريال السعودي
 • يُرجى التأكيد خطياً لحجز هذا العرض
 • قد تتغير الأسعار بعد انتهاء صلاحية العرض
 • شروط الإلغاء وفق سياسة المورد`;
 
 const DEFAULT_TERMS_EN = `• Quote valid until the expiry date stated above
-• Prices in SAR and include 15% VAT
+• Prices in SAR
 • Written confirmation required to proceed with booking
 • Prices subject to change after expiry
 • Cancellation terms apply per supplier policy`;
@@ -182,14 +182,18 @@ function QuoteRow({ q, isAr, fmtLocale, locale, onStatusChange }: {
                     })}
                   </tbody>
                   <tfoot>
-                    <tr className="bg-white border-t border-slate-200">
-                      <td colSpan={3} className="ps-10 pe-4 py-2 text-sm text-slate-500 text-end">{isAr ? 'الإجمالي قبل الضريبة' : 'Subtotal (excl. VAT)'}</td>
-                      <td className="pe-8 px-4 py-2 text-end text-sm font-mono tabular-nums text-slate-800">{formatCurrency(q.subtotalHalalas, fmtLocale)}</td>
-                    </tr>
-                    <tr className="bg-white">
-                      <td colSpan={3} className="ps-10 pe-4 py-2 text-sm text-slate-500 text-end">{isAr ? 'ضريبة القيمة المضافة (15%)' : 'VAT (15%)'}</td>
-                      <td className="pe-8 px-4 py-2 text-end text-sm font-mono tabular-nums text-slate-800">{formatCurrency(q.vatHalalas, fmtLocale)}</td>
-                    </tr>
+                    {q.vatHalalas > 0 && (
+                      <tr className="bg-white border-t border-slate-200">
+                        <td colSpan={3} className="ps-10 pe-4 py-2 text-sm text-slate-500 text-end">{isAr ? 'الإجمالي قبل الضريبة' : 'Subtotal (excl. VAT)'}</td>
+                        <td className="pe-8 px-4 py-2 text-end text-sm font-mono tabular-nums text-slate-800">{formatCurrency(q.subtotalHalalas, fmtLocale)}</td>
+                      </tr>
+                    )}
+                    {q.vatHalalas > 0 && (
+                      <tr className="bg-white">
+                        <td colSpan={3} className="ps-10 pe-4 py-2 text-sm text-slate-500 text-end">{isAr ? 'ضريبة القيمة المضافة' : 'VAT'}</td>
+                        <td className="pe-8 px-4 py-2 text-end text-sm font-mono tabular-nums text-slate-800">{formatCurrency(q.vatHalalas, fmtLocale)}</td>
+                      </tr>
+                    )}
                     <tr className="bg-brand-50 border-t border-brand-200">
                       <td colSpan={3} className="ps-10 pe-4 py-3 text-sm font-bold text-slate-900 text-end">{isAr ? 'الإجمالي الكلي' : 'Grand Total'}</td>
                       <td className="pe-8 px-4 py-3 text-end text-base font-black font-mono tabular-nums text-brand-700">{formatCurrency(q.grandTotalHalalas, fmtLocale)}</td>
@@ -284,10 +288,13 @@ function NewQuoteModal({ isAr, onClose, onSave }: {
     async function loadAgency() {
       try {
         const { apiFetch } = await import('@/lib/api-client');
-        const res = await apiFetch<{ agency: { isVatRegistered: boolean; vatRate?: number } }>('/api/settings');
+        const res = await apiFetch<{ agency: { isVatRegistered: boolean; vatRate?: number; defaultQuoteTerms?: string } }>('/api/settings');
         if (!cancelled) {
           setAgencyIsVat(res.agency.isVatRegistered === true);
           setAgencyVatRate(res.agency.vatRate ?? 15);
+          if (res.agency.defaultQuoteTerms?.trim()) {
+            setTerms(res.agency.defaultQuoteTerms.trim());
+          }
         }
       } catch { /* keep defaults */ }
     }
@@ -437,16 +444,22 @@ function NewQuoteModal({ isAr, onClose, onSave }: {
                   ))}
                 </tbody>
                 <tfoot>
-                  <tr className="bg-slate-50 border-t border-slate-200">
-                    <td colSpan={4} className="ps-4 pe-2 py-2 text-end text-xs text-slate-500">{isAr ? 'المجموع قبل الضريبة' : 'Subtotal (excl. VAT)'}</td>
-                    <td className="pe-4 px-2 py-2 text-end text-xs font-mono tabular-nums font-semibold text-slate-800">{formatCurrency(subtotalHalalas, fmtLocale)}</td>
-                    <td />
-                  </tr>
-                  <tr className="bg-slate-50">
-                    <td colSpan={4} className="ps-4 pe-2 py-2 text-end text-xs text-slate-500">{isAr ? 'ضريبة القيمة المضافة (15%)' : 'VAT (15%)'}</td>
-                    <td className="pe-4 px-2 py-2 text-end text-xs font-mono tabular-nums font-semibold text-amber-700">{formatCurrency(vatHalalas, fmtLocale)}</td>
-                    <td />
-                  </tr>
+                  {agencyIsVat && (
+                    <tr className="bg-slate-50 border-t border-slate-200">
+                      <td colSpan={4} className="ps-4 pe-2 py-2 text-end text-xs text-slate-500">{isAr ? 'المجموع قبل الضريبة' : 'Subtotal (excl. VAT)'}</td>
+                      <td className="pe-4 px-2 py-2 text-end text-xs font-mono tabular-nums font-semibold text-slate-800">{formatCurrency(subtotalHalalas, fmtLocale)}</td>
+                      <td />
+                    </tr>
+                  )}
+                  {agencyIsVat && (
+                    <tr className="bg-slate-50">
+                      <td colSpan={4} className="ps-4 pe-2 py-2 text-end text-xs text-slate-500">
+                        {isAr ? `ضريبة القيمة المضافة (${agencyVatRate}%)` : `VAT (${agencyVatRate}%)`}
+                      </td>
+                      <td className="pe-4 px-2 py-2 text-end text-xs font-mono tabular-nums font-semibold text-amber-700">{formatCurrency(vatHalalas, fmtLocale)}</td>
+                      <td />
+                    </tr>
+                  )}
                   <tr className="bg-brand-50 border-t-2 border-brand-200">
                     <td colSpan={4} className="ps-4 pe-2 py-2.5 text-end text-sm font-bold text-slate-900">{isAr ? 'الإجمالي الكلي' : 'Grand Total'}</td>
                     <td className="pe-4 px-2 py-2.5 text-end text-base font-black font-mono tabular-nums text-brand-700">{formatCurrency(grandTotalHalalas, fmtLocale)}</td>
