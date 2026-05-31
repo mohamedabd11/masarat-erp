@@ -813,12 +813,6 @@ CREATE INDEX IF NOT EXISTS agency_features_agency_idx ON agency_features(agency_
 const SUPER_ADMIN_EMAIL = process.env['SUPER_ADMIN_EMAIL'] ?? '';
 
 export async function POST(req: NextRequest) {
-  // In production this route is disabled by default.
-  // Set SETUP_DB_ENABLED=true in Vercel env ONLY during initial setup, then remove it.
-  if (process.env['NODE_ENV'] === 'production' && process.env['SETUP_DB_ENABLED'] !== 'true') {
-    return NextResponse.json({ error: 'Not found' }, { status: 404 });
-  }
-
   // Accept either the setup secret header OR a Firebase auth token (admin/owner role)
   const secret     = req.headers.get('x-setup-secret');
   const authHeader = req.headers.get('Authorization') ?? '';

@@ -28,7 +28,9 @@ export async function checkFeature(
   feature:  FeatureKey,
   db:       AnyDb,
 ): Promise<boolean> {
-  const [agencyRow, overrideRow] = await Promise.all([
+  // Use allSettled so a missing agency_features table (pre-migration) degrades
+  // gracefully to plan-level access instead of throwing a 500.
+  const [agencyResult, overrideResult] = await Promise.allSettled([
     (db as typeof DbType)
       .select({ plan: agencies.plan, subscriptionStatus: agencies.subscriptionStatus })
       .from(agencies)
@@ -46,6 +48,9 @@ export async function checkFeature(
       .limit(1)
       .then(rows => rows[0]),
   ]);
+
+  const agencyRow  = agencyResult.status  === 'fulfilled' ? agencyResult.value  : null;
+  const overrideRow = overrideResult.status === 'fulfilled' ? overrideResult.value : null;
 
   if (!agencyRow) return false;
 
@@ -91,11 +96,16 @@ export async function getAgencyFeatureOverrides(
   agencyId: string,
   db:       AnyDb,
 ): Promise<Array<{ featureKey: string; overrideType: string }>> {
-  return (db as typeof DbType)
-    .select({
-      featureKey:   agencyFeatures.featureKey,
-      overrideType: agencyFeatures.overrideType,
-    })
-    .from(agencyFeatures)
-    .where(eq(agencyFeatures.agencyId, agencyId));
+  try {
+    return await (db as typeof DbType)
+      .select({
+        featureKey:   agencyFeatures.featureKey,
+        overrideType: agencyFeatures.overrideType,
+      })
+      .from(agencyFeatures)
+      .where(eq(agencyFeatures.agencyId, agencyId));
+  } catch {
+    // agency_features table not yet created — return empty (plan-level access only)
+    return [];
+  }
 }
