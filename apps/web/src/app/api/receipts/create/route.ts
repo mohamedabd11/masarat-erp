@@ -3,6 +3,8 @@ import { db } from '@/lib/db';
 import { receiptVouchers, journalEntries, journalLines } from '@/lib/schema';
 import { verifyAuth, ApiAuthError, BusinessError } from '@/lib/api-auth';
 import { getNextReceiptNumber, getNextJournalNumber } from '@/lib/invoice-counter';
+import { assertPeriodOpen } from '@/lib/period-lock';
+import { logAudit } from '@/lib/audit';
 
 interface StandaloneReceiptBody {
   customerNameAr:  string;
@@ -41,6 +43,8 @@ export async function POST(request: Request) {
       const now   = new Date();
       const year  = now.getFullYear();
       const today = now.toISOString().split('T')[0]!;
+
+      await assertPeriodOpen(agencyId, today, tx);
 
       const voucherNumber = await getNextReceiptNumber(agencyId, year, tx);
       const jeNumber      = await getNextJournalNumber(agencyId, year, tx);
@@ -81,6 +85,12 @@ export async function POST(request: Request) {
       ]);
 
       return { id: voucherId, voucherNumber };
+    });
+
+    await logAudit({
+      agencyId, userId: uid, action: 'create', resource: 'receipt_voucher',
+      resourceId: result.id,
+      after: { voucherNumber: result.voucherNumber, amountHalalas, paymentMethod, customerNameAr },
     });
 
     return NextResponse.json({ success: true, ...result });

@@ -3,6 +3,7 @@ import { eq, and, sql, ne } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { bookings, agencies, invoices, journalEntries, journalLines, customers } from '@/lib/schema';
 import { verifyAuth, ApiAuthError, BusinessError } from '@/lib/api-auth';
+import { logAudit } from '@/lib/audit';
 import { withIdempotency, buildIdempotencyInsert } from '@/lib/idempotency';
 import { idempotencyKeys } from '@/lib/schema';
 import { getNextInvoiceNumber, getNextJournalNumber } from '@/lib/invoice-counter';
@@ -243,6 +244,12 @@ export async function POST(request: Request) {
 
         return { invoiceId, invoiceNumber };
       });
+    });
+
+    await logAudit({
+      agencyId, userId: uid, action: 'create', resource: 'invoice',
+      resourceId: result.invoiceId,
+      after: { invoiceNumber: result.invoiceNumber, bookingId },
     });
 
     return NextResponse.json({ success: true, ...result });

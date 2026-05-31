@@ -3,6 +3,7 @@ import { db } from '@/lib/db';
 import { bookings } from '@/lib/schema';
 import { verifyAuth, ApiAuthError } from '@/lib/api-auth';
 import { getNextBookingNumber } from '@/lib/invoice-counter';
+import { logAudit } from '@/lib/audit';
 
 const VALID_SERVICE_TYPES = new Set([
   'flight', 'hotel', 'package', 'umrah', 'hajj',
@@ -71,6 +72,12 @@ export async function POST(request: Request) {
       });
 
       return { bookingId, bookingNumber };
+    });
+
+    await logAudit({
+      agencyId, userId: uid, action: 'create', resource: 'booking',
+      resourceId: result.bookingId,
+      after: { bookingNumber: result.bookingNumber, serviceType, totalPriceHalalas: Number(body['pricing'] ? (body['pricing'] as Record<string, unknown>)['totalAmount'] : 0) },
     });
 
     return NextResponse.json(result);
