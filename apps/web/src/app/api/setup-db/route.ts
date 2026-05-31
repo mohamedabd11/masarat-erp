@@ -701,6 +701,90 @@ CREATE TABLE IF NOT EXISTS accounting_periods (
 );
 CREATE UNIQUE INDEX IF NOT EXISTS accounting_periods_agency_ym_uq ON accounting_periods(agency_id, period_year, period_month);
 
+-- ══ PNR: new columns (migration 0011) ════════════════════════════════════════
+ALTER TABLE pnr_records ADD COLUMN IF NOT EXISTS sync_status  TEXT;
+ALTER TABLE pnr_records ADD COLUMN IF NOT EXISTS segments     JSONB;
+ALTER TABLE pnr_records ADD COLUMN IF NOT EXISTS passengers   JSONB;
+ALTER TABLE pnr_records ADD COLUMN IF NOT EXISTS cancelled_at TIMESTAMPTZ;
+ALTER TABLE pnr_records ADD COLUMN IF NOT EXISTS cancelled_by TEXT;
+ALTER TABLE pnr_records ADD COLUMN IF NOT EXISTS deleted_at   TIMESTAMPTZ;
+ALTER TABLE pnr_records ALTER COLUMN expires_at TYPE TIMESTAMPTZ USING CASE WHEN expires_at IS NULL THEN NULL WHEN expires_at ~ '^\d{4}-\d{2}-\d{2}' THEN expires_at::TIMESTAMPTZ ELSE NULL END;
+
+-- ══ TRAVEL EVENTS ═════════════════════════════════════════════════════════════
+CREATE TABLE IF NOT EXISTS travel_events (
+  id            TEXT        PRIMARY KEY,
+  agency_id     TEXT        NOT NULL REFERENCES agencies(id) ON DELETE CASCADE,
+  event_type    TEXT        NOT NULL,
+  provider      TEXT,
+  resource_id   TEXT,
+  resource_type TEXT,
+  actor_id      TEXT,
+  payload       JSONB,
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS travel_events_agency_idx   ON travel_events(agency_id);
+CREATE INDEX IF NOT EXISTS travel_events_type_idx     ON travel_events(event_type);
+CREATE INDEX IF NOT EXISTS travel_events_provider_idx ON travel_events(provider);
+CREATE INDEX IF NOT EXISTS travel_events_resource_idx ON travel_events(resource_id);
+
+-- ══ PROVIDER CREDENTIALS ══════════════════════════════════════════════════════
+CREATE TABLE IF NOT EXISTS provider_credentials (
+  id            TEXT        PRIMARY KEY,
+  agency_id     TEXT        NOT NULL REFERENCES agencies(id) ON DELETE CASCADE,
+  provider_code TEXT        NOT NULL,
+  label         TEXT,
+  credentials   JSONB,
+  is_active     BOOLEAN     NOT NULL DEFAULT TRUE,
+  tested_at     TIMESTAMPTZ,
+  test_status   TEXT,
+  test_error    TEXT,
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE UNIQUE INDEX IF NOT EXISTS provider_creds_agency_provider_uq ON provider_credentials(agency_id, provider_code);
+
+-- ══ TICKETS ════════════════════════════════════════════════════════════════════
+CREATE TABLE IF NOT EXISTS tickets (
+  id                        TEXT        PRIMARY KEY,
+  agency_id                 TEXT        NOT NULL REFERENCES agencies(id) ON DELETE CASCADE,
+  pnr_id                    TEXT        NOT NULL REFERENCES pnr_records(id),
+  booking_id                TEXT        REFERENCES bookings(id),
+  customer_id               TEXT        REFERENCES customers(id),
+  credential_id             TEXT        REFERENCES provider_credentials(id),
+  issuing_provider          TEXT,
+  ticket_number             TEXT,
+  passenger_name            TEXT        NOT NULL,
+  issued_at                 TIMESTAMPTZ,
+  expires_at                TIMESTAMPTZ,
+  status                    TEXT        NOT NULL DEFAULT 'pending',
+  fare_halalas              INTEGER     NOT NULL DEFAULT 0,
+  tax_halalas               INTEGER     NOT NULL DEFAULT 0,
+  total_halalas             INTEGER     NOT NULL DEFAULT 0,
+  issued_by                 TEXT,
+  voided_at                 TIMESTAMPTZ,
+  voided_by                 TEXT,
+  refunded_at               TIMESTAMPTZ,
+  reconciliation_attempts   INTEGER     NOT NULL DEFAULT 0,
+  last_reconciliation_at    TIMESTAMPTZ,
+  pending_operation_payload JSONB,
+  created_at                TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at                TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS tickets_agency_idx ON tickets(agency_id);
+CREATE INDEX IF NOT EXISTS tickets_pnr_idx    ON tickets(pnr_id);
+CREATE INDEX IF NOT EXISTS tickets_status_idx ON tickets(status);
+CREATE UNIQUE INDEX IF NOT EXISTS tickets_number_uq ON tickets(agency_id, ticket_number);
+
+-- ══ TICKET COUPONS ════════════════════════════════════════════════════════════
+CREATE TABLE IF NOT EXISTS ticket_coupons (
+  id            TEXT        PRIMARY KEY,
+  ticket_id     TEXT        NOT NULL REFERENCES tickets(id) ON DELETE CASCADE,
+  segment_index INTEGER     NOT NULL,
+  coupon_status TEXT        NOT NULL DEFAULT 'open',
+  updated_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS coupons_ticket_idx ON ticket_coupons(ticket_id);
+
 `;
 
 const SUPER_ADMIN_EMAIL = process.env['SUPER_ADMIN_EMAIL'] ?? '';
