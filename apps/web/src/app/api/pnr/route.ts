@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { eq, and, desc, or, ilike, isNull } from 'drizzle-orm';
+import { eq, and, desc, or, ilike, isNull, sql } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { pnrRecords } from '@/lib/schema';
 import { verifyAuth, ApiAuthError } from '@/lib/api-auth';
@@ -21,11 +21,13 @@ export async function GET(request: Request) {
     if (status)     conditions.push(eq(pnrRecords.status, status));
     if (customerId) conditions.push(eq(pnrRecords.customerId, customerId));
     if (search) {
+      const pattern = `%${search}%`;
       conditions.push(
         or(
-          ilike(pnrRecords.pnrCode, `%${search}%`),
-          ilike(pnrRecords.passengerNames, `%${search}%`),
-          ilike(pnrRecords.ticketNumbers, `%${search}%`),
+          ilike(pnrRecords.pnrCode, pattern),
+          // Cast to text because the column may be JSONB in older installations
+          sql`${pnrRecords.passengerNames}::text ILIKE ${pattern}`,
+          sql`${pnrRecords.ticketNumbers}::text ILIKE ${pattern}`,
         )!,
       );
     }

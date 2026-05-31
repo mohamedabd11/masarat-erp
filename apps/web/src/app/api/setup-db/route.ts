@@ -701,6 +701,12 @@ CREATE TABLE IF NOT EXISTS accounting_periods (
 );
 CREATE UNIQUE INDEX IF NOT EXISTS accounting_periods_agency_ym_uq ON accounting_periods(agency_id, period_year, period_month);
 
+-- ══ PNR: fix column types (passenger_names / ticket_numbers / flight_numbers were
+--    created as JSONB in early setup-db but the app schema expects TEXT)
+ALTER TABLE pnr_records ALTER COLUMN passenger_names TYPE TEXT USING passenger_names::text;
+ALTER TABLE pnr_records ALTER COLUMN ticket_numbers  TYPE TEXT USING ticket_numbers::text;
+ALTER TABLE pnr_records ALTER COLUMN flight_numbers  TYPE TEXT USING flight_numbers::text;
+
 -- ══ PNR: new columns (migration 0011) ════════════════════════════════════════
 ALTER TABLE pnr_records ADD COLUMN IF NOT EXISTS sync_status  TEXT;
 ALTER TABLE pnr_records ADD COLUMN IF NOT EXISTS segments     JSONB;
