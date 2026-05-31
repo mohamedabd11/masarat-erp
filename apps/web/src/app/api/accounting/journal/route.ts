@@ -5,65 +5,11 @@ import { journalEntries, journalLines } from '@/lib/schema';
 import { verifyAuth, assertRole, ApiAuthError, ROLES_ACCOUNTANT_UP } from '@/lib/api-auth';
 import { assertPeriodOpen } from '@/lib/period-lock';
 import { checkRateLimit, getClientIp, rateLimitHeaders } from '@/lib/rate-limit';
+import { validateJournalLines } from '@/lib/journal-validation';
 
 const DEFAULT_PAGE_SIZE = 100;
 const MAX_PAGE_SIZE     = 500;
 
-// ── Double-entry validation ──────────────────────────────────────────────────
-// Enforces the fundamental accounting equation at the API boundary.
-// All totals are computed from the actual lines — never trusted from the client.
-function validateJournalLines(
-  lines: Array<{ accountCode: string; accountNameAr: string; debitHalalas: number; creditHalalas: number }>,
-): { totalDebit: number; totalCredit: number } {
-  if (!Array.isArray(lines) || lines.length < 2) {
-    throw new Error('القيد يحتاج على الأقل سطرين (مدين ودائن)');
-  }
-
-  const lineErrors: string[] = [];
-
-  for (let i = 0; i < lines.length; i++) {
-    const l   = lines[i]!;
-    const pos = `السطر ${i + 1} (${l.accountCode} — ${l.accountNameAr})`;
-
-    if (!l.accountCode?.trim()) {
-      lineErrors.push(`${pos}: رمز الحساب مطلوب`);
-      continue;
-    }
-    if (!Number.isInteger(l.debitHalalas) || !Number.isInteger(l.creditHalalas)) {
-      lineErrors.push(`${pos}: المبالغ يجب أن تكون بالهللات (أعداد صحيحة)`);
-      continue;
-    }
-    if (l.debitHalalas < 0 || l.creditHalalas < 0) {
-      lineErrors.push(`${pos}: المبالغ السالبة غير مسموح بها — استخدم قيداً عكسياً`);
-      continue;
-    }
-    if (l.debitHalalas === 0 && l.creditHalalas === 0) {
-      lineErrors.push(`${pos}: لا يمكن أن يكون المدين والدائن كلاهما صفراً`);
-      continue;
-    }
-    if (l.debitHalalas > 0 && l.creditHalalas > 0) {
-      lineErrors.push(`${pos}: لا يمكن أن يحتوي السطر على مدين ودائن في آنٍ واحد`);
-    }
-  }
-
-  if (lineErrors.length > 0) {
-    throw new Error(lineErrors.join(' | '));
-  }
-
-  const totalDebit  = lines.reduce((s, l) => s + l.debitHalalas,  0);
-  const totalCredit = lines.reduce((s, l) => s + l.creditHalalas, 0);
-  const diff        = Math.abs(totalDebit - totalCredit);
-
-  // Allow max 1 halalah rounding tolerance (0.01 SAR)
-  if (diff > 1) {
-    throw new Error(
-      `القيد غير متوازن: مجموع المدين ${totalDebit} هللة ≠ مجموع الدائن ${totalCredit} هللة` +
-      ` (فرق ${diff} هللة). يُسمح بفرق 1 هللة فقط للتقريب.`,
-    );
-  }
-
-  return { totalDebit, totalCredit };
-}
 
 export async function POST(request: Request) {
   try {
