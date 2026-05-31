@@ -157,6 +157,52 @@ If that doesn't fix it:
 
 ---
 
+## Neon Database — Limits & Backup
+
+### Plan Limits (verify in Neon Console before each new agency)
+
+| Metric | Neon Launch ($19/mo) | Neon Scale ($69/mo) | Action needed |
+|--------|---------------------|---------------------|---------------|
+| Storage | 10 GB | 50 GB | Upgrade if journals/tickets > 8 GB |
+| Compute hours | 300 h/mo | 750 h/mo | Monitor in Neon Console → Billing |
+| Branches | 10 | Unlimited | Keep `main` + 1 test branch minimum |
+| Connections | 1,000 pooled | 1,000 pooled | Vercel Functions use pooler URL |
+
+**Check before onboarding a new agency:**
+1. Open [Neon Console → Billing](https://console.neon.tech) → verify current storage and compute usage
+2. Verify `DATABASE_URL` uses the **pooler** connection string (port 5432, `-pooler` suffix) — not the direct connection
+3. Confirm point-in-time restore is enabled (default on paid plans: 7-day history)
+
+### Backup & Recovery
+
+**Automatic backups:** Neon retains 7-day point-in-time restore on Launch/Scale plans. No action needed.
+
+**How to restore to a specific timestamp:**
+1. Open Neon Console → your project → **Branches**
+2. Click **Restore** → select timestamp (e.g., 1 hour before incident)
+3. A new branch is created from that snapshot
+4. Update `DATABASE_URL` in Vercel to point to the restored branch
+5. Verify data, then promote the branch to replace `main`
+
+**Recovery time objective (RTO):** ~15 minutes for a point-in-time restore
+**Recovery point objective (RPO):** Neon continuous WAL → effectively 0 data loss
+
+**Monthly restore drill (recommended):**
+```bash
+# 1. Create a restore branch from 24 hours ago in Neon Console
+# 2. Run a read-only query to confirm agency count matches expected value
+# 3. Delete the test branch
+```
+
+**Environment variable to protect setup-db route:**
+```
+# Vercel → Settings → Environment Variables
+SETUP_DB_ENABLED=true   # Set ONLY during initial DB setup, remove immediately after
+CRON_SECRET=<openssl rand -hex 32>   # Required — cron endpoints return 401 without this
+```
+
+---
+
 ## Key URLs
 
 | Resource | URL |
