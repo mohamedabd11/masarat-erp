@@ -4,6 +4,7 @@ import { db } from '@/lib/db';
 import { bookings, agencies, invoices, journalEntries, journalLines, customers } from '@/lib/schema';
 import { verifyAuth, ApiAuthError, BusinessError } from '@/lib/api-auth';
 import { logAudit } from '@/lib/audit';
+import { checkRateLimit, getClientIp, rateLimitHeaders } from '@/lib/rate-limit';
 import { withIdempotency, buildIdempotencyInsert } from '@/lib/idempotency';
 import { idempotencyKeys } from '@/lib/schema';
 import { getNextInvoiceNumber, getNextJournalNumber } from '@/lib/invoice-counter';
@@ -44,6 +45,14 @@ interface InvoiceItem {
 export async function POST(request: Request) {
   try {
     const { uid, agencyId } = await verifyAuth(request);
+
+    const rl = await checkRateLimit(`${agencyId}:${getClientIp(request)}`, 'financial');
+    if (!rl.success) {
+      return NextResponse.json(
+        { error: 'تجاوزت الحد المسموح به من الطلبات. حاول مرة أخرى بعد دقيقة.' },
+        { status: 429, headers: rateLimitHeaders(rl) },
+      );
+    }
 
     const body = await request.json() as InvoiceCreateBody;
     const { bookingId } = body;

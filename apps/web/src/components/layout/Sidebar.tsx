@@ -14,7 +14,7 @@ import {
   Moon, Shield, Stamp, FileText, Receipt, BarChart3, Truck, UserCog,
   Settings, HelpCircle, ChevronLeft, ChevronRight, Calculator,
   Anchor, Car, Train, Camera, Mountain, Plus, Layers, Landmark, Send, Wallet,
-  TrendingDown, TrendingUp, Lock, FileSearch, Ticket,
+  TrendingDown, TrendingUp, Lock, FileSearch, Ticket, ClipboardCheck,
 } from 'lucide-react';
 
 // ─── Icon map for custom service types ────────────────────────────────────────
@@ -96,10 +96,11 @@ const MANAGEMENT_GROUP: NavGroup = {
   labelAr: 'الإدارة',
   labelEn: 'Management',
   items: [
-    { key: 'customers', href: '/customers', icon: <Users size={18} />,    labelAr: 'العملاء',         labelEn: 'Customers',  feature: 'customers' },
-    { key: 'suppliers', href: '/suppliers', icon: <Truck size={18} />,    labelAr: 'الموردين',        labelEn: 'Suppliers',  feature: 'suppliers' },
-    { key: 'employees', href: '/employees', icon: <UserCog size={18} />,  labelAr: 'إدارة الموظفين', labelEn: 'Employees',  feature: 'employees' },
-    { key: 'reports',   href: '/reports',   icon: <BarChart3 size={18} />, labelAr: 'التقارير',       labelEn: 'Reports',    feature: 'reports' },
+    { key: 'customers',  href: '/customers',  icon: <Users size={18} />,          labelAr: 'العملاء',           labelEn: 'Customers',   feature: 'customers' },
+    { key: 'suppliers',  href: '/suppliers',  icon: <Truck size={18} />,          labelAr: 'الموردين',          labelEn: 'Suppliers',   feature: 'suppliers' },
+    { key: 'employees',  href: '/employees',  icon: <UserCog size={18} />,        labelAr: 'إدارة الموظفين',   labelEn: 'Employees',   feature: 'employees' },
+    { key: 'reports',    href: '/reports',    icon: <BarChart3 size={18} />,      labelAr: 'التقارير',          labelEn: 'Reports',     feature: 'reports' },
+    { key: 'audit_log',  href: '/audit-log',  icon: <ClipboardCheck size={18} />, labelAr: 'سجل المراجعة',      labelEn: 'Audit Log' },
   ],
 };
 

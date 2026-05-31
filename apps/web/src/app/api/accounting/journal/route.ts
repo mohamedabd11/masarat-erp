@@ -4,6 +4,7 @@ import { db } from '@/lib/db';
 import { journalEntries, journalLines } from '@/lib/schema';
 import { verifyAuth, assertRole, ApiAuthError, ROLES_ACCOUNTANT_UP } from '@/lib/api-auth';
 import { assertPeriodOpen } from '@/lib/period-lock';
+import { checkRateLimit, getClientIp, rateLimitHeaders } from '@/lib/rate-limit';
 
 const DEFAULT_PAGE_SIZE = 100;
 const MAX_PAGE_SIZE     = 500;
@@ -68,6 +69,14 @@ export async function POST(request: Request) {
   try {
     const { agencyId, uid, role } = await verifyAuth(request);
     assertRole(role, [...ROLES_ACCOUNTANT_UP]);
+
+    const rl = await checkRateLimit(`${agencyId}:${getClientIp(request)}`, 'financial');
+    if (!rl.success) {
+      return NextResponse.json(
+        { error: 'تجاوزت الحد المسموح به من الطلبات. حاول مرة أخرى بعد دقيقة.' },
+        { status: 429, headers: rateLimitHeaders(rl) },
+      );
+    }
     const body = await request.json() as {
       entryNumber: string;
       date: string;

@@ -4,6 +4,7 @@ import { bookings } from '@/lib/schema';
 import { verifyAuth, ApiAuthError } from '@/lib/api-auth';
 import { getNextBookingNumber } from '@/lib/invoice-counter';
 import { logAudit } from '@/lib/audit';
+import { checkRateLimit, getClientIp, rateLimitHeaders } from '@/lib/rate-limit';
 
 const VALID_SERVICE_TYPES = new Set([
   'flight', 'hotel', 'package', 'umrah', 'hajj',
@@ -13,6 +14,14 @@ const VALID_SERVICE_TYPES = new Set([
 export async function POST(request: Request) {
   try {
     const { uid, agencyId } = await verifyAuth(request);
+
+    const rl = await checkRateLimit(`${agencyId}:${getClientIp(request)}`, 'financial');
+    if (!rl.success) {
+      return NextResponse.json(
+        { error: 'تجاوزت الحد المسموح به من الطلبات. حاول مرة أخرى بعد دقيقة.' },
+        { status: 429, headers: rateLimitHeaders(rl) },
+      );
+    }
 
     const body = await request.json() as Record<string, unknown>;
 

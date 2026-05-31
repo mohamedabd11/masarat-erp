@@ -2169,10 +2169,22 @@ export default function SettingsPage() {
                           className="w-full text-sm border border-slate-200 rounded-lg px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-brand-400"
                         >
                           <option value="amadeus">Amadeus</option>
-                          <option value="sabre">Sabre</option>
-                          <option value="galileo">Galileo</option>
-                          <option value="worldspan">Worldspan</option>
+                          <option value="sabre">Sabre (قريباً)</option>
+                          <option value="galileo">Galileo (قريباً)</option>
+                          <option value="worldspan">Worldspan (قريباً)</option>
                         </select>
+                      </div>
+                    )}
+
+                    {/* Coming-soon notice for providers not yet integrated */}
+                    {providerForm.providerCode !== 'amadeus' && (
+                      <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+                        <AlertTriangle size={16} className="mt-0.5 flex-shrink-0 text-amber-500" />
+                        <span>
+                          {isAr
+                            ? `${providerForm.providerCode.toUpperCase()} قيد التطوير — التكامل الكامل مع هذا المزود غير متاح بعد. المزود المدعوم حالياً هو Amadeus فقط.`
+                            : `${providerForm.providerCode.toUpperCase()} is not yet integrated — full GDS connectivity is under development. Only Amadeus is currently supported.`}
+                        </span>
                       </div>
                     )}
 

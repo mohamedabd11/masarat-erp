@@ -5,6 +5,7 @@ import { verifyAuth, ApiAuthError, BusinessError } from '@/lib/api-auth';
 import { getNextReceiptNumber, getNextJournalNumber } from '@/lib/invoice-counter';
 import { assertPeriodOpen } from '@/lib/period-lock';
 import { logAudit } from '@/lib/audit';
+import { checkRateLimit, getClientIp, rateLimitHeaders } from '@/lib/rate-limit';
 
 interface StandaloneReceiptBody {
   customerNameAr:  string;
@@ -28,6 +29,14 @@ const AC_DEPOSITS = { code: '2300', ar: 'ودائع العملاء', en: 'Custom
 export async function POST(request: Request) {
   try {
     const { uid, agencyId } = await verifyAuth(request);
+
+    const rl = await checkRateLimit(`${agencyId}:${getClientIp(request)}`, 'financial');
+    if (!rl.success) {
+      return NextResponse.json(
+        { error: 'تجاوزت الحد المسموح به من الطلبات. حاول مرة أخرى بعد دقيقة.' },
+        { status: 429, headers: rateLimitHeaders(rl) },
+      );
+    }
 
     const body = await request.json() as StandaloneReceiptBody;
     const { customerNameAr, customerNameEn, amountHalalas, paymentMethod, description, reference, notes } = body;
