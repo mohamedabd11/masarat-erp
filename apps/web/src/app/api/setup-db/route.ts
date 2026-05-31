@@ -720,7 +720,17 @@ ALTER TABLE pnr_records ADD COLUMN IF NOT EXISTS passengers   JSONB;
 ALTER TABLE pnr_records ADD COLUMN IF NOT EXISTS cancelled_at TIMESTAMPTZ;
 ALTER TABLE pnr_records ADD COLUMN IF NOT EXISTS cancelled_by TEXT;
 ALTER TABLE pnr_records ADD COLUMN IF NOT EXISTS deleted_at   TIMESTAMPTZ;
-ALTER TABLE pnr_records ALTER COLUMN expires_at TYPE TIMESTAMPTZ USING CASE WHEN expires_at IS NULL THEN NULL WHEN expires_at ~ '^\d{4}-\d{2}-\d{2}' THEN expires_at::TIMESTAMPTZ ELSE NULL END;
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_name = 'pnr_records' AND column_name = 'expires_at'
+    AND data_type NOT IN ('timestamp with time zone')
+  ) THEN
+    ALTER TABLE pnr_records ALTER COLUMN expires_at TYPE TIMESTAMPTZ
+      USING CASE WHEN expires_at IS NULL THEN NULL ELSE expires_at::text::TIMESTAMPTZ END;
+  END IF;
+END $$;
 
 -- ══ TRAVEL EVENTS ═════════════════════════════════════════════════════════════
 CREATE TABLE IF NOT EXISTS travel_events (

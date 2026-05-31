@@ -218,30 +218,44 @@ function FeaturesModal({
 
   async function toggleFeature(featureKey: string, currentType: string | null) {
     setApplying(true);
+    setError('');
     try {
       const token        = await getToken();
       const overrideType = currentType === 'revoke' ? 'remove' : 'revoke';
-      await fetch(`/api/admin/agencies/${agency.id}/features`, {
+      const resp = await fetch(`/api/admin/agencies/${agency.id}/features`, {
         method:  'PUT',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body:    JSON.stringify({ featureKey, overrideType }),
       });
+      if (!resp.ok) {
+        const data = await resp.json().catch(() => ({})) as { error?: string };
+        throw new Error(data.error ?? `خطأ ${resp.status}`);
+      }
       await load();
-    } catch { /* silent */ }
+    } catch (err: unknown) {
+      setError((err as { message?: string }).message ?? 'فشل تغيير الميزة');
+    }
     setApplying(false);
   }
 
   async function bulkAction(action: 'enable_all' | 'disable_group' | 'enable_group', group?: string) {
     setApplying(true);
+    setError('');
     try {
       const token = await getToken();
-      await fetch(`/api/admin/agencies/${agency.id}/features`, {
+      const resp = await fetch(`/api/admin/agencies/${agency.id}/features`, {
         method:  'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body:    JSON.stringify({ action, group }),
       });
+      if (!resp.ok) {
+        const data = await resp.json().catch(() => ({})) as { error?: string };
+        throw new Error(data.error ?? `خطأ ${resp.status}`);
+      }
       await load();
-    } catch { /* silent */ }
+    } catch (err: unknown) {
+      setError((err as { message?: string }).message ?? 'فشل تنفيذ الإجراء');
+    }
     setApplying(false);
   }
 
