@@ -8,6 +8,62 @@ import { assertPeriodOpen } from '@/lib/period-lock';
 const DEFAULT_PAGE_SIZE = 100;
 const MAX_PAGE_SIZE     = 500;
 
+// ── Double-entry validation ──────────────────────────────────────────────────
+// Enforces the fundamental accounting equation at the API boundary.
+// All totals are computed from the actual lines — never trusted from the client.
+function validateJournalLines(
+  lines: Array<{ accountCode: string; accountNameAr: string; debitHalalas: number; creditHalalas: number }>,
+): { totalDebit: number; totalCredit: number } {
+  if (!Array.isArray(lines) || lines.length < 2) {
+    throw new Error('القيد يحتاج على الأقل سطرين (مدين ودائن)');
+  }
+
+  const lineErrors: string[] = [];
+
+  for (let i = 0; i < lines.length; i++) {
+    const l   = lines[i]!;
+    const pos = `السطر ${i + 1} (${l.accountCode} — ${l.accountNameAr})`;
+
+    if (!l.accountCode?.trim()) {
+      lineErrors.push(`${pos}: رمز الحساب مطلوب`);
+      continue;
+    }
+    if (!Number.isInteger(l.debitHalalas) || !Number.isInteger(l.creditHalalas)) {
+      lineErrors.push(`${pos}: المبالغ يجب أن تكون بالهللات (أعداد صحيحة)`);
+      continue;
+    }
+    if (l.debitHalalas < 0 || l.creditHalalas < 0) {
+      lineErrors.push(`${pos}: المبالغ السالبة غير مسموح بها — استخدم قيداً عكسياً`);
+      continue;
+    }
+    if (l.debitHalalas === 0 && l.creditHalalas === 0) {
+      lineErrors.push(`${pos}: لا يمكن أن يكون المدين والدائن كلاهما صفراً`);
+      continue;
+    }
+    if (l.debitHalalas > 0 && l.creditHalalas > 0) {
+      lineErrors.push(`${pos}: لا يمكن أن يحتوي السطر على مدين ودائن في آنٍ واحد`);
+    }
+  }
+
+  if (lineErrors.length > 0) {
+    throw new Error(lineErrors.join(' | '));
+  }
+
+  const totalDebit  = lines.reduce((s, l) => s + l.debitHalalas,  0);
+  const totalCredit = lines.reduce((s, l) => s + l.creditHalalas, 0);
+  const diff        = Math.abs(totalDebit - totalCredit);
+
+  // Allow max 1 halalah rounding tolerance (0.01 SAR)
+  if (diff > 1) {
+    throw new Error(
+      `القيد غير متوازن: مجموع المدين ${totalDebit} هللة ≠ مجموع الدائن ${totalCredit} هللة` +
+      ` (فرق ${diff} هللة). يُسمح بفرق 1 هللة فقط للتقريب.`,
+    );
+  }
+
+  return { totalDebit, totalCredit };
+}
+
 export async function POST(request: Request) {
   try {
     const { agencyId, uid, role } = await verifyAuth(request);
@@ -20,8 +76,6 @@ export async function POST(request: Request) {
       reference?: string | null;
       source?: string;
       sourceId?: string;
-      totalDebitHalalas: number;
-      totalCreditHalalas: number;
       isPosted?: boolean;
       lines: Array<{
         accountCode: string;
@@ -32,6 +86,23 @@ export async function POST(request: Request) {
         memo?: string;
       }>;
     };
+
+    if (!body.date || !/^\d{4}-\d{2}-\d{2}$/.test(body.date)) {
+      return NextResponse.json({ error: 'التاريخ مطلوب بصيغة YYYY-MM-DD' }, { status: 400 });
+    }
+
+    // ── Core invariant: validate double-entry before any DB write ────────────
+    // totals are computed from lines — client-supplied header totals are ignored.
+    let computedDebit: number;
+    let computedCredit: number;
+    try {
+      const totals = validateJournalLines(body.lines ?? []);
+      computedDebit  = totals.totalDebit;
+      computedCredit = totals.totalCredit;
+    } catch (ve) {
+      return NextResponse.json({ error: (ve as Error).message }, { status: 422 });
+    }
+
     await assertPeriodOpen(agencyId, body.date, db);
     const id = crypto.randomUUID();
     await db.insert(journalEntries).values({
@@ -45,8 +116,8 @@ export async function POST(request: Request) {
       source:             body.source ?? 'manual',
       sourceId:           body.sourceId ?? null,
       isPosted:           body.isPosted ?? true,
-      totalDebitHalalas:  body.totalDebitHalalas,
-      totalCreditHalalas: body.totalCreditHalalas,
+      totalDebitHalalas:  computedDebit,
+      totalCreditHalalas: computedCredit,
       createdBy:          uid,
     });
     if (body.lines?.length) {
@@ -68,6 +139,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ success: true, id });
   } catch (err) {
     if (err instanceof ApiAuthError) return NextResponse.json({ error: err.message }, { status: err.status });
+    console.error(JSON.stringify({ event: 'journal_create_error', error: String(err) }));
     return NextResponse.json({ error: 'خطأ في الخادم' }, { status: 500 });
   }
 }
