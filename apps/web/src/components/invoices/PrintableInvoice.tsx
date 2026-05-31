@@ -69,9 +69,9 @@ interface PrintableInvoiceProps {
 }
 
 const INVOICE_TYPE_LABELS: Record<string, { ar: string; en: string }> = {
-  '388': { ar: 'فاتورة ضريبية', en: 'Tax Invoice' },
-  '381': { ar: 'إشعار دائن',   en: 'Credit Note' },
-  '383': { ar: 'إشعار مدين',   en: 'Debit Note'  },
+  '388': { ar: 'فاتورة ضريبية (مرحلة أولى)', en: 'Tax Invoice (Phase 1)' },
+  '381': { ar: 'إشعار دائن',                  en: 'Credit Note' },
+  '383': { ar: 'إشعار مدين',                  en: 'Debit Note'  },
 };
 
 // ─── Helper: stacked bilingual info field ─────────────────────────────────────
@@ -97,7 +97,7 @@ export function PrintableInvoice({ invoice, onClose }: PrintableInvoiceProps) {
   const typeLabel = isVatRegistered
     ? isBuyerBusiness
       ? (INVOICE_TYPE_LABELS[invoice.invoiceTypeCode] ?? INVOICE_TYPE_LABELS['388']!)
-      : { ar: 'فاتورة ضريبية مبسطة', en: 'Simplified Tax Invoice' }
+      : { ar: 'فاتورة ضريبية مبسطة (مرحلة أولى)', en: 'Simplified Tax Invoice (Phase 1)' }
     : { ar: 'فاتورة تجارية', en: 'Commercial Invoice' };
 
   const sellerAddress = [
@@ -177,8 +177,8 @@ export function PrintableInvoice({ invoice, onClose }: PrintableInvoiceProps) {
           <p className="text-[10px] text-brand-500 uppercase tracking-widest font-semibold">
             {isVatRegistered
               ? isBuyerBusiness
-                ? 'فاتورة ضريبية / Standard Tax Invoice (B2B)'
-                : 'فاتورة ضريبية مبسطة / Simplified Tax Invoice (B2C)'
+                ? 'فاتورة ضريبية (مرحلة أولى) / Tax Invoice — Phase 1 (B2B)'
+                : 'فاتورة ضريبية مبسطة (مرحلة أولى) / Simplified Tax Invoice — Phase 1 (B2C)'
               : 'فاتورة تجارية / Commercial Invoice'}
           </p>
           <p className="font-mono font-bold text-brand-700 text-base">{invoice.invoiceNumber}</p>
@@ -209,14 +209,14 @@ export function PrintableInvoice({ invoice, onClose }: PrintableInvoiceProps) {
             {/* QR code (VAT) or contact summary (non-VAT) */}
             {isVatRegistered ? (
               <div className="flex flex-col items-center justify-center border-2 border-dashed border-slate-200 rounded-xl p-4 bg-slate-50">
-                <div className="w-24 h-24 bg-white rounded-lg border border-slate-200 flex items-center justify-center">
+                <div className="w-24 h-24 bg-white rounded-lg border border-dashed border-slate-200 flex items-center justify-center">
                   <span className="text-[9px] text-slate-300 text-center leading-tight">
-                    QR Code<br/>ZATCA
+                    QR Code<br/>(قريباً)
                   </span>
                 </div>
                 <p className="text-[10px] text-slate-400 mt-2 text-center">
-                  امسح للتحقق<br/>
-                  <span dir="ltr">Scan to verify</span>
+                  ZATCA المرحلة الثانية<br/>
+                  <span dir="ltr">Phase 2 — Coming Soon</span>
                 </p>
               </div>
             ) : (
@@ -444,14 +444,9 @@ export function PrintableInvoice({ invoice, onClose }: PrintableInvoiceProps) {
             <div className="text-xs text-slate-500 space-y-1 flex-1">
               {isVatRegistered ? (
                 <>
-                  <p className="font-semibold text-slate-700">إشعار الامتثال لـ ZATCA / ZATCA Compliance Notice</p>
-                  <p>هذه الفاتورة متوافقة مع متطلبات هيئة الزكاة والضريبة والجمارك — المرحلة الثانية.</p>
-                  <p dir="ltr" className="text-slate-400">This invoice complies with ZATCA Phase 2 e-invoicing requirements.</p>
-                  {invoice.zatcaStatus && invoice.zatcaStatus !== 'not_applicable' && (
-                    <p className="font-medium text-emerald-700 mt-1">
-                      حالة ZATCA: {invoice.zatcaStatus === 'cleared' ? 'مخلصة ✓' : invoice.zatcaStatus}
-                    </p>
-                  )}
+                  <p className="font-semibold text-slate-700">فاتورة ضريبية — المرحلة الأولى / Tax Invoice — Phase 1</p>
+                  <p>فاتورة ضريبية ورقية وفق متطلبات ضريبة القيمة المضافة — المرحلة الأولى من برنامج الفوترة الإلكترونية.</p>
+                  <p dir="ltr" className="text-slate-400">VAT tax invoice — Phase 1 (paper-based). ZATCA Phase 2 e-invoicing integration is pending.</p>
                 </>
               ) : (
                 <>

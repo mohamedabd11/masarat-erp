@@ -277,11 +277,13 @@ function NewQuoteModal({ isAr, onClose, onSave }: {
   const [expiryDate,     setExpiryDate]     = useState(in7d);
   const [items, setItems]   = useState<QuoteItem[]>([{ ...EMPTY_ITEM }]);
   const [notes, setNotes]   = useState('');
-  const [terms, setTerms]   = useState(isAr ? DEFAULT_TERMS_AR : DEFAULT_TERMS_EN);
+  const [terms, setTerms]         = useState(isAr ? DEFAULT_TERMS_AR : DEFAULT_TERMS_EN);
+  const [useDefaultTerms, setUseDefaultTerms] = useState(true);
   const [error, setError]   = useState('');
   const [saving, setSaving] = useState(false);
   const [agencyIsVat, setAgencyIsVat] = useState(false);
   const [agencyVatRate, setAgencyVatRate] = useState(15);
+  const [agencyDefaultTerms, setAgencyDefaultTerms] = useState('');
 
   useEffect(() => {
     let cancelled = false;
@@ -292,8 +294,10 @@ function NewQuoteModal({ isAr, onClose, onSave }: {
         if (!cancelled) {
           setAgencyIsVat(res.agency.isVatRegistered === true);
           setAgencyVatRate(res.agency.vatRate ?? 15);
-          if (res.agency.defaultQuoteTerms?.trim()) {
-            setTerms(res.agency.defaultQuoteTerms.trim());
+          const agencyTerms = res.agency.defaultQuoteTerms?.trim() ?? '';
+          if (agencyTerms) {
+            setAgencyDefaultTerms(agencyTerms);
+            setTerms(agencyTerms);
           }
         }
       } catch { /* keep defaults */ }
@@ -479,9 +483,44 @@ function NewQuoteModal({ isAr, onClose, onSave }: {
                 className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-brand-500 resize-none" />
             </div>
             <div>
-              <label className="block text-xs font-semibold text-slate-500 mb-1.5">{isAr ? 'الشروط والأحكام' : 'Terms & Conditions'}</label>
-              <textarea value={terms} onChange={e => setTerms(e.target.value)} rows={3} dir={isAr ? 'rtl' : 'ltr'}
-                className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-brand-500 resize-none" />
+              <div className="flex items-center justify-between mb-1.5">
+                <label className="block text-xs font-semibold text-slate-500">{isAr ? 'الشروط والأحكام' : 'Terms & Conditions'}</label>
+                <label className="flex items-center gap-1.5 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={useDefaultTerms}
+                    onChange={e => {
+                      const checked = e.target.checked;
+                      setUseDefaultTerms(checked);
+                      if (checked) {
+                        const fallback = isAr ? DEFAULT_TERMS_AR : DEFAULT_TERMS_EN;
+                        setTerms(agencyDefaultTerms || fallback);
+                      }
+                    }}
+                    className="w-3.5 h-3.5 rounded accent-brand-600"
+                  />
+                  <span className="text-[11px] text-slate-400">{isAr ? 'استخدام الافتراضية' : 'Use defaults'}</span>
+                </label>
+              </div>
+              {useDefaultTerms ? (
+                <div
+                  dir={isAr ? 'rtl' : 'ltr'}
+                  className="w-full border border-slate-100 rounded-lg px-3 py-2 text-xs text-slate-500 bg-slate-50 whitespace-pre-line min-h-[72px] cursor-pointer"
+                  onClick={() => setUseDefaultTerms(false)}
+                  title={isAr ? 'انقر للتعديل' : 'Click to edit'}
+                >
+                  {terms || (isAr ? DEFAULT_TERMS_AR : DEFAULT_TERMS_EN)}
+                  <span className="block mt-1.5 text-[10px] text-brand-400">{isAr ? 'انقر للتعديل' : 'Click to customise'}</span>
+                </div>
+              ) : (
+                <textarea
+                  value={terms}
+                  onChange={e => setTerms(e.target.value)}
+                  rows={4}
+                  dir={isAr ? 'rtl' : 'ltr'}
+                  className="w-full border border-brand-300 rounded-lg px-3 py-2 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-brand-500 resize-none"
+                />
+              )}
             </div>
           </div>
 

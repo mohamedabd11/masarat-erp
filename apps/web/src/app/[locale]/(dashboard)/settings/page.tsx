@@ -1696,6 +1696,39 @@ export default function SettingsPage() {
           {/* ── ZATCA ────────────────────────────────────────────────────── */}
           {activeTab === 'zatca' && (
             <div className="space-y-5">
+
+              {/* ── Development status banner ── */}
+              <div className="flex items-start gap-3 p-4 rounded-2xl bg-slate-900 text-white">
+                <div className="flex-shrink-0 mt-0.5 w-8 h-8 rounded-full bg-amber-400/20 flex items-center justify-center">
+                  <AlertTriangle size={16} className="text-amber-400" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 mb-1">
+                    <p className="text-sm font-bold text-white">
+                      {isAr ? 'حالة تكامل ZATCA' : 'ZATCA Integration Status'}
+                    </p>
+                    <span className="text-[10px] font-bold bg-amber-400/20 text-amber-300 border border-amber-400/30 px-2 py-0.5 rounded-full">
+                      {isAr ? 'قيد التطوير' : 'In Development'}
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-300 leading-relaxed">
+                    {isAr
+                      ? 'تكامل ZATCA المرحلة الثانية (الفوترة الإلكترونية) غير مفعّل حالياً. الفواتير الصادرة حالياً هي فواتير ضريبية ورقية (مرحلة أولى) فقط. سيتم إضافة الربط الكامل مع منصة ZATCA في إصدار قادم.'
+                      : 'ZATCA Phase 2 (e-invoicing) is not yet active. Invoices issued are paper-based tax invoices (Phase 1) only. Full ZATCA platform integration will be added in a future release.'}
+                  </p>
+                  <div className="mt-2 flex items-center gap-4 text-[11px]">
+                    <span className="flex items-center gap-1.5 text-emerald-400">
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+                      {isAr ? 'المرحلة الأولى (ورقية): مدعومة' : 'Phase 1 (paper): supported'}
+                    </span>
+                    <span className="flex items-center gap-1.5 text-slate-400">
+                      <span className="w-1.5 h-1.5 rounded-full bg-slate-500" />
+                      {isAr ? 'المرحلة الثانية (إلكترونية): قريباً' : 'Phase 2 (electronic): coming soon'}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
               <Card>
                 <CardHeader>
                   <CardTitle>ZATCA {isAr ? 'المرحلة الثانية' : 'Phase 2'}</CardTitle>

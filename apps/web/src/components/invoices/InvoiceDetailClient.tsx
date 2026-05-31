@@ -562,21 +562,15 @@ export function InvoiceDetailClient({ locale, invoiceId }: InvoiceDetailClientPr
             zatcaStatus === 'cleared' || zatcaStatus === 'reported' ? 'text-emerald-600' : 'text-amber-600',
           )} />
           <div className="text-sm space-y-1">
-            <p className={cn(
-              'font-semibold',
-              zatcaStatus === 'cleared' || zatcaStatus === 'reported' ? 'text-emerald-800' : 'text-amber-800',
-            )}>
+            <p className="font-semibold text-amber-800">
               {isAr
-                ? 'فاتورة إلكترونية وفق متطلبات هيئة الزكاة والضريبة والجمارك (ZATCA)'
-                : 'E-Invoice compliant with ZATCA (Zakat, Tax & Customs Authority)'}
+                ? 'فاتورة ضريبية (مرحلة أولى) — تكامل ZATCA المرحلة الثانية قيد التطوير'
+                : 'Tax Invoice (Phase 1) — ZATCA Phase 2 Integration Pending'}
             </p>
-            <p className={cn(
-              'text-xs',
-              zatcaStatus === 'cleared' || zatcaStatus === 'reported' ? 'text-emerald-700' : 'text-amber-700',
-            )}>
+            <p className="text-xs text-amber-700">
               {isAr
-                ? `المرحلة الثانية — تكامل مع منصة ZATCA | حالة الإرسال: ${zStyle.ar}`
-                : `Phase 2 Integration | Submission status: ${zStyle.en}`}
+                ? 'الفوترة الإلكترونية عبر منصة ZATCA المرحلة الثانية غير مفعّلة حالياً في هذا النظام.'
+                : 'ZATCA Phase 2 electronic invoicing is not yet active in this system.'}
             </p>
             {uuid && (
               <p className="text-xs text-slate-500 font-mono">{`UUID: ${uuid}`}</p>
