@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { eq, and, inArray, isNull, desc } from 'drizzle-orm';
+import { eq, and, inArray, isNull, desc, getTableColumns } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { tickets, ticketCoupons, pnrRecords } from '@/lib/schema';
 import { verifyAuth, ApiAuthError } from '@/lib/api-auth';
@@ -22,9 +22,11 @@ export async function GET(request: Request) {
     if (customerId) conditions.push(eq(tickets.customerId, customerId));
     if (status)     conditions.push(eq(tickets.status, status));
 
+    const ticketCols = getTableColumns(tickets);
     const rows = await db
-      .select()
+      .select({ ...ticketCols, pnrCode: pnrRecords.pnrCode })
       .from(tickets)
+      .leftJoin(pnrRecords, eq(tickets.pnrId, pnrRecords.id))
       .where(and(...conditions))
       .orderBy(desc(tickets.createdAt))
       .limit(200);

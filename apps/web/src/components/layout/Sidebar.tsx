@@ -14,7 +14,7 @@ import {
   Moon, Shield, Stamp, FileText, Receipt, BarChart3, Truck, UserCog,
   Settings, HelpCircle, ChevronLeft, ChevronRight, Calculator,
   Anchor, Car, Train, Camera, Mountain, Plus, Layers, Landmark, Send, Wallet,
-  TrendingDown, TrendingUp, Lock, FileSearch,
+  TrendingDown, TrendingUp, Lock, FileSearch, Ticket,
 } from 'lucide-react';
 
 // ─── Icon map for custom service types ────────────────────────────────────────
@@ -67,6 +67,7 @@ const SERVICES_GROUP: NavGroup = {
     { key: 'quotes',     href: '/quotes',    icon: <Send size={18} />,          labelAr: 'عروض الأسعار',  labelEn: 'Quotations' },
     { key: 'flights',    href: '/flights',    icon: <Plane size={18} />,         labelAr: 'طيران',         labelEn: 'Flights' },
     { key: 'pnr',        href: '/pnr',       icon: <FileSearch size={18} />,    labelAr: 'سجلات PNR',     labelEn: 'PNR Records' },
+    { key: 'tickets',    href: '/tickets',   icon: <Ticket size={18} />,        labelAr: 'التذاكر',        labelEn: 'Tickets' },
     { key: 'hotels',     href: '/hotels',    icon: <Building2 size={18} />,     labelAr: 'فنادق',         labelEn: 'Hotels' },
     { key: 'packages',   href: '/packages',  icon: <Package size={18} />,       labelAr: 'باقات سياحية',  labelEn: 'Packages' },
     { key: 'umrah',      href: '/umrah',     icon: <Moon size={18} />,          labelAr: 'عمرة وحج',      labelEn: 'Umrah & Hajj' },

@@ -10,7 +10,7 @@ import { computeDisplayStatus } from './PnrListClient';
 import type { PnrRecord, PnrSegmentJson, PnrPassengerJson } from '@/lib/schema';
 import {
   X, RefreshCw, XCircle, Link2, User, BookOpen,
-  Plane, Users, Map, Clock, CheckCircle2, AlertTriangle,
+  Plane, Users, Map, Clock, CheckCircle2, AlertTriangle, Ticket,
 } from 'lucide-react';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -24,6 +24,13 @@ interface Props {
 }
 
 type DrawerTab = 'overview' | 'passengers' | 'segments';
+
+interface ProviderItem {
+  id:           string;
+  providerCode: string;
+  label:        string | null;
+  isActive:     boolean;
+}
 
 // ─── Sub-components ──────────────────────────────────────────────────────────
 
@@ -60,9 +67,19 @@ export function PnrDrawer({ pnr, isAr, onClose, onChange, onDelete }: Props) {
   const [linkBooking,  setLinkBooking]  = useState(false);
   const [bookingId,    setBookingId]    = useState(pnr.bookingId ?? '');
 
-  const displayStatus = computeDisplayStatus(pnr);
-  const canCancel     = displayStatus === 'active';
-  const canSync       = displayStatus === 'active' || displayStatus === 'expired';
+  // Issue Ticket state
+  const [issueTicket,      setIssueTicket]      = useState(false);
+  const [providers,        setProviders]        = useState<ProviderItem[]>([]);
+  const [loadingProviders, setLoadingProviders] = useState(false);
+  const [issueForm,        setIssueForm]        = useState({ passengerName: '', credentialId: '' });
+  const [issuing,          setIssuing]          = useState(false);
+  const [issueSuccess,     setIssueSuccess]     = useState('');
+  const [issueError,       setIssueError]       = useState('');
+
+  const displayStatus   = computeDisplayStatus(pnr);
+  const canCancel       = displayStatus === 'active';
+  const canSync         = displayStatus === 'active' || displayStatus === 'expired';
+  const canIssueTicket  = pnr.status !== 'cancelled' && pnr.status !== 'voided' && displayStatus !== 'expired';
 
   const segments:  PnrSegmentJson[]   = Array.isArray(pnr.segments)  ? (pnr.segments  as PnrSegmentJson[])  : [];
   const passengers: PnrPassengerJson[] = Array.isArray(pnr.passengers) ? (pnr.passengers as PnrPassengerJson[]) : [];
@@ -109,6 +126,57 @@ export function PnrDrawer({ pnr, isAr, onClose, onChange, onDelete }: Props) {
     if (!bookingId.trim()) return;
     await patch({ bookingId: bookingId.trim() });
     setLinkBooking(false);
+  }
+
+  async function openIssueTicket() {
+    const opening = !issueTicket;
+    setIssueTicket(opening);
+    if (opening) {
+      setLinkCustomer(false);
+      setLinkBooking(false);
+      setIssueSuccess('');
+      setIssueError('');
+      if (passengers.length > 0) {
+        setIssueForm(f => ({ ...f, passengerName: passengers[0]!.name }));
+      }
+      setLoadingProviders(true);
+      try {
+        const data = await apiFetch<{ providers: ProviderItem[] }>('/api/settings/providers');
+        setProviders(data.providers.filter(p => p.isActive));
+        if (data.providers.filter(p => p.isActive).length === 1) {
+          setIssueForm(f => ({ ...f, credentialId: data.providers.filter(p => p.isActive)[0]!.id }));
+        }
+      } catch { /* silently ignore */ }
+      finally { setLoadingProviders(false); }
+    }
+  }
+
+  async function handleIssueTicket() {
+    if (!issueForm.passengerName.trim() || !issueForm.credentialId) return;
+    setIssuing(true);
+    setIssueError('');
+    try {
+      const result = await apiFetch<{ ticketNumber: string | null; ticketId: string }>(
+        '/api/tickets',
+        {
+          method: 'POST',
+          body: JSON.stringify({
+            pnrId:        pnr.id,
+            passengerName: issueForm.passengerName.trim(),
+            credentialId: issueForm.credentialId,
+          }),
+        },
+      );
+      const num = result.ticketNumber ?? (isAr ? 'قيد الإصدار' : 'pending');
+      setIssueSuccess(num);
+      // Re-fetch PNR to reflect 'ticketed' status
+      const { pnr: refreshed } = await apiFetch<{ pnr: PnrRecord }>(`/api/pnr/${pnr.id}`);
+      onChange(refreshed);
+    } catch (e) {
+      setIssueError((e as Error).message);
+    } finally {
+      setIssuing(false);
+    }
   }
 
   const TABS: { id: DrawerTab; ar: string; en: string; icon: React.ReactNode }[] = [
@@ -177,6 +245,15 @@ export function PnrDrawer({ pnr, isAr, onClose, onChange, onDelete }: Props) {
             <BookOpen size={12} />
             {isAr ? 'ربط حجز' : 'Link Booking'}
           </button>
+          {canIssueTicket && (
+            <button
+              onClick={() => void openIssueTicket()}
+              className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border border-brand-200 bg-brand-50 text-brand-700 hover:bg-brand-100 transition-colors"
+            >
+              <Ticket size={12} />
+              {isAr ? 'إصدار تذكرة' : 'Issue Ticket'}
+            </button>
+          )}
         </div>
 
         {/* Link customer inline form */}
@@ -210,6 +287,94 @@ export function PnrDrawer({ pnr, isAr, onClose, onChange, onDelete }: Props) {
               {isAr ? 'ربط' : 'Link'}
             </Button>
             <button onClick={() => setLinkBooking(false)} className="text-slate-400 hover:text-slate-600"><X size={14} /></button>
+          </div>
+        )}
+
+        {/* Issue Ticket inline form */}
+        {issueTicket && (
+          <div className="px-5 py-3 border-b border-slate-100 bg-brand-50/20 space-y-2.5">
+            {issueSuccess ? (
+              <div className="flex items-center gap-2 text-sm text-emerald-700 py-1">
+                <CheckCircle2 size={14} className="shrink-0" />
+                <span className="flex-1">
+                  {isAr ? `تم الإصدار — رقم التذكرة: ${issueSuccess}` : `Issued — ticket #: ${issueSuccess}`}
+                </span>
+                <button onClick={() => { setIssueTicket(false); setIssueSuccess(''); }} className="text-slate-400 hover:text-slate-600">
+                  <X size={12} />
+                </button>
+              </div>
+            ) : (
+              <>
+                <div className="flex items-center gap-2">
+                  <Ticket size={13} className="text-brand-500 shrink-0" />
+                  <span className="text-xs font-medium text-slate-700">
+                    {isAr ? 'إصدار تذكرة جديدة' : 'Issue New Ticket'}
+                  </span>
+                  <button onClick={() => setIssueTicket(false)} className="ms-auto text-slate-400 hover:text-slate-600">
+                    <X size={12} />
+                  </button>
+                </div>
+
+                {/* Passenger picker */}
+                {passengers.length > 0 ? (
+                  <select
+                    value={issueForm.passengerName}
+                    onChange={e => setIssueForm(f => ({ ...f, passengerName: e.target.value }))}
+                    className="w-full text-xs border border-slate-200 rounded-lg px-2 py-1.5 bg-white focus:outline-none focus:ring-1 focus:ring-brand-400"
+                  >
+                    <option value="">{isAr ? 'اختر الراكب...' : 'Select passenger...'}</option>
+                    {passengers.map((p, i) => (
+                      <option key={i} value={p.name}>{p.name}{p.type ? ` (${p.type})` : ''}</option>
+                    ))}
+                  </select>
+                ) : (
+                  <Input
+                    value={issueForm.passengerName}
+                    onChange={e => setIssueForm(f => ({ ...f, passengerName: e.target.value }))}
+                    placeholder={isAr ? 'اسم الراكب...' : 'Passenger name...'}
+                    className="text-xs h-8"
+                  />
+                )}
+
+                {/* Credential picker */}
+                {loadingProviders ? (
+                  <div className="flex items-center gap-1.5 text-xs text-slate-400">
+                    <Spinner size="sm" />
+                    {isAr ? 'جارٍ تحميل المزودين...' : 'Loading providers...'}
+                  </div>
+                ) : providers.length === 0 ? (
+                  <p className="text-xs text-amber-700 bg-amber-50 rounded-lg px-2 py-1.5">
+                    {isAr ? 'لا يوجد مزود GDS نشط — يرجى الإعداد من الإعدادات.' : 'No active GDS provider — please configure in Settings.'}
+                  </p>
+                ) : (
+                  <select
+                    value={issueForm.credentialId}
+                    onChange={e => setIssueForm(f => ({ ...f, credentialId: e.target.value }))}
+                    className="w-full text-xs border border-slate-200 rounded-lg px-2 py-1.5 bg-white focus:outline-none focus:ring-1 focus:ring-brand-400"
+                  >
+                    <option value="">{isAr ? 'اختر المزود...' : 'Select provider...'}</option>
+                    {providers.map(p => (
+                      <option key={p.id} value={p.id}>
+                        {p.label ?? p.providerCode}
+                      </option>
+                    ))}
+                  </select>
+                )}
+
+                {issueError && (
+                  <p className="text-xs text-red-600 bg-red-50 rounded-lg px-2 py-1.5">{issueError}</p>
+                )}
+
+                <Button
+                  size="sm"
+                  onClick={() => void handleIssueTicket()}
+                  disabled={issuing || !issueForm.passengerName.trim() || !issueForm.credentialId}
+                  className="w-full"
+                >
+                  {issuing ? <Spinner size="sm" /> : (isAr ? 'إصدار' : 'Issue Ticket')}
+                </Button>
+              </>
+            )}
           </div>
         )}
 
