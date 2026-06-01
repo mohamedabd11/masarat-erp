@@ -5,6 +5,7 @@ import { bankAccounts, journalEntries, journalLines } from '@/lib/schema';
 import { verifyAuth, assertRole, ApiAuthError, ROLES_ACCOUNTANT_UP } from '@/lib/api-auth';
 import { getNextJournalNumber } from '@/lib/invoice-counter';
 import { GL } from '@/lib/gl-accounts';
+import { assertPeriodOpen } from '@/lib/period-lock';
 
 // Map bank account type to default GL code
 function glCodeForType(type: string): { code: string; ar: string; en: string } {
@@ -37,6 +38,10 @@ export async function POST(request: Request) {
     const opening = body.openingBalanceHalalas ?? 0;
 
     await db.transaction(async (tx) => {
+      // Opening balance posts a journal entry dated today — block closed periods.
+      const txDate = new Date().toISOString().split('T')[0]!;
+      await assertPeriodOpen(agencyId, txDate, tx);
+
       await tx.insert(bankAccounts).values({
         id, agencyId,
         nameAr: body.nameAr, nameEn: body.nameEn ?? null,

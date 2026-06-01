@@ -5,6 +5,7 @@ import { invoices, journalEntries, journalLines } from '@/lib/schema';
 import { verifyAuth, assertRole, ApiAuthError, BusinessError, ROLES_ACCOUNTANT_UP } from '@/lib/api-auth';
 import { logAudit } from '@/lib/audit';
 import { getNextJournalNumber } from '@/lib/invoice-counter';
+import { assertPeriodOpen } from '@/lib/period-lock';
 import { GL } from '@/lib/gl-accounts';
 
 // POST { invoiceIds?: string[] }
@@ -50,6 +51,8 @@ export async function POST(request: Request) {
     const recognized: Array<{ id: string; invoiceNumber: string; amountHalalas: number; journalEntryId: string }> = [];
 
     await db.transaction(async (tx) => {
+      // Recognition entries are posted on today's date — block closed periods.
+      await assertPeriodOpen(agencyId, today, tx);
       for (const inv of due) {
         // The deferred amount is the revenue portion (subtotal excl. VAT). VAT was
         // already posted to VAT Payable at issuance and is not deferred.
