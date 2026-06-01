@@ -25,6 +25,7 @@ import { verifyAuth, assertRole, ApiAuthError, BusinessError, ROLES_ACCOUNTANT_U
 import { logAudit } from '@/lib/audit';
 import { getNextJournalNumber } from '@/lib/invoice-counter';
 import { assertPeriodOpen } from '@/lib/period-lock';
+import { GL } from '@/lib/gl-accounts';
 
 // ─── GET: list transactions eligible for reconciliation ──────────────────────
 
@@ -154,6 +155,10 @@ export async function POST(request: Request) {
       if (Math.abs(discrepancy) >= 1) {
         const absDiscrepancy = Math.abs(discrepancy);
         const isShortage     = discrepancy > 0; // book > statement → shortage/expense
+        // Post the cash/bank leg to the account that actually matches this
+        // reconciled account (1110 Bank for bank accounts, 1100 Cash otherwise),
+        // instead of always hitting 1100.
+        const differenceAccount = account.type === 'bank' ? GL.bank : GL.cash;
         discrepancyEntryId   = crypto.randomUUID();
         const entryNumber    = await getNextJournalNumber(agencyId, new Date(statementDate).getFullYear(), tx);
 
@@ -173,16 +178,16 @@ export async function POST(request: Request) {
           createdBy:       uid,
         });
 
-        // Shortage (book > statement): DR Bank Discrepancy Expense (5510) / CR Bank (1100)
-        // Surplus  (statement > book): DR Bank (1100) / CR Bank Discrepancy Income (4510)
+        // Shortage (book > statement): DR Bank Discrepancy Expense (5510) / CR Bank|Cash
+        // Surplus  (statement > book): DR Bank|Cash / CR Bank Discrepancy Income (4510)
         await tx.insert(journalLines).values([
           {
             id:             crypto.randomUUID(),
             entryId:        discrepancyEntryId,
             agencyId,
-            accountCode:    isShortage ? '5510' : '1100',
-            accountNameAr:  isShortage ? 'فروق مطابقة بنكية (عجز)' : 'نقدية وبنوك',
-            accountNameEn:  isShortage ? 'Bank Reconciliation Shortage' : 'Cash & Banks',
+            accountCode:    isShortage ? '5510' : differenceAccount.code,
+            accountNameAr:  isShortage ? 'فروق مطابقة بنكية (عجز)' : differenceAccount.ar,
+            accountNameEn:  isShortage ? 'Bank Reconciliation Shortage' : differenceAccount.en,
             debitHalalas:   absDiscrepancy,
             creditHalalas:  0,
             description:    `RECON ${statementDate} ${account.nameAr}`,
@@ -192,9 +197,9 @@ export async function POST(request: Request) {
             id:             crypto.randomUUID(),
             entryId:        discrepancyEntryId,
             agencyId,
-            accountCode:    isShortage ? '1100' : '4510',
-            accountNameAr:  isShortage ? 'نقدية وبنوك' : 'فروق مطابقة بنكية (فائض)',
-            accountNameEn:  isShortage ? 'Cash & Banks' : 'Bank Reconciliation Surplus',
+            accountCode:    isShortage ? differenceAccount.code : '4510',
+            accountNameAr:  isShortage ? differenceAccount.ar : 'فروق مطابقة بنكية (فائض)',
+            accountNameEn:  isShortage ? differenceAccount.en : 'Bank Reconciliation Surplus',
             debitHalalas:   0,
             creditHalalas:  absDiscrepancy,
             description:    `RECON ${statementDate} ${account.nameAr}`,
