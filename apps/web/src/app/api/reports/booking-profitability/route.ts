@@ -18,14 +18,11 @@ export async function GET(request: Request) {
     await requireFeature(agencyId, 'financial_reports', db);
 
     const url     = new URL(request.url);
-    const from    = url.searchParams.get('from');
-    const to      = url.searchParams.get('to');
-    const groupBy = url.searchParams.get('groupBy') ?? 'booking'; // booking|serviceType|employee|month
+    const currentYear = new Date().getFullYear();
+    const from    = url.searchParams.get('from')    ?? `${currentYear}-01-01`;
+    const to      = url.searchParams.get('to')      ?? `${currentYear}-12-31`;
+    const groupBy = url.searchParams.get('groupBy') ?? 'serviceType'; // booking|serviceType|employee|month
     const limit   = Math.min(Number(url.searchParams.get('limit') ?? '200'), 500);
-
-    if (!from || !to) {
-      return NextResponse.json({ error: 'from و to مطلوبان (YYYY-MM-DD)' }, { status: 400 });
-    }
 
     const baseWhere = and(
       eq(bookings.agencyId, agencyId),

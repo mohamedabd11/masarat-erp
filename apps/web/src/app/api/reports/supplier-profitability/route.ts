@@ -19,12 +19,9 @@ export async function GET(request: Request) {
     await requireFeature(agencyId, 'financial_reports', db);
 
     const url  = new URL(request.url);
-    const from = url.searchParams.get('from');
-    const to   = url.searchParams.get('to');
-
-    if (!from || !to) {
-      return NextResponse.json({ error: 'from و to مطلوبان (YYYY-MM-DD)' }, { status: 400 });
-    }
+    const currentYear = new Date().getFullYear();
+    const from = url.searchParams.get('from') ?? `${currentYear}-01-01`;
+    const to   = url.searchParams.get('to')   ?? `${currentYear}-12-31`;
 
     // ── Cost per supplier (from supplier payments) ────────────────────────────
     const costRows = await db
