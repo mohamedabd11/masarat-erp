@@ -1,4 +1,4 @@
-import { pgTable, text, integer, timestamp, jsonb, uniqueIndex } from 'drizzle-orm/pg-core';
+import { pgTable, text, bigint, timestamp, jsonb, uniqueIndex } from 'drizzle-orm/pg-core';
 import { agencies } from './agencies';
 import { customers } from './customers';
 
@@ -10,7 +10,7 @@ export const quotes = pgTable('quotes', {
   customerName:         text('customer_name'),
   customerPhone:        text('customer_phone'),
   items:                jsonb('items'),                              // array of line items
-  totalHalalas:         integer('total_halalas').notNull().default(0),
+  totalHalalas:         bigint('total_halalas', { mode: 'number' }).notNull().default(0),
   status:               text('status').notNull().default('draft'),   // draft|sent|accepted|rejected|expired|converted
   validUntil:           text('valid_until'),
   notes:                text('notes'),

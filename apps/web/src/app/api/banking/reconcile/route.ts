@@ -24,6 +24,7 @@ import { bankAccounts, bankTransactions, journalEntries, journalLines } from '@/
 import { verifyAuth, assertRole, ApiAuthError, BusinessError, ROLES_ACCOUNTANT_UP } from '@/lib/api-auth';
 import { logAudit } from '@/lib/audit';
 import { getNextJournalNumber } from '@/lib/invoice-counter';
+import { assertPeriodOpen } from '@/lib/period-lock';
 
 // ─── GET: list transactions eligible for reconciliation ──────────────────────
 
@@ -111,6 +112,10 @@ export async function POST(request: Request) {
       const [account] = await tx.select().from(bankAccounts)
         .where(and(eq(bankAccounts.id, bankAccountId), eq(bankAccounts.agencyId, agencyId)));
       if (!account) throw new BusinessError('الحساب البنكي غير موجود', 404);
+
+      // A reconciliation discrepancy posts a journal entry dated on the statement
+      // date, so the statement period must be open.
+      await assertPeriodOpen(agencyId, statementDate, tx);
 
       const now = new Date();
 

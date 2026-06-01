@@ -1,9 +1,30 @@
 import { NextResponse } from 'next/server';
 import { eq, and, sql } from 'drizzle-orm';
 import { db } from '@/lib/db';
-import { journalLines, journalEntries } from '@/lib/schema';
+import { journalLines, journalEntries, chartOfAccounts } from '@/lib/schema';
 import { verifyAuth, assertRole, ApiAuthError, BusinessError, ROLES_ACCOUNTANT_UP } from '@/lib/api-auth';
 import { requireFeature } from '@/lib/feature-access';
+
+type AccountType = 'asset' | 'liability' | 'equity' | 'revenue' | 'expense';
+
+/**
+ * Classify an account into a balance-sheet/P&L bucket.
+ *
+ * Prefers the explicit `type` recorded in the chart of accounts (so a code like
+ * 3201 flagged as a `liability` — deferred revenue — is treated correctly rather
+ * than as equity just because it starts with "3"). Falls back to the numeric
+ * range only when the account has no COA entry.
+ */
+function classify(code: string, coaType: AccountType | undefined): AccountType {
+  if (coaType) return coaType;
+  if (code.startsWith('1')) return 'asset';
+  if (code.startsWith('2')) return 'liability';
+  // Deferred revenue (3201/3202) is a liability in substance even without a COA row.
+  if (code === '3201' || code === '3202') return 'liability';
+  if (code.startsWith('3')) return 'equity';
+  if (code.startsWith('4')) return 'revenue';
+  return 'expense'; // 5xxx + 6xxx
+}
 
 interface AccountLine {
   code:    string;
@@ -28,8 +49,8 @@ export async function GET(request: Request) {
         accountCode:  journalLines.accountCode,
         accountNameAr: journalLines.accountNameAr,
         accountNameEn: journalLines.accountNameEn,
-        debitTotal:   sql<number>`cast(sum(${journalLines.debitHalalas}) as int)`,
-        creditTotal:  sql<number>`cast(sum(${journalLines.creditHalalas}) as int)`,
+        debitTotal:   sql<number>`cast(sum(${journalLines.debitHalalas}) as bigint)`,
+        creditTotal:  sql<number>`cast(sum(${journalLines.creditHalalas}) as bigint)`,
       })
       .from(journalLines)
       .innerJoin(journalEntries, eq(journalLines.entryId, journalEntries.id))
@@ -40,6 +61,15 @@ export async function GET(request: Request) {
       ))
       .groupBy(journalLines.accountCode, journalLines.accountNameAr, journalLines.accountNameEn)
       .orderBy(journalLines.accountCode);
+
+    // Authoritative account types from the chart of accounts.
+    const coaRows = await db
+      .select({ code: chartOfAccounts.code, type: chartOfAccounts.type })
+      .from(chartOfAccounts)
+      .where(eq(chartOfAccounts.agencyId, agencyId));
+    const typeByCode = new Map<string, AccountType>(
+      coaRows.map((r) => [r.code, r.type as AccountType]),
+    );
 
     const assets:      AccountLine[] = [];
     const liabilities: AccountLine[] = [];
@@ -58,19 +88,25 @@ export async function GET(request: Request) {
 
       const line: AccountLine = { code, nameAr: r.accountNameAr ?? '', nameEn: r.accountNameEn ?? null, debit, credit, balance: 0 };
 
-      if (code.startsWith('1')) {
-        line.balance = debit - credit;      // asset: debit normal
-        assets.push(line);
-      } else if (code.startsWith('2')) {
-        line.balance = credit - debit;      // liability: credit normal
-        liabilities.push(line);
-      } else if (code.startsWith('3')) {
-        line.balance = credit - debit;      // equity: credit normal
-        equity.push(line);
-      } else if (code.startsWith('4')) {
-        totalRevenue += credit - debit;     // revenue: credit normal
-      } else if (code.startsWith('5')) {
-        totalExpenses += debit - credit;    // expense: debit normal
+      switch (classify(code, typeByCode.get(code))) {
+        case 'asset':
+          line.balance = debit - credit;      // asset: debit normal
+          assets.push(line);
+          break;
+        case 'liability':
+          line.balance = credit - debit;      // liability: credit normal
+          liabilities.push(line);
+          break;
+        case 'equity':
+          line.balance = credit - debit;      // equity: credit normal
+          equity.push(line);
+          break;
+        case 'revenue':
+          totalRevenue += credit - debit;     // revenue: credit normal
+          break;
+        case 'expense':
+          totalExpenses += debit - credit;    // expense: debit normal
+          break;
       }
     }
 

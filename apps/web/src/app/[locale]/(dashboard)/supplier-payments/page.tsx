@@ -66,23 +66,11 @@ function SupplierPaymentRefundModal({ payment, onClose, onSuccess }: RefundModal
     setSaving(true);
     setError('');
     try {
-      const { getAuth } = await import('firebase/auth');
-      const { getApp } = await import('@masarat/firebase');
-      const token = await getAuth(getApp()).currentUser?.getIdToken();
-
-      const res = await fetch('/api/supplier-payments/reverse', {
+      const { apiFetch } = await import('@/lib/api-client');
+      await apiFetch('/api/supplier-payments/reverse', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`,
-        },
         body: JSON.stringify({ supplierPaymentId: payment.id, reason }),
       });
-
-      if (!res.ok) {
-        const body = await res.json() as { error?: string };
-        throw new Error(body.error ?? (isAr ? 'حدث خطأ' : 'Error'));
-      }
 
       setSuccess(true);
       onSuccess();

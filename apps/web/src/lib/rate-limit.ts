@@ -28,6 +28,16 @@ interface WindowEntry {
 
 const memoryStore = new Map<string, WindowEntry>();
 
+// Warn once at startup if no distributed store is configured. The in-memory
+// fallback is per-instance and resets on cold start, so it is NOT an effective
+// rate limit in serverless/multi-instance deployments.
+if (!process.env['UPSTASH_REDIS_REST_URL']) {
+  console.warn(JSON.stringify({
+    event: 'rate_limit_degraded',
+    reason: 'UPSTASH_REDIS_REST_URL not set — using in-memory fallback (not effective in serverless)',
+  }));
+}
+
 // تنظيف دوري كل دقيقة
 if (typeof setInterval !== 'undefined') {
   setInterval(() => {

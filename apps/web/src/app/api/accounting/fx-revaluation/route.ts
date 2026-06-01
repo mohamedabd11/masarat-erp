@@ -20,10 +20,13 @@ import { db } from '@/lib/db';
 import { bankAccounts, exchangeRates, journalEntries, journalLines } from '@/lib/schema';
 import { verifyAuth, assertRole, ApiAuthError, ROLES_ACCOUNTANT_UP } from '@/lib/api-auth';
 import { getNextJournalNumber } from '@/lib/invoice-counter';
+import { assertPeriodOpen } from '@/lib/period-lock';
 import { logAudit } from '@/lib/audit';
+import { GL } from '@/lib/gl-accounts';
 
-const FX_GAIN_CODE = '4500';
-const FX_LOSS_CODE = '5500';
+// Use the centralized FX accounts (4900 gain / 5900 loss) — single source of truth.
+const FX_GAIN_CODE = GL.fxGain.code;  // 4900
+const FX_LOSS_CODE = GL.fxLoss.code;  // 5900
 
 export async function POST(request: Request) {
   try {
@@ -132,6 +135,9 @@ export async function POST(request: Request) {
     if (adjustments.length === 0 || dryRun) {
       return NextResponse.json({ dryRun, revaluationDate: revalDate, adjustments });
     }
+
+    // Block revaluation postings into a closed accounting period.
+    await assertPeriodOpen(agencyId, revalDate, db);
 
     // Create journal entries for each adjustment
     const createdEntries: string[] = [];

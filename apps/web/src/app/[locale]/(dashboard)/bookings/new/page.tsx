@@ -575,11 +575,6 @@ function NewBookingContent() {
     setSubmitting(true);
     setFormError('');
     try {
-      const { getAuth } = await import('firebase/auth');
-      const { getApp }  = await import('@masarat/firebase');
-      const token = await getAuth(getApp()).currentUser?.getIdToken();
-      if (!token) throw new Error('no token');
-
       const costH  = toH(data.costPriceSAR ?? 0);
       const feeH   = toH(data.serviceFeeSAR ?? 0);
       const sell   = data.revenueModel === 'agent' ? costH + feeH : costH;
@@ -587,9 +582,8 @@ function NewBookingContent() {
       const vatH   = agencyIsVatRegistered ? Math.round(vBase * 0.15) : 0;
       const totalH = sell + vatH;
 
-      const res = await fetch('/api/bookings/create', {
+      const json = await apiFetch<{ bookingId?: string; error?: string }>('/api/bookings/create', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({
           type:         selType,
           customerName: { ar: data.customerName, en: data.customerName },
@@ -630,9 +624,6 @@ function NewBookingContent() {
           },
         }),
       });
-
-      const json = await res.json() as { bookingId?: string; error?: string };
-      if (!res.ok) throw new Error(json.error ?? 'server error');
 
       router.push(`/${locale}/bookings/${json.bookingId}`);
     } catch (err) {

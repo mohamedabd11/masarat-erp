@@ -1,4 +1,4 @@
-import { pgTable, text, boolean, integer, timestamp } from 'drizzle-orm/pg-core';
+import { pgTable, text, boolean, bigint, timestamp, index } from 'drizzle-orm/pg-core';
 import { agencies } from './agencies';
 
 export const suppliers = pgTable('suppliers', {
@@ -11,12 +11,14 @@ export const suppliers = pgTable('suppliers', {
   email:           text('email'),
   accountNumber:   text('account_number'),
   vatNumber:       text('vat_number'),
-  balanceHalalas:  integer('balance_halalas').notNull().default(0), // positive = we owe them
+  balanceHalalas:  bigint('balance_halalas', { mode: 'number' }).notNull().default(0), // positive = we owe them
   notes:           text('notes'),
   isActive:        boolean('is_active').notNull().default(true),
   createdAt:       timestamp('created_at').notNull().defaultNow(),
   updatedAt:       timestamp('updated_at').notNull().defaultNow(),
-});
+}, (t) => [
+  index('idx_suppliers_agency').on(t.agencyId),
+]);
 
 export type Supplier    = typeof suppliers.$inferSelect;
 export type NewSupplier = typeof suppliers.$inferInsert;

@@ -1,4 +1,4 @@
-import { pgTable, text, integer, boolean, timestamp } from 'drizzle-orm/pg-core';
+import { pgTable, text, bigint, boolean, timestamp, index } from 'drizzle-orm/pg-core';
 import { agencies } from './agencies';
 
 export const customers = pgTable('customers', {
@@ -13,12 +13,14 @@ export const customers = pgTable('customers', {
   nationality:    text('nationality'),
   dateOfBirth:    text('date_of_birth'),
   notes:          text('notes'),
-  creditLimitHalalas:    integer('credit_limit_halalas').notNull().default(0),  // 0 = no limit
-  openingBalanceHalalas: integer('opening_balance_halalas').notNull().default(0), // AR opening balance for migration
+  creditLimitHalalas:    bigint('credit_limit_halalas', { mode: 'number' }).notNull().default(0),  // 0 = no limit
+  openingBalanceHalalas: bigint('opening_balance_halalas', { mode: 'number' }).notNull().default(0), // AR opening balance for migration
   isActive:       boolean('is_active').notNull().default(true),
   createdAt:      timestamp('created_at').notNull().defaultNow(),
   updatedAt:      timestamp('updated_at').notNull().defaultNow(),
-});
+}, (t) => [
+  index('idx_customers_agency').on(t.agencyId),
+]);
 
 export type Customer    = typeof customers.$inferSelect;
 export type NewCustomer = typeof customers.$inferInsert;

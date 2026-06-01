@@ -5,14 +5,18 @@ import { salaryPayments, employees, journalEntries, journalLines } from '@/lib/s
 import { verifyAuth, assertRole, ApiAuthError, BusinessError, ROLES_ADMIN_ONLY } from '@/lib/api-auth';
 import { requireFeature } from '@/lib/feature-access';
 import { getNextJournalNumber } from '@/lib/invoice-counter';
+import { assertPeriodOpen } from '@/lib/period-lock';
+import { GL } from '@/lib/gl-accounts';
 
 const METHOD_ACCOUNT: Record<string, { code: string; ar: string; en: string }> = {
-  cash:          { code: '1100', ar: 'الصندوق النقدي', en: 'Cash' },
-  bank_transfer: { code: '1110', ar: 'البنك',           en: 'Bank' },
-  card:          { code: '1115', ar: 'نقاط البيع',      en: 'POS / Card' },
+  cash:          GL.cash,
+  bank_transfer: GL.bank,
+  card:          GL.posCard,
 };
 
-const AC_SALARY = { code: '5100', ar: 'الرواتب والأجور', en: 'Salaries' };
+// Paying a salary settles the previously-accrued liability (2310 Salaries Payable),
+// it does NOT recognise a new expense. The expense is booked once, at payslip time.
+const AC_SALARIES_PAYABLE = GL.salariesPayable;
 
 export async function GET(request: Request) {
   try {
@@ -88,6 +92,9 @@ export async function POST(request: Request) {
       const now    = new Date();
       const year   = now.getFullYear();
       const today  = now.toISOString().split('T')[0]!;
+
+      await assertPeriodOpen(agencyId, today, tx);
+
       const jeId   = crypto.randomUUID();
       const jeNum  = await getNextJournalNumber(agencyId, year, tx);
       const payId  = crypto.randomUUID();
@@ -120,9 +127,12 @@ export async function POST(request: Request) {
         createdBy:           uid,
       });
 
+      // Salary disbursement settles the accrued liability (no new expense here):
+      //   Dr 2310 Salaries Payable   (clears the accrual booked by the payslip)
+      //      Cr Bank / Cash          (cash outflow)
       await tx.insert(journalLines).values([
-        { id: crypto.randomUUID(), entryId: jeId, agencyId, accountCode: AC_SALARY.code, accountNameAr: AC_SALARY.ar, accountNameEn: AC_SALARY.en, debitHalalas: amountHalalas, creditHalalas: 0,             sortOrder: 1 },
-        { id: crypto.randomUUID(), entryId: jeId, agencyId, accountCode: cashAc.code,    accountNameAr: cashAc.ar,    accountNameEn: cashAc.en,    debitHalalas: 0,             creditHalalas: amountHalalas, sortOrder: 2 },
+        { id: crypto.randomUUID(), entryId: jeId, agencyId, accountCode: AC_SALARIES_PAYABLE.code, accountNameAr: AC_SALARIES_PAYABLE.ar, accountNameEn: AC_SALARIES_PAYABLE.en, debitHalalas: amountHalalas, creditHalalas: 0,             sortOrder: 1 },
+        { id: crypto.randomUUID(), entryId: jeId, agencyId, accountCode: cashAc.code,               accountNameAr: cashAc.ar,               accountNameEn: cashAc.en,               debitHalalas: 0,             creditHalalas: amountHalalas, sortOrder: 2 },
       ]);
 
       return { id: payId };

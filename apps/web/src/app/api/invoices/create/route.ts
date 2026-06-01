@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { eq, and, sql, ne } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { bookings, agencies, invoices, journalEntries, journalLines, customers } from '@/lib/schema';
-import { verifyAuth, ApiAuthError, BusinessError } from '@/lib/api-auth';
+import { verifyAuth, assertRole, ApiAuthError, BusinessError, ROLES_ACCOUNTANT_UP } from '@/lib/api-auth';
 import { logAudit } from '@/lib/audit';
 import { checkRateLimit, getClientIp, rateLimitHeaders } from '@/lib/rate-limit';
 import { withIdempotency, buildIdempotencyInsert } from '@/lib/idempotency';
@@ -18,7 +18,18 @@ const AC = {
   revenueAgent:     GL.revenueAgent,
   revenuePrincipal: GL.revenuePrincipal,
   costOfServices:   GL.costOfServices,
+  deferredRevenue:  GL.deferredRevenue,
 };
+
+// Service types whose revenue is deferred until the trip is delivered (IFRS 15).
+const DEFERRABLE_SERVICE_TYPES = new Set(['umrah', 'hajj', 'package', 'packages']);
+
+// Pull the travel/service date out of booking.details (no dedicated column on
+// the bookings table — dates are stored in the details JSON).
+function extractTravelDate(details: Record<string, unknown>): string | null {
+  const raw = details['travelDate'] ?? details['serviceDate'] ?? details['departureDate'];
+  return typeof raw === 'string' && raw.trim() !== '' ? raw : null;
+}
 
 interface InvoiceCreateBody {
   bookingId: string;
@@ -45,7 +56,8 @@ interface InvoiceItem {
 
 export async function POST(request: Request) {
   try {
-    const { uid, agencyId } = await verifyAuth(request);
+    const { uid, agencyId, role } = await verifyAuth(request);
+    assertRole(role, [...ROLES_ACCOUNTANT_UP]);
 
     const rl = await checkRateLimit(`${agencyId}:${getClientIp(request)}`, 'financial');
     if (!rl.success) {
@@ -172,10 +184,20 @@ export async function POST(request: Request) {
         const today  = now.toISOString().split('T')[0]!;
         const period = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
 
+        // ── 5b. IFRS 15 deferred-revenue check ──────────────────────────────
+        // For future-dated Umrah/Hajj/package bookings the performance obligation
+        // is satisfied on the travel date, so revenue is deferred (credited to
+        // 3201 Deferred Revenue instead of 4100 Travel Services) until then.
+        const travelDate    = extractTravelDate(details);
+        const isDeferrable   = DEFERRABLE_SERVICE_TYPES.has(booking.serviceType ?? '');
+        const isFutureTravel = travelDate != null && travelDate > today;
+        const deferRevenue   = isDeferrable && isFutureTravel;
+
         // ── 6. Build journal lines ──────────────────────────────────────────
         const jLines = buildInvoiceJournalLines(
           revenueModel, isVatRegistered, finalGrandTotal, storedCost,
           (details['serviceFee'] as number | undefined) ?? 0, totalVat, subtotalExclVat,
+          deferRevenue,
         );
 
         const typeLabel = BOOKING_TYPE_LABELS[booking.serviceType ?? ''] ?? { ar: 'خدمة سفر', en: 'Travel Service' };
@@ -207,6 +229,7 @@ export async function POST(request: Request) {
           paidHalalas:     0,
           issueDate:       today,
           status:          'issued',
+          deferredUntil:   deferRevenue ? travelDate : null,
           isEInvoice:      isVatRegistered,
           items:           invoiceItems,
           journalEntryId:  jLines.length > 0 ? jeId : null,
@@ -364,9 +387,14 @@ function buildInvoiceJournalLines(
   serviceFee: number,
   vatAmount: number,
   subtotalExclVat: number,
+  deferRevenue = false,
 ): Array<{ code: string; ar: string; en: string; dr: number; cr: number }> {
   if (grandTotal === 0) return [];
   const ar = (ac: { code: string; ar: string; en: string }, dr: number, cr: number) => ({ code: ac.code, ar: ac.ar, en: ac.en, dr, cr });
+
+  // IFRS 15: future-dated travel packages credit deferred revenue (3201) instead
+  // of recognising travel-services revenue (4100) at issuance.
+  const revenueAccount = deferRevenue ? AC.deferredRevenue : AC.revenuePrincipal;
 
   if (revenueModel === 'agent') {
     const hasBreakdown = totalCost > 0 || serviceFee > 0;
@@ -381,10 +409,11 @@ function buildInvoiceJournalLines(
     return [ar(AC.receivable, grandTotal, 0), ar(AC.revenueAgent, 0, grandTotal)];
   }
 
-  // Principal model: Dr AR / Cr Revenue / Cr VAT  +  Dr COGS / Cr AP (if cost known)
+  // Principal model: Dr AR / Cr Revenue (or Deferred Revenue) / Cr VAT
+  //                + Dr COGS / Cr AP (if cost known)
   const revenueLines = isVatRegistered && vatAmount > 0
-    ? [ar(AC.receivable, grandTotal, 0), ar(AC.revenuePrincipal, 0, subtotalExclVat), ar(AC.vatPayable, 0, vatAmount)]
-    : [ar(AC.receivable, grandTotal, 0), ar(AC.revenuePrincipal, 0, grandTotal)];
+    ? [ar(AC.receivable, grandTotal, 0), ar(revenueAccount, 0, subtotalExclVat), ar(AC.vatPayable, 0, vatAmount)]
+    : [ar(AC.receivable, grandTotal, 0), ar(revenueAccount, 0, grandTotal)];
 
   if (totalCost > 0) {
     revenueLines.push(ar(AC.costOfServices, totalCost, 0));

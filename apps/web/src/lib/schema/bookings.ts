@@ -1,4 +1,4 @@
-import { pgTable, text, integer, boolean, timestamp, jsonb } from 'drizzle-orm/pg-core';
+import { pgTable, text, integer, bigint, boolean, timestamp, jsonb, index } from 'drizzle-orm/pg-core';
 import { agencies } from './agencies';
 import { customers } from './customers';
 
@@ -14,10 +14,10 @@ export const bookings = pgTable('bookings', {
   customerNameEn:   text('customer_name_en'),
   customerPhone:    text('customer_phone'),
   status:           text('status').notNull().default('confirmed'), // draft|confirmed|completed|cancelled
-  totalPriceHalalas:integer('total_price_halalas').notNull().default(0),
-  costPriceHalalas: integer('cost_price_halalas').notNull().default(0),
-  profitHalalas:    integer('profit_halalas').notNull().default(0),
-  paidHalalas:      integer('paid_halalas').notNull().default(0),
+  totalPriceHalalas:bigint('total_price_halalas', { mode: 'number' }).notNull().default(0),
+  costPriceHalalas: bigint('cost_price_halalas', { mode: 'number' }).notNull().default(0),
+  profitHalalas:    bigint('profit_halalas', { mode: 'number' }).notNull().default(0),
+  paidHalalas:      bigint('paid_halalas', { mode: 'number' }).notNull().default(0),
   currency:         text('currency').notNull().default('SAR'),
   notes:            text('notes'),
   // service-specific details stored as JSON
@@ -27,7 +27,10 @@ export const bookings = pgTable('bookings', {
   createdBy:        text('created_by'),
   createdAt:        timestamp('created_at').notNull().defaultNow(),
   updatedAt:        timestamp('updated_at').notNull().defaultNow(),
-});
+}, (t) => [
+  index('idx_bookings_agency').on(t.agencyId),
+  index('idx_bookings_agency_status').on(t.agencyId, t.status),
+]);
 
 export type Booking    = typeof bookings.$inferSelect;
 export type NewBooking = typeof bookings.$inferInsert;

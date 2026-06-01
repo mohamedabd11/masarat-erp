@@ -91,3 +91,7 @@ export const ROLES_ADMIN_ONLY    = ['owner', 'admin'] as const;
 export const ROLES_MANAGER_UP    = ['owner', 'admin', 'manager'] as const;
 export const ROLES_ACCOUNTANT_UP = ['owner', 'admin', 'manager', 'accountant'] as const;
 export const ROLES_STAFF_UP      = ['owner', 'admin', 'manager', 'accountant', 'staff'] as const;
+// Anyone who can create operational records (bookings). Agents are the least
+// privileged role that still performs data-entry, so this set includes all roles
+// above viewer plus the agent role itself.
+export const ROLES_AGENT_UP      = ['owner', 'admin', 'manager', 'accountant', 'staff', 'agent'] as const;

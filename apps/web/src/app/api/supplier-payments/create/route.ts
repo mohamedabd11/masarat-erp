@@ -2,10 +2,11 @@ import { NextResponse } from 'next/server';
 import { eq, and, sql } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { supplierPayments, suppliers, journalEntries, journalLines } from '@/lib/schema';
-import { verifyAuth, ApiAuthError, BusinessError } from '@/lib/api-auth';
+import { verifyAuth, assertRole, ApiAuthError, BusinessError, ROLES_ACCOUNTANT_UP } from '@/lib/api-auth';
 import { getNextPaymentVoucherNumber, getNextJournalNumber } from '@/lib/invoice-counter';
 import { assertPeriodOpen } from '@/lib/period-lock';
 import { lookupFxRate, fxToHalalas } from '@/lib/fx';
+import { GL } from '@/lib/gl-accounts';
 import type { Tx } from '@/lib/db';
 
 interface SupplierPaymentBody {
@@ -23,11 +24,18 @@ interface SupplierPaymentBody {
   // FX fields (IFRS 9)
   foreignCurrency?:   string;  // e.g. 'USD', 'AED'
   foreignAmountMinor?: number; // amount in minor units (cents, fils, etc.)
-  fxOriginalHalalas?: number;  // SAR at original booking rate — if supplied, difference posts to 6100
+  fxOriginalHalalas?: number;  // SAR at original booking rate — if supplied, difference posts to 5900/4900
 }
 
+// Debit account chosen per expense category.
+//
+// `supplier`: the cost was ALREADY recognised (Dr 5000 / Cr 2000) when the
+// purchase invoice was booked. Paying the supplier merely settles the payable,
+// so the debit goes to 2000 Accounts Payable — NOT to 5000 (which would
+// double-count the cost). All other categories are genuine direct expenses
+// (no prior invoice posting) and keep debiting their expense account.
 const EXPENSE_ACCOUNT: Record<string, { code: string; ar: string; en: string }> = {
-  supplier:    { code: '5000', ar: 'تكلفة الخدمات',       en: 'Cost of Services' },
+  supplier:    GL.payableSupplier,
   salaries:    { code: '5100', ar: 'الرواتب والأجور',     en: 'Salaries' },
   rent:        { code: '5200', ar: 'الإيجار',             en: 'Rent' },
   marketing:   { code: '5300', ar: 'التسويق والإعلان',    en: 'Marketing' },
@@ -36,7 +44,10 @@ const EXPENSE_ACCOUNT: Record<string, { code: string; ar: string; en: string }> 
   other:       { code: '5400', ar: 'المصاريف التشغيلية',  en: 'Operating Expenses' },
 };
 
-const AC_FX = { code: '6100', ar: 'فروق أسعار الصرف', en: 'FX Gain/Loss' };
+// FX differences post to dedicated 5900 (loss) / 4900 (gain) accounts —
+// NEVER to 6100 (Salary Expense).
+const AC_FX_LOSS = GL.fxLoss;
+const AC_FX_GAIN = GL.fxGain;
 
 const METHOD_ACCOUNT: Record<string, { code: string; ar: string; en: string }> = {
   cash:          { code: '1100', ar: 'الصندوق النقدي', en: 'Cash' },
@@ -48,7 +59,8 @@ const METHOD_ACCOUNT: Record<string, { code: string; ar: string; en: string }> =
 
 export async function POST(request: Request) {
   try {
-    const { uid, agencyId } = await verifyAuth(request);
+    const { uid, agencyId, role } = await verifyAuth(request);
+    assertRole(role, [...ROLES_ACCOUNTANT_UP]);
 
     const body = await request.json() as SupplierPaymentBody;
     const { payeeName, expenseCategory, amountHalalas, paymentMethod, reference, notes,
@@ -157,13 +169,13 @@ export async function POST(request: Request) {
       ];
 
       if (fxDiff > 0) {
-        // FX Loss: paid more SAR than originally booked — Dr FX Loss (6100)
-        lines.push({ id: crypto.randomUUID(), entryId: jeId, agencyId, accountCode: AC_FX.code, accountNameAr: AC_FX.ar, accountNameEn: AC_FX.en, debitHalalas: fxDiff, creditHalalas: 0, sortOrder: 2 });
+        // FX Loss: paid more SAR than originally booked — Dr FX Loss (5900)
+        lines.push({ id: crypto.randomUUID(), entryId: jeId, agencyId, accountCode: AC_FX_LOSS.code, accountNameAr: AC_FX_LOSS.ar, accountNameEn: AC_FX_LOSS.en, debitHalalas: fxDiff, creditHalalas: 0, sortOrder: 2 });
         lines.push({ id: crypto.randomUUID(), entryId: jeId, agencyId, accountCode: paymentAc.code, accountNameAr: paymentAc.ar, accountNameEn: paymentAc.en, debitHalalas: 0, creditHalalas: resolvedAmountHalalas, sortOrder: 3 });
       } else if (fxDiff < 0) {
-        // FX Gain: paid less SAR than originally booked — Cr FX Gain (6100)
+        // FX Gain: paid less SAR than originally booked — Cr FX Gain (4900)
         lines.push({ id: crypto.randomUUID(), entryId: jeId, agencyId, accountCode: paymentAc.code, accountNameAr: paymentAc.ar, accountNameEn: paymentAc.en, debitHalalas: 0, creditHalalas: resolvedAmountHalalas, sortOrder: 2 });
-        lines.push({ id: crypto.randomUUID(), entryId: jeId, agencyId, accountCode: AC_FX.code, accountNameAr: AC_FX.ar, accountNameEn: AC_FX.en, debitHalalas: 0, creditHalalas: -fxDiff, sortOrder: 3 });
+        lines.push({ id: crypto.randomUUID(), entryId: jeId, agencyId, accountCode: AC_FX_GAIN.code, accountNameAr: AC_FX_GAIN.ar, accountNameEn: AC_FX_GAIN.en, debitHalalas: 0, creditHalalas: -fxDiff, sortOrder: 3 });
       } else {
         lines.push({ id: crypto.randomUUID(), entryId: jeId, agencyId, accountCode: paymentAc.code, accountNameAr: paymentAc.ar, accountNameEn: paymentAc.en, debitHalalas: 0, creditHalalas: resolvedAmountHalalas, sortOrder: 2 });
       }

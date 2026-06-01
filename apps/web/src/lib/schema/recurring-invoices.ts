@@ -1,4 +1,4 @@
-import { pgTable, text, integer, boolean, timestamp, jsonb } from 'drizzle-orm/pg-core';
+import { pgTable, text, integer, bigint, boolean, timestamp, jsonb } from 'drizzle-orm/pg-core';
 import { agencies } from './agencies';
 import { customers } from './customers';
 
@@ -8,9 +8,9 @@ export const recurringInvoices = pgTable('recurring_invoices', {
   customerId:        text('customer_id').references(() => customers.id),
   title:             text('title').notNull(),
   // Amounts (template — copied to each generated invoice)
-  subtotalHalalas:   integer('subtotal_halalas').notNull().default(0),
-  vatHalalas:        integer('vat_halalas').notNull().default(0),
-  totalHalalas:      integer('total_halalas').notNull().default(0),
+  subtotalHalalas:   bigint('subtotal_halalas', { mode: 'number' }).notNull().default(0),
+  vatHalalas:        bigint('vat_halalas', { mode: 'number' }).notNull().default(0),
+  totalHalalas:      bigint('total_halalas', { mode: 'number' }).notNull().default(0),
   items:             jsonb('items'),
   notes:             text('notes'),
   // Schedule

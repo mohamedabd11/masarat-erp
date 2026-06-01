@@ -1,4 +1,4 @@
-import { pgTable, text, integer, boolean, timestamp, index } from 'drizzle-orm/pg-core';
+import { pgTable, text, bigint, boolean, timestamp, index } from 'drizzle-orm/pg-core';
 import { agencies } from './agencies';
 
 export const bankAccounts = pgTable('bank_accounts', {
@@ -10,14 +10,14 @@ export const bankAccounts = pgTable('bank_accounts', {
   accountNumber:       text('account_number'),
   bankName:            text('bank_name'),
   iban:                text('iban'),
-  openingBalanceHalalas: integer('opening_balance_halalas').notNull().default(0),
-  currentBalanceHalalas: integer('current_balance_halalas').notNull().default(0),
+  openingBalanceHalalas: bigint('opening_balance_halalas', { mode: 'number' }).notNull().default(0),
+  currentBalanceHalalas: bigint('current_balance_halalas', { mode: 'number' }).notNull().default(0),
   currency:            text('currency').notNull().default('SAR'),
   glAccountId:         text('gl_account_id'),
   isActive:            boolean('is_active').notNull().default(true),
   isReconciled:           boolean('is_reconciled').notNull().default(false),
   reconciledAt:           timestamp('reconciled_at'),
-  reconciledBalanceHalalas: integer('reconciled_balance_halalas'),
+  reconciledBalanceHalalas: bigint('reconciled_balance_halalas', { mode: 'number' }),
   createdAt:              timestamp('created_at').notNull().defaultNow(),
   updatedAt:              timestamp('updated_at').notNull().defaultNow(),
 });
@@ -30,8 +30,8 @@ export const bankTransactions = pgTable('bank_transactions', {
   agencyId:        text('agency_id').notNull().references(() => agencies.id, { onDelete: 'cascade' }),
   bankAccountId:   text('bank_account_id').notNull().references(() => bankAccounts.id),
   type:            text('type').notNull(),                    // deposit|withdrawal|transfer
-  amountHalalas:   integer('amount_halalas').notNull(),
-  balanceAfterHalalas: integer('balance_after_halalas'),
+  amountHalalas:   bigint('amount_halalas', { mode: 'number' }).notNull(),
+  balanceAfterHalalas: bigint('balance_after_halalas', { mode: 'number' }),
   description:     text('description'),
   reference:       text('reference'),
   sourceType:      text('source_type'),                      // payment|receipt|supplier_payment|manual
@@ -55,7 +55,7 @@ export const cheques = pgTable('cheques', {
   chequeNumber:    text('cheque_number').notNull(),
   bankAccountId:   text('bank_account_id').references(() => bankAccounts.id),
   bankName:        text('bank_name'),
-  amountHalalas:   integer('amount_halalas').notNull(),
+  amountHalalas:   bigint('amount_halalas', { mode: 'number' }).notNull(),
   type:            text('type').notNull(),                    // incoming|outgoing
   status:          text('status').notNull().default('pending'), // pending|cleared|bounced|cancelled
   issueDate:       text('issue_date'),

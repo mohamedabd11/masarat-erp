@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { eq, and, desc, gte, lte, inArray } from 'drizzle-orm';
 import { db } from '@/lib/db';
-import { journalEntries, journalLines } from '@/lib/schema';
+import { journalEntries, journalLines, chartOfAccounts } from '@/lib/schema';
 import { verifyAuth, assertRole, ApiAuthError, BusinessError, ROLES_ACCOUNTANT_UP } from '@/lib/api-auth';
 import { assertPeriodOpen } from '@/lib/period-lock';
 import { checkRateLimit, getClientIp, rateLimitHeaders } from '@/lib/rate-limit';
@@ -58,6 +58,25 @@ export async function POST(request: Request) {
       computedCredit = totals.totalCredit;
     } catch (ve) {
       return NextResponse.json({ error: (ve as Error).message }, { status: 422 });
+    }
+
+    // ── Verify every account code exists in this agency's chart of accounts ──
+    // Prevents manual entries from posting to non-existent/typo'd accounts, which
+    // would silently distort the trial balance and financial statements.
+    const codes = (body.lines ?? []).map((l) => l.accountCode);
+    if (codes.length > 0) {
+      const found = await db
+        .select({ code: chartOfAccounts.code })
+        .from(chartOfAccounts)
+        .where(and(eq(chartOfAccounts.agencyId, agencyId), inArray(chartOfAccounts.code, codes)));
+      const foundCodes = new Set(found.map((r) => r.code));
+      const missing    = [...new Set(codes.filter((c) => !foundCodes.has(c)))];
+      if (missing.length > 0) {
+        return NextResponse.json(
+          { error: `الحسابات التالية غير موجودة في الدليل: ${missing.join(', ')}` },
+          { status: 422 },
+        );
+      }
     }
 
     await assertPeriodOpen(agencyId, body.date, db);

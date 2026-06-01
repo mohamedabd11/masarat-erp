@@ -870,6 +870,30 @@ CREATE TABLE IF NOT EXISTS bsp_adjustments (
 );
 CREATE INDEX IF NOT EXISTS bsp_adj_agency_idx ON bsp_adjustments(agency_id);
 
+-- ══ INVOICES: deferred-revenue tracking (IFRS 15) ════════════════════════════
+-- For future-dated Umrah/Hajj/package invoices the revenue is deferred until the
+-- service is delivered (travel date). deferred_until holds that date; once the
+-- recognition journal (Dr 3201 / Cr 4100) is posted, revenue_recognized_at is set.
+ALTER TABLE invoices ADD COLUMN IF NOT EXISTS deferred_until         TEXT;
+ALTER TABLE invoices ADD COLUMN IF NOT EXISTS revenue_recognized_at  TEXT;
+CREATE INDEX IF NOT EXISTS idx_invoices_deferred ON invoices(agency_id, deferred_until);
+
+-- ══ EOSB ACCRUALS (IAS 19 — Saudi Labor Law art. 84) ═════════════════════════
+-- One row per agency+month tracking that the monthly EOSB provision was posted,
+-- preventing duplicate accruals for the same period.
+CREATE TABLE IF NOT EXISTS eosb_accruals (
+  id                TEXT PRIMARY KEY,
+  agency_id         TEXT NOT NULL REFERENCES agencies(id) ON DELETE CASCADE,
+  month             TEXT NOT NULL,
+  amount_halalas    INTEGER NOT NULL DEFAULT 0,
+  employee_count    INTEGER NOT NULL DEFAULT 0,
+  journal_entry_id  TEXT,
+  created_by        TEXT,
+  created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE(agency_id, month)
+);
+CREATE INDEX IF NOT EXISTS idx_eosb_accruals_agency ON eosb_accruals(agency_id);
+
 -- ══ AGENCY FEATURES (per-agency feature flag overrides) ══════════════════════
 CREATE TABLE IF NOT EXISTS agency_features (
   id            TEXT PRIMARY KEY,
@@ -883,6 +907,45 @@ CREATE TABLE IF NOT EXISTS agency_features (
   UNIQUE(agency_id, feature_key)
 );
 CREATE INDEX IF NOT EXISTS agency_features_agency_idx ON agency_features(agency_id);
+
+-- ══ PERFORMANCE INDEXES (financial query hot paths) ══════════════════════════
+-- Composite indexes that back the agency-scoped report/GL/list queries.
+CREATE INDEX IF NOT EXISTS idx_invoices_agency_status   ON invoices(agency_id, status);
+CREATE INDEX IF NOT EXISTS idx_je_agency_source         ON journal_entries(agency_id, source);
+CREATE INDEX IF NOT EXISTS idx_bookings_agency_status   ON bookings(agency_id, status);
+CREATE INDEX IF NOT EXISTS idx_payments_booking         ON payments(booking_id);
+-- One invoice row per booking per agency (NULL booking_id rows stay unconstrained).
+CREATE UNIQUE INDEX IF NOT EXISTS uq_invoices_agency_booking ON invoices(agency_id, booking_id);
+
+-- ══ WIDEN MONETARY COLUMNS TO BIGINT ═════════════════════════════════════════
+-- Hajj/Umrah group invoices and BSP remittances can exceed the 32-bit signed
+-- limit (~21M SAR). Widening integer→bigint is a metadata-only change in
+-- PostgreSQL (no table rewrite) and is safe to re-run.
+ALTER TABLE invoices          ALTER COLUMN subtotal_halalas TYPE BIGINT, ALTER COLUMN vat_halalas TYPE BIGINT, ALTER COLUMN total_halalas TYPE BIGINT, ALTER COLUMN paid_halalas TYPE BIGINT;
+ALTER TABLE journal_entries   ALTER COLUMN total_debit_halalas TYPE BIGINT, ALTER COLUMN total_credit_halalas TYPE BIGINT;
+ALTER TABLE journal_lines     ALTER COLUMN debit_halalas TYPE BIGINT, ALTER COLUMN credit_halalas TYPE BIGINT;
+ALTER TABLE chart_of_accounts ALTER COLUMN opening_balance_halalas TYPE BIGINT;
+ALTER TABLE bookings          ALTER COLUMN total_price_halalas TYPE BIGINT, ALTER COLUMN cost_price_halalas TYPE BIGINT, ALTER COLUMN profit_halalas TYPE BIGINT, ALTER COLUMN paid_halalas TYPE BIGINT;
+ALTER TABLE payments          ALTER COLUMN amount_halalas TYPE BIGINT;
+ALTER TABLE receipt_vouchers  ALTER COLUMN amount_halalas TYPE BIGINT;
+ALTER TABLE supplier_payments ALTER COLUMN amount_halalas TYPE BIGINT;
+ALTER TABLE customers         ALTER COLUMN credit_limit_halalas TYPE BIGINT, ALTER COLUMN opening_balance_halalas TYPE BIGINT;
+ALTER TABLE suppliers         ALTER COLUMN balance_halalas TYPE BIGINT;
+ALTER TABLE recurring_invoices ALTER COLUMN subtotal_halalas TYPE BIGINT, ALTER COLUMN vat_halalas TYPE BIGINT, ALTER COLUMN total_halalas TYPE BIGINT;
+ALTER TABLE bsp_billings      ALTER COLUMN total_sales_halalas TYPE BIGINT, ALTER COLUMN total_refunds_halalas TYPE BIGINT, ALTER COLUMN total_commission_halalas TYPE BIGINT, ALTER COLUMN net_remit_halalas TYPE BIGINT;
+ALTER TABLE bsp_adjustments   ALTER COLUMN amount_halalas TYPE BIGINT;
+ALTER TABLE bank_accounts     ALTER COLUMN opening_balance_halalas TYPE BIGINT, ALTER COLUMN current_balance_halalas TYPE BIGINT, ALTER COLUMN reconciled_balance_halalas TYPE BIGINT;
+ALTER TABLE bank_transactions ALTER COLUMN amount_halalas TYPE BIGINT, ALTER COLUMN balance_after_halalas TYPE BIGINT;
+ALTER TABLE cheques           ALTER COLUMN amount_halalas TYPE BIGINT;
+ALTER TABLE pnr_records       ALTER COLUMN fare_halalas TYPE BIGINT, ALTER COLUMN tax_halalas TYPE BIGINT, ALTER COLUMN total_halalas TYPE BIGINT;
+ALTER TABLE tickets           ALTER COLUMN fare_halalas TYPE BIGINT, ALTER COLUMN tax_halalas TYPE BIGINT, ALTER COLUMN total_halalas TYPE BIGINT;
+ALTER TABLE quotes            ALTER COLUMN total_halalas TYPE BIGINT;
+ALTER TABLE employees         ALTER COLUMN salary_halalas TYPE BIGINT;
+ALTER TABLE employee_contracts ALTER COLUMN base_salary_halalas TYPE BIGINT, ALTER COLUMN housing_allowance_halalas TYPE BIGINT, ALTER COLUMN transport_allowance_halalas TYPE BIGINT, ALTER COLUMN other_allowances_halalas TYPE BIGINT;
+ALTER TABLE payslips          ALTER COLUMN base_salary_halalas TYPE BIGINT, ALTER COLUMN housing_allowance_halalas TYPE BIGINT, ALTER COLUMN transport_allowance_halalas TYPE BIGINT, ALTER COLUMN other_allowances_halalas TYPE BIGINT, ALTER COLUMN gross_halalas TYPE BIGINT, ALTER COLUMN deductions_halalas TYPE BIGINT, ALTER COLUMN advance_deduction_halalas TYPE BIGINT, ALTER COLUMN gosi_employee_halalas TYPE BIGINT, ALTER COLUMN gosi_employer_halalas TYPE BIGINT, ALTER COLUMN net_halalas TYPE BIGINT;
+ALTER TABLE salary_advances   ALTER COLUMN amount_halalas TYPE BIGINT;
+ALTER TABLE salary_payments   ALTER COLUMN amount_halalas TYPE BIGINT;
+ALTER TABLE eosb_accruals     ALTER COLUMN amount_halalas TYPE BIGINT;
 
 `;
 

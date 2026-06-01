@@ -63,16 +63,10 @@ export function ReceiptVoucherModal({
     setSaving(true);
     setSaveError('');
     try {
-      const { getAuth } = await import('firebase/auth');
-      const { getApp } = await import('@masarat/firebase');
-      const token = await getAuth(getApp()).currentUser?.getIdToken();
+      const { apiFetch } = await import('@/lib/api-client');
 
-      const res = await fetch('/api/receipts/create', {
+      const result = await apiFetch<{ id: string; receiptNumber: string }>('/api/receipts/create', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`,
-        },
         body: JSON.stringify({
           customerNameAr: data.customerNameAr,
           customerPhone:  data.customerPhone,
@@ -84,12 +78,6 @@ export function ReceiptVoucherModal({
         }),
       });
 
-      if (!res.ok) {
-        const body = await res.json() as { error?: string };
-        throw new Error(body.error ?? (isAr ? 'حدث خطأ أثناء الحفظ' : 'Save error'));
-      }
-
-      const result = await res.json() as { id: string; receiptNumber: string };
       setRecordId(result.id);
       setReceiptNumber(result.receiptNumber);
       setAmountHalalas(Math.round(data.amountSAR * 100));
