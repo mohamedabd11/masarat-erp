@@ -2,6 +2,7 @@ import { eq, and } from 'drizzle-orm';
 import { db } from './db';
 import { providerCredentials } from './schema/provider-credentials';
 import { getProvider } from './providers/registry';
+import { decryptJson } from './crypto';
 import type { FlightProvider } from './providers/types';
 
 export interface ResolvedProvider {
@@ -33,7 +34,7 @@ export async function resolveFlightProvider(
 
   return {
     provider:     getProvider(cred.providerCode),
-    credentials:  cred.credentials,
+    credentials:  await decryptJson(cred.credentials),
     providerCode: cred.providerCode,
     label:        cred.label ?? cred.providerCode,
     credentialId: cred.id,
@@ -62,7 +63,7 @@ export async function resolveFlightProviderByCode(
 
   return {
     provider:     getProvider(cred.providerCode),
-    credentials:  cred.credentials,
+    credentials:  await decryptJson(cred.credentials),
     providerCode: cred.providerCode,
     label:        cred.label ?? cred.providerCode,
     credentialId: cred.id,

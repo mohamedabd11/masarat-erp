@@ -4,6 +4,7 @@ import { db } from '@/lib/db';
 import { providerCredentials } from '@/lib/schema';
 import { verifyAuth, assertRole, ApiAuthError, ROLES_ADMIN_ONLY } from '@/lib/api-auth';
 import { logAudit } from '@/lib/audit';
+import { encryptJson } from '@/lib/crypto';
 
 const VALID_PROVIDERS = ['amadeus', 'sabre', 'galileo', 'worldspan'] as const;
 
@@ -87,7 +88,7 @@ export async function POST(request: Request) {
       agencyId,
       providerCode: body.providerCode,
       label:        body.label?.trim() || null,
-      credentials:  body.credentials,
+      credentials:  await encryptJson(body.credentials),  // encrypted at rest
       isActive:     body.isActive ?? true,
     });
 

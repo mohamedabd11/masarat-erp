@@ -3,6 +3,7 @@ import { eq } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { agencies, users } from '@/lib/schema';
 import { verifyAuth, assertRole, ApiAuthError, ROLES_MANAGER_UP, ROLES_ADMIN_ONLY } from '@/lib/api-auth';
+import { encrypt } from '@/lib/crypto';
 
 export async function GET(request: Request) {
   try {
@@ -81,6 +82,11 @@ export async function PATCH(request: Request) {
     const patch: Record<string, unknown> = { updatedAt: new Date() };
     for (const k of ALLOWED) {
       if (body[k] !== undefined) patch[k] = body[k];
+    }
+
+    // Encrypt the SMTP password at rest (AES-256-GCM). Empty string clears it.
+    if (body.smtpPassword !== undefined) {
+      patch['smtpPassword'] = body.smtpPassword ? await encrypt(body.smtpPassword) : null;
     }
 
     await db.update(agencies).set(patch as Partial<typeof agencies.$inferInsert>).where(eq(agencies.id, agencyId));

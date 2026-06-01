@@ -4,6 +4,7 @@ import { db } from '@/lib/db';
 import { providerCredentials } from '@/lib/schema';
 import { verifyAuth, assertRole, ApiAuthError, ROLES_ADMIN_ONLY } from '@/lib/api-auth';
 import { testAmadeusConnection } from '@/lib/providers/amadeus';
+import { decryptJson } from '@/lib/crypto';
 
 // POST /api/settings/providers/:id/test
 // Tests connectivity to the GDS provider using stored credentials.
@@ -42,7 +43,7 @@ export async function POST(
     let latencyMs: number;
 
     try {
-      latencyMs = await runConnectionTest(row.providerCode, row.credentials);
+      latencyMs = await runConnectionTest(row.providerCode, await decryptJson(row.credentials));
     } catch (testErr) {
       const errorMsg = (testErr as Error).message;
 
