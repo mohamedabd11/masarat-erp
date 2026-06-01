@@ -6,6 +6,7 @@ import { verifyAuth, assertRole, ApiAuthError, BusinessError, ROLES_ACCOUNTANT_U
 import { checkRateLimit, getClientIp, rateLimitHeaders } from '@/lib/rate-limit';
 import { getNextInvoiceNumber, getNextJournalNumber } from '@/lib/invoice-counter';
 import { assertPeriodOpen } from '@/lib/period-lock';
+import { logAudit } from '@/lib/audit';
 import type { Tx } from '@/lib/db';
 
 const AC = {
@@ -175,6 +176,14 @@ export async function POST(request: Request) {
       await tx.insert(journalLines).values(jLines);
 
       return { id: invId, invoiceNumber };
+    });
+
+    await logAudit({
+      agencyId, userId: uid,
+      action: 'create',
+      resource: 'invoice',
+      resourceId: result.id,
+      after: { invoiceNumber: result.invoiceNumber, totalHalalas },
     });
 
     return NextResponse.json({ success: true, ...result });

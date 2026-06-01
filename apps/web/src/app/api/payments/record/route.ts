@@ -5,6 +5,8 @@ import { invoices, bookings, payments, journalEntries, journalLines, idempotency
 import { verifyAuth, assertRole, ApiAuthError, BusinessError, ROLES_ACCOUNTANT_UP } from '@/lib/api-auth';
 import { withIdempotency, buildIdempotencyInsert } from '@/lib/idempotency';
 import { getNextReceiptNumber, getNextJournalNumber } from '@/lib/invoice-counter';
+import { assertPeriodOpen } from '@/lib/period-lock';
+import { logAudit } from '@/lib/audit';
 
 interface PaymentRecordBody {
   bookingId?:    string;
@@ -42,6 +44,10 @@ export async function POST(request: Request) {
 
     const result = await withIdempotency(idempKey, agencyId, 'processPayment', async () => {
       return db.transaction(async (tx) => {
+
+        // ── 0. Period lock ─────────────────────────────────────────────────
+        const txDate = new Date().toISOString().split('T')[0]!;
+        await assertPeriodOpen(agencyId, txDate, tx);
 
         // ── 1. Read ────────────────────────────────────────────────────────
         const [invoice] = await tx.select().from(invoices).where(
@@ -146,6 +152,14 @@ export async function POST(request: Request) {
           invoiceStatus: isFullyPaid ? 'fully_paid' : 'partial',
         };
       });
+    });
+
+    await logAudit({
+      agencyId, userId: uid,
+      action: 'create',
+      resource: 'payment',
+      resourceId: result.paymentId,
+      after: { amountHalalas, method: paymentMethod, invoiceId },
     });
 
     return NextResponse.json({ success: true, ...result });
