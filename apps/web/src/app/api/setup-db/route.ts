@@ -798,6 +798,24 @@ CREATE TABLE IF NOT EXISTS ticket_coupons (
 );
 CREATE INDEX IF NOT EXISTS coupons_ticket_idx ON ticket_coupons(ticket_id);
 
+-- ══ PAYSLIPS: add employer GOSI column ═══════════════════════════════════════
+ALTER TABLE payslips ADD COLUMN IF NOT EXISTS gosi_employer_halalas INTEGER NOT NULL DEFAULT 0;
+
+-- ══ LEAVE BALANCES: annual & sick leave entitlement tracking ═════════════════
+CREATE TABLE IF NOT EXISTS leave_balances (
+  id               TEXT PRIMARY KEY,
+  agency_id        TEXT NOT NULL REFERENCES agencies(id) ON DELETE CASCADE,
+  employee_id      TEXT NOT NULL REFERENCES employees(id),
+  year             INTEGER NOT NULL,
+  annual_entitled  INTEGER NOT NULL DEFAULT 21,
+  annual_used      INTEGER NOT NULL DEFAULT 0,
+  sick_entitled    INTEGER NOT NULL DEFAULT 30,
+  sick_used        INTEGER NOT NULL DEFAULT 0,
+  updated_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE(employee_id, year)
+);
+CREATE INDEX IF NOT EXISTS leave_balances_emp_idx ON leave_balances(employee_id);
+
 -- ══ SERVICE TYPES: add revenue_mode, vat_rate, is_taxable columns ════════════
 ALTER TABLE service_types ADD COLUMN IF NOT EXISTS revenue_mode TEXT NOT NULL DEFAULT 'principal';
 ALTER TABLE service_types ADD COLUMN IF NOT EXISTS vat_rate     INTEGER;
