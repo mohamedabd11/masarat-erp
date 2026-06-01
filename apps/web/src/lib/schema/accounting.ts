@@ -1,4 +1,4 @@
-import { pgTable, text, integer, boolean, timestamp, uniqueIndex } from 'drizzle-orm/pg-core';
+import { pgTable, text, integer, bigint, boolean, timestamp, uniqueIndex, index } from 'drizzle-orm/pg-core';
 import { agencies } from './agencies';
 
 // ── Chart of Accounts ─────────────────────────────────────────────────────
@@ -16,7 +16,7 @@ export const chartOfAccounts = pgTable('chart_of_accounts', {
   isActive:            boolean('is_active').notNull().default(true),
   isSystem:            boolean('is_system').notNull().default(false),
   allowDirectEntry:    boolean('allow_direct_entry').notNull().default(true),
-  openingBalanceHalalas: integer('opening_balance_halalas').notNull().default(0),
+  openingBalanceHalalas: bigint('opening_balance_halalas', { mode: 'number' }).notNull().default(0),
   createdAt:           timestamp('created_at').notNull().defaultNow(),
   updatedAt:           timestamp('updated_at').notNull().defaultNow(),
 });
@@ -38,11 +38,15 @@ export const journalEntries = pgTable('journal_entries', {
   sourceId:      text('source_id'),
   serviceType:   text('service_type'),                       // flight|hotel|package|umrah|hajj|visa|insurance|transport
   isPosted:      boolean('is_posted').notNull().default(true),
-  totalDebitHalalas:  integer('total_debit_halalas').notNull().default(0),
-  totalCreditHalalas: integer('total_credit_halalas').notNull().default(0),
+  totalDebitHalalas:  bigint('total_debit_halalas', { mode: 'number' }).notNull().default(0),
+  totalCreditHalalas: bigint('total_credit_halalas', { mode: 'number' }).notNull().default(0),
   createdBy:     text('created_by'),
   createdAt:     timestamp('created_at').notNull().defaultNow(),
-});
+}, (t) => [
+  index('idx_je_agency').on(t.agencyId),
+  index('idx_je_agency_date').on(t.agencyId, t.date),
+  index('idx_je_agency_source').on(t.agencyId, t.source),
+]);
 
 export type JournalEntry    = typeof journalEntries.$inferSelect;
 export type NewJournalEntry = typeof journalEntries.$inferInsert;
@@ -56,11 +60,15 @@ export const journalLines = pgTable('journal_lines', {
   accountCode:   text('account_code').notNull(),   // e.g. '1120', '4000'
   accountNameAr: text('account_name_ar'),
   accountNameEn: text('account_name_en'),
-  debitHalalas:  integer('debit_halalas').notNull().default(0),
-  creditHalalas: integer('credit_halalas').notNull().default(0),
+  debitHalalas:  bigint('debit_halalas', { mode: 'number' }).notNull().default(0),
+  creditHalalas: bigint('credit_halalas', { mode: 'number' }).notNull().default(0),
   description:   text('description'),
   sortOrder:     integer('sort_order').notNull().default(0),
-});
+}, (t) => [
+  index('idx_jl_agency').on(t.agencyId),
+  index('idx_jl_agency_account').on(t.agencyId, t.accountCode),
+  index('idx_jl_entry').on(t.entryId),
+]);
 
 export type JournalLine    = typeof journalLines.$inferSelect;
 export type NewJournalLine = typeof journalLines.$inferInsert;

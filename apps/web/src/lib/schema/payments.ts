@@ -1,4 +1,4 @@
-import { pgTable, text, integer, timestamp } from 'drizzle-orm/pg-core';
+import { pgTable, text, bigint, timestamp, index } from 'drizzle-orm/pg-core';
 import { agencies } from './agencies';
 import { invoices } from './invoices';
 import { bookings } from './bookings';
@@ -11,7 +11,7 @@ export const payments = pgTable('payments', {
   bookingId:     text('booking_id').references(() => bookings.id),
   customerId:    text('customer_id').references(() => customers.id),
   customerName:  text('customer_name'),
-  amountHalalas: integer('amount_halalas').notNull(),
+  amountHalalas: bigint('amount_halalas', { mode: 'number' }).notNull(),
   method:        text('method').notNull(),                    // cash|bank_transfer|card|check
   reference:     text('reference'),
   voucherNumber: text('voucher_number'),                      // RCT-YYYY-NNNNNN
@@ -20,7 +20,10 @@ export const payments = pgTable('payments', {
   journalEntryId:text('journal_entry_id'),
   createdBy:     text('created_by'),
   createdAt:     timestamp('created_at').notNull().defaultNow(),
-});
+}, (t) => [
+  index('idx_payments_agency').on(t.agencyId),
+  index('idx_payments_booking').on(t.bookingId),
+]);
 
 export type Payment    = typeof payments.$inferSelect;
 export type NewPayment = typeof payments.$inferInsert;
@@ -33,7 +36,7 @@ export const receiptVouchers = pgTable('receipt_vouchers', {
   voucherNumber:   text('voucher_number').notNull(),
   customerId:      text('customer_id').references(() => customers.id),
   customerName:    text('customer_name'),
-  amountHalalas:   integer('amount_halalas').notNull(),
+  amountHalalas:   bigint('amount_halalas', { mode: 'number' }).notNull(),
   method:          text('method').notNull(),
   description:     text('description'),
   bookingId:       text('booking_id').references(() => bookings.id),
@@ -58,7 +61,7 @@ export const supplierPayments = pgTable('supplier_payments', {
   supplierId:      text('supplier_id'),
   supplierName:    text('supplier_name'),
   payeeName:       text('payee_name'),
-  amountHalalas:   integer('amount_halalas').notNull(),
+  amountHalalas:   bigint('amount_halalas', { mode: 'number' }).notNull(),
   method:          text('method').notNull(),
   reference:       text('reference'),
   voucherNumber:   text('voucher_number'),                    // PV-YYYY-NNNNNN

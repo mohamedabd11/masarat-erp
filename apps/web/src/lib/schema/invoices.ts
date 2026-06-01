@@ -1,4 +1,4 @@
-import { pgTable, text, integer, boolean, timestamp, jsonb } from 'drizzle-orm/pg-core';
+import { pgTable, text, integer, bigint, boolean, timestamp, jsonb, index, uniqueIndex } from 'drizzle-orm/pg-core';
 import { agencies } from './agencies';
 import { bookings } from './bookings';
 import { customers } from './customers';
@@ -23,10 +23,10 @@ export const invoices = pgTable('invoices', {
   buyerEmail:        text('buyer_email'),
   buyerNationalId:   text('buyer_national_id'),
   // amounts
-  subtotalHalalas:   integer('subtotal_halalas').notNull().default(0),
-  vatHalalas:        integer('vat_halalas').notNull().default(0),
-  totalHalalas:      integer('total_halalas').notNull().default(0),
-  paidHalalas:       integer('paid_halalas').notNull().default(0),
+  subtotalHalalas:   bigint('subtotal_halalas', { mode: 'number' }).notNull().default(0),
+  vatHalalas:        bigint('vat_halalas', { mode: 'number' }).notNull().default(0),
+  totalHalalas:      bigint('total_halalas', { mode: 'number' }).notNull().default(0),
+  paidHalalas:       bigint('paid_halalas', { mode: 'number' }).notNull().default(0),
   // dates
   issueDate:         text('issue_date').notNull(),            // YYYY-MM-DD
   supplyDate:        text('supply_date'),
@@ -51,7 +51,14 @@ export const invoices = pgTable('invoices', {
   createdBy:         text('created_by'),
   createdAt:         timestamp('created_at').notNull().defaultNow(),
   updatedAt:         timestamp('updated_at').notNull().defaultNow(),
-});
+}, (t) => [
+  index('idx_invoices_agency').on(t.agencyId),
+  index('idx_invoices_agency_status').on(t.agencyId, t.status),
+  index('idx_invoices_agency_created').on(t.agencyId, t.createdAt),
+  // One invoice per booking per agency (skips standalone invoices where bookingId is NULL —
+  // Postgres treats NULLs as distinct, so multiple booking-less invoices remain allowed).
+  uniqueIndex('uq_invoices_agency_booking').on(t.agencyId, t.bookingId),
+]);
 
 export type Invoice    = typeof invoices.$inferSelect;
 export type NewInvoice = typeof invoices.$inferInsert;
