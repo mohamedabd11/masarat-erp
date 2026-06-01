@@ -870,6 +870,30 @@ CREATE TABLE IF NOT EXISTS bsp_adjustments (
 );
 CREATE INDEX IF NOT EXISTS bsp_adj_agency_idx ON bsp_adjustments(agency_id);
 
+-- ══ INVOICES: deferred-revenue tracking (IFRS 15) ════════════════════════════
+-- For future-dated Umrah/Hajj/package invoices the revenue is deferred until the
+-- service is delivered (travel date). deferred_until holds that date; once the
+-- recognition journal (Dr 3201 / Cr 4100) is posted, revenue_recognized_at is set.
+ALTER TABLE invoices ADD COLUMN IF NOT EXISTS deferred_until         TEXT;
+ALTER TABLE invoices ADD COLUMN IF NOT EXISTS revenue_recognized_at  TEXT;
+CREATE INDEX IF NOT EXISTS idx_invoices_deferred ON invoices(agency_id, deferred_until);
+
+-- ══ EOSB ACCRUALS (IAS 19 — Saudi Labor Law art. 84) ═════════════════════════
+-- One row per agency+month tracking that the monthly EOSB provision was posted,
+-- preventing duplicate accruals for the same period.
+CREATE TABLE IF NOT EXISTS eosb_accruals (
+  id                TEXT PRIMARY KEY,
+  agency_id         TEXT NOT NULL REFERENCES agencies(id) ON DELETE CASCADE,
+  month             TEXT NOT NULL,
+  amount_halalas    INTEGER NOT NULL DEFAULT 0,
+  employee_count    INTEGER NOT NULL DEFAULT 0,
+  journal_entry_id  TEXT,
+  created_by        TEXT,
+  created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE(agency_id, month)
+);
+CREATE INDEX IF NOT EXISTS idx_eosb_accruals_agency ON eosb_accruals(agency_id);
+
 -- ══ AGENCY FEATURES (per-agency feature flag overrides) ══════════════════════
 CREATE TABLE IF NOT EXISTS agency_features (
   id            TEXT PRIMARY KEY,

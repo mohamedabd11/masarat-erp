@@ -1,10 +1,12 @@
 import { NextResponse } from 'next/server';
 import { eq, and, desc } from 'drizzle-orm';
 import { db } from '@/lib/db';
-import { payslips, employees, salaryAdvances, employeeContracts } from '@/lib/schema';
+import { payslips, employees, salaryAdvances, employeeContracts, journalEntries, journalLines } from '@/lib/schema';
 import { verifyAuth, assertRole, ApiAuthError, BusinessError, ROLES_ADMIN_ONLY } from '@/lib/api-auth';
 import { requireFeature } from '@/lib/feature-access';
 import { logAudit } from '@/lib/audit';
+import { getNextJournalNumber } from '@/lib/invoice-counter';
+import { GL } from '@/lib/gl-accounts';
 
 export async function GET(request: Request) {
   try {
@@ -74,6 +76,13 @@ export async function POST(request: Request) {
       ));
     const advanceDeduction = pendingAdvances.reduce((s, a) => s + a.amountHalalas, 0);
 
+    // Fetch employee for the journal-entry description (and to validate it exists)
+    const [employee] = await db.select({ id: employees.id, nameAr: employees.nameAr })
+      .from(employees)
+      .where(and(eq(employees.id, body.employeeId), eq(employees.agencyId, agencyId)))
+      .limit(1);
+    if (!employee) return NextResponse.json({ error: 'الموظف غير موجود' }, { status: 404 });
+
     const base      = body.baseSalaryHalalas;
     const housing   = body.housingAllowanceHalalas   ?? 0;
     const transport = body.transportAllowanceHalalas ?? 0;
@@ -86,36 +95,103 @@ export async function POST(request: Request) {
     const gosiEmployer = Math.round(gosiBase * 0.0975);
     const net          = gross - deduct - advanceDeduction - gosiEmployee;
 
-    const id = crypto.randomUUID();
-    await db.insert(payslips).values({
-      id,
-      agencyId,
-      employeeId:               body.employeeId,
-      month:                    body.month,
-      salaryPaymentId:          body.salaryPaymentId ?? null,
-      baseSalaryHalalas:        base,
-      housingAllowanceHalalas:  housing,
-      transportAllowanceHalalas: transport,
-      otherAllowancesHalalas:   other,
-      grossHalalas:             gross,
-      deductionsHalalas:        deduct,
-      advanceDeductionHalalas:  advanceDeduction,
-      gosi_employee_halalas:    gosiEmployee,
-      gosiEmployerHalalas:      gosiEmployer,
-      netHalalas:               Math.max(0, net),
-      components:               (body.components ?? null) as never,
-      paymentDate:              body.paymentDate  ?? null,
-      paymentMethod:            body.paymentMethod ?? null,
-    });
+    const id    = crypto.randomUUID();
+    const jeId  = crypto.randomUUID();
+    const year  = Number(body.month.slice(0, 4));
+    const mm    = body.month.slice(5, 7);
+    const today = body.paymentDate ?? `${body.month}-01`;
 
-    // Mark advances as deducted
-    for (const adv of pendingAdvances) {
-      await db.update(salaryAdvances).set({ status: 'deducted', updatedAt: new Date() })
-        .where(eq(salaryAdvances.id, adv.id));
+    // ── GL journal entry (IAS 19) ───────────────────────────────────────────
+    //  Dr 6100 Salary Expense         (gross)
+    //  Dr 6200 GOSI Expense - Employer (employerGosi)        [only if > 0]
+    //     Cr 2310 Salaries Payable     (net = gross - employeeGosi - deductions - advances)
+    //     Cr 2400 GOSI Payable         (employerGosi + employeeGosi)   [only if any GOSI]
+    //  Other deductions/advances reduce the cash settled to the employee, so they
+    //  are netted into Salaries Payable here (the actual cash-out is recorded when
+    //  the salary payment is made).
+    const netPayable = Math.max(0, net);
+    const totalGosi  = gosiEmployer + gosiEmployee;
+
+    type JLine = { code: string; ar: string; en: string; dr: number; cr: number };
+    const ln = (ac: { code: string; ar: string; en: string }, dr: number, cr: number): JLine =>
+      ({ code: ac.code, ar: ac.ar, en: ac.en, dr, cr });
+
+    const jLines: JLine[] = [ln(GL.salaryExpense, gross, 0)];
+    if (gosiEmployer > 0) jLines.push(ln(GL.gosiExpense, gosiEmployer, 0));
+    jLines.push(ln(GL.salariesPayable, 0, netPayable));
+    if (totalGosi > 0)    jLines.push(ln(GL.gosiPayable, 0, totalGosi));
+    // Balance any residual (other deductions / advances) into salaries payable so
+    // the entry always balances: total debits === total credits.
+    const totalDr = jLines.reduce((s, l) => s + l.dr, 0);
+    const totalCr = jLines.reduce((s, l) => s + l.cr, 0);
+    if (totalDr !== totalCr) {
+      // residual deductions (advances + manual deductions) credited to salaries payable
+      const payableLine = jLines.find((l) => l.code === GL.salariesPayable.code)!;
+      payableLine.cr += (totalDr - totalCr);
     }
 
-    await logAudit({ agencyId, userId: uid, action: 'create', resource: 'payslip', resourceId: id, after: { employeeId: body.employeeId, month: body.month, netHalalas: net, gosiEmployer } });
-    return NextResponse.json({ success: true, id, netHalalas: Math.max(0, net), advanceDeduction, gosiEmployer });
+    await db.transaction(async (tx) => {
+      await tx.insert(payslips).values({
+        id,
+        agencyId,
+        employeeId:               body.employeeId,
+        month:                    body.month,
+        salaryPaymentId:          body.salaryPaymentId ?? null,
+        baseSalaryHalalas:        base,
+        housingAllowanceHalalas:  housing,
+        transportAllowanceHalalas: transport,
+        otherAllowancesHalalas:   other,
+        grossHalalas:             gross,
+        deductionsHalalas:        deduct,
+        advanceDeductionHalalas:  advanceDeduction,
+        gosi_employee_halalas:    gosiEmployee,
+        gosiEmployerHalalas:      gosiEmployer,
+        netHalalas:               netPayable,
+        components:               (body.components ?? null) as never,
+        paymentDate:              body.paymentDate  ?? null,
+        paymentMethod:            body.paymentMethod ?? null,
+      });
+
+      const jeNumber = await getNextJournalNumber(agencyId, year, tx);
+      await tx.insert(journalEntries).values({
+        id:                 jeId,
+        agencyId,
+        entryNumber:        jeNumber,
+        date:               today,
+        descriptionAr:      `راتب ${employee.nameAr} - ${mm}/${year}`,
+        descriptionEn:      `Salary ${employee.nameAr} - ${mm}/${year}`,
+        source:             'salary',
+        sourceId:           id,
+        isPosted:           true,
+        totalDebitHalalas:  jLines.reduce((s, l) => s + l.dr, 0),
+        totalCreditHalalas: jLines.reduce((s, l) => s + l.cr, 0),
+        createdBy:          uid,
+      });
+
+      for (let i = 0; i < jLines.length; i++) {
+        const l = jLines[i]!;
+        await tx.insert(journalLines).values({
+          id:            crypto.randomUUID(),
+          entryId:       jeId,
+          agencyId,
+          accountCode:   l.code,
+          accountNameAr: l.ar,
+          accountNameEn: l.en,
+          debitHalalas:  l.dr,
+          creditHalalas: l.cr,
+          sortOrder:     i + 1,
+        });
+      }
+
+      // Mark advances as deducted
+      for (const adv of pendingAdvances) {
+        await tx.update(salaryAdvances).set({ status: 'deducted', updatedAt: new Date() })
+          .where(eq(salaryAdvances.id, adv.id));
+      }
+    });
+
+    await logAudit({ agencyId, userId: uid, action: 'create', resource: 'payslip', resourceId: id, after: { employeeId: body.employeeId, month: body.month, netHalalas: net, gosiEmployer, journalEntryId: jeId } });
+    return NextResponse.json({ success: true, id, journalEntryId: jeId, netHalalas: netPayable, advanceDeduction, gosiEmployer });
   } catch (err) {
     if (err instanceof ApiAuthError || err instanceof BusinessError) return NextResponse.json({ error: err.message }, { status: err.status });
     console.error(JSON.stringify({ event: 'payslip_create_failed', error: (err as Error).message }));

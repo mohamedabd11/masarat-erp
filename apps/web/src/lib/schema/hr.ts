@@ -197,3 +197,23 @@ export const leaveBalances = pgTable('leave_balances', {
 
 export type LeaveBalance    = typeof leaveBalances.$inferSelect;
 export type NewLeaveBalance = typeof leaveBalances.$inferInsert;
+
+// ── EOSB Accruals ───────────────────────────────────────────────────────────
+// Tracks the monthly end-of-service-benefit provision (IAS 19 / Saudi Labor Law
+// art. 84). One row per agency+month guards against duplicate accruals.
+
+export const eosbAccruals = pgTable('eosb_accruals', {
+  id:             text('id').primaryKey(),
+  agencyId:       text('agency_id').notNull().references(() => agencies.id, { onDelete: 'cascade' }),
+  month:          text('month').notNull(),               // YYYY-MM
+  amountHalalas:  integer('amount_halalas').notNull().default(0),
+  employeeCount:  integer('employee_count').notNull().default(0),
+  journalEntryId: text('journal_entry_id'),
+  createdBy:      text('created_by'),
+  createdAt:      timestamp('created_at').notNull().defaultNow(),
+}, (t) => ({
+  agencyMonthUq: unique('eosb_accruals_agency_month_uq').on(t.agencyId, t.month),
+}));
+
+export type EosbAccrual    = typeof eosbAccruals.$inferSelect;
+export type NewEosbAccrual = typeof eosbAccruals.$inferInsert;

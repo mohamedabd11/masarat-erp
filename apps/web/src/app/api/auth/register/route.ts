@@ -33,8 +33,12 @@ const DEFAULT_COA = [
   { code: '2150', nameAr: 'مستحقات BSP',                  nameEn: 'BSP Payable',                  type: 'liability', },
   { code: '2200', nameAr: 'ضريبة القيمة المضافة مستحقة', nameEn: 'VAT Payable',                  type: 'liability', },
   { code: '2300', nameAr: 'ودائع العملاء',                nameEn: 'Customer Deposits',            type: 'liability', },
+  { code: '2310', nameAr: 'رواتب مستحقة للدفع',           nameEn: 'Salaries Payable',             type: 'liability', },
+  { code: '2400', nameAr: 'GOSI مستحقة',                   nameEn: 'GOSI Payable',                 type: 'liability', },
+  { code: '2500', nameAr: 'مخصص مكافأة نهاية الخدمة',     nameEn: 'EOSB Provision',               type: 'liability', },
   { code: '3100', nameAr: 'رأس مال المالك',               nameEn: 'Owner Capital',                type: 'equity',    },
   { code: '3200', nameAr: 'الأرباح المحتجزة',             nameEn: 'Retained Earnings',            type: 'equity',    },
+  { code: '3201', nameAr: 'إيراد مؤجل - خدمات سفر',       nameEn: 'Deferred Revenue - Travel',    type: 'liability', },
   { code: '4000', nameAr: 'إيراد رسوم الوكالة',          nameEn: 'Revenue - Agency Fees',        type: 'revenue',   },
   { code: '4100', nameAr: 'إيراد خدمات السفر',           nameEn: 'Revenue - Travel Services',    type: 'revenue',   },
   { code: '4110', nameAr: 'إيرادات الباقات السياحية',    nameEn: 'Tour Package Revenue',         type: 'revenue',   },
@@ -49,6 +53,9 @@ const DEFAULT_COA = [
   { code: '5300', nameAr: 'التسويق والإعلان',            nameEn: 'Marketing',                    type: 'expense',   },
   { code: '5400', nameAr: 'المصاريف التشغيلية',          nameEn: 'Operating Expenses',           type: 'expense',   },
   { code: '5420', nameAr: 'مصروف ADM',                   nameEn: 'ADM Expense',                  type: 'expense',   },
+  { code: '6100', nameAr: 'مصروف الرواتب',               nameEn: 'Salary Expense',               type: 'expense',   },
+  { code: '6200', nameAr: 'مصروف GOSI - صاحب العمل',     nameEn: 'GOSI Expense - Employer',      type: 'expense',   },
+  { code: '6300', nameAr: 'مصروف مكافأة نهاية الخدمة',   nameEn: 'EOSB Expense',                 type: 'expense',   },
 ] as const;
 
 export async function POST(request: Request) {

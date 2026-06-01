@@ -43,6 +43,10 @@ export const invoices = pgTable('invoices', {
   items:             jsonb('items'),
   notes:             text('notes'),
   originalInvoiceId: text('original_invoice_id'),  // for credit/debit notes (type 381/383)
+  // IFRS 15 deferred revenue: for future-dated Umrah/Hajj/package invoices the
+  // revenue is recognised on the travel date, not at issuance.
+  deferredUntil:      text('deferred_until'),           // YYYY-MM-DD travel date (null = recognised immediately)
+  revenueRecognizedAt: text('revenue_recognized_at'),   // YYYY-MM-DD when Dr 3201 / Cr 4100 was posted
   journalEntryId:    text('journal_entry_id'),
   createdBy:         text('created_by'),
   createdAt:         timestamp('created_at').notNull().defaultNow(),
