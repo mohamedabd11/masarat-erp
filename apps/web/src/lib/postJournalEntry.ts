@@ -1,5 +1,14 @@
 // Journal entries are now created server-side within API route transactions.
 // This module is kept for compatibility with MigrationTool and exposes builder helpers.
+//
+// NOTE (account-code source of truth): the `AC` map below is a LEGACY mapping used
+// ONLY by the one-time data-migration tool (`components/accounting/MigrationTool.tsx`)
+// and its unit tests, which assert these exact codes. It is intentionally NOT the
+// runtime source of truth — all live API routes must import account codes from
+// `lib/gl-accounts.ts` (the `GL` object) instead. Do not reuse this `AC` map in new
+// runtime code: a few of its codes (e.g. 5900 "Other Expenses" here vs. 5900 "FX Loss"
+// in GL) diverge from the canonical chart and exist only to reproduce historical
+// migration postings.
 
 export interface JELine {
   accountCode:   string;

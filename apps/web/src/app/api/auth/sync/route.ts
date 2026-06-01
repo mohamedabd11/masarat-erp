@@ -25,11 +25,15 @@ const DEFAULT_COA = [
   { code: '4130', nameAr: 'إيرادات العمرة',              nameEn: 'Umrah Revenue',                type: 'revenue'   },
   { code: '4140', nameAr: 'إيرادات التأشيرات',           nameEn: 'Visa Revenue',                 type: 'revenue'   },
   { code: '4150', nameAr: 'إيرادات التأمين',             nameEn: 'Insurance Revenue',            type: 'revenue'   },
+  { code: '4510', nameAr: 'إيراد فروق المطابقة البنكية',  nameEn: 'Bank Reconciliation Income',   type: 'revenue'   },
+  { code: '4900', nameAr: 'أرباح فروق أسعار الصرف',       nameEn: 'FX Exchange Gain',             type: 'revenue'   },
   { code: '5000', nameAr: 'تكلفة الخدمات',               nameEn: 'Cost of Services',             type: 'expense'   },
   { code: '5100', nameAr: 'الرواتب والأجور',             nameEn: 'Salaries',                     type: 'expense'   },
   { code: '5200', nameAr: 'الإيجار',                     nameEn: 'Rent',                         type: 'expense'   },
   { code: '5300', nameAr: 'التسويق والإعلان',            nameEn: 'Marketing',                    type: 'expense'   },
   { code: '5400', nameAr: 'المصاريف التشغيلية',          nameEn: 'Operating Expenses',           type: 'expense'   },
+  { code: '5510', nameAr: 'مصروف فروق المطابقة البنكية',  nameEn: 'Bank Reconciliation Expense',  type: 'expense'   },
+  { code: '5900', nameAr: 'خسائر فروق أسعار الصرف',       nameEn: 'FX Exchange Loss',             type: 'expense'   },
 ] as const;
 
 export async function POST(request: Request): Promise<NextResponse> {
