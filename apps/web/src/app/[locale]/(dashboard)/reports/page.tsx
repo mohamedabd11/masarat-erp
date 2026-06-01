@@ -11,6 +11,7 @@ import { useReportsData, type MonthlyRow, type TypeMixRow, type VatInvoice } fro
 import { useChartOfAccounts, type ChartAccountWithBalance as ChartAccount } from '@/hooks/useChartOfAccounts';
 import { useIncomeStatement } from '@/hooks/useIncomeStatement';
 import { ArAgingTab } from '@/components/reports/ArAgingTab';
+import { TrialBalanceTab } from '@/components/accounting/TrialBalanceTab';
 import { UpgradeGate } from '@/components/ui/UpgradeGate';
 import {
   TrendingUp, TrendingDown, BarChart3, Download,
@@ -305,129 +306,6 @@ function OverviewTab({ monthly, typeMix, loading, year, setYear, isAr, fmtLocale
 }
 
 // ─── Trial Balance Tab ─────────────────────────────────────────────────────────
-
-function TrialBalanceTab({ accounts, loadingAccounts, isAr, fmtLocale }: {
-  accounts: ChartAccount[]; loadingAccounts: boolean; isAr: boolean; fmtLocale: string;
-}) {
-  const [expanded, setExpanded] = useState<Set<TrialAccount['category']>>(
-    new Set<TrialAccount['category']>(['asset', 'liability', 'equity', 'revenue', 'expense'])
-  );
-
-  const toggleCat = (c: TrialAccount['category']) => setExpanded(prev => {
-    const next = new Set(prev);
-    next.has(c) ? next.delete(c) : next.add(c);
-    return next;
-  });
-
-  const trialAccounts = useMemo(() =>
-    accounts.filter(a => a.balanceHalalas !== 0).map(accountToTrial),
-  [accounts]);
-
-  const cats: TrialAccount['category'][] = ['asset', 'liability', 'equity', 'revenue', 'expense'];
-  const totalMvtDebit    = trialAccounts.reduce((s, a) => s + a.mvtDebit, 0);
-  const totalMvtCredit   = trialAccounts.reduce((s, a) => s + a.mvtCredit, 0);
-  const totalCloseDebit  = trialAccounts.reduce((s, a) => s + closingDebit(a), 0);
-  const totalCloseCredit = trialAccounts.reduce((s, a) => s + closingCredit(a), 0);
-  const isBalanced = Math.abs(totalCloseDebit - totalCloseCredit) < 1;
-
-  if (loadingAccounts) return <LoadingPane />;
-
-  return (
-    <div className="space-y-5">
-      <div className={cn('flex items-center gap-3 px-4 py-3 rounded-xl border text-sm font-semibold',
-        isBalanced ? 'bg-emerald-50 border-emerald-200 text-emerald-800' : 'bg-red-50 border-red-200 text-red-800')}>
-        {isBalanced ? <CheckCircle2 size={18} /> : <AlertCircle size={18} />}
-        {isBalanced
-          ? (isAr ? 'الميزان متوازن — المدين يساوي الدائن' : 'Trial Balance is balanced — Debit equals Credit')
-          : (isAr ? 'تحذير: الميزان غير متوازن' : 'Warning: Trial balance is unbalanced')}
-      </div>
-
-      <Card padding="none">
-        <div className="overflow-x-auto">
-          <table className="w-full">
-            <thead>
-              <tr className="bg-slate-50 border-b border-surface-border">
-                <th className="text-start ps-5 pe-3 py-3 text-xs font-bold text-slate-500 uppercase tracking-wider w-24">{isAr ? 'الكود' : 'Code'}</th>
-                <th className="text-start px-3 py-3 text-xs font-bold text-slate-500 uppercase tracking-wider">{isAr ? 'اسم الحساب' : 'Account Name'}</th>
-                <th className="text-end px-3 py-3 text-xs font-bold text-slate-500 uppercase tracking-wider">{isAr ? 'حركة مدين' : 'Total Debit'}</th>
-                <th className="text-end px-3 py-3 text-xs font-bold text-slate-500 uppercase tracking-wider">{isAr ? 'حركة دائن' : 'Total Credit'}</th>
-                <th className="text-end px-3 py-3 text-xs font-bold text-slate-500 uppercase tracking-wider">{isAr ? 'رصيد مدين' : 'Balance Dr'}</th>
-                <th className="text-end pe-5 px-3 py-3 text-xs font-bold text-slate-500 uppercase tracking-wider">{isAr ? 'رصيد دائن' : 'Balance Cr'}</th>
-              </tr>
-            </thead>
-            <tbody>
-              {trialAccounts.length === 0 ? (
-                <tr>
-                  <td colSpan={6} className="py-16 text-center text-sm text-slate-400">
-                    {isAr ? 'لا توجد أرصدة بعد — ابدأ بإنشاء الفواتير والمدفوعات' : 'No balances yet — start by creating invoices and payments'}
-                  </td>
-                </tr>
-              ) : (
-                cats.map(cat => {
-                  const meta = CATEGORY_META[cat];
-                  const catAccounts = trialAccounts.filter(a => a.category === cat);
-                  if (catAccounts.length === 0) return null;
-                  const catMvtD   = catAccounts.reduce((s, a) => s + a.mvtDebit, 0);
-                  const catMvtC   = catAccounts.reduce((s, a) => s + a.mvtCredit, 0);
-                  const catCloseD = catAccounts.reduce((s, a) => s + closingDebit(a), 0);
-                  const catCloseC = catAccounts.reduce((s, a) => s + closingCredit(a), 0);
-                  const isOpen = expanded.has(cat);
-
-                  return (
-                    <>
-                      <tr
-                        key={`cat-${cat}`}
-                        className={cn('cursor-pointer hover:brightness-95 transition-all', meta.bgColor)}
-                        onClick={() => toggleCat(cat)}
-                      >
-                        <td colSpan={2} className="ps-4 pe-3 py-2.5">
-                          <div className="flex items-center gap-2">
-                            <span className="text-slate-400">{isOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}</span>
-                            <span className={cn('text-sm font-bold', meta.textColor)}>
-                              {isAr ? meta.labelAr : meta.labelEn}
-                            </span>
-                            <span className="text-xs text-slate-400 font-normal">({catAccounts.length})</span>
-                          </div>
-                        </td>
-                        <td className="px-3 py-2.5 text-end text-sm font-semibold text-slate-700 tabular-nums font-mono">{catMvtD   > 0 ? formatCurrency(catMvtD,   fmtLocale) : '—'}</td>
-                        <td className="px-3 py-2.5 text-end text-sm font-semibold text-slate-700 tabular-nums font-mono">{catMvtC   > 0 ? formatCurrency(catMvtC,   fmtLocale) : '—'}</td>
-                        <td className="px-3 py-2.5 text-end text-sm font-bold tabular-nums font-mono text-slate-900">{catCloseD > 0 ? formatCurrency(catCloseD, fmtLocale) : '—'}</td>
-                        <td className="pe-5 px-3 py-2.5 text-end text-sm font-bold tabular-nums font-mono text-slate-900">{catCloseC > 0 ? formatCurrency(catCloseC, fmtLocale) : '—'}</td>
-                      </tr>
-                      {isOpen && catAccounts.map(a => (
-                        <tr key={a.code} className="border-b border-slate-100 hover:bg-slate-50/40 transition-colors">
-                          <td className="ps-5 pe-3 py-2.5">
-                            <span className="font-mono text-xs text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded">{a.code}</span>
-                          </td>
-                          <td className="ps-6 pe-3 py-2.5 text-sm text-slate-700">{isAr ? a.nameAr : a.nameEn}</td>
-                          <td className="px-3 py-2.5 text-end text-xs font-mono tabular-nums text-slate-600">{a.mvtDebit  > 0 ? formatCurrency(a.mvtDebit,  fmtLocale) : <span className="text-slate-300">—</span>}</td>
-                          <td className="px-3 py-2.5 text-end text-xs font-mono tabular-nums text-slate-600">{a.mvtCredit > 0 ? formatCurrency(a.mvtCredit, fmtLocale) : <span className="text-slate-300">—</span>}</td>
-                          <td className="px-3 py-2.5 text-end text-sm font-mono tabular-nums font-semibold text-slate-900">{closingDebit(a)  > 0 ? formatCurrency(closingDebit(a),  fmtLocale) : <span className="text-slate-300">—</span>}</td>
-                          <td className="pe-5 px-3 py-2.5 text-end text-sm font-mono tabular-nums font-semibold text-slate-900">{closingCredit(a) > 0 ? formatCurrency(closingCredit(a), fmtLocale) : <span className="text-slate-300">—</span>}</td>
-                        </tr>
-                      ))}
-                    </>
-                  );
-                })
-              )}
-            </tbody>
-            <tfoot>
-              <tr className="bg-slate-100 border-t-2 border-slate-300">
-                <td colSpan={2} className="ps-5 pe-3 py-3.5">
-                  <span className="text-sm font-black text-slate-900 uppercase tracking-wide">{isAr ? 'الإجمالي الكلي' : 'Grand Total'}</span>
-                </td>
-                <td className="px-3 py-3.5 text-end text-sm font-black tabular-nums font-mono text-slate-900">{formatCurrency(totalMvtDebit,    fmtLocale)}</td>
-                <td className="px-3 py-3.5 text-end text-sm font-black tabular-nums font-mono text-slate-900">{formatCurrency(totalMvtCredit,   fmtLocale)}</td>
-                <td className="px-3 py-3.5 text-end text-sm font-black tabular-nums font-mono text-brand-700">{formatCurrency(totalCloseDebit,  fmtLocale)}</td>
-                <td className="pe-5 px-3 py-3.5 text-end text-sm font-black tabular-nums font-mono text-brand-700">{formatCurrency(totalCloseCredit, fmtLocale)}</td>
-              </tr>
-            </tfoot>
-          </table>
-        </div>
-      </Card>
-    </div>
-  );
-}
 
 // ─── Income Statement Tab ─────────────────────────────────────────────────────
 
@@ -1670,14 +1548,18 @@ export default function ReportsPage() {
 
   function handleExportCSV() {
     if (activeTab === 'trial') {
-      const trialRows = accounts.filter(a => a.balanceHalalas !== 0).map(accountToTrial);
-      downloadCSV([
-        ['الكود', 'الحساب', 'مدين', 'دائن'],
-        ...trialRows.map(a => [
-          a.code, a.nameAr,
-          closingDebit(a) / 100, closingCredit(a) / 100,
-        ]),
-      ], `ميزان-المراجعة-${new Date().toISOString().slice(0, 10)}.csv`);
+      const today = new Date().toISOString().slice(0, 10);
+      fetch(`/api/accounting/trial-balance?asOf=${today}`)
+        .then(r => r.json())
+        .then((d: { rows?: { code: string; nameAr: string; totalDebit: number; totalCredit: number }[] }) => {
+          if (!d.rows) return;
+          downloadCSV([
+            ['الكود', 'الحساب', 'مدين', 'دائن'],
+            ...d.rows.map(a => [a.code, a.nameAr, a.totalDebit / 100, a.totalCredit / 100]),
+          ], `ميزان-المراجعة-${today}.csv`);
+        })
+        .catch(() => {/* silent */ });
+      return;
     } else if (activeTab === 'pl') {
       alert(isAr ? 'استخدم زر "تصدير CSV" داخل قائمة الدخل' : 'Use the "Export CSV" button inside the Income Statement tab');
     } else if (activeTab === 'vat') {
@@ -1803,7 +1685,7 @@ export default function ReportsPage() {
             year={year} setYear={setYear} isAr={isAr} fmtLocale={fmtLocale} />
         )}
         {activeTab === 'trial' && (
-          <TrialBalanceTab accounts={accounts} loadingAccounts={loadingAccounts} isAr={isAr} fmtLocale={fmtLocale} />
+          <TrialBalanceTab locale={locale} />
         )}
         {activeTab === 'pl' && (
           <IncomeStatementTab isAr={isAr} fmtLocale={fmtLocale} />
