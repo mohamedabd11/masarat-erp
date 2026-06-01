@@ -798,6 +798,14 @@ CREATE TABLE IF NOT EXISTS ticket_coupons (
 );
 CREATE INDEX IF NOT EXISTS coupons_ticket_idx ON ticket_coupons(ticket_id);
 
+-- ══ SERVICE TYPES: add revenue_mode, vat_rate, is_taxable columns ════════════
+ALTER TABLE service_types ADD COLUMN IF NOT EXISTS revenue_mode TEXT NOT NULL DEFAULT 'principal';
+ALTER TABLE service_types ADD COLUMN IF NOT EXISTS vat_rate     INTEGER;
+ALTER TABLE service_types ADD COLUMN IF NOT EXISTS is_taxable   BOOLEAN;
+
+-- ══ CUSTOMERS: add opening_balance_halalas for AR migration ══════════════════
+ALTER TABLE customers ADD COLUMN IF NOT EXISTS opening_balance_halalas INTEGER NOT NULL DEFAULT 0;
+
 -- ══ AGENCY FEATURES (per-agency feature flag overrides) ══════════════════════
 CREATE TABLE IF NOT EXISTS agency_features (
   id            TEXT PRIMARY KEY,

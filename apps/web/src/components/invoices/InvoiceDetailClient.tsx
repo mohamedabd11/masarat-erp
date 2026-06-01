@@ -11,6 +11,7 @@ import { cn } from '@/lib/utils';
 import {
   ArrowRight, ArrowLeft, Printer, Building2, User,
   CalendarDays, Hash, ShieldCheck, Receipt, CheckCircle2,
+  FileX, AlertTriangle,
 } from 'lucide-react';
 import { ProcessPaymentModal } from '@/components/bookings/ProcessPaymentModal';
 
@@ -90,7 +91,10 @@ export function InvoiceDetailClient({ locale, invoiceId }: InvoiceDetailClientPr
   const [resolvedBookingNumber, setResolvedBookingNumber] = useState<string | null>(null);
   const [amountDue, setAmountDue]   = useState(0);
   const [amountPaid, setAmountPaid] = useState(0);
-  const [showPayment, setShowPayment] = useState(false);
+  const [showPayment,    setShowPayment]    = useState(false);
+  const [showCreditNote, setShowCreditNote] = useState(false);
+  const [creditNoteErr,  setCreditNoteErr]  = useState('');
+  const [creditNoteBusy, setCreditNoteBusy] = useState(false);
 
   const BackIcon = isAr ? ArrowRight : ArrowLeft;
 
@@ -207,6 +211,17 @@ export function InvoiceDetailClient({ locale, invoiceId }: InvoiceDetailClientPr
           </div>
         </div>
         <div className="flex items-center gap-2 flex-shrink-0">
+          {/* Credit Note — only for tax invoices (380) that are not cancelled */}
+          {invoice.type === '380' && invoice.status !== 'cancelled' && (
+            <button
+              onClick={() => setShowCreditNote(true)}
+              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-red-200
+                         text-sm font-medium text-red-600 hover:bg-red-50 transition-colors"
+            >
+              <FileX size={15} />
+              {isAr ? 'إشعار دائن' : 'Credit Note'}
+            </button>
+          )}
           <Link
             href={`/${locale}/invoices/${invoiceId}/print`}
             target="_blank"
@@ -548,6 +563,121 @@ export function InvoiceDetailClient({ locale, invoiceId }: InvoiceDetailClientPr
             setAmountDue(remaining);
           }}
         />
+      )}
+
+      {/* ── Credit note modal ─────────────────────────────────────────────────── */}
+      {showCreditNote && invoice && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6 space-y-5">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-full bg-red-100 flex items-center justify-center flex-shrink-0">
+                <FileX size={20} className="text-red-600" />
+              </div>
+              <div>
+                <h2 className="font-bold text-slate-800 text-lg">
+                  {isAr ? 'إصدار إشعار دائن' : 'Issue Credit Note'}
+                </h2>
+                <p className="text-xs text-slate-500">
+                  {isAr ? `للفاتورة رقم: ${invoice.invoiceNumber}` : `For invoice: ${invoice.invoiceNumber}`}
+                </p>
+              </div>
+            </div>
+
+            {/* Summary */}
+            <div className="bg-slate-50 rounded-xl p-4 space-y-2 text-sm">
+              <div className="flex justify-between">
+                <span className="text-slate-600">{isAr ? 'المبلغ قبل الضريبة' : 'Subtotal'}</span>
+                <span className="font-medium">{formatCurrency(invoice.subtotalHalalas, fmtLocale)}</span>
+              </div>
+              {invoice.vatHalalas > 0 && (
+                <div className="flex justify-between">
+                  <span className="text-slate-600">{isAr ? 'ضريبة القيمة المضافة' : 'VAT'}</span>
+                  <span className="font-medium">{formatCurrency(invoice.vatHalalas, fmtLocale)}</span>
+                </div>
+              )}
+              <div className="flex justify-between border-t pt-2">
+                <span className="font-semibold text-slate-800">{isAr ? 'الإجمالي المسترد' : 'Total Credit'}</span>
+                <span className="font-bold text-red-600">{formatCurrency(invoice.totalHalalas, fmtLocale)}</span>
+              </div>
+            </div>
+
+            {/* Reason */}
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium text-slate-700">
+                {isAr ? 'سبب الإلغاء / الاسترداد' : 'Reason for credit note'}
+                <span className="text-red-500 ms-1">*</span>
+              </label>
+              <textarea
+                id="credit-note-reason"
+                rows={3}
+                placeholder={isAr ? 'أدخل سبب إصدار الإشعار الدائن...' : 'Enter reason for issuing credit note...'}
+                className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm
+                           focus:outline-none focus:ring-2 focus:ring-brand-500 resize-none"
+              />
+            </div>
+
+            {creditNoteErr && (
+              <div className="flex items-center gap-2 rounded-lg bg-red-50 border border-red-200 px-3 py-2 text-sm text-red-700">
+                <AlertTriangle size={15} className="flex-shrink-0" />
+                {creditNoteErr}
+              </div>
+            )}
+
+            <div className="flex gap-3">
+              <button
+                onClick={() => { setShowCreditNote(false); setCreditNoteErr(''); }}
+                disabled={creditNoteBusy}
+                className="flex-1 px-4 py-2.5 rounded-lg border border-slate-200 text-sm font-medium
+                           text-slate-700 hover:bg-slate-50 transition-colors disabled:opacity-50"
+              >
+                {isAr ? 'إلغاء' : 'Cancel'}
+              </button>
+              <button
+                disabled={creditNoteBusy}
+                onClick={async () => {
+                  const reason = (document.getElementById('credit-note-reason') as HTMLTextAreaElement)?.value?.trim();
+                  if (!reason) {
+                    setCreditNoteErr(isAr ? 'يرجى إدخال سبب الإشعار الدائن' : 'Please enter a reason');
+                    return;
+                  }
+                  setCreditNoteBusy(true);
+                  setCreditNoteErr('');
+                  try {
+                    await apiFetch('/api/invoices/credit-note', {
+                      method: 'POST',
+                      body: JSON.stringify({
+                        originalInvoiceId: invoice.id,
+                        subtotalHalalas:   invoice.subtotalHalalas,
+                        vatHalalas:        invoice.vatHalalas,
+                        totalHalalas:      invoice.totalHalalas,
+                        reason,
+                        buyerNameAr:       invoice.buyerNameAr ?? '',
+                        items:             invoice.items ?? [],
+                      }),
+                    });
+                    setShowCreditNote(false);
+                    // Reload invoice to reflect cancelled status
+                    const data = await apiFetch<{ invoice: FirestoreInvoice }>(`/api/invoices/${invoice.id}`);
+                    setInvoice(data.invoice);
+                  } catch (e: unknown) {
+                    setCreditNoteErr(
+                      e instanceof Error ? e.message : (isAr ? 'حدث خطأ' : 'An error occurred'),
+                    );
+                  } finally {
+                    setCreditNoteBusy(false);
+                  }
+                }}
+                className="flex-1 px-4 py-2.5 rounded-lg bg-red-600 text-white text-sm font-medium
+                           hover:bg-red-700 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+              >
+                {creditNoteBusy
+                  ? <span className="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin" />
+                  : <FileX size={15} />}
+                {isAr ? 'إصدار الإشعار الدائن' : 'Issue Credit Note'}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* ── ZATCA compliance footer — only shown for VAT-registered agencies ──── */}

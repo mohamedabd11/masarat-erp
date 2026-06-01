@@ -375,12 +375,9 @@ export function BankingClient({ locale }: BankingClientProps) {
 
   useEffect(() => {
     if (!agencyId) {
-      // Load demo data for preview
-      const demoAccs = DEMO_ACCOUNTS.map((a, i) => ({ ...a, id: `acc-${i + 1}`, agencyId: 'demo' }));
-      const demoTxsData = DEMO_TXS.map((t, i) => ({ ...t, id: `tx-${i + 1}`, agencyId: 'demo' }));
-      setAccounts(demoAccs);
-      setTxs(demoTxsData);
-      setSelectedId(demoAccs[0]?.id ?? null);
+      // No agency context yet — show empty state, never show demo data to real users
+      setAccounts([]);
+      setTxs([]);
       setLoading(false);
       return;
     }
