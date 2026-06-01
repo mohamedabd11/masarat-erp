@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { eq } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { bankAccounts, journalEntries, journalLines } from '@/lib/schema';
-import { verifyAuth, ApiAuthError } from '@/lib/api-auth';
+import { verifyAuth, assertRole, ApiAuthError, ROLES_ACCOUNTANT_UP } from '@/lib/api-auth';
 import { getNextJournalNumber } from '@/lib/invoice-counter';
 
 // Map bank account type to default GL code
@@ -13,7 +13,8 @@ function glCodeForType(type: string): { code: string; ar: string; en: string } {
 
 export async function GET(request: Request) {
   try {
-    const { agencyId } = await verifyAuth(request);
+    const { agencyId, role } = await verifyAuth(request);
+    assertRole(role, [...ROLES_ACCOUNTANT_UP]);
     const rows = await db.select().from(bankAccounts).where(eq(bankAccounts.agencyId, agencyId));
     return NextResponse.json({ accounts: rows });
   } catch (err) {

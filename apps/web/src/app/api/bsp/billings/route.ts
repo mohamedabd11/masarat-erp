@@ -12,12 +12,13 @@ import { NextResponse } from 'next/server';
 import { eq, and, desc } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { bspBillings, journalEntries, journalLines } from '@/lib/schema';
-import { verifyAuth, assertRole, ApiAuthError, ROLES_ADMIN_ONLY } from '@/lib/api-auth';
+import { verifyAuth, assertRole, ApiAuthError, ROLES_ADMIN_ONLY, ROLES_MANAGER_UP } from '@/lib/api-auth';
 import { getNextJournalNumber } from '@/lib/invoice-counter';
 
 export async function GET(request: Request) {
   try {
-    const { agencyId } = await verifyAuth(request);
+    const { agencyId, role } = await verifyAuth(request);
+    assertRole(role, [...ROLES_MANAGER_UP]);
     const url    = new URL(request.url);
     const limit  = Math.min(100, parseInt(url.searchParams.get('limit') ?? '50', 10) || 50);
     const offset = parseInt(url.searchParams.get('offset') ?? '0', 10) || 0;

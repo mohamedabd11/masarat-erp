@@ -16,7 +16,7 @@ import { NextResponse } from 'next/server';
 import { eq, and, sql } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { journalLines, journalEntries } from '@/lib/schema';
-import { verifyAuth, ApiAuthError } from '@/lib/api-auth';
+import { verifyAuth, assertRole, ApiAuthError, ROLES_ACCOUNTANT_UP } from '@/lib/api-auth';
 
 interface AccountMovement {
   accountCode:   string;
@@ -54,7 +54,8 @@ async function getMovements(agencyId: string, from: string, to: string): Promise
 
 export async function GET(request: Request) {
   try {
-    const { agencyId } = await verifyAuth(request);
+    const { agencyId, role } = await verifyAuth(request);
+    assertRole(role, [...ROLES_ACCOUNTANT_UP]);
     const url  = new URL(request.url);
     const from = url.searchParams.get('from');
     const to   = url.searchParams.get('to');
