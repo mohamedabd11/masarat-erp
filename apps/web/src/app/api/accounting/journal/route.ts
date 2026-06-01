@@ -7,6 +7,7 @@ import { assertPeriodOpen } from '@/lib/period-lock';
 import { checkRateLimit, getClientIp, rateLimitHeaders } from '@/lib/rate-limit';
 import { validateJournalLines } from '@/lib/journal-validation';
 import { requireFeature } from '@/lib/feature-access';
+import { getNextJournalNumber } from '@/lib/invoice-counter';
 
 const DEFAULT_PAGE_SIZE = 100;
 const MAX_PAGE_SIZE     = 500;
@@ -26,7 +27,6 @@ export async function POST(request: Request) {
       );
     }
     const body = await request.json() as {
-      entryNumber: string;
       date: string;
       descriptionAr?: string;
       descriptionEn?: string;
@@ -61,38 +61,46 @@ export async function POST(request: Request) {
     }
 
     await assertPeriodOpen(agencyId, body.date, db);
-    const id = crypto.randomUUID();
-    await db.insert(journalEntries).values({
-      id,
-      agencyId,
-      entryNumber:        body.entryNumber,
-      date:               body.date,
-      descriptionAr:      body.descriptionAr ?? null,
-      descriptionEn:      body.descriptionEn ?? null,
-      reference:          body.reference ?? null,
-      source:             body.source ?? 'manual',
-      sourceId:           body.sourceId ?? null,
-      isPosted:           body.isPosted ?? true,
-      totalDebitHalalas:  computedDebit,
-      totalCreditHalalas: computedCredit,
-      createdBy:          uid,
+    const id   = crypto.randomUUID();
+    const year = new Date(body.date).getFullYear();
+
+    await db.transaction(async (tx) => {
+      const entryNumber = await getNextJournalNumber(agencyId, year, tx);
+
+      await tx.insert(journalEntries).values({
+        id,
+        agencyId,
+        entryNumber,
+        date:               body.date,
+        descriptionAr:      body.descriptionAr ?? null,
+        descriptionEn:      body.descriptionEn ?? null,
+        reference:          body.reference ?? null,
+        source:             body.source ?? 'manual',
+        sourceId:           body.sourceId ?? null,
+        isPosted:           body.isPosted ?? true,
+        totalDebitHalalas:  computedDebit,
+        totalCreditHalalas: computedCredit,
+        createdBy:          uid,
+      });
+
+      if (body.lines?.length) {
+        await tx.insert(journalLines).values(
+          body.lines.map((l, idx) => ({
+            id:            crypto.randomUUID(),
+            entryId:       id,
+            agencyId,
+            accountCode:   l.accountCode,
+            accountNameAr: l.accountNameAr,
+            accountNameEn: l.accountNameEn ?? l.accountNameAr,
+            debitHalalas:  l.debitHalalas,
+            creditHalalas: l.creditHalalas,
+            description:   l.memo ?? null,
+            sortOrder:     idx,
+          })),
+        );
+      }
     });
-    if (body.lines?.length) {
-      await db.insert(journalLines).values(
-        body.lines.map((l, idx) => ({
-          id:            crypto.randomUUID(),
-          entryId:       id,
-          agencyId,
-          accountCode:   l.accountCode,
-          accountNameAr: l.accountNameAr,
-          accountNameEn: l.accountNameEn ?? l.accountNameAr,
-          debitHalalas:  l.debitHalalas,
-          creditHalalas: l.creditHalalas,
-          description:   l.memo ?? null,
-          sortOrder:     idx,
-        })),
-      );
-    }
+
     return NextResponse.json({ success: true, id });
   } catch (err) {
     if (err instanceof ApiAuthError || err instanceof BusinessError) return NextResponse.json({ error: err.message }, { status: err.status });
