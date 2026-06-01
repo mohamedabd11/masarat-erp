@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { eq, and, sql } from 'drizzle-orm';
 import { db } from '@/lib/db';
-import { invoices, supplierPayments, agencies } from '@/lib/schema';
+import { invoices, supplierPayments, agencies, bookings, journalLines, journalEntries } from '@/lib/schema';
 import { verifyAuth, assertRole, ApiAuthError, ROLES_ACCOUNTANT_UP } from '@/lib/api-auth';
 import { requireFeature } from '@/lib/feature-access';
 
@@ -85,10 +85,33 @@ export async function GET(request: Request) {
     const netOutputVatBase = outputVatBase - creditNoteBase;
     const netOutputVat     = outputVat     - creditNoteVat;
 
+    // ── Zero-rated sales (international flights) ───────────────────────────────
+    // KSA VAT: international passenger transport is zero-rated (0%), not 15%.
+    // Derived from invoices whose linked booking is an international flight.
+    const zeroRatedRows = await db
+      .select({
+        netAmount: sql<number>`cast(coalesce(sum(${invoices.subtotalHalalas}), 0) as int)`,
+        count:     sql<number>`cast(count(*) as int)`,
+      })
+      .from(invoices)
+      .innerJoin(bookings, eq(invoices.bookingId, bookings.id))
+      .where(and(
+        eq(invoices.agencyId, agencyId),
+        sql`${invoices.issueDate} >= ${from}`,
+        sql`${invoices.issueDate} <= ${to}`,
+        sql`${invoices.status} NOT IN ('cancelled')`,
+        sql`${invoices.type} IN ('380', '383')`,
+        sql`${bookings.serviceType} IN ('flight', 'flights')`,
+        sql`(${bookings.details} ->> 'isInternational') = 'true'`,
+      ));
+
+    const zeroRatedSales = Number(zeroRatedRows[0]?.netAmount ?? 0);
+
+    // Standard-rated sales = net taxable base minus zero-rated portion.
+    const standardRatedSales = netOutputVatBase - zeroRatedSales;
+    const exemptSales        = 0;
+
     // ── Input VAT (purchases) ─────────────────────────────────────────────────
-    // Supplier payments with vatHalalas field (if tracked)
-    // Note: supplierPayments schema may not have vatHalalas — use 0 for now
-    // and expose a placeholder so the agency can enter manual input VAT
     const purchaseRows = await db
       .select({
         count:      sql<number>`cast(count(*) as int)`,
@@ -102,13 +125,35 @@ export async function GET(request: Request) {
         sql`${supplierPayments.status} != 'reversed'`,
       ));
 
-    const totalPurchases    = Number(purchaseRows[0]?.netAmount ?? 0);
+    const totalPurchases    = Number(purchaseRows[0]?.count ?? 0) > 0 ? Number(purchaseRows[0]?.netAmount ?? 0) : 0;
     const purchaseCount     = Number(purchaseRows[0]?.count ?? 0);
-    // Input VAT is 0 by default (travel agency expenses rarely carry reclaimable VAT in KSA)
-    const inputVat          = 0;
+
+    // Real Input VAT: sum of debits posted to the VAT accounts within the period.
+    // Output VAT is credited to 2200 (VAT Payable); input/reclaimable VAT is
+    // debited to either a dedicated input-VAT receivable (1230) or to 2200 itself.
+    const inputVatRows = await db
+      .select({
+        inputVat: sql<number>`cast(coalesce(sum(${journalLines.debitHalalas}), 0) as int)`,
+      })
+      .from(journalLines)
+      .innerJoin(journalEntries, eq(journalLines.entryId, journalEntries.id))
+      .where(and(
+        eq(journalLines.agencyId, agencyId),
+        eq(journalEntries.isPosted, true),
+        sql`${journalLines.accountCode} IN ('1230', '2200')`,
+        sql`${journalLines.debitHalalas} > 0`,
+        sql`${journalEntries.date} >= ${from}`,
+        sql`${journalEntries.date} <= ${to}`,
+      ));
+
+    // Subtract VAT debits that originate from credit notes (already netted into
+    // output VAT above) so we don't double-count them as reclaimable input VAT.
+    const grossVatDebits = Number(inputVatRows[0]?.inputVat ?? 0);
+    const inputVat       = Math.max(0, grossVatDebits - creditNoteVat);
 
     // ── Summary ───────────────────────────────────────────────────────────────
-    const netVatDue = netOutputVat - inputVat;
+    const netVatPayable = netOutputVat - inputVat;
+    const netVatDue     = netVatPayable;
 
     return NextResponse.json({
       period:       { from, to },
@@ -146,9 +191,13 @@ export async function GET(request: Request) {
 
       // Box 5: Net VAT
       summary: {
+        standardRatedSales,   // صافي المبيعات الخاضعة للنسبة الأساسية (15%)
+        zeroRatedSales,       // المبيعات صفرية النسبة (طيران دولي)
+        exemptSales,          // المبيعات المعفاة
         outputVat:  netOutputVat,
         inputVat,
-        netVatDue,  // positive = payable to ZATCA; negative = refundable
+        netVatPayable,        // positive = payable to ZATCA; negative = refundable
+        netVatDue,            // alias kept for backward compatibility
       },
     });
   } catch (err) {
