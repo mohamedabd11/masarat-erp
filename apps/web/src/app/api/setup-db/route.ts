@@ -908,6 +908,45 @@ CREATE TABLE IF NOT EXISTS agency_features (
 );
 CREATE INDEX IF NOT EXISTS agency_features_agency_idx ON agency_features(agency_id);
 
+-- ══ PERFORMANCE INDEXES (financial query hot paths) ══════════════════════════
+-- Composite indexes that back the agency-scoped report/GL/list queries.
+CREATE INDEX IF NOT EXISTS idx_invoices_agency_status   ON invoices(agency_id, status);
+CREATE INDEX IF NOT EXISTS idx_je_agency_source         ON journal_entries(agency_id, source);
+CREATE INDEX IF NOT EXISTS idx_bookings_agency_status   ON bookings(agency_id, status);
+CREATE INDEX IF NOT EXISTS idx_payments_booking         ON payments(booking_id);
+-- One invoice row per booking per agency (NULL booking_id rows stay unconstrained).
+CREATE UNIQUE INDEX IF NOT EXISTS uq_invoices_agency_booking ON invoices(agency_id, booking_id);
+
+-- ══ WIDEN MONETARY COLUMNS TO BIGINT ═════════════════════════════════════════
+-- Hajj/Umrah group invoices and BSP remittances can exceed the 32-bit signed
+-- limit (~21M SAR). Widening integer→bigint is a metadata-only change in
+-- PostgreSQL (no table rewrite) and is safe to re-run.
+ALTER TABLE invoices          ALTER COLUMN subtotal_halalas TYPE BIGINT, ALTER COLUMN vat_halalas TYPE BIGINT, ALTER COLUMN total_halalas TYPE BIGINT, ALTER COLUMN paid_halalas TYPE BIGINT;
+ALTER TABLE journal_entries   ALTER COLUMN total_debit_halalas TYPE BIGINT, ALTER COLUMN total_credit_halalas TYPE BIGINT;
+ALTER TABLE journal_lines     ALTER COLUMN debit_halalas TYPE BIGINT, ALTER COLUMN credit_halalas TYPE BIGINT;
+ALTER TABLE chart_of_accounts ALTER COLUMN opening_balance_halalas TYPE BIGINT;
+ALTER TABLE bookings          ALTER COLUMN total_price_halalas TYPE BIGINT, ALTER COLUMN cost_price_halalas TYPE BIGINT, ALTER COLUMN profit_halalas TYPE BIGINT, ALTER COLUMN paid_halalas TYPE BIGINT;
+ALTER TABLE payments          ALTER COLUMN amount_halalas TYPE BIGINT;
+ALTER TABLE receipt_vouchers  ALTER COLUMN amount_halalas TYPE BIGINT;
+ALTER TABLE supplier_payments ALTER COLUMN amount_halalas TYPE BIGINT;
+ALTER TABLE customers         ALTER COLUMN credit_limit_halalas TYPE BIGINT, ALTER COLUMN opening_balance_halalas TYPE BIGINT;
+ALTER TABLE suppliers         ALTER COLUMN balance_halalas TYPE BIGINT;
+ALTER TABLE recurring_invoices ALTER COLUMN subtotal_halalas TYPE BIGINT, ALTER COLUMN vat_halalas TYPE BIGINT, ALTER COLUMN total_halalas TYPE BIGINT;
+ALTER TABLE bsp_billings      ALTER COLUMN total_sales_halalas TYPE BIGINT, ALTER COLUMN total_refunds_halalas TYPE BIGINT, ALTER COLUMN total_commission_halalas TYPE BIGINT, ALTER COLUMN net_remit_halalas TYPE BIGINT;
+ALTER TABLE bsp_adjustments   ALTER COLUMN amount_halalas TYPE BIGINT;
+ALTER TABLE bank_accounts     ALTER COLUMN opening_balance_halalas TYPE BIGINT, ALTER COLUMN current_balance_halalas TYPE BIGINT, ALTER COLUMN reconciled_balance_halalas TYPE BIGINT;
+ALTER TABLE bank_transactions ALTER COLUMN amount_halalas TYPE BIGINT, ALTER COLUMN balance_after_halalas TYPE BIGINT;
+ALTER TABLE cheques           ALTER COLUMN amount_halalas TYPE BIGINT;
+ALTER TABLE pnr_records       ALTER COLUMN fare_halalas TYPE BIGINT, ALTER COLUMN tax_halalas TYPE BIGINT, ALTER COLUMN total_halalas TYPE BIGINT;
+ALTER TABLE tickets           ALTER COLUMN fare_halalas TYPE BIGINT, ALTER COLUMN tax_halalas TYPE BIGINT, ALTER COLUMN total_halalas TYPE BIGINT;
+ALTER TABLE quotes            ALTER COLUMN total_halalas TYPE BIGINT;
+ALTER TABLE employees         ALTER COLUMN salary_halalas TYPE BIGINT;
+ALTER TABLE employee_contracts ALTER COLUMN base_salary_halalas TYPE BIGINT, ALTER COLUMN housing_allowance_halalas TYPE BIGINT, ALTER COLUMN transport_allowance_halalas TYPE BIGINT, ALTER COLUMN other_allowances_halalas TYPE BIGINT;
+ALTER TABLE payslips          ALTER COLUMN base_salary_halalas TYPE BIGINT, ALTER COLUMN housing_allowance_halalas TYPE BIGINT, ALTER COLUMN transport_allowance_halalas TYPE BIGINT, ALTER COLUMN other_allowances_halalas TYPE BIGINT, ALTER COLUMN gross_halalas TYPE BIGINT, ALTER COLUMN deductions_halalas TYPE BIGINT, ALTER COLUMN advance_deduction_halalas TYPE BIGINT, ALTER COLUMN gosi_employee_halalas TYPE BIGINT, ALTER COLUMN gosi_employer_halalas TYPE BIGINT, ALTER COLUMN net_halalas TYPE BIGINT;
+ALTER TABLE salary_advances   ALTER COLUMN amount_halalas TYPE BIGINT;
+ALTER TABLE salary_payments   ALTER COLUMN amount_halalas TYPE BIGINT;
+ALTER TABLE eosb_accruals     ALTER COLUMN amount_halalas TYPE BIGINT;
+
 `;
 
 const SUPER_ADMIN_EMAIL = process.env['SUPER_ADMIN_EMAIL'] ?? '';
