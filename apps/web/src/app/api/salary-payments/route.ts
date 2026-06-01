@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { eq, and, desc } from 'drizzle-orm';
 import { db } from '@/lib/db';
-import { salaryPayments, employees, journalEntries, journalLines } from '@/lib/schema';
+import { salaryPayments, employees, payslips, journalEntries, journalLines } from '@/lib/schema';
 import { verifyAuth, assertRole, ApiAuthError, BusinessError, ROLES_ADMIN_ONLY } from '@/lib/api-auth';
 import { requireFeature } from '@/lib/feature-access';
 import { getNextJournalNumber } from '@/lib/invoice-counter';
@@ -88,6 +88,23 @@ export async function POST(request: Request) {
         .where(and(eq(salaryPayments.employeeId, employeeId), eq(salaryPayments.month, month), eq(salaryPayments.agencyId, agencyId)))
         .limit(1);
       if (existing) throw new BusinessError(`تم صرف راتب ${month} للموظف "${employee.nameAr}" مسبقاً`, 409);
+
+      // Require an issued payslip for this employee/month before disbursing.
+      // The payslip is what accrues the salary expense and the 2310 Salaries
+      // Payable liability that this disbursement settles; paying without one
+      // would clear a liability that was never booked.
+      const [existingPayslip] = await tx
+        .select({ id: payslips.id })
+        .from(payslips)
+        .where(and(
+          eq(payslips.employeeId, employeeId),
+          eq(payslips.agencyId, agencyId),
+          eq(payslips.month, month),
+        ))
+        .limit(1);
+      if (!existingPayslip) {
+        throw new BusinessError('لا توجد قسيمة راتب معتمدة لهذا الموظف في هذا الشهر', 400);
+      }
 
       const now    = new Date();
       const year   = now.getFullYear();
