@@ -1402,7 +1402,11 @@ function CashFlowTab({ isAr, fmtLocale }: { isAr: boolean; fmtLocale: string }) 
     setErr('');
     fetch(`/api/reports/cash-flow?from=${from}&to=${to}`)
       .then(r => r.json())
-      .then((d: CashFlowData) => setData(d))
+      .then((d: CashFlowData & { error?: string }) => {
+        if (d.error) { setErr(d.error); return; }
+        if (!d.operating) { setErr(isAr ? 'استجابة غير صالحة من الخادم' : 'Invalid server response'); return; }
+        setData(d);
+      })
       .catch(() => setErr(isAr ? 'تعذّر تحميل البيانات' : 'Failed to load data'))
       .finally(() => setLoading(false));
   }
