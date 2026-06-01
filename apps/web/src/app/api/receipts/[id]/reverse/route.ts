@@ -4,6 +4,8 @@ import { db } from '@/lib/db';
 import { receiptVouchers, invoices, journalEntries, journalLines } from '@/lib/schema';
 import { verifyAuth, assertRole, ApiAuthError, BusinessError, ROLES_ADMIN_ONLY } from '@/lib/api-auth';
 import { getNextReceiptNumber, getNextJournalNumber } from '@/lib/invoice-counter';
+import { assertPeriodOpen } from '@/lib/period-lock';
+import { GL } from '@/lib/gl-accounts';
 
 const METHOD_ACCOUNT: Record<string, { code: string; ar: string; en: string }> = {
   cash:          { code: '1100', ar: 'الصندوق النقدي', en: 'Cash' },
@@ -11,7 +13,6 @@ const METHOD_ACCOUNT: Record<string, { code: string; ar: string; en: string }> =
   card:          { code: '1115', ar: 'نقاط البيع',      en: 'POS / Card' },
   online:        { code: '1115', ar: 'نقاط البيع',      en: 'POS / Card' },
 };
-const AC_DEPOSITS = { code: '2300', ar: 'ودائع العملاء', en: 'Customer Deposits' };
 
 export async function POST(
   request: Request,
@@ -23,6 +24,10 @@ export async function POST(
     const { reason } = await request.json() as { reason?: string };
 
     const result = await db.transaction(async (tx) => {
+      // Reversal posts a journal entry dated today — block closed periods.
+      const txDate = new Date().toISOString().split('T')[0]!;
+      await assertPeriodOpen(agencyId, txDate, tx);
+
       const [orig] = await tx.select().from(receiptVouchers).where(
         and(eq(receiptVouchers.id, params.id), eq(receiptVouchers.agencyId, agencyId)),
       );
@@ -35,6 +40,10 @@ export async function POST(
 
       const { amountHalalas, method, customerName, voucherNumber } = orig;
       const paymentAc  = METHOD_ACCOUNT[method] ?? METHOD_ACCOUNT['cash']!;
+      // Choose the debit (credit-side reversal) account based on how the original
+      // receipt was recorded: an invoice-linked receipt reduced Accounts Receivable
+      // (1120); a standalone deposit increased Customer Deposits (2300).
+      const creditAccount = orig.invoiceId ? GL.receivable : GL.customerDeposits;
       const revNumber  = await getNextReceiptNumber(agencyId, year, tx);
       const jeNumber   = await getNextJournalNumber(agencyId, year, tx);
       const reversalId = crypto.randomUUID();
@@ -55,7 +64,7 @@ export async function POST(
         createdBy:        uid,
       });
 
-      // Reversal journal: Credit cash/bank (money goes out), Debit customer deposits (liability decreases)
+      // Reversal journal: Credit cash/bank (money goes out), Debit receivable/deposits
       await tx.insert(journalEntries).values({
         id:                 jeId,
         agencyId,
@@ -73,7 +82,7 @@ export async function POST(
       await tx.insert(journalLines).values([
         {
           id: crypto.randomUUID(), entryId: jeId, agencyId,
-          accountCode: AC_DEPOSITS.code, accountNameAr: AC_DEPOSITS.ar, accountNameEn: AC_DEPOSITS.en,
+          accountCode: creditAccount.code, accountNameAr: creditAccount.ar, accountNameEn: creditAccount.en,
           debitHalalas: amountHalalas, creditHalalas: 0, sortOrder: 1,
         },
         {
