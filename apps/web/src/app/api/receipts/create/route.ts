@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { receiptVouchers, journalEntries, journalLines } from '@/lib/schema';
-import { verifyAuth, ApiAuthError, BusinessError } from '@/lib/api-auth';
+import { verifyAuth, assertRole, ApiAuthError, BusinessError, ROLES_ACCOUNTANT_UP } from '@/lib/api-auth';
 import { getNextReceiptNumber, getNextJournalNumber } from '@/lib/invoice-counter';
 import { assertPeriodOpen } from '@/lib/period-lock';
 import { logAudit } from '@/lib/audit';
@@ -29,7 +29,8 @@ const AC_DEPOSITS = GL.customerDeposits;
 
 export async function POST(request: Request) {
   try {
-    const { uid, agencyId } = await verifyAuth(request);
+    const { uid, agencyId, role } = await verifyAuth(request);
+    assertRole(role, [...ROLES_ACCOUNTANT_UP]);
 
     const rl = await checkRateLimit(`${agencyId}:${getClientIp(request)}`, 'financial');
     if (!rl.success) {

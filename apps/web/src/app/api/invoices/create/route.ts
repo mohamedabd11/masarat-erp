@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { eq, and, sql, ne } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { bookings, agencies, invoices, journalEntries, journalLines, customers } from '@/lib/schema';
-import { verifyAuth, ApiAuthError, BusinessError } from '@/lib/api-auth';
+import { verifyAuth, assertRole, ApiAuthError, BusinessError, ROLES_ACCOUNTANT_UP } from '@/lib/api-auth';
 import { logAudit } from '@/lib/audit';
 import { checkRateLimit, getClientIp, rateLimitHeaders } from '@/lib/rate-limit';
 import { withIdempotency, buildIdempotencyInsert } from '@/lib/idempotency';
@@ -56,7 +56,8 @@ interface InvoiceItem {
 
 export async function POST(request: Request) {
   try {
-    const { uid, agencyId } = await verifyAuth(request);
+    const { uid, agencyId, role } = await verifyAuth(request);
+    assertRole(role, [...ROLES_ACCOUNTANT_UP]);
 
     const rl = await checkRateLimit(`${agencyId}:${getClientIp(request)}`, 'financial');
     if (!rl.success) {
