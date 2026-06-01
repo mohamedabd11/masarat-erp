@@ -72,7 +72,7 @@ export async function POST(request: Request) {
       // If the receipt is applied to a specific invoice, credit Accounts Receivable
       // (settling the customer's debt). Otherwise credit Customer Deposits (a future
       // advance the customer can apply later).
-      let creditAc = AC_DEPOSITS;
+      let creditAc: { code: string; ar: string; en: string } = AC_DEPOSITS;
       if (invoiceId) {
         const [inv] = await tx.select().from(invoices)
           .where(and(eq(invoices.id, invoiceId), eq(invoices.agencyId, agencyId)));
