@@ -7,6 +7,7 @@ import { Card } from '@/components/ui/Card';
 import { Spinner } from '@/components/ui/Spinner';
 import { formatCurrency, formatCount } from '@/lib/utils';
 import { cn } from '@/lib/utils';
+import { apiFetch } from '@/lib/api-client';
 import { useReportsData, type MonthlyRow, type TypeMixRow, type VatInvoice } from '@/hooks/useReportsData';
 import { useChartOfAccounts, type ChartAccountWithBalance as ChartAccount } from '@/hooks/useChartOfAccounts';
 import { useIncomeStatement } from '@/hooks/useIncomeStatement';
@@ -1023,9 +1024,8 @@ function BookingProfitabilityTab({ isAr, fmtLocale }: { isAr: boolean; fmtLocale
   useEffect(() => {
     setLoading(true);
     setErr('');
-    fetch(`/api/reports/booking-profitability?groupBy=${groupBy}`)
-      .then(r => r.json())
-      .then((d: { rows: ProfitRow[]; totals: ProfitTotals }) => {
+    apiFetch<{ rows: ProfitRow[]; totals: ProfitTotals }>(`/api/reports/booking-profitability?groupBy=${groupBy}`)
+      .then((d) => {
         setRows(d.rows ?? []);
         setTotals(d.totals ?? null);
       })
@@ -1161,9 +1161,8 @@ function SupplierProfitabilityTab({ isAr, fmtLocale }: { isAr: boolean; fmtLocal
   const [err,     setErr]     = useState('');
 
   useEffect(() => {
-    fetch('/api/reports/supplier-profitability')
-      .then(r => r.json())
-      .then((d: { rows: SupplierProfitRow[]; totals: ProfitTotals }) => {
+    apiFetch<{ rows: SupplierProfitRow[]; totals: ProfitTotals }>('/api/reports/supplier-profitability')
+      .then((d) => {
         setRows(d.rows ?? []);
         setTotals(d.totals ?? null);
       })
@@ -1278,9 +1277,8 @@ function CashFlowTab({ isAr, fmtLocale }: { isAr: boolean; fmtLocale: string }) 
   function load() {
     setLoading(true);
     setErr('');
-    fetch(`/api/reports/cash-flow?from=${from}&to=${to}`)
-      .then(r => r.json())
-      .then((d: CashFlowData & { error?: string }) => {
+    apiFetch<CashFlowData & { error?: string }>(`/api/reports/cash-flow?from=${from}&to=${to}`)
+      .then((d) => {
         if (d.error) { setErr(d.error); return; }
         if (!d.operating) { setErr(isAr ? 'استجابة غير صالحة من الخادم' : 'Invalid server response'); return; }
         setData(d);
@@ -1446,9 +1444,8 @@ function SupplierAgingTab({ isAr, fmtLocale }: { isAr: boolean; fmtLocale: strin
   function load() {
     setLoading(true);
     setErr('');
-    fetch(`/api/reports/supplier-aging?asOf=${asOf}`)
-      .then(r => r.json())
-      .then((d: { rows: SupplierAgingRow[]; totals: AgingTotals }) => {
+    apiFetch<{ rows: SupplierAgingRow[]; totals: AgingTotals }>(`/api/reports/supplier-aging?asOf=${asOf}`)
+      .then((d) => {
         setRows(d.rows ?? []);
         setTotals(d.totals ?? null);
       })
@@ -1549,9 +1546,8 @@ export default function ReportsPage() {
   function handleExportCSV() {
     if (activeTab === 'trial') {
       const today = new Date().toISOString().slice(0, 10);
-      fetch(`/api/accounting/trial-balance?asOf=${today}`)
-        .then(r => r.json())
-        .then((d: { rows?: { code: string; nameAr: string; totalDebit: number; totalCredit: number }[] }) => {
+      apiFetch<{ rows?: { code: string; nameAr: string; totalDebit: number; totalCredit: number }[] }>(`/api/accounting/trial-balance?asOf=${today}`)
+        .then((d) => {
           if (!d.rows) return;
           downloadCSV([
             ['الكود', 'الحساب', 'مدين', 'دائن'],
