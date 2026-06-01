@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
+import { apiFetch } from '@/lib/api-client';
 import { Card } from '@/components/ui/Card';
 import { formatCurrency } from '@/lib/utils';
 import { cn } from '@/lib/utils';
@@ -72,13 +73,12 @@ export function TrialBalanceTab({ locale }: { locale: string }) {
     setErr('');
     const params = new URLSearchParams({ asOf });
     if (from) params.set('from', from);
-    fetch(`/api/accounting/trial-balance?${params}`)
-      .then(r => r.json())
+    apiFetch<TbResponse>(`/api/accounting/trial-balance?${params}`)
       .then((d: TbResponse) => {
         if (d.error) { setErr(d.error); return; }
         setData(d);
       })
-      .catch(() => setErr(isAr ? 'تعذّر تحميل البيانات' : 'Failed to load data'))
+      .catch((e: unknown) => setErr(e instanceof Error ? e.message : (isAr ? 'تعذّر تحميل البيانات' : 'Failed to load data')))
       .finally(() => setLoading(false));
   }, [asOf, from, isAr]);
 

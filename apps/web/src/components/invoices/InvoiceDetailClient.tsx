@@ -95,6 +95,9 @@ export function InvoiceDetailClient({ locale, invoiceId }: InvoiceDetailClientPr
   const [showCreditNote, setShowCreditNote] = useState(false);
   const [creditNoteErr,  setCreditNoteErr]  = useState('');
   const [creditNoteBusy, setCreditNoteBusy] = useState(false);
+  const [showCancel,     setShowCancel]     = useState(false);
+  const [cancelErr,      setCancelErr]      = useState('');
+  const [cancelBusy,     setCancelBusy]     = useState(false);
 
   const BackIcon = isAr ? ArrowRight : ArrowLeft;
 
@@ -211,6 +214,17 @@ export function InvoiceDetailClient({ locale, invoiceId }: InvoiceDetailClientPr
           </div>
         </div>
         <div className="flex items-center gap-2 flex-shrink-0">
+          {/* Cancel Invoice — only for unpaid invoices */}
+          {invoice.status !== 'cancelled' && invoice.status !== 'paid' && invoice.paidHalalas === 0 && (
+            <button
+              onClick={() => setShowCancel(true)}
+              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-orange-200
+                         text-sm font-medium text-orange-600 hover:bg-orange-50 transition-colors"
+            >
+              <AlertTriangle size={15} />
+              {isAr ? 'إلغاء الفاتورة' : 'Cancel Invoice'}
+            </button>
+          )}
           {/* Credit Note — only for tax invoices (380) that are not cancelled */}
           {invoice.type === '380' && invoice.status !== 'cancelled' && (
             <button
@@ -674,6 +688,97 @@ export function InvoiceDetailClient({ locale, invoiceId }: InvoiceDetailClientPr
                   ? <span className="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin" />
                   : <FileX size={15} />}
                 {isAr ? 'إصدار الإشعار الدائن' : 'Issue Credit Note'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Cancel Invoice Modal ────────────────────────────────────────────── */}
+      {showCancel && invoice && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6 space-y-5">
+            <div className="flex items-start gap-3">
+              <div className="w-10 h-10 rounded-full bg-orange-100 flex items-center justify-center flex-shrink-0">
+                <AlertTriangle size={20} className="text-orange-600" />
+              </div>
+              <div>
+                <h3 className="font-bold text-slate-900 text-lg">
+                  {isAr ? 'إلغاء الفاتورة' : 'Cancel Invoice'}
+                </h3>
+                <p className="text-xs text-slate-500">
+                  {isAr ? `الفاتورة رقم: ${invoice.invoiceNumber}` : `Invoice: ${invoice.invoiceNumber}`}
+                </p>
+              </div>
+            </div>
+
+            <div className="bg-orange-50 border border-orange-200 rounded-xl p-3 text-sm text-orange-800">
+              {isAr
+                ? 'سيتم إلغاء هذه الفاتورة وحذف قيدها المحاسبي من ميزان المراجعة. هذا الإجراء لا يمكن التراجع عنه.'
+                : 'This invoice will be cancelled and its journal entry removed from the trial balance. This action cannot be undone.'}
+            </div>
+
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium text-slate-700">
+                {isAr ? 'سبب الإلغاء' : 'Cancellation Reason'}
+                <span className="text-red-500 ms-1">*</span>
+              </label>
+              <textarea
+                id="cancel-invoice-reason"
+                rows={3}
+                placeholder={isAr ? 'أدخل سبب إلغاء الفاتورة...' : 'Enter reason for cancellation...'}
+                className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm
+                           focus:outline-none focus:ring-2 focus:ring-orange-500 resize-none"
+              />
+            </div>
+
+            {cancelErr && (
+              <div className="flex items-center gap-2 rounded-lg bg-red-50 border border-red-200 px-3 py-2 text-sm text-red-700">
+                <AlertTriangle size={15} className="flex-shrink-0" />
+                {cancelErr}
+              </div>
+            )}
+
+            <div className="flex gap-3">
+              <button
+                onClick={() => { setShowCancel(false); setCancelErr(''); }}
+                disabled={cancelBusy}
+                className="flex-1 px-4 py-2.5 rounded-lg border border-slate-200 text-sm font-medium
+                           text-slate-700 hover:bg-slate-50 transition-colors disabled:opacity-50"
+              >
+                {isAr ? 'رجوع' : 'Back'}
+              </button>
+              <button
+                disabled={cancelBusy}
+                onClick={async () => {
+                  const reason = (document.getElementById('cancel-invoice-reason') as HTMLTextAreaElement)?.value?.trim();
+                  if (!reason) {
+                    setCancelErr(isAr ? 'يرجى إدخال سبب الإلغاء' : 'Please enter a reason');
+                    return;
+                  }
+                  setCancelBusy(true);
+                  setCancelErr('');
+                  try {
+                    await apiFetch(`/api/invoices/${invoice.id}`, {
+                      method: 'PATCH',
+                      body: JSON.stringify({ action: 'cancel', reason }),
+                    });
+                    setShowCancel(false);
+                    const data = await apiFetch<{ invoice: FirestoreInvoice }>(`/api/invoices/${invoice.id}`);
+                    setInvoice(data.invoice);
+                  } catch (e: unknown) {
+                    setCancelErr(e instanceof Error ? e.message : (isAr ? 'حدث خطأ' : 'An error occurred'));
+                  } finally {
+                    setCancelBusy(false);
+                  }
+                }}
+                className="flex-1 px-4 py-2.5 rounded-lg bg-orange-600 text-white text-sm font-medium
+                           hover:bg-orange-700 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+              >
+                {cancelBusy
+                  ? <span className="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin" />
+                  : <AlertTriangle size={15} />}
+                {isAr ? 'تأكيد الإلغاء' : 'Confirm Cancel'}
               </button>
             </div>
           </div>

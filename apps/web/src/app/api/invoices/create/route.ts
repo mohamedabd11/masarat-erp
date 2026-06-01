@@ -130,7 +130,12 @@ export async function POST(request: Request) {
           finalGrandTotal = grandTotal;
         }
 
-        // ── 4. Credit-limit guard ───────────────────────────────────────────
+        // ── 4. Zero-amount guard ────────────────────────────────────────────
+        if (finalGrandTotal === 0) {
+          throw new BusinessError('لا يمكن إصدار فاتورة بمبلغ صفر — يرجى تحديث سعر الحجز أولاً', 400);
+        }
+
+        // ── 4b. Credit-limit guard ──────────────────────────────────────────
         if (booking.customerId) {
           const [customer] = await tx.select({ creditLimitHalalas: customers.creditLimitHalalas })
             .from(customers)
