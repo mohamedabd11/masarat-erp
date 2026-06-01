@@ -4,21 +4,13 @@ import { db } from '@/lib/db';
 import { supplierPayments, suppliers, journalEntries, journalLines } from '@/lib/schema';
 import { verifyAuth, assertRole, ApiAuthError, BusinessError, ROLES_ADMIN_ONLY } from '@/lib/api-auth';
 import { getNextJournalNumber } from '@/lib/invoice-counter';
+import { assertPeriodOpen } from '@/lib/period-lock';
+import { GL } from '@/lib/gl-accounts';
 
 interface ReverseBody {
   supplierPaymentId: string;
   reason?:           string;
 }
-
-const EXPENSE_ACCOUNT: Record<string, { code: string; ar: string; en: string }> = {
-  supplier:    { code: '5000', ar: 'تكلفة الخدمات',       en: 'Cost of Services' },
-  salaries:    { code: '5100', ar: 'الرواتب والأجور',     en: 'Salaries' },
-  rent:        { code: '5200', ar: 'الإيجار',             en: 'Rent' },
-  marketing:   { code: '5300', ar: 'التسويق والإعلان',    en: 'Marketing' },
-  operational: { code: '5400', ar: 'المصاريف التشغيلية',  en: 'Operating Expenses' },
-  office:      { code: '5400', ar: 'المصاريف التشغيلية',  en: 'Operating Expenses' },
-  other:       { code: '5400', ar: 'المصاريف التشغيلية',  en: 'Operating Expenses' },
-};
 
 const METHOD_ACCOUNT: Record<string, { code: string; ar: string; en: string }> = {
   cash:          { code: '1100', ar: 'الصندوق النقدي', en: 'Cash' },
@@ -42,6 +34,10 @@ export async function POST(request: Request) {
 
     const result = await db.transaction(async (tx) => {
 
+      // Reversal posts a journal entry dated today — block closed periods.
+      const txDate = new Date().toISOString().split('T')[0]!;
+      await assertPeriodOpen(agencyId, txDate, tx);
+
       const [orig] = await tx.select().from(supplierPayments).where(
         and(eq(supplierPayments.id, supplierPaymentId), eq(supplierPayments.agencyId, agencyId)),
       );
@@ -64,7 +60,6 @@ export async function POST(request: Request) {
       const reversalVoucherNumber = `${originalVoucherNumber}-REV`;
       const today               = now.toISOString().split('T')[0]!;
 
-      const expenseAc = EXPENSE_ACCOUNT[expenseCategory] ?? EXPENSE_ACCOUNT['other']!;
       const paymentAc = METHOD_ACCOUNT[paymentMethod]    ?? METHOD_ACCOUNT['cash']!;
 
       await tx.insert(supplierPayments).values({
@@ -99,10 +94,12 @@ export async function POST(request: Request) {
         createdBy:          uid,
       });
 
-      // Reversal: credit the payment account, debit the expense account (opposite of original)
+      // Reversal of a supplier payment (the money is returned to the agency):
+      //   Dr bank/cash            (refund received back from supplier)
+      //      Cr 2000 Accounts Payable (the liability towards the supplier is restored)
       await tx.insert(journalLines).values([
         { id: crypto.randomUUID(), entryId: jeId, agencyId, accountCode: paymentAc.code, accountNameAr: paymentAc.ar, accountNameEn: paymentAc.en, debitHalalas: amountHalalas, creditHalalas: 0, sortOrder: 1 },
-        { id: crypto.randomUUID(), entryId: jeId, agencyId, accountCode: expenseAc.code, accountNameAr: expenseAc.ar, accountNameEn: expenseAc.en, debitHalalas: 0, creditHalalas: amountHalalas, sortOrder: 2 },
+        { id: crypto.randomUUID(), entryId: jeId, agencyId, accountCode: GL.payableSupplier.code, accountNameAr: GL.payableSupplier.ar, accountNameEn: GL.payableSupplier.en, debitHalalas: 0, creditHalalas: amountHalalas, sortOrder: 2 },
       ]);
 
       await tx.update(supplierPayments)
