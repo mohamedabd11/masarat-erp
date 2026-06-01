@@ -1,4 +1,4 @@
-import { pgTable, text, integer, boolean, timestamp, jsonb, uniqueIndex, unique } from 'drizzle-orm/pg-core';
+import { pgTable, text, integer, bigint, boolean, timestamp, jsonb, uniqueIndex, unique } from 'drizzle-orm/pg-core';
 import { agencies } from './agencies';
 
 export const employees = pgTable('employees', {
@@ -11,7 +11,7 @@ export const employees = pgTable('employees', {
   position:         text('position'),
   hireDate:         text('hire_date'),
   endDate:          text('end_date'),
-  salaryHalalas:    integer('salary_halalas').notNull().default(0),
+  salaryHalalas:    bigint('salary_halalas', { mode: 'number' }).notNull().default(0),
   phone:            text('phone'),
   email:            text('email'),
   nationalId:       text('national_id'),
@@ -31,7 +31,7 @@ export const salaryPayments = pgTable('salary_payments', {
   id:             text('id').primaryKey(),
   agencyId:       text('agency_id').notNull().references(() => agencies.id, { onDelete: 'cascade' }),
   employeeId:     text('employee_id').notNull().references(() => employees.id),
-  amountHalalas:  integer('amount_halalas').notNull(),
+  amountHalalas:  bigint('amount_halalas', { mode: 'number' }).notNull(),
   month:          text('month').notNull(),                   // YYYY-MM
   paymentMethod:  text('payment_method'),
   notes:          text('notes'),
@@ -68,10 +68,10 @@ export const employeeContracts = pgTable('employee_contracts', {
   type:                text('type').notNull().default('full_time'), // full_time|part_time|contract|intern
   startDate:           text('start_date').notNull(),
   endDate:             text('end_date'),                           // null = open-ended
-  baseSalaryHalalas:   integer('base_salary_halalas').notNull().default(0),
-  housingAllowanceHalalas: integer('housing_allowance_halalas').notNull().default(0),
-  transportAllowanceHalalas: integer('transport_allowance_halalas').notNull().default(0),
-  otherAllowancesHalalas: integer('other_allowances_halalas').notNull().default(0),
+  baseSalaryHalalas:   bigint('base_salary_halalas', { mode: 'number' }).notNull().default(0),
+  housingAllowanceHalalas: bigint('housing_allowance_halalas', { mode: 'number' }).notNull().default(0),
+  transportAllowanceHalalas: bigint('transport_allowance_halalas', { mode: 'number' }).notNull().default(0),
+  otherAllowancesHalalas: bigint('other_allowances_halalas', { mode: 'number' }).notNull().default(0),
   salaryComponents:    jsonb('salary_components'),                 // [{name, amountHalalas, type}]
   workingDaysPerWeek:  integer('working_days_per_week').notNull().default(5),
   workingHoursPerDay:  integer('working_hours_per_day').notNull().default(8),
@@ -94,16 +94,16 @@ export const payslips = pgTable('payslips', {
   employeeId:               text('employee_id').notNull().references(() => employees.id),
   salaryPaymentId:          text('salary_payment_id'),
   month:                    text('month').notNull(),              // YYYY-MM
-  baseSalaryHalalas:        integer('base_salary_halalas').notNull().default(0),
-  housingAllowanceHalalas:  integer('housing_allowance_halalas').notNull().default(0),
-  transportAllowanceHalalas:integer('transport_allowance_halalas').notNull().default(0),
-  otherAllowancesHalalas:   integer('other_allowances_halalas').notNull().default(0),
-  grossHalalas:             integer('gross_halalas').notNull().default(0),
-  deductionsHalalas:        integer('deductions_halalas').notNull().default(0),
-  advanceDeductionHalalas:  integer('advance_deduction_halalas').notNull().default(0),
-  gosi_employee_halalas:    integer('gosi_employee_halalas').notNull().default(0),
-  gosiEmployerHalalas:      integer('gosi_employer_halalas').notNull().default(0),
-  netHalalas:               integer('net_halalas').notNull().default(0),
+  baseSalaryHalalas:        bigint('base_salary_halalas', { mode: 'number' }).notNull().default(0),
+  housingAllowanceHalalas:  bigint('housing_allowance_halalas', { mode: 'number' }).notNull().default(0),
+  transportAllowanceHalalas:bigint('transport_allowance_halalas', { mode: 'number' }).notNull().default(0),
+  otherAllowancesHalalas:   bigint('other_allowances_halalas', { mode: 'number' }).notNull().default(0),
+  grossHalalas:             bigint('gross_halalas', { mode: 'number' }).notNull().default(0),
+  deductionsHalalas:        bigint('deductions_halalas', { mode: 'number' }).notNull().default(0),
+  advanceDeductionHalalas:  bigint('advance_deduction_halalas', { mode: 'number' }).notNull().default(0),
+  gosi_employee_halalas:    bigint('gosi_employee_halalas', { mode: 'number' }).notNull().default(0),
+  gosiEmployerHalalas:      bigint('gosi_employer_halalas', { mode: 'number' }).notNull().default(0),
+  netHalalas:               bigint('net_halalas', { mode: 'number' }).notNull().default(0),
   components:               jsonb('components'),                  // [{label, amountHalalas, type: addition|deduction}]
   paymentDate:              text('payment_date'),
   paymentMethod:            text('payment_method'),
@@ -119,7 +119,7 @@ export const salaryAdvances = pgTable('salary_advances', {
   id:                  text('id').primaryKey(),
   agencyId:            text('agency_id').notNull().references(() => agencies.id, { onDelete: 'cascade' }),
   employeeId:          text('employee_id').notNull().references(() => employees.id),
-  amountHalalas:       integer('amount_halalas').notNull(),
+  amountHalalas:       bigint('amount_halalas', { mode: 'number' }).notNull(),
   requestDate:         text('request_date').notNull(),            // YYYY-MM-DD
   deductFrom:          text('deduct_from').notNull(),             // YYYY-MM (which month to deduct)
   status:              text('status').notNull().default('pending'), // pending|approved|paid|deducted|rejected
@@ -206,7 +206,7 @@ export const eosbAccruals = pgTable('eosb_accruals', {
   id:             text('id').primaryKey(),
   agencyId:       text('agency_id').notNull().references(() => agencies.id, { onDelete: 'cascade' }),
   month:          text('month').notNull(),               // YYYY-MM
-  amountHalalas:  integer('amount_halalas').notNull().default(0),
+  amountHalalas:  bigint('amount_halalas', { mode: 'number' }).notNull().default(0),
   employeeCount:  integer('employee_count').notNull().default(0),
   journalEntryId: text('journal_entry_id'),
   createdBy:      text('created_by'),

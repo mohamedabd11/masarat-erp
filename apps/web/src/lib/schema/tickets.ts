@@ -1,4 +1,4 @@
-import { pgTable, text, integer, timestamp, index, uniqueIndex, jsonb } from 'drizzle-orm/pg-core';
+import { pgTable, text, integer, bigint, timestamp, index, uniqueIndex, jsonb } from 'drizzle-orm/pg-core';
 import { agencies } from './agencies';
 import { pnrRecords } from './pnr';
 import { bookings } from './bookings';
@@ -47,9 +47,9 @@ export const tickets = pgTable('tickets', {
   issuedAt:                timestamp('issued_at',   { withTimezone: true }),
   expiresAt:               timestamp('expires_at',  { withTimezone: true }),
   status:                  text('status').notNull().default('pending'),
-  fareHalalas:             integer('fare_halalas').notNull().default(0),
-  taxHalalas:              integer('tax_halalas').notNull().default(0),
-  totalHalalas:            integer('total_halalas').notNull().default(0),
+  fareHalalas:             bigint('fare_halalas', { mode: 'number' }).notNull().default(0),
+  taxHalalas:              bigint('tax_halalas', { mode: 'number' }).notNull().default(0),
+  totalHalalas:            bigint('total_halalas', { mode: 'number' }).notNull().default(0),
   issuedBy:                text('issued_by'),
   voidedAt:                timestamp('voided_at',   { withTimezone: true }),
   voidedBy:                text('voided_by'),

@@ -1,4 +1,4 @@
-import { pgTable, text, integer, timestamp, uniqueIndex, jsonb } from 'drizzle-orm/pg-core';
+import { pgTable, text, integer, bigint, timestamp, uniqueIndex, jsonb } from 'drizzle-orm/pg-core';
 import { agencies } from './agencies';
 import { bookings } from './bookings';
 import { customers } from './customers';
@@ -38,9 +38,9 @@ export const pnrRecords = pgTable('pnr_records', {
   ticketNumbers:  text('ticket_numbers'),                  // legacy comma-separated
   segments:       jsonb('segments').$type<PnrSegmentJson[]>(),
   passengers:     jsonb('passengers').$type<PnrPassengerJson[]>(),
-  fareHalalas:    integer('fare_halalas').notNull().default(0),
-  taxHalalas:     integer('tax_halalas').notNull().default(0),
-  totalHalalas:   integer('total_halalas').notNull().default(0),
+  fareHalalas:    bigint('fare_halalas', { mode: 'number' }).notNull().default(0),
+  taxHalalas:     bigint('tax_halalas', { mode: 'number' }).notNull().default(0),
+  totalHalalas:   bigint('total_halalas', { mode: 'number' }).notNull().default(0),
   bookingId:      text('booking_id').references(() => bookings.id),
   customerId:     text('customer_id').references(() => customers.id),
   status:         text('status').notNull().default('active'), // active|ticketed|cancelled|expired|voided|refunded
