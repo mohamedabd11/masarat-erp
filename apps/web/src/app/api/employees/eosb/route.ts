@@ -6,6 +6,7 @@ import { verifyAuth, assertRole, ApiAuthError, BusinessError, ROLES_MANAGER_UP }
 import { requireFeature } from '@/lib/feature-access';
 import { logAudit } from '@/lib/audit';
 import { getNextJournalNumber } from '@/lib/invoice-counter';
+import { assertPeriodOpen } from '@/lib/period-lock';
 import { calculateEosb, monthlyEosbAccrual } from '@/lib/eosb';
 import { GL } from '@/lib/gl-accounts';
 
@@ -99,6 +100,9 @@ export async function POST(request: Request) {
     const date      = `${month}-01`;
 
     await db.transaction(async (tx) => {
+      // Block posting the provision into a closed accounting period.
+      await assertPeriodOpen(agencyId, date, tx);
+
       const jeNumber = await getNextJournalNumber(agencyId, year, tx);
 
       await tx.insert(journalEntries).values({
