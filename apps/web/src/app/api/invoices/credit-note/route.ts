@@ -6,14 +6,15 @@ import { verifyAuth, assertRole, ApiAuthError, ROLES_MANAGER_UP } from '@/lib/ap
 import { logAudit } from '@/lib/audit';
 import { getNextInvoiceNumber, getNextJournalNumber, type InvoiceType } from '@/lib/invoice-counter';
 import { assertPeriodOpen } from '@/lib/period-lock';
+import { GL } from '@/lib/gl-accounts';
 
 // Fallback accounts when no original invoice GL is available
 const AC_FALLBACK = {
-  receivable: { code: '1120', ar: 'ذمم مدينة - عملاء',            en: 'Accounts Receivable' },
-  revenue:    { code: '4100', ar: 'إيراد خدمات السفر',            en: 'Revenue - Travel Services' },
-  vatPayable: { code: '2200', ar: 'ضريبة القيمة المضافة مستحقة',  en: 'VAT Payable' },
-  cogs:       { code: '5000', ar: 'تكلفة الخدمات',                en: 'Cost of Services' },
-  apSupplier: { code: '2000', ar: 'ذمم دائنة - موردون',           en: 'Accounts Payable' },
+  receivable: GL.receivable,
+  revenue:    GL.revenuePrincipal,
+  vatPayable: GL.vatPayable,
+  cogs:       GL.costOfServices,
+  apSupplier: GL.payableSupplier,
 };
 
 export async function POST(request: Request) {

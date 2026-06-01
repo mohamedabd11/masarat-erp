@@ -3,6 +3,7 @@ import { eq } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { agencies, invoices, journalEntries, journalLines } from '@/lib/schema';
 import { verifyAuth, ApiAuthError, BusinessError } from '@/lib/api-auth';
+import { checkRateLimit, getClientIp, rateLimitHeaders } from '@/lib/rate-limit';
 import { getNextInvoiceNumber, getNextJournalNumber } from '@/lib/invoice-counter';
 import { assertPeriodOpen } from '@/lib/period-lock';
 import type { Tx } from '@/lib/db';
@@ -36,6 +37,15 @@ interface CreateDirectInvoiceBody {
 export async function POST(request: Request) {
   try {
     const { uid, agencyId } = await verifyAuth(request);
+
+    const rl = await checkRateLimit(`${agencyId}:${getClientIp(request)}`, 'financial');
+    if (!rl.success) {
+      return NextResponse.json(
+        { error: 'تجاوزت الحد المسموح به من الطلبات. حاول مرة أخرى بعد دقيقة.' },
+        { status: 429, headers: rateLimitHeaders(rl) },
+      );
+    }
+
     const body = await request.json() as CreateDirectInvoiceBody;
 
     if (!body.buyerNameAr?.trim()) {
@@ -111,8 +121,8 @@ export async function POST(request: Request) {
         invoiceNumber,
         type:            '380',
         customerId:      body.customerId      ?? null,
-        sellerNameAr:    agency.nameAr,
-        sellerNameEn:    agency.nameEn        ?? null,
+        sellerNameAr:    body.supplierName?.trim() || agency.nameAr,
+        sellerNameEn:    body.supplierName?.trim() || (agency.nameEn ?? null),
         sellerVatNumber: agency.vatNumber     ?? null,
         sellerCrNumber:  agency.crNumber      ?? null,
         sellerAddress:   agency.addressAr     ?? null,

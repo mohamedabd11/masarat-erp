@@ -32,6 +32,12 @@ import {
   X,
   Scale,
   Wrench,
+  Repeat2,
+  AlertCircle,
+  FileText,
+  RefreshCw,
+  CreditCard,
+  Loader2,
 } from 'lucide-react';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -794,9 +800,569 @@ function NewEntryModal({
   );
 }
 
+// ─── BSP Tab ──────────────────────────────────────────────────────────────────
+
+interface BspBilling {
+  id: string;
+  billingPeriod: string;
+  netRemitHalalas: number;
+  totalSalesHalalas: number;
+  totalRefundsHalalas: number;
+  totalCommissionHalalas: number;
+  dueDate: string;
+  status: string;
+  currency: string;
+}
+
+interface BspAdj {
+  id: string;
+  type: 'ADM' | 'ACM';
+  referenceNumber: string;
+  issueDate: string;
+  amountHalalas: number;
+  reason: string;
+  airlineCode: string | null;
+  status: string;
+}
+
+function BspTab({ isAr, agencyId }: { isAr: boolean; agencyId: string | null }) {
+  const fmtLocale = isAr ? 'ar-SA' : 'en-SA';
+  const [billings, setBillings]   = useState<BspBilling[]>([]);
+  const [adjs, setAdjs]           = useState<BspAdj[]>([]);
+  const [loading, setLoading]     = useState(true);
+  const [showBilling, setShowBilling] = useState(false);
+  const [showAdj, setShowAdj]     = useState(false);
+  const [saving, setSaving]       = useState(false);
+  const [err, setErr]             = useState('');
+
+  const [bForm, setBForm] = useState({
+    billingPeriod: new Date().toISOString().slice(0, 7),
+    totalSales: '', totalRefunds: '', commission: '', netRemit: '',
+    dueDate: '', reference: '', notes: '',
+  });
+  const [aForm, setAForm] = useState({
+    type: 'ADM' as 'ADM' | 'ACM',
+    referenceNumber: '', issueDate: new Date().toISOString().slice(0, 10),
+    dueDate: '', amount: '', reason: '', airlineCode: '', ticketNumbers: '', notes: '',
+  });
+
+  useEffect(() => {
+    if (!agencyId) return;
+    let cancelled = false;
+    async function load() {
+      setLoading(true);
+      try {
+        const { apiFetch } = await import('@/lib/api-client');
+        const [bd, ad] = await Promise.all([
+          apiFetch<{ billings: BspBilling[] }>('/api/bsp/billings'),
+          apiFetch<{ adjustments: BspAdj[] }>('/api/bsp/adjustments'),
+        ]);
+        if (!cancelled) {
+          setBillings(bd.billings ?? []);
+          setAdjs(ad.adjustments ?? []);
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+    void load();
+    return () => { cancelled = true; };
+  }, [agencyId]);
+
+  async function saveBilling() {
+    setSaving(true); setErr('');
+    try {
+      const { apiFetch } = await import('@/lib/api-client');
+      const res = await apiFetch<{ id: string; journalEntryId: string }>('/api/bsp/billings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          billingPeriod:           bForm.billingPeriod,
+          totalSalesHalalas:       Math.round(parseFloat(bForm.totalSales   || '0') * 100),
+          totalRefundsHalalas:     Math.round(parseFloat(bForm.totalRefunds || '0') * 100),
+          totalCommissionHalalas:  Math.round(parseFloat(bForm.commission   || '0') * 100),
+          netRemitHalalas:         Math.round(parseFloat(bForm.netRemit     || '0') * 100),
+          dueDate:                 bForm.dueDate,
+          reference:               bForm.reference || undefined,
+          notes:                   bForm.notes     || undefined,
+        }),
+      });
+      setBillings(prev => [{
+        id: res.id, billingPeriod: bForm.billingPeriod,
+        netRemitHalalas:        Math.round(parseFloat(bForm.netRemit    || '0') * 100),
+        totalSalesHalalas:      Math.round(parseFloat(bForm.totalSales  || '0') * 100),
+        totalRefundsHalalas:    Math.round(parseFloat(bForm.totalRefunds|| '0') * 100),
+        totalCommissionHalalas: Math.round(parseFloat(bForm.commission  || '0') * 100),
+        dueDate: bForm.dueDate, status: 'pending', currency: 'SAR',
+      }, ...prev]);
+      setShowBilling(false);
+      setBForm({ billingPeriod: new Date().toISOString().slice(0,7), totalSales:'', totalRefunds:'', commission:'', netRemit:'', dueDate:'', reference:'', notes:'' });
+    } catch (e) {
+      setErr(String(e));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function saveAdj() {
+    setSaving(true); setErr('');
+    try {
+      const { apiFetch } = await import('@/lib/api-client');
+      const res = await apiFetch<{ id: string }>('/api/bsp/adjustments', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          type:            aForm.type,
+          referenceNumber: aForm.referenceNumber,
+          issueDate:       aForm.issueDate,
+          dueDate:         aForm.dueDate   || undefined,
+          amountHalalas:   Math.round(parseFloat(aForm.amount || '0') * 100),
+          reason:          aForm.reason,
+          airlineCode:     aForm.airlineCode    || undefined,
+          ticketNumbers:   aForm.ticketNumbers  || undefined,
+          notes:           aForm.notes          || undefined,
+        }),
+      });
+      setAdjs(prev => [{
+        id: res.id, type: aForm.type, referenceNumber: aForm.referenceNumber,
+        issueDate: aForm.issueDate, amountHalalas: Math.round(parseFloat(aForm.amount||'0')*100),
+        reason: aForm.reason, airlineCode: aForm.airlineCode || null, status: 'pending',
+      }, ...prev]);
+      setShowAdj(false);
+      setAForm({ type:'ADM', referenceNumber:'', issueDate: new Date().toISOString().slice(0,10), dueDate:'', amount:'', reason:'', airlineCode:'', ticketNumbers:'', notes:'' });
+    } catch (e) {
+      setErr(String(e));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const statusColor = (s: string) => ({
+    pending:  'bg-amber-100 text-amber-700',
+    paid:     'bg-emerald-100 text-emerald-700',
+    overdue:  'bg-red-100 text-red-700',
+    disputed: 'bg-purple-100 text-purple-700',
+  }[s] ?? 'bg-slate-100 text-slate-600');
+
+  if (loading) return (
+    <div className="flex items-center justify-center py-20 text-slate-400 text-sm gap-2">
+      <Loader2 size={18} className="animate-spin" />
+      {isAr ? 'جارٍ التحميل...' : 'Loading...'}
+    </div>
+  );
+
+  return (
+    <div className="space-y-8">
+      {err && (
+        <div className="flex items-center gap-2 px-4 py-3 bg-red-50 border border-red-200 rounded-xl text-sm text-red-700">
+          <AlertCircle size={15} /> {err}
+        </div>
+      )}
+
+      {/* ── BSP Billings ───────────────────────────────────────────────────── */}
+      <div>
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-base font-semibold text-slate-800">
+            {isAr ? 'فترات BSP' : 'BSP Billing Periods'}
+          </h2>
+          <Button size="sm" onClick={() => setShowBilling(true)}>
+            <Plus size={14} /> {isAr ? 'إضافة فترة' : 'Add Period'}
+          </Button>
+        </div>
+
+        {billings.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-12 text-slate-400 gap-2">
+            <CreditCard size={32} className="opacity-30" />
+            <p className="text-sm">{isAr ? 'لا توجد فترات BSP مسجلة' : 'No BSP billing periods recorded'}</p>
+          </div>
+        ) : (
+          <div className="overflow-x-auto rounded-xl border border-slate-200">
+            <table className="w-full text-sm">
+              <thead className="bg-slate-50 border-b border-slate-200">
+                <tr>
+                  {[
+                    isAr ? 'الفترة' : 'Period',
+                    isAr ? 'المبيعات' : 'Sales',
+                    isAr ? 'الاسترجاعات' : 'Refunds',
+                    isAr ? 'العمولات' : 'Commission',
+                    isAr ? 'صافي الاستحقاق' : 'Net Remit',
+                    isAr ? 'تاريخ الاستحقاق' : 'Due Date',
+                    isAr ? 'الحالة' : 'Status',
+                  ].map(h => (
+                    <th key={h} className="px-4 py-2.5 text-start text-xs font-medium text-slate-500">{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {billings.map(b => (
+                  <tr key={b.id} className="hover:bg-slate-50/60 transition-colors">
+                    <td className="px-4 py-3 font-mono text-xs font-medium">{b.billingPeriod}</td>
+                    <td className="px-4 py-3">{formatCurrency(b.totalSalesHalalas, fmtLocale)}</td>
+                    <td className="px-4 py-3 text-red-600">({formatCurrency(b.totalRefundsHalalas, fmtLocale)})</td>
+                    <td className="px-4 py-3 text-slate-500">{formatCurrency(b.totalCommissionHalalas, fmtLocale)}</td>
+                    <td className="px-4 py-3 font-semibold">{formatCurrency(b.netRemitHalalas, fmtLocale)}</td>
+                    <td className="px-4 py-3 text-slate-500">{b.dueDate}</td>
+                    <td className="px-4 py-3">
+                      <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-medium ${statusColor(b.status)}`}>
+                        {b.status}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      {/* ── ADM / ACM ──────────────────────────────────────────────────────── */}
+      <div>
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-base font-semibold text-slate-800">
+            {isAr ? 'تسويات ADM / ACM' : 'ADM / ACM Adjustments'}
+          </h2>
+          <Button size="sm" onClick={() => setShowAdj(true)}>
+            <Plus size={14} /> {isAr ? 'إضافة تسوية' : 'Add Adjustment'}
+          </Button>
+        </div>
+
+        {adjs.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-12 text-slate-400 gap-2">
+            <FileText size={32} className="opacity-30" />
+            <p className="text-sm">{isAr ? 'لا توجد تسويات مسجلة' : 'No adjustments recorded'}</p>
+          </div>
+        ) : (
+          <div className="overflow-x-auto rounded-xl border border-slate-200">
+            <table className="w-full text-sm">
+              <thead className="bg-slate-50 border-b border-slate-200">
+                <tr>
+                  {[
+                    isAr ? 'النوع' : 'Type',
+                    isAr ? 'رقم المرجع' : 'Reference',
+                    isAr ? 'تاريخ الإصدار' : 'Issue Date',
+                    isAr ? 'المبلغ' : 'Amount',
+                    isAr ? 'الخطوط' : 'Airline',
+                    isAr ? 'السبب' : 'Reason',
+                    isAr ? 'الحالة' : 'Status',
+                  ].map(h => (
+                    <th key={h} className="px-4 py-2.5 text-start text-xs font-medium text-slate-500">{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {adjs.map(a => (
+                  <tr key={a.id} className="hover:bg-slate-50/60 transition-colors">
+                    <td className="px-4 py-3">
+                      <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-bold ${
+                        a.type === 'ADM' ? 'bg-red-100 text-red-700' : 'bg-emerald-100 text-emerald-700'
+                      }`}>{a.type}</span>
+                    </td>
+                    <td className="px-4 py-3 font-mono text-xs">{a.referenceNumber}</td>
+                    <td className="px-4 py-3 text-slate-500">{a.issueDate}</td>
+                    <td className="px-4 py-3 font-semibold">{formatCurrency(a.amountHalalas, fmtLocale)}</td>
+                    <td className="px-4 py-3 text-slate-500">{a.airlineCode ?? '—'}</td>
+                    <td className="px-4 py-3 text-slate-600 max-w-[200px] truncate">{a.reason}</td>
+                    <td className="px-4 py-3">
+                      <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-medium ${statusColor(a.status)}`}>
+                        {a.status}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      {/* ── New Billing Modal ──────────────────────────────────────────────── */}
+      {showBilling && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg p-6 space-y-4">
+            <div className="flex items-center justify-between">
+              <h3 className="font-semibold text-slate-900">{isAr ? 'إضافة فترة BSP' : 'Add BSP Billing Period'}</h3>
+              <button onClick={() => setShowBilling(false)} className="text-slate-400 hover:text-slate-600"><X size={18} /></button>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              {[
+                { label: isAr ? 'الفترة (YYYY-MM)' : 'Period (YYYY-MM)', key: 'billingPeriod', type: 'month' },
+                { label: isAr ? 'تاريخ الاستحقاق' : 'Due Date', key: 'dueDate', type: 'date' },
+                { label: isAr ? 'إجمالي المبيعات' : 'Total Sales (SAR)', key: 'totalSales', type: 'number' },
+                { label: isAr ? 'إجمالي الاسترجاعات' : 'Total Refunds (SAR)', key: 'totalRefunds', type: 'number' },
+                { label: isAr ? 'إجمالي العمولات' : 'Total Commission (SAR)', key: 'commission', type: 'number' },
+                { label: isAr ? 'صافي الاستحقاق' : 'Net Remit (SAR)', key: 'netRemit', type: 'number' },
+              ].map(f => (
+                <div key={f.key}>
+                  <label className="block text-xs text-slate-500 mb-1">{f.label}</label>
+                  <input
+                    type={f.type}
+                    value={bForm[f.key as keyof typeof bForm]}
+                    onChange={e => setBForm(p => ({ ...p, [f.key]: e.target.value }))}
+                    className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
+                  />
+                </div>
+              ))}
+            </div>
+            <div>
+              <label className="block text-xs text-slate-500 mb-1">{isAr ? 'ملاحظات' : 'Notes'}</label>
+              <textarea value={bForm.notes} onChange={e => setBForm(p => ({...p, notes: e.target.value}))}
+                rows={2} className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 resize-none" />
+            </div>
+            <div className="flex justify-end gap-3">
+              <button onClick={() => setShowBilling(false)} className="px-4 py-2 text-sm text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50">{isAr ? 'إلغاء' : 'Cancel'}</button>
+              <Button onClick={saveBilling} disabled={saving || !bForm.billingPeriod || !bForm.dueDate || !bForm.netRemit}>
+                {saving ? <Loader2 size={14} className="animate-spin" /> : <Plus size={14} />}
+                {isAr ? 'حفظ' : 'Save'}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── New Adjustment Modal ───────────────────────────────────────────── */}
+      {showAdj && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg p-6 space-y-4">
+            <div className="flex items-center justify-between">
+              <h3 className="font-semibold text-slate-900">{isAr ? 'إضافة تسوية ADM / ACM' : 'Add ADM / ACM Adjustment'}</h3>
+              <button onClick={() => setShowAdj(false)} className="text-slate-400 hover:text-slate-600"><X size={18} /></button>
+            </div>
+
+            {/* Type toggle */}
+            <div className="flex gap-2">
+              {(['ADM', 'ACM'] as const).map(t => (
+                <button key={t} onClick={() => setAForm(p => ({...p, type: t}))}
+                  className={`flex-1 py-2 rounded-lg text-sm font-semibold border transition-colors ${
+                    aForm.type === t
+                      ? t === 'ADM' ? 'bg-red-600 text-white border-red-600' : 'bg-emerald-600 text-white border-emerald-600'
+                      : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
+                  }`}>{t}</button>
+              ))}
+            </div>
+            <p className="text-xs text-slate-500">
+              {aForm.type === 'ADM'
+                ? (isAr ? 'مذكرة خصم — تحمل تكلفة على الوكالة (DR مصروف ADM / CR مستحقات BSP)' : 'Debit Memo — expense charged to agency (DR ADM Expense / CR BSP Payable)')
+                : (isAr ? 'مذكرة دائنة — إيراد لصالح الوكالة (DR مستحقات BSP / CR إيراد استرداد ADM)' : 'Credit Memo — income for agency (DR BSP Payable / CR ADM Recovery Income)')}
+            </p>
+
+            <div className="grid grid-cols-2 gap-3">
+              {[
+                { label: isAr ? 'رقم المرجع' : 'Reference Number', key: 'referenceNumber', type: 'text' },
+                { label: isAr ? 'تاريخ الإصدار' : 'Issue Date', key: 'issueDate', type: 'date' },
+                { label: isAr ? 'تاريخ الاستحقاق' : 'Due Date (optional)', key: 'dueDate', type: 'date' },
+                { label: isAr ? 'المبلغ (SAR)' : 'Amount (SAR)', key: 'amount', type: 'number' },
+                { label: isAr ? 'رمز الخطوط' : 'Airline Code', key: 'airlineCode', type: 'text' },
+                { label: isAr ? 'أرقام التذاكر' : 'Ticket Numbers', key: 'ticketNumbers', type: 'text' },
+              ].map(f => (
+                <div key={f.key}>
+                  <label className="block text-xs text-slate-500 mb-1">{f.label}</label>
+                  <input
+                    type={f.type}
+                    value={aForm[f.key as keyof typeof aForm] as string}
+                    onChange={e => setAForm(p => ({ ...p, [f.key]: e.target.value }))}
+                    className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
+                  />
+                </div>
+              ))}
+            </div>
+            <div>
+              <label className="block text-xs text-slate-500 mb-1">{isAr ? 'السبب *' : 'Reason *'}</label>
+              <textarea value={aForm.reason} onChange={e => setAForm(p => ({...p, reason: e.target.value}))}
+                rows={2} className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 resize-none" />
+            </div>
+            <div className="flex justify-end gap-3">
+              <button onClick={() => setShowAdj(false)} className="px-4 py-2 text-sm text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50">{isAr ? 'إلغاء' : 'Cancel'}</button>
+              <Button onClick={saveAdj} disabled={saving || !aForm.referenceNumber || !aForm.amount || !aForm.reason}>
+                {saving ? <Loader2 size={14} className="animate-spin" /> : <Plus size={14} />}
+                {isAr ? 'حفظ' : 'Save'}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── FX Revaluation Tab ────────────────────────────────────────────────────────
+
+interface FxAdjustment {
+  accountId: string;
+  accountName: string;
+  currency: string;
+  balanceFx: number;
+  oldRateSar: number;
+  newRateSar: number;
+  gainLossSar: number;
+}
+
+function FxRevaluationTab({ isAr, agencyId }: { isAr: boolean; agencyId: string | null }) {
+  const fmtLocale = isAr ? 'ar-SA' : 'en-SA';
+  const today = new Date().toISOString().slice(0, 10);
+  const [revalDate, setRevalDate] = useState(today);
+  const [preview, setPreview]     = useState<FxAdjustment[] | null>(null);
+  const [loading, setLoading]     = useState(false);
+  const [running, setRunning]     = useState(false);
+  const [result, setResult]       = useState<{ success?: boolean; journalEntryIds?: string[]; alreadyDone?: boolean; message?: string } | null>(null);
+  const [err, setErr]             = useState('');
+
+  async function runDryRun() {
+    if (!agencyId) return;
+    setLoading(true); setErr(''); setPreview(null); setResult(null);
+    try {
+      const { apiFetch } = await import('@/lib/api-client');
+      const data = await apiFetch<{ adjustments: FxAdjustment[] }>('/api/accounting/fx-revaluation', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ revaluationDate: revalDate, dryRun: true }),
+      });
+      setPreview(data.adjustments ?? []);
+    } catch (e) {
+      setErr(String(e));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function runRevaluation() {
+    if (!agencyId) return;
+    setRunning(true); setErr(''); setResult(null);
+    try {
+      const { apiFetch } = await import('@/lib/api-client');
+      const data = await apiFetch<{ success?: boolean; alreadyDone?: boolean; message?: string; journalEntryIds?: string[] }>('/api/accounting/fx-revaluation', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ revaluationDate: revalDate, dryRun: false }),
+      });
+      setResult(data);
+      setPreview(null);
+    } catch (e) {
+      setErr(String(e));
+    } finally {
+      setRunning(false);
+    }
+  }
+
+  const totalGainLoss = preview ? preview.reduce((s, a) => s + a.gainLossSar, 0) : 0;
+
+  return (
+    <div className="space-y-6 max-w-3xl">
+      <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 text-sm text-blue-800">
+        <p className="font-medium mb-1">{isAr ? 'معيار IAS 21 — إعادة تقييم العملة الأجنبية' : 'IAS 21 — Foreign Currency Revaluation'}</p>
+        <p className="text-blue-700 text-xs">
+          {isAr
+            ? 'يعيد هذا الإجراء تقييم جميع الأصول والالتزامات النقدية بالعملة الأجنبية إلى سعر الصرف الحالي، ويسجل فروق العملة غير المحققة في قيود اليومية.'
+            : 'Revalues all foreign-currency monetary items (bank accounts) to the current exchange rate and records unrealised FX gains/losses as journal entries.'}
+        </p>
+      </div>
+
+      <Card className="p-5 space-y-4">
+        <div className="flex flex-wrap items-end gap-4">
+          <div>
+            <label className="block text-xs text-slate-500 mb-1">{isAr ? 'تاريخ إعادة التقييم' : 'Revaluation Date'}</label>
+            <input
+              type="date"
+              value={revalDate}
+              onChange={e => { setRevalDate(e.target.value); setPreview(null); setResult(null); }}
+              className="px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
+            />
+          </div>
+          <button
+            onClick={runDryRun}
+            disabled={loading || running}
+            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-slate-200 text-sm text-slate-700 hover:bg-slate-50 transition-colors disabled:opacity-50"
+          >
+            {loading ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
+            {isAr ? 'معاينة' : 'Preview'}
+          </button>
+          {preview && preview.length > 0 && (
+            <Button onClick={runRevaluation} disabled={running}>
+              {running ? <Loader2 size={14} className="animate-spin" /> : <CheckCircle2 size={14} />}
+              {isAr ? 'تطبيق إعادة التقييم' : 'Apply Revaluation'}
+            </Button>
+          )}
+        </div>
+
+        {err && (
+          <div className="flex items-center gap-2 px-3 py-2 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">
+            <AlertCircle size={14} /> {err}
+          </div>
+        )}
+
+        {result?.alreadyDone && (
+          <div className="flex items-center gap-2 px-3 py-2 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-700">
+            <Clock size={14} /> {result.message ?? (isAr ? 'تم إعادة التقييم بالفعل في هذا التاريخ' : 'Already revalued for this date')}
+          </div>
+        )}
+
+        {result?.success && (
+          <div className="flex items-center gap-2 px-3 py-2 bg-emerald-50 border border-emerald-200 rounded-lg text-sm text-emerald-700">
+            <CheckCircle2 size={14} />
+            {isAr
+              ? `تمت إعادة التقييم بنجاح — ${result.journalEntryIds?.length ?? 0} قيد محاسبي`
+              : `Revaluation applied — ${result.journalEntryIds?.length ?? 0} journal entries created`}
+          </div>
+        )}
+
+        {preview !== null && (
+          preview.length === 0 ? (
+            <div className="text-center py-8 text-slate-400 text-sm">
+              {isAr ? 'لا توجد تعديلات مطلوبة — أسعار الصرف محدثة' : 'No adjustments needed — exchange rates are current'}
+            </div>
+          ) : (
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <p className="text-sm font-medium text-slate-700">
+                  {isAr ? `${preview.length} حساب يحتاج إعادة تقييم` : `${preview.length} account(s) require revaluation`}
+                </p>
+                <p className={`text-sm font-semibold ${totalGainLoss >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+                  {totalGainLoss >= 0 ? '+' : ''}{formatCurrency(totalGainLoss, fmtLocale)}
+                  {' '}({isAr ? (totalGainLoss >= 0 ? 'ربح' : 'خسارة') : (totalGainLoss >= 0 ? 'gain' : 'loss')})
+                </p>
+              </div>
+              <div className="overflow-x-auto rounded-xl border border-slate-200">
+                <table className="w-full text-sm">
+                  <thead className="bg-slate-50 border-b border-slate-200">
+                    <tr>
+                      {[
+                        isAr ? 'الحساب' : 'Account',
+                        isAr ? 'العملة' : 'Currency',
+                        isAr ? 'الرصيد (FX)' : 'Balance (FX)',
+                        isAr ? 'سعر قديم' : 'Old Rate',
+                        isAr ? 'سعر جديد' : 'New Rate',
+                        isAr ? 'الربح / الخسارة' : 'Gain / Loss',
+                      ].map(h => (
+                        <th key={h} className="px-4 py-2.5 text-start text-xs font-medium text-slate-500">{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {preview.map(a => (
+                      <tr key={a.accountId} className="hover:bg-slate-50/60">
+                        <td className="px-4 py-3 font-medium text-slate-800">{a.accountName}</td>
+                        <td className="px-4 py-3"><span className="font-mono text-xs bg-slate-100 px-2 py-0.5 rounded">{a.currency}</span></td>
+                        <td className="px-4 py-3">{a.balanceFx.toLocaleString(fmtLocale, { maximumFractionDigits: 2 })}</td>
+                        <td className="px-4 py-3 text-slate-500">{a.oldRateSar.toFixed(4)}</td>
+                        <td className="px-4 py-3 text-slate-500">{a.newRateSar.toFixed(4)}</td>
+                        <td className={`px-4 py-3 font-semibold ${a.gainLossSar >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+                          {a.gainLossSar >= 0 ? '+' : ''}{formatCurrency(a.gainLossSar, fmtLocale)}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )
+        )}
+      </Card>
+    </div>
+  );
+}
+
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
-type TabId = 'chart' | 'journal' | 'currencies';
+type TabId = 'chart' | 'journal' | 'currencies' | 'trial-balance' | 'bsp' | 'fx';
 
 export default function AccountingPage() {
   const locale = useLocale();
@@ -850,9 +1416,12 @@ export default function AccountingPage() {
   }
 
   const tabs: { id: TabId; labelAr: string; labelEn: string; icon: ReactNode }[] = [
-    { id: 'chart',      labelAr: 'شجرة الحسابات',   labelEn: 'Chart of Accounts', icon: <ListTree size={16} /> },
-    { id: 'journal',    labelAr: 'قيود اليومية',     labelEn: 'Journal Entries',   icon: <BookOpen size={16} /> },
-    { id: 'currencies', labelAr: 'العملات',           labelEn: 'Currencies',        icon: <DollarSign size={16} /> },
+    { id: 'chart',         labelAr: 'شجرة الحسابات',   labelEn: 'Chart of Accounts', icon: <ListTree size={16} /> },
+    { id: 'journal',       labelAr: 'قيود اليومية',     labelEn: 'Journal Entries',   icon: <BookOpen size={16} /> },
+    { id: 'trial-balance', labelAr: 'ميزان المراجعة',   labelEn: 'Trial Balance',     icon: <Scale size={16} /> },
+    { id: 'currencies',    labelAr: 'العملات',           labelEn: 'Currencies',        icon: <DollarSign size={16} /> },
+    { id: 'bsp',           labelAr: 'BSP / ADM / ACM',  labelEn: 'BSP / ADM / ACM',   icon: <CreditCard size={16} /> },
+    { id: 'fx',            labelAr: 'إعادة تقييم العملة', labelEn: 'FX Revaluation',  icon: <Repeat2 size={16} /> },
   ];
 
   return (
@@ -962,8 +1531,20 @@ export default function AccountingPage() {
           )
         )}
 
+        {activeTab === 'trial-balance' && (
+          <TrialBalanceTab locale={locale} />
+        )}
+
         {activeTab === 'currencies' && (
           <CurrenciesClient locale={locale} />
+        )}
+
+        {activeTab === 'bsp' && (
+          <BspTab isAr={isAr} agencyId={agencyId} />
+        )}
+
+        {activeTab === 'fx' && (
+          <FxRevaluationTab isAr={isAr} agencyId={agencyId} />
         )}
 
         {/* Data maintenance — only shown in journal tab */}

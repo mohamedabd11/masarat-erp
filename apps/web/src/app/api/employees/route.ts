@@ -2,11 +2,13 @@ import { NextResponse } from 'next/server';
 import { eq, desc } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { employees } from '@/lib/schema';
-import { verifyAuth, ApiAuthError } from '@/lib/api-auth';
+import { verifyAuth, ApiAuthError, BusinessError } from '@/lib/api-auth';
+import { requireFeature } from '@/lib/feature-access';
 
 export async function GET(request: Request) {
   try {
     const { agencyId } = await verifyAuth(request);
+    await requireFeature(agencyId, 'employees', db);
     const rows = await db
       .select()
       .from(employees)
@@ -14,7 +16,7 @@ export async function GET(request: Request) {
       .orderBy(desc(employees.createdAt));
     return NextResponse.json({ employees: rows });
   } catch (err) {
-    if (err instanceof ApiAuthError) return NextResponse.json({ error: err.message }, { status: err.status });
+    if (err instanceof ApiAuthError || err instanceof BusinessError) return NextResponse.json({ error: err.message }, { status: err.status });
     return NextResponse.json({ error: 'خطأ في الخادم' }, { status: 500 });
   }
 }
@@ -22,6 +24,7 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   try {
     const { uid, agencyId } = await verifyAuth(request);
+    await requireFeature(agencyId, 'employees', db);
     const body = await request.json() as {
       nameAr: string; nameEn?: string; employeeNumber?: string; department?: string;
       position?: string; hireDate?: string; salaryHalalas?: number;
@@ -40,7 +43,7 @@ export async function POST(request: Request) {
     });
     return NextResponse.json({ success: true, id });
   } catch (err) {
-    if (err instanceof ApiAuthError) return NextResponse.json({ error: err.message }, { status: err.status });
+    if (err instanceof ApiAuthError || err instanceof BusinessError) return NextResponse.json({ error: err.message }, { status: err.status });
     return NextResponse.json({ error: 'خطأ في الخادم' }, { status: 500 });
   }
 }

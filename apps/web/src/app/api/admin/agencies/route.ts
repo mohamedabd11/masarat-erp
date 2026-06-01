@@ -2,10 +2,7 @@ import { NextResponse } from 'next/server';
 import { eq, count } from 'drizzle-orm';
 import { ensureAdminApp } from '@/lib/firebase-admin';
 import { db } from '@/lib/db';
-import { agencies, users } from '@/lib/schema';
-
-const SUPER_ADMIN_EMAIL = process.env['SUPER_ADMIN_EMAIL'];
-if (!SUPER_ADMIN_EMAIL) throw new Error('SUPER_ADMIN_EMAIL env var is not configured');
+import { agencies, users, providerCredentials } from '@/lib/schema';
 
 async function verifySuperAdmin(request: Request) {
   const superAdminEmail = process.env['SUPER_ADMIN_EMAIL'];
@@ -23,31 +20,36 @@ async function verifySuperAdmin(request: Request) {
 
 export async function GET(request: Request) {
   try {
-    const { ensureAdminApp } = await import('@/lib/firebase-admin');
     ensureAdminApp();
     await verifySuperAdmin(request);
 
-    const allAgencies = await db.select().from(agencies);
+    const allAgencies = await db.select().from(agencies).orderBy(agencies.createdAt);
 
     const result = await Promise.all(
       allAgencies.map(async (a) => {
-        const [{ total }] = await db
-          .select({ total: count() })
-          .from(users)
-          .where(eq(users.agencyId, a.id));
+        const [[{ total: userCount }], [{ total: providerCount }]] = await Promise.all([
+          db.select({ total: count() }).from(users).where(eq(users.agencyId, a.id)),
+          db.select({ total: count() }).from(providerCredentials).where(eq(providerCredentials.agencyId, a.id)).catch(() => [{ total: 0 }]),
+        ]);
 
         return {
-          id:                  a.id,
-          nameAr:              a.nameAr,
-          nameEn:              a.nameEn ?? '',
-          contactEmail:        a.email ?? '',
-          subscriptionStatus:  a.subscriptionStatus,
-          plan:                a.plan,
-          trialEndDate:        a.trialEndDate?.toISOString()        ?? null,
-          subscriptionEndDate: a.subscriptionEndDate?.toISOString() ?? null,
-          createdAt:           a.createdAt?.toISOString()           ?? null,
-          isActive:            a.isActive,
-          userCount:           total ?? 0,
+          id:                   a.id,
+          nameAr:               a.nameAr,
+          nameEn:               a.nameEn ?? '',
+          contactEmail:         a.email ?? a.contactEmail ?? '',
+          subscriptionStatus:   a.subscriptionStatus,
+          plan:                 a.plan,
+          trialEndDate:         a.trialEndDate?.toISOString()          ?? null,
+          subscriptionEndDate:  a.subscriptionEndDate?.toISOString()   ?? null,
+          trialStartsAt:        a.trialStartsAt?.toISOString()         ?? null,
+          subscriptionStartsAt: a.subscriptionStartsAt?.toISOString()  ?? null,
+          createdAt:            a.createdAt?.toISOString()             ?? null,
+          isActive:             a.isActive,
+          maxUsers:             a.maxUsers ?? 5,
+          userCount:            userCount  ?? 0,
+          providerCount:        providerCount ?? 0,
+          isVatRegistered:      a.isVatRegistered,
+          isLifetime:           a.subscriptionStatus === 'lifetime',
         };
       }),
     );

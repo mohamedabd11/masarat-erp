@@ -18,19 +18,20 @@ import { COUNTRIES } from '@/lib/countries';
 // ─── Schema ───────────────────────────────────────────────────────────────────
 
 const schema = z.object({
-  type:           z.enum(['individual', 'company']).default('individual'),
-  nameAr:         z.string().min(2, 'الاسم يجب أن يكون حرفين على الأقل'),
-  nameEn:         z.string().optional(),
-  phone:          z.string().min(9, 'رقم الهاتف يجب أن يكون 9 أرقام على الأقل'),
-  email:          z.string().email('البريد الإلكتروني غير صالح').optional().or(z.literal('')),
-  gender:         z.enum(['male', 'female']).optional(),
-  nationality:    z.string().default('SA'),
-  nationalId:     z.string().regex(/^\d{10}$/, 'رقم الهوية يجب أن يكون 10 أرقام').optional().or(z.literal('')),
-  passportNumber: z.string().optional(),
-  passportExpiry: z.string().optional(),
-  dateOfBirth:    z.string().optional(),
-  vatNumber:      z.string().optional(),
-  notes:          z.string().optional(),
+  type:                z.enum(['individual', 'company']).default('individual'),
+  nameAr:              z.string().min(2, 'الاسم يجب أن يكون حرفين على الأقل'),
+  nameEn:              z.string().optional(),
+  phone:               z.string().min(9, 'رقم الهاتف يجب أن يكون 9 أرقام على الأقل'),
+  email:               z.string().email('البريد الإلكتروني غير صالح').optional().or(z.literal('')),
+  gender:              z.enum(['male', 'female']).optional(),
+  nationality:         z.string().default('SA'),
+  nationalId:          z.string().regex(/^\d{10}$/, 'رقم الهوية يجب أن يكون 10 أرقام').optional().or(z.literal('')),
+  passportNumber:      z.string().optional(),
+  passportExpiry:      z.string().optional(),
+  dateOfBirth:         z.string().optional(),
+  vatNumber:           z.string().optional(),
+  notes:               z.string().optional(),
+  openingBalanceSar:   z.coerce.number().min(0).optional(),
 });
 
 type FormData = z.infer<typeof schema>;
@@ -77,7 +78,8 @@ export default function NewCustomerPage() {
           nationalId:     data.nationalId || null,
           passportNumber: data.passportNumber || null,
           dateOfBirth:    data.dateOfBirth || null,
-          notes:          data.notes || null,
+          notes:               data.notes || null,
+          openingBalanceHalalas: Math.round((data.openingBalanceSar ?? 0) * 100),
         }),
       });
       router.push(`/${locale}/customers/${result.id}`);
@@ -337,6 +339,25 @@ export default function NewCustomerPage() {
             </div>
           </Card>
         )}
+
+        {/* ── Opening Balance ───────────────────────────────────────────── */}
+        <Card>
+          <CardHeader>
+            <CardTitle>{isAr ? 'الرصيد الافتتاحي' : 'Opening Balance'}</CardTitle>
+          </CardHeader>
+          <div className="space-y-3">
+            <Input
+              label={isAr ? 'الرصيد الافتتاحي (ر.س)' : 'Opening Balance (SAR)'}
+              type="number"
+              min="0"
+              step="0.01"
+              placeholder="0.00"
+              hint={isAr ? 'الرصيد المستحق من العميل قبل بدء استخدام النظام (0 = لا يوجد)' : 'Amount owed by customer before system start (0 = none)'}
+              dir="ltr"
+              {...register('openingBalanceSar')}
+            />
+          </div>
+        </Card>
 
         {/* ── Notes ────────────────────────────────────────────────────── */}
         <Card>

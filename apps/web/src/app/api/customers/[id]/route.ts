@@ -92,6 +92,7 @@ export async function PATCH(
       nameAr: string; nameEn: string; phone: string; email: string;
       nationality: string; nationalId: string; passportNumber: string;
       dateOfBirth: string; notes: string; isActive: boolean;
+      openingBalanceHalalas: number;
     }>;
 
     const [existing] = await db

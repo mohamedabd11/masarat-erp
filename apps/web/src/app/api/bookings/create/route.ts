@@ -3,6 +3,8 @@ import { db } from '@/lib/db';
 import { bookings } from '@/lib/schema';
 import { verifyAuth, ApiAuthError } from '@/lib/api-auth';
 import { getNextBookingNumber } from '@/lib/invoice-counter';
+import { logAudit } from '@/lib/audit';
+import { checkRateLimit, getClientIp, rateLimitHeaders } from '@/lib/rate-limit';
 
 const VALID_SERVICE_TYPES = new Set([
   'flight', 'hotel', 'package', 'umrah', 'hajj',
@@ -12,6 +14,14 @@ const VALID_SERVICE_TYPES = new Set([
 export async function POST(request: Request) {
   try {
     const { uid, agencyId } = await verifyAuth(request);
+
+    const rl = await checkRateLimit(`${agencyId}:${getClientIp(request)}`, 'financial');
+    if (!rl.success) {
+      return NextResponse.json(
+        { error: 'تجاوزت الحد المسموح به من الطلبات. حاول مرة أخرى بعد دقيقة.' },
+        { status: 429, headers: rateLimitHeaders(rl) },
+      );
+    }
 
     const body = await request.json() as Record<string, unknown>;
 
@@ -71,6 +81,12 @@ export async function POST(request: Request) {
       });
 
       return { bookingId, bookingNumber };
+    });
+
+    await logAudit({
+      agencyId, userId: uid, action: 'create', resource: 'booking',
+      resourceId: result.bookingId,
+      after: { bookingNumber: result.bookingNumber, serviceType, totalPriceHalalas: Number(body['pricing'] ? (body['pricing'] as Record<string, unknown>)['totalAmount'] : 0) },
     });
 
     return NextResponse.json(result);

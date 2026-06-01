@@ -3,6 +3,10 @@ import { db } from '@/lib/db';
 import { receiptVouchers, journalEntries, journalLines } from '@/lib/schema';
 import { verifyAuth, ApiAuthError, BusinessError } from '@/lib/api-auth';
 import { getNextReceiptNumber, getNextJournalNumber } from '@/lib/invoice-counter';
+import { assertPeriodOpen } from '@/lib/period-lock';
+import { logAudit } from '@/lib/audit';
+import { checkRateLimit, getClientIp, rateLimitHeaders } from '@/lib/rate-limit';
+import { GL } from '@/lib/gl-accounts';
 
 interface StandaloneReceiptBody {
   customerNameAr:  string;
@@ -16,16 +20,24 @@ interface StandaloneReceiptBody {
 }
 
 const METHOD_ACCOUNT: Record<string, { code: string; ar: string; en: string }> = {
-  cash:          { code: '1100', ar: 'الصندوق النقدي', en: 'Cash' },
-  bank_transfer: { code: '1110', ar: 'البنك',           en: 'Bank' },
-  card:          { code: '1115', ar: 'نقاط البيع',      en: 'POS / Card' },
-  online:        { code: '1115', ar: 'نقاط البيع',      en: 'POS / Card' },
+  cash:          GL.cash,
+  bank_transfer: GL.bank,
+  card:          GL.posCard,
+  online:        GL.posCard,
 };
-const AC_DEPOSITS = { code: '2300', ar: 'ودائع العملاء', en: 'Customer Deposits' };
+const AC_DEPOSITS = GL.customerDeposits;
 
 export async function POST(request: Request) {
   try {
     const { uid, agencyId } = await verifyAuth(request);
+
+    const rl = await checkRateLimit(`${agencyId}:${getClientIp(request)}`, 'financial');
+    if (!rl.success) {
+      return NextResponse.json(
+        { error: 'تجاوزت الحد المسموح به من الطلبات. حاول مرة أخرى بعد دقيقة.' },
+        { status: 429, headers: rateLimitHeaders(rl) },
+      );
+    }
 
     const body = await request.json() as StandaloneReceiptBody;
     const { customerNameAr, customerNameEn, amountHalalas, paymentMethod, description, reference, notes } = body;
@@ -41,6 +53,8 @@ export async function POST(request: Request) {
       const now   = new Date();
       const year  = now.getFullYear();
       const today = now.toISOString().split('T')[0]!;
+
+      await assertPeriodOpen(agencyId, today, tx);
 
       const voucherNumber = await getNextReceiptNumber(agencyId, year, tx);
       const jeNumber      = await getNextJournalNumber(agencyId, year, tx);
@@ -81,6 +95,12 @@ export async function POST(request: Request) {
       ]);
 
       return { id: voucherId, voucherNumber };
+    });
+
+    await logAudit({
+      agencyId, userId: uid, action: 'create', resource: 'receipt_voucher',
+      resourceId: result.id,
+      after: { voucherNumber: result.voucherNumber, amountHalalas, paymentMethod, customerNameAr },
     });
 
     return NextResponse.json({ success: true, ...result });

@@ -18,6 +18,7 @@ import { invoices, receiptVouchers, journalEntries, journalLines } from '@/lib/s
 import { verifyAuth, assertRole, ApiAuthError, BusinessError, ROLES_ACCOUNTANT_UP } from '@/lib/api-auth';
 import { logAudit } from '@/lib/audit';
 import { getNextJournalNumber } from '@/lib/invoice-counter';
+import { assertPeriodOpen } from '@/lib/period-lock';
 
 const AC_DEPOSITS    = { code: '2300', ar: 'ودائع العملاء',          en: 'Customer Deposits' };
 const AC_RECEIVABLE  = { code: '1120', ar: 'ذمم مدينة - عملاء',      en: 'Accounts Receivable' };
@@ -63,6 +64,9 @@ export async function POST(
       const now      = new Date();
       const year     = now.getFullYear();
       const today    = now.toISOString().split('T')[0]!;
+
+      await assertPeriodOpen(agencyId, today, tx);
+
       const jeNum    = await getNextJournalNumber(agencyId, year, tx);
       const jeId     = crypto.randomUUID();
 

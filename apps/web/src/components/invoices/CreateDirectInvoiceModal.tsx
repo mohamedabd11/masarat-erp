@@ -49,14 +49,15 @@ export function CreateDirectInvoiceModal({ onClose, onSuccess }: Props) {
   const locale = useLocale();
   const isAr   = locale === 'ar';
 
-  const [vatInfo,     setVatInfo]     = useState<AgencyVat | null>(null);
-  const [buyerNameAr, setBuyerNameAr] = useState('');
-  const [buyerPhone,  setBuyerPhone]  = useState('');
-  const [dueDate,     setDueDate]     = useState('');
-  const [notes,       setNotes]       = useState('');
-  const [lines,       setLines]       = useState<Line[]>([blankLine()]);
-  const [submitting,  setSubmitting]  = useState(false);
-  const [error,       setError]       = useState('');
+  const [vatInfo,       setVatInfo]       = useState<AgencyVat | null>(null);
+  const [buyerNameAr,   setBuyerNameAr]   = useState('');
+  const [buyerPhone,    setBuyerPhone]    = useState('');
+  const [supplierName,  setSupplierName]  = useState('');
+  const [dueDate,       setDueDate]       = useState('');
+  const [notes,         setNotes]         = useState('');
+  const [lines,         setLines]         = useState<Line[]>([blankLine()]);
+  const [submitting,    setSubmitting]    = useState(false);
+  const [error,         setError]         = useState('');
 
   // Load agency VAT settings once
   useEffect(() => {
@@ -110,10 +111,11 @@ export function CreateDirectInvoiceModal({ onClose, onSuccess }: Props) {
       const data = await apiFetch<{ id: string; invoiceNumber: string }>('/api/invoices/create-direct', {
         method: 'POST',
         body: JSON.stringify({
-          buyerNameAr: buyerNameAr.trim(),
-          buyerPhone:  buyerPhone.trim() || undefined,
-          dueDate:     dueDate || undefined,
-          notes:       notes.trim() || undefined,
+          buyerNameAr:  buyerNameAr.trim(),
+          buyerPhone:   buyerPhone.trim() || undefined,
+          supplierName: supplierName.trim() || undefined,
+          dueDate:      dueDate || undefined,
+          notes:        notes.trim() || undefined,
           lines: lines.map(l => ({
             serviceType:      l.serviceType === '__custom__' ? (l.customServiceAr?.trim() || 'other') : l.serviceType,
             descriptionAr:    l.descriptionAr.trim(),
@@ -213,6 +215,24 @@ export function CreateDirectInvoiceModal({ onClose, onSuccess }: Props) {
                   onChange={e => setDueDate(e.target.value)}
                 />
               </div>
+            </div>
+          </section>
+
+          {/* ── Supplier ──────────────────────────────────────────── */}
+          <section className="space-y-3">
+            <h3 className="text-[11px] font-bold text-slate-400 uppercase tracking-widest">
+              {isAr ? 'بيانات المورد' : 'Supplier'}
+            </h3>
+            <div>
+              <label className="block text-xs font-medium text-slate-600 mb-1">
+                {isAr ? 'اسم المورد (اتركه فارغاً لاستخدام بيانات الوكالة)' : 'Supplier Name (leave blank to use agency data)'}
+              </label>
+              <input
+                className={IC}
+                value={supplierName}
+                onChange={e => setSupplierName(e.target.value)}
+                placeholder={isAr ? 'مثال: شركة الخطوط السعودية' : 'e.g. Saudi Airlines Co.'}
+              />
             </div>
           </section>
 

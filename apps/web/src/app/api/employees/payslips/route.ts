@@ -2,12 +2,14 @@ import { NextResponse } from 'next/server';
 import { eq, and, desc } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { payslips, employees, salaryAdvances, employeeContracts } from '@/lib/schema';
-import { verifyAuth, assertRole, ApiAuthError, ROLES_ADMIN_ONLY } from '@/lib/api-auth';
+import { verifyAuth, assertRole, ApiAuthError, BusinessError, ROLES_ADMIN_ONLY } from '@/lib/api-auth';
+import { requireFeature } from '@/lib/feature-access';
 import { logAudit } from '@/lib/audit';
 
 export async function GET(request: Request) {
   try {
     const { agencyId } = await verifyAuth(request);
+    await requireFeature(agencyId, 'payroll', db);
     const url        = new URL(request.url);
     const employeeId = url.searchParams.get('employeeId') ?? undefined;
     const month      = url.searchParams.get('month')      ?? undefined;
@@ -22,7 +24,7 @@ export async function GET(request: Request) {
 
     return NextResponse.json({ payslips: rows });
   } catch (err) {
-    if (err instanceof ApiAuthError) return NextResponse.json({ error: err.message }, { status: err.status });
+    if (err instanceof ApiAuthError || err instanceof BusinessError) return NextResponse.json({ error: err.message }, { status: err.status });
     return NextResponse.json({ error: 'خطأ في الخادم' }, { status: 500 });
   }
 }
@@ -31,6 +33,7 @@ export async function POST(request: Request) {
   try {
     const { uid, agencyId, role } = await verifyAuth(request);
     assertRole(role, [...ROLES_ADMIN_ONLY]);
+    await requireFeature(agencyId, 'payroll', db);
 
     const body = await request.json() as {
       employeeId:               string;
@@ -77,8 +80,11 @@ export async function POST(request: Request) {
     const other     = body.otherAllowancesHalalas    ?? 0;
     const gross     = base + housing + transport + other;
     const deduct    = body.deductionsHalalas ?? 0;
-    const gosi      = body.gosiEmployeeHalalas ?? 0;
-    const net       = gross - deduct - advanceDeduction - gosi;
+    const gosiEmployee = body.gosiEmployeeHalalas ?? 0;
+    // GOSI Saudi employer contribution: 9.75% on basic + housing (GOSI-eligible base)
+    const gosiBase     = base + housing;
+    const gosiEmployer = Math.round(gosiBase * 0.0975);
+    const net          = gross - deduct - advanceDeduction - gosiEmployee;
 
     const id = crypto.randomUUID();
     await db.insert(payslips).values({
@@ -94,7 +100,8 @@ export async function POST(request: Request) {
       grossHalalas:             gross,
       deductionsHalalas:        deduct,
       advanceDeductionHalalas:  advanceDeduction,
-      gosi_employee_halalas:    gosi,
+      gosi_employee_halalas:    gosiEmployee,
+      gosiEmployerHalalas:      gosiEmployer,
       netHalalas:               Math.max(0, net),
       components:               (body.components ?? null) as never,
       paymentDate:              body.paymentDate  ?? null,
@@ -107,10 +114,10 @@ export async function POST(request: Request) {
         .where(eq(salaryAdvances.id, adv.id));
     }
 
-    await logAudit({ agencyId, userId: uid, action: 'create', resource: 'payslip', resourceId: id, after: { employeeId: body.employeeId, month: body.month, netHalalas: net } });
-    return NextResponse.json({ success: true, id, netHalalas: Math.max(0, net), advanceDeduction });
+    await logAudit({ agencyId, userId: uid, action: 'create', resource: 'payslip', resourceId: id, after: { employeeId: body.employeeId, month: body.month, netHalalas: net, gosiEmployer } });
+    return NextResponse.json({ success: true, id, netHalalas: Math.max(0, net), advanceDeduction, gosiEmployer });
   } catch (err) {
-    if (err instanceof ApiAuthError) return NextResponse.json({ error: err.message }, { status: err.status });
+    if (err instanceof ApiAuthError || err instanceof BusinessError) return NextResponse.json({ error: err.message }, { status: err.status });
     console.error(JSON.stringify({ event: 'payslip_create_failed', error: (err as Error).message }));
     return NextResponse.json({ error: 'خطأ في الخادم' }, { status: 500 });
   }

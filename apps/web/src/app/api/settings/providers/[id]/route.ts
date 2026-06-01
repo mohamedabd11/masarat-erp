@@ -4,6 +4,7 @@ import { db } from '@/lib/db';
 import { providerCredentials } from '@/lib/schema';
 import { verifyAuth, assertRole, ApiAuthError, ROLES_ADMIN_ONLY } from '@/lib/api-auth';
 import { logAudit } from '@/lib/audit';
+import { encryptJson } from '@/lib/crypto';
 
 // GET /api/settings/providers/:id
 // Returns a single credential — credentials JSONB is NEVER returned.
@@ -88,7 +89,7 @@ export async function PATCH(
       if (!body.credentials || typeof body.credentials !== 'object') {
         return NextResponse.json({ error: 'credentials يجب أن تكون كائن JSON صالح' }, { status: 400 });
       }
-      patch.credentials = body.credentials;
+      patch.credentials = await encryptJson(body.credentials);  // encrypted at rest
       // Reset test status when credentials change — previous test result is no longer valid
       patch.testStatus = null;
       patch.testError  = null;

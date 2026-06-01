@@ -3,18 +3,21 @@ import { eq, and, sql, ne } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { bookings, agencies, invoices, journalEntries, journalLines, customers } from '@/lib/schema';
 import { verifyAuth, ApiAuthError, BusinessError } from '@/lib/api-auth';
+import { logAudit } from '@/lib/audit';
+import { checkRateLimit, getClientIp, rateLimitHeaders } from '@/lib/rate-limit';
 import { withIdempotency, buildIdempotencyInsert } from '@/lib/idempotency';
 import { idempotencyKeys } from '@/lib/schema';
 import { getNextInvoiceNumber, getNextJournalNumber } from '@/lib/invoice-counter';
 import { assertPeriodOpen } from '@/lib/period-lock';
+import { GL } from '@/lib/gl-accounts';
 
 const AC = {
-  receivable:       { code: '1120', ar: 'ذمم مدينة - عملاء',           en: 'Accounts Receivable' },
-  payableSupplier:  { code: '2000', ar: 'ذمم دائنة - موردون',          en: 'Accounts Payable' },
-  vatPayable:       { code: '2200', ar: 'ضريبة القيمة المضافة مستحقة', en: 'VAT Payable' },
-  revenueAgent:     { code: '4000', ar: 'إيراد رسوم الوكالة',           en: 'Revenue - Agency Fees' },
-  revenuePrincipal: { code: '4100', ar: 'إيراد خدمات السفر',            en: 'Revenue - Travel Services' },
-  costOfServices:   { code: '5000', ar: 'تكلفة الخدمات',                en: 'Cost of Services' },
+  receivable:       GL.receivable,
+  payableSupplier:  GL.payableSupplier,
+  vatPayable:       GL.vatPayable,
+  revenueAgent:     GL.revenueAgent,
+  revenuePrincipal: GL.revenuePrincipal,
+  costOfServices:   GL.costOfServices,
 };
 
 interface InvoiceCreateBody {
@@ -43,6 +46,14 @@ interface InvoiceItem {
 export async function POST(request: Request) {
   try {
     const { uid, agencyId } = await verifyAuth(request);
+
+    const rl = await checkRateLimit(`${agencyId}:${getClientIp(request)}`, 'financial');
+    if (!rl.success) {
+      return NextResponse.json(
+        { error: 'تجاوزت الحد المسموح به من الطلبات. حاول مرة أخرى بعد دقيقة.' },
+        { status: 429, headers: rateLimitHeaders(rl) },
+      );
+    }
 
     const body = await request.json() as InvoiceCreateBody;
     const { bookingId } = body;
@@ -120,7 +131,12 @@ export async function POST(request: Request) {
           finalGrandTotal = grandTotal;
         }
 
-        // ── 4. Credit-limit guard ───────────────────────────────────────────
+        // ── 4. Zero-amount guard ────────────────────────────────────────────
+        if (finalGrandTotal === 0) {
+          throw new BusinessError('لا يمكن إصدار فاتورة بمبلغ صفر — يرجى تحديث سعر الحجز أولاً', 400);
+        }
+
+        // ── 4b. Credit-limit guard ──────────────────────────────────────────
         if (booking.customerId) {
           const [customer] = await tx.select({ creditLimitHalalas: customers.creditLimitHalalas })
             .from(customers)
@@ -243,6 +259,12 @@ export async function POST(request: Request) {
 
         return { invoiceId, invoiceNumber };
       });
+    });
+
+    await logAudit({
+      agencyId, userId: uid, action: 'create', resource: 'invoice',
+      resourceId: result.invoiceId,
+      after: { invoiceNumber: result.invoiceNumber, bookingId },
     });
 
     return NextResponse.json({ success: true, ...result });

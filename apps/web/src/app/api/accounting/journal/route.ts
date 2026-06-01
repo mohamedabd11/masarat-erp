@@ -2,26 +2,37 @@ import { NextResponse } from 'next/server';
 import { eq, and, desc, gte, lte, inArray } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { journalEntries, journalLines } from '@/lib/schema';
-import { verifyAuth, assertRole, ApiAuthError, ROLES_ACCOUNTANT_UP } from '@/lib/api-auth';
+import { verifyAuth, assertRole, ApiAuthError, BusinessError, ROLES_ACCOUNTANT_UP } from '@/lib/api-auth';
 import { assertPeriodOpen } from '@/lib/period-lock';
+import { checkRateLimit, getClientIp, rateLimitHeaders } from '@/lib/rate-limit';
+import { validateJournalLines } from '@/lib/journal-validation';
+import { requireFeature } from '@/lib/feature-access';
+import { getNextJournalNumber } from '@/lib/invoice-counter';
 
 const DEFAULT_PAGE_SIZE = 100;
 const MAX_PAGE_SIZE     = 500;
+
 
 export async function POST(request: Request) {
   try {
     const { agencyId, uid, role } = await verifyAuth(request);
     assertRole(role, [...ROLES_ACCOUNTANT_UP]);
+    await requireFeature(agencyId, 'accounting', db);
+
+    const rl = await checkRateLimit(`${agencyId}:${getClientIp(request)}`, 'financial');
+    if (!rl.success) {
+      return NextResponse.json(
+        { error: 'تجاوزت الحد المسموح به من الطلبات. حاول مرة أخرى بعد دقيقة.' },
+        { status: 429, headers: rateLimitHeaders(rl) },
+      );
+    }
     const body = await request.json() as {
-      entryNumber: string;
       date: string;
       descriptionAr?: string;
       descriptionEn?: string;
       reference?: string | null;
       source?: string;
       sourceId?: string;
-      totalDebitHalalas: number;
-      totalCreditHalalas: number;
       isPosted?: boolean;
       lines: Array<{
         accountCode: string;
@@ -32,42 +43,68 @@ export async function POST(request: Request) {
         memo?: string;
       }>;
     };
-    await assertPeriodOpen(agencyId, body.date, db);
-    const id = crypto.randomUUID();
-    await db.insert(journalEntries).values({
-      id,
-      agencyId,
-      entryNumber:        body.entryNumber,
-      date:               body.date,
-      descriptionAr:      body.descriptionAr ?? null,
-      descriptionEn:      body.descriptionEn ?? null,
-      reference:          body.reference ?? null,
-      source:             body.source ?? 'manual',
-      sourceId:           body.sourceId ?? null,
-      isPosted:           body.isPosted ?? true,
-      totalDebitHalalas:  body.totalDebitHalalas,
-      totalCreditHalalas: body.totalCreditHalalas,
-      createdBy:          uid,
-    });
-    if (body.lines?.length) {
-      await db.insert(journalLines).values(
-        body.lines.map((l, idx) => ({
-          id:            crypto.randomUUID(),
-          entryId:       id,
-          agencyId,
-          accountCode:   l.accountCode,
-          accountNameAr: l.accountNameAr,
-          accountNameEn: l.accountNameEn ?? l.accountNameAr,
-          debitHalalas:  l.debitHalalas,
-          creditHalalas: l.creditHalalas,
-          description:   l.memo ?? null,
-          sortOrder:     idx,
-        })),
-      );
+
+    if (!body.date || !/^\d{4}-\d{2}-\d{2}$/.test(body.date)) {
+      return NextResponse.json({ error: 'التاريخ مطلوب بصيغة YYYY-MM-DD' }, { status: 400 });
     }
+
+    // ── Core invariant: validate double-entry before any DB write ────────────
+    // totals are computed from lines — client-supplied header totals are ignored.
+    let computedDebit: number;
+    let computedCredit: number;
+    try {
+      const totals = validateJournalLines(body.lines ?? []);
+      computedDebit  = totals.totalDebit;
+      computedCredit = totals.totalCredit;
+    } catch (ve) {
+      return NextResponse.json({ error: (ve as Error).message }, { status: 422 });
+    }
+
+    await assertPeriodOpen(agencyId, body.date, db);
+    const id   = crypto.randomUUID();
+    const year = new Date(body.date).getFullYear();
+
+    await db.transaction(async (tx) => {
+      const entryNumber = await getNextJournalNumber(agencyId, year, tx);
+
+      await tx.insert(journalEntries).values({
+        id,
+        agencyId,
+        entryNumber,
+        date:               body.date,
+        descriptionAr:      body.descriptionAr ?? null,
+        descriptionEn:      body.descriptionEn ?? null,
+        reference:          body.reference ?? null,
+        source:             body.source ?? 'manual',
+        sourceId:           body.sourceId ?? null,
+        isPosted:           body.isPosted ?? true,
+        totalDebitHalalas:  computedDebit,
+        totalCreditHalalas: computedCredit,
+        createdBy:          uid,
+      });
+
+      if (body.lines?.length) {
+        await tx.insert(journalLines).values(
+          body.lines.map((l, idx) => ({
+            id:            crypto.randomUUID(),
+            entryId:       id,
+            agencyId,
+            accountCode:   l.accountCode,
+            accountNameAr: l.accountNameAr,
+            accountNameEn: l.accountNameEn ?? l.accountNameAr,
+            debitHalalas:  l.debitHalalas,
+            creditHalalas: l.creditHalalas,
+            description:   l.memo ?? null,
+            sortOrder:     idx,
+          })),
+        );
+      }
+    });
+
     return NextResponse.json({ success: true, id });
   } catch (err) {
-    if (err instanceof ApiAuthError) return NextResponse.json({ error: err.message }, { status: err.status });
+    if (err instanceof ApiAuthError || err instanceof BusinessError) return NextResponse.json({ error: err.message }, { status: err.status });
+    console.error(JSON.stringify({ event: 'journal_create_error', error: String(err) }));
     return NextResponse.json({ error: 'خطأ في الخادم' }, { status: 500 });
   }
 }
@@ -75,6 +112,7 @@ export async function POST(request: Request) {
 export async function GET(request: Request) {
   try {
     const { agencyId } = await verifyAuth(request);
+    await requireFeature(agencyId, 'accounting', db);
     const url       = new URL(request.url);
     const fromDate  = url.searchParams.get('from')  ?? undefined;
     const toDate    = url.searchParams.get('to')    ?? undefined;
@@ -124,7 +162,7 @@ export async function GET(request: Request) {
 
     return NextResponse.json({ entries: result, page, pageSize });
   } catch (err) {
-    if (err instanceof ApiAuthError) return NextResponse.json({ error: err.message }, { status: err.status });
+    if (err instanceof ApiAuthError || err instanceof BusinessError) return NextResponse.json({ error: err.message }, { status: err.status });
     return NextResponse.json({ error: 'خطأ في الخادم' }, { status: 500 });
   }
 }

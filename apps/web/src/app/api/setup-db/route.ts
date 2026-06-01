@@ -702,7 +702,10 @@ CREATE TABLE IF NOT EXISTS accounting_periods (
 CREATE UNIQUE INDEX IF NOT EXISTS accounting_periods_agency_ym_uq ON accounting_periods(agency_id, period_year, period_month);
 
 -- ══ AGENCIES: new columns ════════════════════════════════════════════════════
-ALTER TABLE agencies ADD COLUMN IF NOT EXISTS default_quote_terms TEXT;
+ALTER TABLE agencies ADD COLUMN IF NOT EXISTS default_quote_terms    TEXT;
+ALTER TABLE agencies ADD COLUMN IF NOT EXISTS max_users              INTEGER NOT NULL DEFAULT 5;
+ALTER TABLE agencies ADD COLUMN IF NOT EXISTS trial_starts_at        TIMESTAMPTZ;
+ALTER TABLE agencies ADD COLUMN IF NOT EXISTS subscription_starts_at TIMESTAMPTZ;
 
 -- ══ PNR: fix column types (passenger_names / ticket_numbers / flight_numbers were
 --    created as JSONB in early setup-db but the app schema expects TEXT)
@@ -717,7 +720,8 @@ ALTER TABLE pnr_records ADD COLUMN IF NOT EXISTS passengers   JSONB;
 ALTER TABLE pnr_records ADD COLUMN IF NOT EXISTS cancelled_at TIMESTAMPTZ;
 ALTER TABLE pnr_records ADD COLUMN IF NOT EXISTS cancelled_by TEXT;
 ALTER TABLE pnr_records ADD COLUMN IF NOT EXISTS deleted_at   TIMESTAMPTZ;
-ALTER TABLE pnr_records ALTER COLUMN expires_at TYPE TIMESTAMPTZ USING CASE WHEN expires_at IS NULL THEN NULL WHEN expires_at ~ '^\d{4}-\d{2}-\d{2}' THEN expires_at::TIMESTAMPTZ ELSE NULL END;
+ALTER TABLE pnr_records ALTER COLUMN expires_at TYPE TIMESTAMPTZ
+  USING CASE WHEN expires_at IS NULL THEN NULL ELSE expires_at::text::TIMESTAMPTZ END;
 
 -- ══ TRAVEL EVENTS ═════════════════════════════════════════════════════════════
 CREATE TABLE IF NOT EXISTS travel_events (
@@ -793,6 +797,92 @@ CREATE TABLE IF NOT EXISTS ticket_coupons (
   updated_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 CREATE INDEX IF NOT EXISTS coupons_ticket_idx ON ticket_coupons(ticket_id);
+
+-- ══ PAYSLIPS: add employer GOSI column ═══════════════════════════════════════
+ALTER TABLE payslips ADD COLUMN IF NOT EXISTS gosi_employer_halalas INTEGER NOT NULL DEFAULT 0;
+
+-- ══ LEAVE BALANCES: annual & sick leave entitlement tracking ═════════════════
+CREATE TABLE IF NOT EXISTS leave_balances (
+  id               TEXT PRIMARY KEY,
+  agency_id        TEXT NOT NULL REFERENCES agencies(id) ON DELETE CASCADE,
+  employee_id      TEXT NOT NULL REFERENCES employees(id),
+  year             INTEGER NOT NULL,
+  annual_entitled  INTEGER NOT NULL DEFAULT 21,
+  annual_used      INTEGER NOT NULL DEFAULT 0,
+  sick_entitled    INTEGER NOT NULL DEFAULT 30,
+  sick_used        INTEGER NOT NULL DEFAULT 0,
+  updated_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE(employee_id, year)
+);
+CREATE INDEX IF NOT EXISTS leave_balances_emp_idx ON leave_balances(employee_id);
+
+-- ══ SERVICE TYPES: add revenue_mode, vat_rate, is_taxable columns ════════════
+ALTER TABLE service_types ADD COLUMN IF NOT EXISTS revenue_mode TEXT NOT NULL DEFAULT 'principal';
+ALTER TABLE service_types ADD COLUMN IF NOT EXISTS vat_rate     INTEGER;
+ALTER TABLE service_types ADD COLUMN IF NOT EXISTS is_taxable   BOOLEAN;
+
+-- ══ CUSTOMERS: add opening_balance_halalas for AR migration ══════════════════
+ALTER TABLE customers ADD COLUMN IF NOT EXISTS opening_balance_halalas INTEGER NOT NULL DEFAULT 0;
+
+-- ══ BSP (Billing Settlement Plan) — IATA travel agencies ════════════════════
+CREATE TABLE IF NOT EXISTS bsp_billings (
+  id                          TEXT PRIMARY KEY,
+  agency_id                   TEXT NOT NULL REFERENCES agencies(id) ON DELETE CASCADE,
+  billing_period              TEXT NOT NULL,
+  period_type                 TEXT NOT NULL DEFAULT 'monthly',
+  total_sales_halalas         INTEGER NOT NULL DEFAULT 0,
+  total_refunds_halalas       INTEGER NOT NULL DEFAULT 0,
+  total_commission_halalas    INTEGER NOT NULL DEFAULT 0,
+  net_remit_halalas           INTEGER NOT NULL,
+  currency                    TEXT NOT NULL DEFAULT 'SAR',
+  due_date                    TEXT NOT NULL,
+  status                      TEXT NOT NULL DEFAULT 'pending',
+  payment_date                TEXT,
+  bank_account_id             TEXT,
+  journal_entry_id            TEXT,
+  reference                   TEXT,
+  notes                       TEXT,
+  created_by                  TEXT,
+  created_at                  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at                  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS bsp_billings_agency_idx ON bsp_billings(agency_id);
+
+CREATE TABLE IF NOT EXISTS bsp_adjustments (
+  id               TEXT PRIMARY KEY,
+  agency_id        TEXT NOT NULL REFERENCES agencies(id) ON DELETE CASCADE,
+  type             TEXT NOT NULL,
+  reference_number TEXT NOT NULL,
+  issue_date       TEXT NOT NULL,
+  due_date         TEXT,
+  amount_halalas   INTEGER NOT NULL,
+  currency         TEXT NOT NULL DEFAULT 'SAR',
+  reason           TEXT NOT NULL,
+  airline_code     TEXT,
+  ticket_numbers   TEXT,
+  status           TEXT NOT NULL DEFAULT 'pending',
+  bsp_billing_id   TEXT REFERENCES bsp_billings(id),
+  journal_entry_id TEXT,
+  notes            TEXT,
+  created_by       TEXT,
+  created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS bsp_adj_agency_idx ON bsp_adjustments(agency_id);
+
+-- ══ AGENCY FEATURES (per-agency feature flag overrides) ══════════════════════
+CREATE TABLE IF NOT EXISTS agency_features (
+  id            TEXT PRIMARY KEY,
+  agency_id     TEXT NOT NULL REFERENCES agencies(id) ON DELETE CASCADE,
+  feature_key   TEXT NOT NULL,
+  override_type TEXT NOT NULL,
+  enabled_by    TEXT NOT NULL,
+  notes         TEXT,
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE(agency_id, feature_key)
+);
+CREATE INDEX IF NOT EXISTS agency_features_agency_idx ON agency_features(agency_id);
 
 `;
 

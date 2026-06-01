@@ -9,7 +9,8 @@ import type { ExchangeResult } from '@/lib/providers/types';
 
 // Invoked by Vercel Cron: "30 * * * *" (offset 30 min from expire-pnrs at :00)
 // Authorization: Bearer ${CRON_SECRET}
-// If CRON_SECRET is unset → runs unprotected (local dev only)
+// Production: CRON_SECRET is required — missing secret → 401 (fail closed)
+// Development: unprotected when CRON_SECRET is unset
 //
 // Heals all pending_* tickets where Phase 3 (local transaction) failed
 // after the provider call (Phase 2) already succeeded.
@@ -31,6 +32,12 @@ const MAX_ATTEMPTS = 20;
 
 export async function GET(request: Request) {
   const secret = process.env['CRON_SECRET'];
+  const isDev  = process.env['NODE_ENV'] !== 'production';
+
+  if (!secret && !isDev) {
+    console.error(JSON.stringify({ event: 'cron_misconfigured', route: 'reconcile-pending-tickets', reason: 'CRON_SECRET not set in production' }));
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
   if (secret) {
     const auth = request.headers.get('authorization') ?? '';
     if (auth !== `Bearer ${secret}`) {

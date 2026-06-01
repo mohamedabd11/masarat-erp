@@ -26,9 +26,11 @@ const DEFAULT_COA = [
   { code: '1120', nameAr: 'ذمم مدينة - عملاء',           nameEn: 'Accounts Receivable',          type: 'asset',     },
   { code: '1125', nameAr: 'أوراق قبض - شيكات',           nameEn: 'Cheques Receivable',           type: 'asset',     },
   { code: '1130', nameAr: 'المصاريف المدفوعة مقدماً',    nameEn: 'Prepaid Expenses',             type: 'asset',     },
+  { code: '1350', nameAr: 'مقاصة BSP',                    nameEn: 'BSP Clearing',                 type: 'asset',     },
   { code: '2000', nameAr: 'ذمم دائنة - موردون',          nameEn: 'Accounts Payable - Suppliers', type: 'liability', },
   { code: '2100', nameAr: 'ذمم دائنة — شركات الطيران',   nameEn: 'Accounts Payable - Airlines',  type: 'liability', },
   { code: '2110', nameAr: 'ذمم دائنة — فنادق',           nameEn: 'Accounts Payable - Hotels',    type: 'liability', },
+  { code: '2150', nameAr: 'مستحقات BSP',                  nameEn: 'BSP Payable',                  type: 'liability', },
   { code: '2200', nameAr: 'ضريبة القيمة المضافة مستحقة', nameEn: 'VAT Payable',                  type: 'liability', },
   { code: '2300', nameAr: 'ودائع العملاء',                nameEn: 'Customer Deposits',            type: 'liability', },
   { code: '3100', nameAr: 'رأس مال المالك',               nameEn: 'Owner Capital',                type: 'equity',    },
@@ -40,11 +42,13 @@ const DEFAULT_COA = [
   { code: '4130', nameAr: 'إيرادات العمرة',              nameEn: 'Umrah Revenue',                type: 'revenue',   },
   { code: '4140', nameAr: 'إيرادات التأشيرات',           nameEn: 'Visa Revenue',                 type: 'revenue',   },
   { code: '4150', nameAr: 'إيرادات التأمين',             nameEn: 'Insurance Revenue',            type: 'revenue',   },
+  { code: '4420', nameAr: 'إيراد استرداد ADM',           nameEn: 'ADM Recovery Income',          type: 'revenue',   },
   { code: '5000', nameAr: 'تكلفة الخدمات',               nameEn: 'Cost of Services',             type: 'expense',   },
   { code: '5100', nameAr: 'الرواتب والأجور',             nameEn: 'Salaries',                     type: 'expense',   },
   { code: '5200', nameAr: 'الإيجار',                     nameEn: 'Rent',                         type: 'expense',   },
   { code: '5300', nameAr: 'التسويق والإعلان',            nameEn: 'Marketing',                    type: 'expense',   },
   { code: '5400', nameAr: 'المصاريف التشغيلية',          nameEn: 'Operating Expenses',           type: 'expense',   },
+  { code: '5420', nameAr: 'مصروف ADM',                   nameEn: 'ADM Expense',                  type: 'expense',   },
 ] as const;
 
 export async function POST(request: Request) {

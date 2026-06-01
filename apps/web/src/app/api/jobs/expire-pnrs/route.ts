@@ -6,9 +6,16 @@ import { logTravelEvent } from '@/lib/travel-event-log';
 
 // Invoked by Vercel Cron every hour: "0 * * * *"
 // Authorization: Bearer ${CRON_SECRET}
-// If CRON_SECRET is unset → runs unprotected (local dev only)
+// Production: CRON_SECRET is required — missing secret → 401 (fail closed)
+// Development: unprotected when CRON_SECRET is unset
 export async function GET(request: Request) {
   const secret = process.env['CRON_SECRET'];
+  const isDev  = process.env['NODE_ENV'] !== 'production';
+
+  if (!secret && !isDev) {
+    console.error(JSON.stringify({ event: 'cron_misconfigured', route: 'expire-pnrs', reason: 'CRON_SECRET not set in production' }));
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
   if (secret) {
     const auth = request.headers.get('authorization') ?? '';
     if (auth !== `Bearer ${secret}`) {

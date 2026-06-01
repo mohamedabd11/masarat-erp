@@ -1,4 +1,4 @@
-import { pgTable, text, integer, boolean, timestamp, jsonb, uniqueIndex } from 'drizzle-orm/pg-core';
+import { pgTable, text, integer, boolean, timestamp, jsonb, uniqueIndex, unique } from 'drizzle-orm/pg-core';
 import { agencies } from './agencies';
 
 export const employees = pgTable('employees', {
@@ -102,6 +102,7 @@ export const payslips = pgTable('payslips', {
   deductionsHalalas:        integer('deductions_halalas').notNull().default(0),
   advanceDeductionHalalas:  integer('advance_deduction_halalas').notNull().default(0),
   gosi_employee_halalas:    integer('gosi_employee_halalas').notNull().default(0),
+  gosiEmployerHalalas:      integer('gosi_employer_halalas').notNull().default(0),
   netHalalas:               integer('net_halalas').notNull().default(0),
   components:               jsonb('components'),                  // [{label, amountHalalas, type: addition|deduction}]
   paymentDate:              text('payment_date'),
@@ -175,3 +176,24 @@ export const attendanceRecords = pgTable('attendance_records', {
 
 export type AttendanceRecord    = typeof attendanceRecords.$inferSelect;
 export type NewAttendanceRecord = typeof attendanceRecords.$inferInsert;
+
+// ── Leave Balances ────────────────────────────────────────────────────────────
+// Tracks annual and sick leave entitlement vs used per employee per year.
+// Initialized from contract.annualLeaveDays when first leave is approved.
+
+export const leaveBalances = pgTable('leave_balances', {
+  id:              text('id').primaryKey(),
+  agencyId:        text('agency_id').notNull().references(() => agencies.id, { onDelete: 'cascade' }),
+  employeeId:      text('employee_id').notNull().references(() => employees.id),
+  year:            integer('year').notNull(),
+  annualEntitled:  integer('annual_entitled').notNull().default(21),
+  annualUsed:      integer('annual_used').notNull().default(0),
+  sickEntitled:    integer('sick_entitled').notNull().default(30),
+  sickUsed:        integer('sick_used').notNull().default(0),
+  updatedAt:       timestamp('updated_at').notNull().defaultNow(),
+}, (t) => ({
+  empYearUq: unique('leave_balance_emp_year_uq').on(t.employeeId, t.year),
+}));
+
+export type LeaveBalance    = typeof leaveBalances.$inferSelect;
+export type NewLeaveBalance = typeof leaveBalances.$inferInsert;

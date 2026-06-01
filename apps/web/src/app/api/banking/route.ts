@@ -14,7 +14,25 @@ export async function GET(request: Request) {
       db.select().from(exchangeRates).where(eq(exchangeRates.agencyId, agencyId)).orderBy(desc(exchangeRates.createdAt)),
     ]);
 
-    return NextResponse.json({ accounts, transactions, rates });
+    // Map DB column names → frontend interface names
+    const mappedAccounts = accounts.map(a => ({
+      ...a,
+      balanceHalalas:   a.currentBalanceHalalas,
+      bankNameAr:       a.bankName ?? '',
+      bankNameEn:       a.bankName ?? '',
+      reconciledAt:     a.reconciledAt ? new Date(a.reconciledAt).getTime() : undefined,
+      reconciledBalance: a.reconciledBalanceHalalas ?? undefined,
+    }));
+
+    const mappedTxs = transactions.map(t => ({
+      ...t,
+      date:        new Date(t.date).getTime(),
+      descAr:      t.description ?? '',
+      descEn:      t.description ?? '',
+      isReconciled: t.isReconciled ?? false,
+    }));
+
+    return NextResponse.json({ accounts: mappedAccounts, transactions: mappedTxs, rates });
   } catch (err) {
     if (err instanceof ApiAuthError) return NextResponse.json({ error: err.message }, { status: err.status });
     return NextResponse.json({ error: 'خطأ في الخادم' }, { status: 500 });

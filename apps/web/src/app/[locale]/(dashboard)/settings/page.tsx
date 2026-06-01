@@ -51,7 +51,8 @@ import {
 } from 'lucide-react';
 import { InviteUserModal } from '@/components/settings/InviteUserModal';
 import { useSubscription } from '@/providers/SubscriptionProvider';
-import { MessageCircle } from 'lucide-react';
+import { MessageCircle, CheckCircle } from 'lucide-react';
+import { FEATURE_LABEL } from '@/lib/plan-features';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -199,6 +200,7 @@ interface CustomServiceType {
   nameEn: string;
   icon: string;
   color: string;
+  revenueMode: 'principal' | 'agent';
   isActive: boolean;
 }
 
@@ -275,63 +277,6 @@ function ToggleSwitch({
 
 const WA_NUMBER = '249969837823';
 
-interface PlanDef {
-  key: string;
-  ar: string; en: string;
-  billing: { ar: string; en: string };
-  badge: { ar: string; en: string } | null;
-  highlighted: boolean;
-  features: { ar: string[]; en: string[] };
-  limits: { users: number | null; bookings: number | null };
-}
-
-const PLANS: PlanDef[] = [
-  {
-    key: 'starter',
-    ar: 'المبتدئ', en: 'Starter',
-    billing: { ar: 'اشتراك شهري / سنوي', en: 'Monthly / Yearly' },
-    badge: null, highlighted: false,
-    features: {
-      ar: ['حتى 3 مستخدمين', 'حتى 500 حجز شهرياً', 'الوحدات الأساسية (حجوزات، فواتير، محاسبة)', 'دعم عبر واتساب'],
-      en: ['Up to 3 users', 'Up to 500 bookings / month', 'Core modules (bookings, invoices, accounting)', 'WhatsApp support'],
-    },
-    limits: { users: 3, bookings: 500 },
-  },
-  {
-    key: 'professional',
-    ar: 'الاحترافي', en: 'Professional',
-    billing: { ar: 'اشتراك شهري / سنوي', en: 'Monthly / Yearly' },
-    badge: { ar: 'الأكثر شيوعاً', en: 'Most Popular' }, highlighted: true,
-    features: {
-      ar: ['مستخدمون غير محدودين', 'حجوزات غير محدودة', 'جميع الوحدات + ZATCA', 'تقارير متقدمة', 'دعم ذو أولوية عبر واتساب'],
-      en: ['Unlimited users', 'Unlimited bookings', 'All modules + ZATCA', 'Advanced reports', 'Priority WhatsApp support'],
-    },
-    limits: { users: null, bookings: null },
-  },
-  {
-    key: 'lifetime',
-    ar: 'مدى الحياة', en: 'Lifetime',
-    billing: { ar: 'دفعة واحدة للأبد', en: 'One-time payment' },
-    badge: { ar: 'قيمة كبرى', en: 'Best Value' }, highlighted: false,
-    features: {
-      ar: ['كل مميزات الاحترافي', 'دفعة واحدة فقط', 'تحديثات مجانية مدى الحياة', 'دعم مدى الحياة'],
-      en: ['Everything in Professional', 'One-time payment only', 'Free lifetime updates', 'Lifetime support'],
-    },
-    limits: { users: null, bookings: null },
-  },
-];
-
-// Map Firestore plan key → display plan key
-function resolveDisplayPlan(plan: string, status: string): string {
-  if (plan === 'lifetime') return 'lifetime';
-  if (plan === 'professional') return 'professional';
-  if (plan === 'starter') return 'starter';
-  if (status === 'trial') return 'trial';
-  return 'starter';
-}
-
-// Firestore plan keys that match a paid plan
-const PAID_PLAN_KEYS = new Set(['starter', 'professional', 'lifetime']);
 
 export default function SettingsPage() {
   const locale = useLocale();
@@ -339,7 +284,7 @@ export default function SettingsPage() {
   const searchParams = useSearchParams();
   const { user } = useAuth();
   const agencyId = user?.agencyId ?? null;
-  const { status: subStatus, plan: subPlan, agencyName: subAgencyName, daysRemaining } = useSubscription();
+  const { status: subStatus, agencyName: subAgencyName, daysRemaining, maxUsers } = useSubscription();
 
   // Support ?tab=service_types URL param
   const tabParam = searchParams.get('tab') as Tab | null;
@@ -398,10 +343,10 @@ export default function SettingsPage() {
     Object.fromEntries(DEFAULT_SERVICE_TYPES.map(d => [d.id, true]))
   );
   const [showAddForm, setShowAddForm] = useState(false);
-  const [addForm, setAddForm] = useState({ nameAr: '', nameEn: '', icon: 'layers', color: PRESET_COLORS[0] });
+  const [addForm, setAddForm] = useState({ nameAr: '', nameEn: '', icon: 'layers', color: PRESET_COLORS[0], revenueMode: 'principal' as 'principal' | 'agent' });
   const [addSaving, setAddSaving] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [editForm, setEditForm] = useState({ nameAr: '', nameEn: '', icon: 'layers', color: PRESET_COLORS[0] });
+  const [editForm, setEditForm] = useState({ nameAr: '', nameEn: '', icon: 'layers', color: PRESET_COLORS[0], revenueMode: 'principal' as 'principal' | 'agent' });
 
   // ── Agency users ────────────────────────────────────────────────────────
   const [agencyUsers, setAgencyUsers]     = useState<User[]>([]);
@@ -629,8 +574,9 @@ export default function SettingsPage() {
         nameAr: addForm.nameAr.trim(),
         nameEn: addForm.nameEn.trim() || addForm.nameAr.trim(),
         icon: addForm.icon,
+        revenueMode: addForm.revenueMode,
       }) });
-      setAddForm({ nameAr: '', nameEn: '', icon: 'layers', color: PRESET_COLORS[0] });
+      setAddForm({ nameAr: '', nameEn: '', icon: 'layers', color: PRESET_COLORS[0], revenueMode: 'principal' });
       setShowAddForm(false);
       setTick(t => t + 1);
     } catch (err) {
@@ -657,6 +603,7 @@ export default function SettingsPage() {
         nameAr: editForm.nameAr.trim(),
         nameEn: editForm.nameEn.trim() || editForm.nameAr.trim(),
         icon: editForm.icon,
+        revenueMode: editForm.revenueMode,
       }) });
       setEditingId(null);
       setTick(t => t + 1);
@@ -1548,6 +1495,37 @@ export default function SettingsPage() {
                       </div>
                     </div>
 
+                    {/* Revenue mode */}
+                    <div>
+                      <p className="text-xs font-medium text-slate-600 mb-2">
+                        {isAr ? 'نمط الإيراد (IFRS 15)' : 'Revenue Mode (IFRS 15)'}
+                      </p>
+                      <div className="flex gap-2">
+                        {(['principal', 'agent'] as const).map(mode => (
+                          <button
+                            key={mode}
+                            type="button"
+                            onClick={() => setAddForm(f => ({ ...f, revenueMode: mode }))}
+                            className={cn(
+                              'flex-1 py-2 px-3 text-xs font-semibold rounded-lg border transition-colors',
+                              addForm.revenueMode === mode
+                                ? 'border-brand-500 bg-brand-50 text-brand-700'
+                                : 'border-slate-200 text-slate-500 hover:bg-slate-50',
+                            )}
+                          >
+                            {mode === 'principal'
+                              ? (isAr ? 'أصيل — إيراد كامل' : 'Principal — Full Revenue')
+                              : (isAr ? 'وكيل — عمولة فقط' : 'Agent — Fee Only')}
+                          </button>
+                        ))}
+                      </div>
+                      <p className="text-[11px] text-slate-400 mt-1.5">
+                        {addForm.revenueMode === 'principal'
+                          ? (isAr ? 'يُسجَّل سعر البيع الكامل إيراداً (مثل الباقات السياحية)' : 'Full selling price recorded as revenue (e.g. tour packages)')
+                          : (isAr ? 'تُسجَّل العمولة فقط إيراداً (مثل تذاكر الطيران كوكيل IATA)' : 'Only the commission is recorded as revenue (e.g. airline tickets as IATA agent)')}
+                      </p>
+                    </div>
+
                     <div className="flex items-center justify-end gap-3">
                       <Button variant="secondary" size="sm" onClick={() => setShowAddForm(false)}>
                         {isAr ? 'إلغاء' : 'Cancel'}
@@ -1640,6 +1618,31 @@ export default function SettingsPage() {
                               ))}
                             </div>
                           </div>
+                          {/* Revenue mode */}
+                          <div>
+                            <p className="text-xs font-medium text-slate-600 mb-2">
+                              {isAr ? 'نمط الإيراد (IFRS 15)' : 'Revenue Mode (IFRS 15)'}
+                            </p>
+                            <div className="flex gap-2">
+                              {(['principal', 'agent'] as const).map(mode => (
+                                <button
+                                  key={mode}
+                                  type="button"
+                                  onClick={() => setEditForm(f => ({ ...f, revenueMode: mode }))}
+                                  className={cn(
+                                    'flex-1 py-2 px-3 text-xs font-semibold rounded-lg border transition-colors',
+                                    editForm.revenueMode === mode
+                                      ? 'border-brand-500 bg-brand-50 text-brand-700'
+                                      : 'border-slate-200 text-slate-500 hover:bg-slate-50',
+                                  )}
+                                >
+                                  {mode === 'principal'
+                                    ? (isAr ? 'أصيل — إيراد كامل' : 'Principal — Full Revenue')
+                                    : (isAr ? 'وكيل — عمولة فقط' : 'Agent — Fee Only')}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
                           <div className="flex items-center justify-end gap-2">
                             <Button variant="secondary" size="sm" onClick={() => setEditingId(null)}>
                               {isAr ? 'إلغاء' : 'Cancel'}
@@ -1660,9 +1663,19 @@ export default function SettingsPage() {
                           </div>
                           <div className="flex-1 min-w-0">
                             <p className="text-sm font-medium text-slate-900">{ct.nameAr}</p>
-                            {ct.nameEn && (
-                              <p className="text-xs text-slate-400">{ct.nameEn}</p>
-                            )}
+                            <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
+                              {ct.nameEn && <p className="text-xs text-slate-400">{ct.nameEn}</p>}
+                              <span className={cn(
+                                'text-[10px] font-bold px-1.5 py-0.5 rounded-full',
+                                (ct.revenueMode ?? 'principal') === 'agent'
+                                  ? 'bg-amber-50 text-amber-700'
+                                  : 'bg-brand-50 text-brand-700',
+                              )}>
+                                {(ct.revenueMode ?? 'principal') === 'agent'
+                                  ? (isAr ? 'وكيل' : 'Agent')
+                                  : (isAr ? 'أصيل' : 'Principal')}
+                              </span>
+                            </div>
                           </div>
                           <ToggleSwitch
                             checked={ct.isActive}
@@ -1672,7 +1685,7 @@ export default function SettingsPage() {
                           <button
                             onClick={() => {
                               setEditingId(ct.id);
-                              setEditForm({ nameAr: ct.nameAr, nameEn: ct.nameEn, icon: ct.icon, color: ct.color });
+                              setEditForm({ nameAr: ct.nameAr, nameEn: ct.nameEn, icon: ct.icon, color: ct.color, revenueMode: ct.revenueMode ?? 'principal' });
                             }}
                             className="p-1.5 rounded-lg text-slate-400 hover:text-brand-600 hover:bg-brand-50 transition-colors"
                           >
@@ -1855,50 +1868,36 @@ export default function SettingsPage() {
 
           {/* ── Billing ──────────────────────────────────────────────────── */}
           {activeTab === 'billing' && (() => {
-            const displayPlan = resolveDisplayPlan(subPlan, subStatus);
-            const isTrial = subStatus === 'trial';
-            const isActive = subStatus === 'active' || subStatus === 'lifetime';
-            const isPaidPlan = PAID_PLAN_KEYS.has(subPlan) && isActive;
+            const isTrial    = subStatus === 'trial';
+            const isLifetime = subStatus === 'lifetime';
+            const isBlocked  = ['expired', 'suspended', 'past_due', 'cancelled'].includes(subStatus);
 
-            // Status badge
             const statusBadge = (() => {
               if (subStatus === 'trial')     return <Badge variant="info">{isAr ? 'تجريبي' : 'Trial'}</Badge>;
               if (subStatus === 'active')    return <Badge variant="success">{isAr ? 'نشط' : 'Active'}</Badge>;
               if (subStatus === 'lifetime')  return <Badge variant="success">{isAr ? 'مدى الحياة' : 'Lifetime'}</Badge>;
+              if (subStatus === 'suspended') return <Badge variant="warning">{isAr ? 'موقوف' : 'Suspended'}</Badge>;
+              if (subStatus === 'expired')   return <Badge variant="danger">{isAr ? 'منتهي' : 'Expired'}</Badge>;
               if (subStatus === 'past_due')  return <Badge variant="warning">{isAr ? 'متأخر' : 'Past Due'}</Badge>;
               if (subStatus === 'cancelled') return <Badge variant="danger">{isAr ? 'ملغى' : 'Cancelled'}</Badge>;
               return null;
             })();
 
-            // Current plan display name
-            const currentPlanDef = PLANS.find(p => p.key === displayPlan);
-            const currentPlanName = isTrial
-              ? (isAr ? 'تجريبي' : 'Trial')
-              : (currentPlanDef ? (isAr ? currentPlanDef.ar : currentPlanDef.en) : (isAr ? 'مجاني' : 'Free'));
-
-            // Status line
             const statusLine = (() => {
               if (isTrial && daysRemaining !== null) {
                 return isAr
                   ? `متبقي ${daysRemaining} ${daysRemaining === 1 ? 'يوم' : 'أيام'} على انتهاء الفترة التجريبية`
                   : `${daysRemaining} day${daysRemaining === 1 ? '' : 's'} left in free trial`;
               }
-              if (subStatus === 'lifetime') return isAr ? 'اشتراك مدى الحياة — لا تنتهي صلاحيته' : 'Lifetime subscription — never expires';
-              if (isActive) return isAr ? 'اشتراك نشط — يُجدَّد بالتواصل مع فريق المبيعات' : 'Active — renewed via sales team';
-              return isAr ? 'يرجى التواصل مع فريق المبيعات' : 'Contact our sales team';
+              if (isLifetime)  return isAr ? 'اشتراك مدى الحياة — لا تنتهي صلاحيته' : 'Lifetime subscription — never expires';
+              if (subStatus === 'active')  return isAr ? 'اشتراك نشط' : 'Active subscription';
+              if (isBlocked)   return isAr ? 'تواصل مع فريق المبيعات لتفعيل اشتراكك' : 'Contact our sales team to activate your subscription';
+              return '';
             })();
 
-            // Usage limits for current plan
-            const userLimit = (isPaidPlan && displayPlan === 'professional') || displayPlan === 'lifetime' ? null : 3;
-            const bookingLimit = (isPaidPlan && displayPlan === 'professional') || displayPlan === 'lifetime' ? null : 500;
-
-            // WhatsApp message helper
-            function waUrl(planAr: string) {
-              const msg = subAgencyName
-                ? `مرحباً فريق مسارات، أرغب في ترقية اشتراك وكالتي (${subAgencyName}) إلى باقة ${planAr}.`
-                : `مرحباً فريق مسارات، أرغب في الاشتراك في باقة ${planAr}.`;
-              return `https://wa.me/${WA_NUMBER}?text=${encodeURIComponent(msg)}`;
-            }
+            const waMsg = subAgencyName
+              ? `مرحباً فريق مسارات، أرغب في تفعيل اشتراك وكالتي (${subAgencyName}).`
+              : 'مرحباً فريق مسارات، أرغب في تفعيل اشتراكي.';
 
             return (
               <div className="space-y-6">
@@ -1906,24 +1905,19 @@ export default function SettingsPage() {
                 {/* ── Current status ─────────────────────────────────────── */}
                 <Card>
                   <CardHeader>
-                    <CardTitle>{isAr ? 'اشتراكك الحالي' : 'Your Current Plan'}</CardTitle>
+                    <CardTitle>{isAr ? 'حالة الاشتراك' : 'Subscription Status'}</CardTitle>
                   </CardHeader>
                   <div className="flex items-start gap-4 flex-wrap">
-                    {/* Plan name + status */}
                     <div className="flex-1 min-w-[180px]">
                       <div className="flex items-center gap-2 flex-wrap mb-1">
-                        <span className="text-2xl font-bold text-slate-900">{currentPlanName}</span>
                         {statusBadge}
                       </div>
-                      <p className="text-sm text-slate-500">{statusLine}</p>
+                      {statusLine && <p className="text-sm text-slate-500 mt-1">{statusLine}</p>}
                     </div>
-                    {/* Trial countdown */}
                     {isTrial && daysRemaining !== null && (
                       <div className={cn(
                         'rounded-xl px-5 py-3 text-center flex-shrink-0',
-                        daysRemaining <= 3
-                          ? 'bg-red-50 border border-red-200'
-                          : 'bg-amber-50 border border-amber-200',
+                        daysRemaining <= 3 ? 'bg-red-50 border border-red-200' : 'bg-amber-50 border border-amber-200',
                       )}>
                         <p className={cn('text-3xl font-bold', daysRemaining <= 3 ? 'text-red-600' : 'text-amber-600')}>{daysRemaining}</p>
                         <p className={cn('text-xs mt-0.5', daysRemaining <= 3 ? 'text-red-500' : 'text-amber-500')}>
@@ -1933,162 +1927,42 @@ export default function SettingsPage() {
                     )}
                   </div>
 
-                  {/* Usage meters */}
-                  {(usersCount !== null || bookingsCount !== null) && (
-                    <div className="mt-5 pt-5 border-t border-surface-border grid grid-cols-2 gap-4">
-                      {/* Users */}
-                      <div>
-                        <div className="flex items-center justify-between mb-1.5">
-                          <span className="text-xs font-medium text-slate-600">{isAr ? 'المستخدمون' : 'Users'}</span>
-                          <span className="text-xs text-slate-500">
-                            {usersCount ?? '…'} {userLimit !== null ? `/ ${userLimit}` : (isAr ? '(غير محدود)' : '(unlimited)')}
-                          </span>
-                        </div>
-                        {userLimit !== null ? (
-                          <div className="h-1.5 rounded-full bg-slate-100 overflow-hidden">
-                            <div
-                              className={cn('h-full rounded-full transition-all', (usersCount ?? 0) >= userLimit ? 'bg-red-500' : 'bg-emerald-500')}
-                              style={{ width: `${Math.min(100, ((usersCount ?? 0) / userLimit) * 100)}%` }}
-                            />
-                          </div>
-                        ) : (
-                          <div className="h-1.5 rounded-full bg-emerald-100">
-                            <div className="h-full w-full rounded-full bg-emerald-400 opacity-40" />
-                          </div>
-                        )}
+                  {/* Users usage meter */}
+                  {usersCount !== null && (
+                    <div className="mt-5 pt-5 border-t border-surface-border">
+                      <div className="flex items-center justify-between mb-1.5">
+                        <span className="text-xs font-medium text-slate-600">{isAr ? 'المستخدمون' : 'Users'}</span>
+                        <span className="text-xs text-slate-500">
+                          {usersCount} / {maxUsers}
+                          {usersCount >= maxUsers
+                            ? <span className="text-red-500 font-semibold"> ({isAr ? 'ممتلئ' : 'Full'})</span>
+                            : <span className="text-slate-400"> ({maxUsers - usersCount} {isAr ? 'متبقي' : 'remaining'})</span>
+                          }
+                        </span>
                       </div>
-                      {/* Bookings */}
-                      <div>
-                        <div className="flex items-center justify-between mb-1.5">
-                          <span className="text-xs font-medium text-slate-600">{isAr ? 'الحجوزات' : 'Bookings'}</span>
-                          <span className="text-xs text-slate-500">
-                            {bookingsCount ?? '…'} {bookingLimit !== null ? `/ ${bookingLimit}` : (isAr ? '(غير محدود)' : '(unlimited)')}
-                          </span>
-                        </div>
-                        {bookingLimit !== null ? (
-                          <div className="h-1.5 rounded-full bg-slate-100 overflow-hidden">
-                            <div
-                              className={cn('h-full rounded-full transition-all', (bookingsCount ?? 0) >= bookingLimit ? 'bg-red-500' : 'bg-brand-500')}
-                              style={{ width: `${Math.min(100, ((bookingsCount ?? 0) / bookingLimit) * 100)}%` }}
-                            />
-                          </div>
-                        ) : (
-                          <div className="h-1.5 rounded-full bg-brand-100">
-                            <div className="h-full w-full rounded-full bg-brand-400 opacity-40" />
-                          </div>
-                        )}
+                      <div className="h-1.5 rounded-full bg-slate-100 overflow-hidden">
+                        <div
+                          className={cn('h-full rounded-full transition-all', usersCount >= maxUsers ? 'bg-red-500' : 'bg-emerald-500')}
+                          style={{ width: `${Math.min(100, (usersCount / maxUsers) * 100)}%` }}
+                        />
                       </div>
                     </div>
                   )}
-                </Card>
 
-                {/* ── Pricing plans ──────────────────────────────────────── */}
-                <div>
-                  <h3 className="text-sm font-semibold text-slate-700 mb-3">
-                    {isAr ? 'خطط الاشتراك' : 'Subscription Plans'}
-                  </h3>
-                  <div className="grid gap-4 sm:grid-cols-3">
-                    {PLANS.map(plan => {
-                      const isCurrent = displayPlan === plan.key && isPaidPlan;
-                      const feats = isAr ? plan.features.ar : plan.features.en;
-                      const name = isAr ? plan.ar : plan.en;
-
-                      return (
-                        <div
-                          key={plan.key}
-                          className={cn(
-                            'relative rounded-2xl border p-5 flex flex-col',
-                            plan.highlighted
-                              ? 'border-brand-400 bg-gradient-to-b from-brand-50 to-white shadow-md'
-                              : 'border-surface-border bg-white',
-                          )}
-                        >
-                          {/* Badge */}
-                          {plan.badge && (
-                            <div className={cn(
-                              'absolute -top-3 left-1/2 -translate-x-1/2 px-3 py-0.5 rounded-full text-xs font-bold whitespace-nowrap',
-                              plan.highlighted ? 'bg-brand-600 text-white' : 'bg-slate-700 text-white',
-                            )}>
-                              {isAr ? plan.badge.ar : plan.badge.en}
-                            </div>
-                          )}
-
-                          {/* Plan name + current indicator */}
-                          <div className="mb-3">
-                            <div className="flex items-center gap-2">
-                              <span className="font-bold text-slate-900">{name}</span>
-                              {isCurrent && (
-                                <span className="text-[10px] bg-emerald-100 text-emerald-700 font-semibold px-2 py-0.5 rounded-full">
-                                  {isAr ? 'خطتك الحالية' : 'Current'}
-                                </span>
-                              )}
-                            </div>
-                          </div>
-
-                          {/* Billing type */}
-                          <div className="mb-4">
-                            <span className="text-sm text-slate-500">{isAr ? plan.billing.ar : plan.billing.en}</span>
-                          </div>
-
-                          {/* Features */}
-                          <ul className="space-y-2 mb-5 flex-1">
-                            {feats.map(f => (
-                              <li key={f} className="flex items-start gap-2 text-xs text-slate-700">
-                                <CheckCircle2 size={13} className="text-emerald-500 flex-shrink-0 mt-0.5" />
-                                {f}
-                              </li>
-                            ))}
-                          </ul>
-
-                          {/* CTA */}
-                          {isCurrent ? (
-                            <div className="flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
-                              <CheckCircle2 size={14} />
-                              {isAr ? 'خطتك الحالية' : 'Your current plan'}
-                            </div>
-                          ) : (
-                            <a
-                              href={waUrl(isAr ? plan.ar : plan.en)}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className={cn(
-                                'flex items-center justify-center gap-2 py-2.5 rounded-xl text-xs font-bold transition-colors',
-                                plan.highlighted
-                                  ? 'bg-brand-600 hover:bg-brand-700 text-white'
-                                  : 'bg-slate-800 hover:bg-slate-900 text-white',
-                              )}
-                            >
-                              <MessageCircle size={14} />
-                              {isAr ? 'تواصل للاشتراك' : 'Contact to Subscribe'}
-                            </a>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
-                  <p className="text-xs text-slate-400 mt-3 text-center">
-                    {isAr
-                      ? 'تواصل معنا عبر واتساب للاستفسار عن الاشتراكات'
-                      : 'Contact us via WhatsApp for subscription details'}
-                  </p>
-                </div>
-
-                {/* ── Billing history ────────────────────────────────────── */}
-                <Card>
-                  <CardHeader>
-                    <CardTitle>{isAr ? 'سجل الفواتير' : 'Billing History'}</CardTitle>
-                  </CardHeader>
-                  <div className="text-center py-8">
-                    <CreditCard size={36} className="text-slate-200 mx-auto mb-3" />
-                    <p className="text-sm text-slate-500">
-                      {isAr ? 'لا توجد فواتير سابقة' : 'No billing history yet'}
-                    </p>
-                    <p className="text-xs text-slate-400 mt-1">
-                      {isAr
-                        ? 'ستظهر هنا فواتير اشتراكك'
-                        : 'Your subscription invoices will appear here'}
-                    </p>
-                  </div>
+                  {/* Contact CTA for blocked/trial */}
+                  {(isBlocked || isTrial) && (
+                    <div className="mt-5 pt-5 border-t border-surface-border">
+                      <a
+                        href={`https://wa.me/${WA_NUMBER}?text=${encodeURIComponent(waMsg)}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-bold transition-colors"
+                      >
+                        <MessageCircle size={16} />
+                        {isAr ? 'تواصل لتفعيل اشتراكك' : 'Activate Your Subscription'}
+                      </a>
+                    </div>
+                  )}
                 </Card>
 
                 {/* ── Database setup ─────────────────────────────────────── */}
@@ -2169,10 +2043,22 @@ export default function SettingsPage() {
                           className="w-full text-sm border border-slate-200 rounded-lg px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-brand-400"
                         >
                           <option value="amadeus">Amadeus</option>
-                          <option value="sabre">Sabre</option>
-                          <option value="galileo">Galileo</option>
-                          <option value="worldspan">Worldspan</option>
+                          <option value="sabre">Sabre (قريباً)</option>
+                          <option value="galileo">Galileo (قريباً)</option>
+                          <option value="worldspan">Worldspan (قريباً)</option>
                         </select>
+                      </div>
+                    )}
+
+                    {/* Coming-soon notice for providers not yet integrated */}
+                    {providerForm.providerCode !== 'amadeus' && (
+                      <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+                        <AlertTriangle size={16} className="mt-0.5 flex-shrink-0 text-amber-500" />
+                        <span>
+                          {isAr
+                            ? `${providerForm.providerCode.toUpperCase()} قيد التطوير — التكامل الكامل مع هذا المزود غير متاح بعد. المزود المدعوم حالياً هو Amadeus فقط.`
+                            : `${providerForm.providerCode.toUpperCase()} is not yet integrated — full GDS connectivity is under development. Only Amadeus is currently supported.`}
+                        </span>
                       </div>
                     )}
 

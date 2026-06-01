@@ -1,17 +1,28 @@
 'use client';
 
-import { createContext, useContext, useState, useEffect, type ReactNode } from 'react';
+import { createContext, useContext, useState, useEffect, useCallback, type ReactNode } from 'react';
 import { useAuth } from '@masarat/firebase';
-import { planCanAccess, type FeatureKey } from '@/lib/plan-features';
+import type { FeatureKey } from '@/lib/plan-features';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-export type SubscriptionStatus = 'trial' | 'active' | 'lifetime' | 'past_due' | 'cancelled' | 'loading';
+export type SubscriptionStatus =
+  | 'trial'
+  | 'active'
+  | 'lifetime'
+  | 'suspended'
+  | 'expired'
+  | 'past_due'      // legacy alias → treated as expired
+  | 'cancelled'     // legacy alias → treated as expired
+  | 'loading';
+
+interface FeatureOverride { featureKey: string; overrideType: string; }
 
 interface SubscriptionContextValue {
   status:        SubscriptionStatus;
   plan:          string;
   agencyName:    string;
+  maxUsers:      number;
   daysRemaining: number | null;
   isExpired:     boolean;
   isLifetime:    boolean;
@@ -23,6 +34,7 @@ const SubscriptionContext = createContext<SubscriptionContextValue>({
   status:        'loading',
   plan:          '',
   agencyName:    '',
+  maxUsers:      5,
   daysRemaining: null,
   isExpired:     false,
   isLifetime:    false,
@@ -34,6 +46,10 @@ export function useSubscription() {
   return useContext(SubscriptionContext);
 }
 
+// ─── Blocked statuses ─────────────────────────────────────────────────────────
+
+const BLOCKED = new Set<SubscriptionStatus>(['expired', 'suspended', 'past_due', 'cancelled']);
+
 // ─── Provider ─────────────────────────────────────────────────────────────────
 
 const SUPER_ADMIN_EMAIL = process.env['NEXT_PUBLIC_SUPER_ADMIN_EMAIL'] ?? '';
@@ -43,75 +59,100 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
   const [status,        setStatus]        = useState<SubscriptionStatus>('loading');
   const [plan,          setPlan]          = useState('');
   const [agencyName,    setAgencyName]    = useState('');
+  const [maxUsers,      setMaxUsers]      = useState(5);
   const [daysRemaining, setDaysRemaining] = useState<number | null>(null);
   const [isLoading,     setIsLoading]     = useState(true);
+  const [revokedSet,    setRevokedSet]    = useState<Set<string>>(new Set());
 
-  const isSuperAdmin = user?.email === process.env['NEXT_PUBLIC_SUPER_ADMIN_EMAIL'];
+  const isSuperAdmin = user?.email === SUPER_ADMIN_EMAIL;
 
-  useEffect(() => {
-    // Wait for Firebase Auth to resolve before making any access decision.
-    // Without this guard the effect fires with user=null, sets isLoading=false
-    // immediately, and UpgradeGate briefly flashes the "upgrade" screen.
-    if (authLoading) return;
+  const load = useCallback(async (agencyId: string) => {
+    setIsLoading(true);
+    try {
+      const { apiFetch } = await import('@/lib/api-client');
 
-    if (isSuperAdmin) { setStatus('active'); setPlan('super_admin'); setIsLoading(false); return; }
+      const [settingsData, featuresData] = await Promise.allSettled([
+        apiFetch<{
+          agency: {
+            subscriptionStatus: string;
+            plan: string;
+            nameAr: string;
+            nameEn?: string;
+            trialEndDate?: string;
+            maxUsers?: number;
+          }
+        }>('/api/settings'),
+        apiFetch<{ overrides: FeatureOverride[] }>('/api/agencies/my-features'),
+      ]);
 
-    const agencyId = user?.agencyId as string | undefined;
-    if (!agencyId) { setIsLoading(false); return; }
-
-    setIsLoading(true);   // reset while fetching — prevents stale state between user switches
-    let cancelled = false;
-
-    async function load() {
-      try {
-        const { apiFetch } = await import('@/lib/api-client');
-        const data = await apiFetch<{ agency: { subscriptionStatus: string; plan: string; nameAr: string; nameEn?: string; trialEndDate?: string } }>('/api/settings');
-        if (cancelled) return;
-        const { agency } = data;
-        const sub = (agency.subscriptionStatus ?? 'active') as SubscriptionStatus;
+      if (settingsData.status === 'fulfilled') {
+        const { agency } = settingsData.value;
         setAgencyName(agency.nameAr ?? agency.nameEn ?? '');
         setPlan(agency.plan ?? '');
+        setMaxUsers(agency.maxUsers ?? 5);
 
-        // Compute trial days from trialEndDate regardless of subscriptionStatus.
-        // If the trial window is still open, treat the session as 'trial' so all
-        // features remain accessible even when the stored plan is 'starter'.
+        const rawStatus = (agency.subscriptionStatus ?? 'trial') as SubscriptionStatus;
+
+        // Compute trial days remaining
         const trialDaysLeft = agency.trialEndDate
           ? Math.ceil((new Date(agency.trialEndDate).getTime() - Date.now()) / 86_400_000)
           : null;
-        const stillInTrial = trialDaysLeft !== null && trialDaysLeft > 0
-          && sub !== 'cancelled' && sub !== 'past_due';
-        setStatus(stillInTrial ? 'trial' : sub);
-        setDaysRemaining(trialDaysLeft !== null ? Math.max(0, trialDaysLeft) : null);
-      } catch {
-        // On network / token errors: default to full trial access.
-        // plan='trial' ensures canAccess() grants rank-10 (all features unlocked).
-        if (!cancelled) { setStatus('trial'); setPlan('trial'); setDaysRemaining(null); }
-      } finally {
-        if (!cancelled) setIsLoading(false);
-      }
-    }
 
-    void load();
-    return () => { cancelled = true; };
-  }, [user?.agencyId, isSuperAdmin, authLoading]);
+        // Resolve effective status
+        let effective: SubscriptionStatus = rawStatus;
+        if (rawStatus === 'trial' && trialDaysLeft !== null && trialDaysLeft <= 0) {
+          effective = 'expired';
+        } else if (rawStatus === 'trial' && trialDaysLeft !== null && trialDaysLeft > 0) {
+          effective = 'trial';
+        }
+
+        setStatus(effective);
+        setDaysRemaining(trialDaysLeft !== null ? Math.max(0, trialDaysLeft) : null);
+      } else {
+        // On error default to trial (fail open — avoids locking out on network issues)
+        setStatus('trial');
+      }
+
+      if (featuresData.status === 'fulfilled') {
+        const revoked = new Set(
+          (featuresData.value.overrides ?? [])
+            .filter(o => o.overrideType === 'revoke')
+            .map(o => o.featureKey)
+        );
+        setRevokedSet(revoked);
+      }
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (authLoading) return;
+    if (isSuperAdmin) {
+      setStatus('active'); setPlan('super_admin'); setIsLoading(false);
+      return;
+    }
+    const agencyId = user?.agencyId as string | undefined;
+    if (!agencyId) { setIsLoading(false); return; }
+    void load(agencyId);
+  }, [user?.agencyId, isSuperAdmin, authLoading, load]);
 
   const isLifetime = status === 'lifetime';
+  const isExpired  = !isSuperAdmin && !isLifetime && BLOCKED.has(status);
 
-  const isExpired = !isSuperAdmin && !isLifetime && (
-    (status === 'trial'  && daysRemaining !== null && daysRemaining <= 0) ||
-    status === 'past_due' ||
-    status === 'cancelled'
-  );
-
-  // Optimistic while loading; super-admin and trial always pass
   function canAccess(feature: FeatureKey): boolean {
     if (isLoading || isSuperAdmin) return true;
-    if (status === 'trial' || plan === 'trial' || plan === 'lifetime') return true;
-    return planCanAccess(plan, feature);
+    if (isExpired) return false;
+    // Admin-disabled feature for this agency
+    if (revokedSet.has(feature)) return false;
+    return true;
   }
 
   return (
-    <SubscriptionContext.Provider value={{ status, plan, agencyName, daysRemaining, isExpired, isLifetime, isLoading, canAccess }}>
+    <SubscriptionContext.Provider value={{
+      status, plan, agencyName, maxUsers, daysRemaining,
+      isExpired, isLifetime, isLoading, canAccess,
+    }}>
       {children}
     </SubscriptionContext.Provider>
   );

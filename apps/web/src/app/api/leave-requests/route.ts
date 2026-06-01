@@ -2,7 +2,8 @@ import { NextResponse } from 'next/server';
 import { eq, and, desc } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { leaveRequests, employees } from '@/lib/schema';
-import { verifyAuth, ApiAuthError } from '@/lib/api-auth';
+import { verifyAuth, ApiAuthError, BusinessError } from '@/lib/api-auth';
+import { requireFeature } from '@/lib/feature-access';
 
 const VALID_TYPES   = new Set(['annual', 'sick', 'unpaid']);
 const VALID_STATUSES = new Set(['pending', 'approved', 'rejected']);
@@ -10,6 +11,7 @@ const VALID_STATUSES = new Set(['pending', 'approved', 'rejected']);
 export async function GET(request: Request) {
   try {
     const { agencyId } = await verifyAuth(request);
+    await requireFeature(agencyId, 'leave_management', db);
     const url        = new URL(request.url);
     const employeeId = url.searchParams.get('employeeId') ?? undefined;
     const status     = url.searchParams.get('status')     ?? undefined;

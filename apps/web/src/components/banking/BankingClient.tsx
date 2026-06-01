@@ -11,7 +11,7 @@ import { cn } from '@/lib/utils';
 import {
   Landmark, Plus, X, TrendingUp, TrendingDown, ArrowLeftRight,
   Wallet, RefreshCw, CheckCircle2, AlertCircle, Search,
-  ChevronDown, CreditCard, Building2, DollarSign,
+  ChevronDown, CreditCard, Building2, DollarSign, Trash2, EyeOff,
 } from 'lucide-react';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -106,9 +106,10 @@ function maskAccount(acc: string) {
 
 // ─── Account Card ─────────────────────────────────────────────────────────────
 
-function AccountCard({ acc, isAr, fmtLocale, selected, onSelect }: {
+function AccountCard({ acc, isAr, fmtLocale, selected, onSelect, onDelete, onDeactivate }: {
   acc: BankAccount & { id: string }; isAr: boolean; fmtLocale: string;
   selected: boolean; onSelect: () => void;
+  onDelete: () => void; onDeactivate: () => void;
 }) {
   const meta = ACCOUNT_TYPE_META[acc.type];
   const Icon = meta.icon;
@@ -116,12 +117,12 @@ function AccountCard({ acc, isAr, fmtLocale, selected, onSelect }: {
   const reconDiff = acc.reconciledBalance != null ? acc.balanceHalalas - acc.reconciledBalance : null;
 
   return (
-    <button
-      onClick={onSelect}
+    <div
       className={cn(
-        'w-full text-start rounded-2xl overflow-hidden border-2 transition-all duration-200 shadow-sm hover:shadow-md',
+        'w-full text-start rounded-2xl overflow-hidden border-2 transition-all duration-200 shadow-sm hover:shadow-md cursor-pointer',
         selected ? 'border-brand-500 shadow-brand-100' : 'border-transparent hover:border-slate-200',
       )}
+      onClick={onSelect}
     >
       {/* Gradient header */}
       <div className={`bg-gradient-to-br ${meta.gradient} p-5 text-white`}>
@@ -157,8 +158,27 @@ function AccountCard({ acc, isAr, fmtLocale, selected, onSelect }: {
             )}
           </div>
         )}
+        {/* Action buttons */}
+        <div className="flex items-center gap-1.5 mt-3 pt-2 border-t border-slate-100">
+          <button
+            onClick={e => { e.stopPropagation(); onDeactivate(); }}
+            className="flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-medium text-slate-500 hover:bg-slate-100 transition-colors"
+            title={isAr ? (acc.isActive ? 'تعطيل الحساب' : 'تفعيل الحساب') : (acc.isActive ? 'Deactivate' : 'Activate')}
+          >
+            <EyeOff size={11} />
+            {isAr ? (acc.isActive ? 'تعطيل' : 'تفعيل') : (acc.isActive ? 'Deactivate' : 'Activate')}
+          </button>
+          <button
+            onClick={e => { e.stopPropagation(); onDelete(); }}
+            className="flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-medium text-red-500 hover:bg-red-50 transition-colors ms-auto"
+            title={isAr ? 'حذف الحساب' : 'Delete account'}
+          >
+            <Trash2 size={11} />
+            {isAr ? 'حذف' : 'Delete'}
+          </button>
+        </div>
       </div>
-    </button>
+    </div>
   );
 }
 
@@ -370,17 +390,17 @@ export function BankingClient({ locale }: BankingClientProps) {
   const [search, setSearch]           = useState('');
   const [txFilter, setTxFilter]       = useState<TxType | 'all'>('all');
   const [tick, setTick]               = useState(0);
+  const [deleteTarget, setDeleteTarget] = useState<(BankAccount & { id: string }) | null>(null);
+  const [deleteErr,    setDeleteErr]    = useState('');
+  const [deleteBusy,   setDeleteBusy]   = useState(false);
 
   const agencyId = user?.agencyId ?? '';
 
   useEffect(() => {
     if (!agencyId) {
-      // Load demo data for preview
-      const demoAccs = DEMO_ACCOUNTS.map((a, i) => ({ ...a, id: `acc-${i + 1}`, agencyId: 'demo' }));
-      const demoTxsData = DEMO_TXS.map((t, i) => ({ ...t, id: `tx-${i + 1}`, agencyId: 'demo' }));
-      setAccounts(demoAccs);
-      setTxs(demoTxsData);
-      setSelectedId(demoAccs[0]?.id ?? null);
+      // No agency context yet — show empty state, never show demo data to real users
+      setAccounts([]);
+      setTxs([]);
       setLoading(false);
       return;
     }
@@ -419,6 +439,43 @@ export function BankingClient({ locale }: BankingClientProps) {
       }),
     });
     setTick(t => t + 1);
+  }
+
+  async function handleDeleteAccount(acc: BankAccount & { id: string }) {
+    if (!agencyId) {
+      setAccounts(prev => prev.filter(a => a.id !== acc.id));
+      setDeleteTarget(null);
+      return;
+    }
+    setDeleteBusy(true);
+    setDeleteErr('');
+    try {
+      await apiFetch(`/api/banking/accounts/${acc.id}`, { method: 'DELETE' });
+      setAccounts(prev => prev.filter(a => a.id !== acc.id));
+      if (selectedId === acc.id) setSelectedId(null);
+      setDeleteTarget(null);
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : (isAr ? 'حدث خطأ' : 'An error occurred');
+      setDeleteErr(msg);
+    } finally {
+      setDeleteBusy(false);
+    }
+  }
+
+  async function handleDeactivateAccount(acc: BankAccount & { id: string }) {
+    if (!agencyId) {
+      setAccounts(prev => prev.map(a => a.id === acc.id ? { ...a, isActive: !a.isActive } : a));
+      return;
+    }
+    try {
+      await apiFetch(`/api/banking/accounts/${acc.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ isActive: !acc.isActive }),
+      });
+      setTick(t => t + 1);
+    } catch {
+      // keep previous state on error
+    }
   }
 
   async function handleTransfer(fromId: string, toId: string, amountH: number, desc: string) {
@@ -528,6 +585,8 @@ export function BankingClient({ locale }: BankingClientProps) {
             <AccountCard
               key={acc.id} acc={acc} isAr={isAr} fmtLocale={fmtLocale}
               selected={selectedId === acc.id} onSelect={() => setSelectedId(acc.id)}
+              onDelete={() => { setDeleteTarget(acc); setDeleteErr(''); }}
+              onDeactivate={() => handleDeactivateAccount(acc)}
             />
           ))}
           {accounts.length === 0 && (
@@ -657,6 +716,69 @@ export function BankingClient({ locale }: BankingClientProps) {
       )}
       {showTransfer && (
         <TransferModal accounts={accounts} isAr={isAr} fmtLocale={fmtLocale} onClose={() => setShowTransfer(false)} onTransfer={handleTransfer} />
+      )}
+
+      {/* Delete Account Confirmation Modal */}
+      {deleteTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-6 space-y-5">
+            <div className="flex items-start gap-3">
+              <div className="w-10 h-10 rounded-full bg-red-100 flex items-center justify-center flex-shrink-0">
+                <Trash2 size={20} className="text-red-600" />
+              </div>
+              <div>
+                <h3 className="font-bold text-slate-900 text-lg">{isAr ? 'حذف الحساب' : 'Delete Account'}</h3>
+                <p className="text-sm text-slate-500 mt-0.5">{isAr ? deleteTarget.nameAr : deleteTarget.nameEn}</p>
+              </div>
+            </div>
+
+            <p className="text-sm text-slate-600">
+              {isAr
+                ? 'سيتم حذف هذا الحساب نهائياً مع قيد الرصيد الافتتاحي. هذا الإجراء لا يمكن التراجع عنه.'
+                : 'This account and its opening balance journal entry will be permanently deleted. This cannot be undone.'}
+            </p>
+            <p className="text-xs text-slate-500 bg-slate-50 rounded-lg p-2">
+              {isAr
+                ? 'ملاحظة: الحسابات التي لها معاملات لا يمكن حذفها — يمكنك تعطيلها بدلاً من ذلك.'
+                : 'Note: Accounts with transactions cannot be deleted — you can deactivate them instead.'}
+            </p>
+
+            {deleteErr && (
+              <div className="flex items-center gap-2 rounded-lg bg-red-50 border border-red-200 px-3 py-2 text-sm text-red-700">
+                <AlertCircle size={15} className="flex-shrink-0" />
+                {deleteErr}
+                {deleteErr.includes('تعطيل') || deleteErr.includes('deactivate') ? (
+                  <button
+                    onClick={() => { handleDeactivateAccount(deleteTarget); setDeleteTarget(null); setDeleteErr(''); }}
+                    className="ms-auto text-xs underline text-brand-600 whitespace-nowrap"
+                  >
+                    {isAr ? 'تعطيل بدلاً من ذلك' : 'Deactivate instead'}
+                  </button>
+                ) : null}
+              </div>
+            )}
+
+            <div className="flex gap-3">
+              <button
+                onClick={() => { setDeleteTarget(null); setDeleteErr(''); }}
+                disabled={deleteBusy}
+                className="flex-1 px-4 py-2.5 rounded-lg border border-slate-200 text-sm font-medium text-slate-700 hover:bg-slate-50 transition-colors disabled:opacity-50"
+              >
+                {isAr ? 'رجوع' : 'Cancel'}
+              </button>
+              <button
+                disabled={deleteBusy}
+                onClick={() => handleDeleteAccount(deleteTarget)}
+                className="flex-1 px-4 py-2.5 rounded-lg bg-red-600 text-white text-sm font-medium hover:bg-red-700 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+              >
+                {deleteBusy
+                  ? <span className="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin" />
+                  : <Trash2 size={15} />}
+                {isAr ? 'حذف نهائياً' : 'Delete Permanently'}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

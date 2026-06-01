@@ -2,18 +2,20 @@ import { NextResponse } from 'next/server';
 import { eq } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { bankAccounts, journalEntries, journalLines } from '@/lib/schema';
-import { verifyAuth, ApiAuthError } from '@/lib/api-auth';
+import { verifyAuth, assertRole, ApiAuthError, ROLES_ACCOUNTANT_UP } from '@/lib/api-auth';
 import { getNextJournalNumber } from '@/lib/invoice-counter';
+import { GL } from '@/lib/gl-accounts';
 
 // Map bank account type to default GL code
 function glCodeForType(type: string): { code: string; ar: string; en: string } {
-  if (type === 'cash' || type === 'petty_cash') return { code: '1100', ar: 'النقدية', en: 'Cash' };
-  return { code: '1110', ar: 'البنك', en: 'Bank' };
+  if (type === 'cash' || type === 'petty_cash') return GL.cash;
+  return GL.bank;
 }
 
 export async function GET(request: Request) {
   try {
-    const { agencyId } = await verifyAuth(request);
+    const { agencyId, role } = await verifyAuth(request);
+    assertRole(role, [...ROLES_ACCOUNTANT_UP]);
     const rows = await db.select().from(bankAccounts).where(eq(bankAccounts.agencyId, agencyId));
     return NextResponse.json({ accounts: rows });
   } catch (err) {
@@ -69,8 +71,8 @@ export async function POST(request: Request) {
         });
 
         await tx.insert(journalLines).values([
-          { id: crypto.randomUUID(), entryId: jeId, agencyId, accountCode: glAc.code,  accountNameAr: glAc.ar,         accountNameEn: glAc.en,          debitHalalas: opening, creditHalalas: 0,       sortOrder: 1 },
-          { id: crypto.randomUUID(), entryId: jeId, agencyId, accountCode: '3100',     accountNameAr: 'رأس مال المالك', accountNameEn: 'Owner Capital',  debitHalalas: 0,       creditHalalas: opening, sortOrder: 2 },
+          { id: crypto.randomUUID(), entryId: jeId, agencyId, accountCode: glAc.code,           accountNameAr: glAc.ar,              accountNameEn: glAc.en,              debitHalalas: opening, creditHalalas: 0,       sortOrder: 1 },
+          { id: crypto.randomUUID(), entryId: jeId, agencyId, accountCode: GL.ownerCapital.code, accountNameAr: GL.ownerCapital.ar, accountNameEn: GL.ownerCapital.en, debitHalalas: 0,       creditHalalas: opening, sortOrder: 2 },
         ]);
       }
     });

@@ -1,46 +1,125 @@
 /**
- * Plan rank table.
- * Higher rank = more features.
- * trial & lifetime get everything (rank 10).
+ * Feature catalogue for Masarat ERP.
+ *
+ * Single-plan model: every agency receives ALL features.
+ * The only per-agency differences are:
+ *   • maxUsers  — seat limit set by the system admin
+ *   • subscriptionStatus — trial / active / suspended / expired / lifetime
+ *   • per-agency feature overrides (admin can disable any section per agency)
+ *
+ * FEATURE_LABEL is used by the admin features panel and the sidebar.
  */
-export const PLAN_RANK: Record<string, number> = {
-  '':           0,
-  starter:      1,
-  professional: 2,
-  lifetime:    10,
-  trial:       10,   // trial period = all features
-  super_admin: 10,
+
+// ─── Feature catalogue ────────────────────────────────────────────────────────
+
+export const ALL_FEATURES = [
+  // Core (always shown)
+  'dashboard',
+  'settings',
+  'help',
+  // Operations
+  'bookings',
+  'quotes',
+  'customers',
+  'suppliers',
+  'pnr',
+  'tickets',
+  'providers',
+  // Finance
+  'invoices',
+  'payments',
+  'receipt_vouchers',
+  'supplier_payments',
+  'cheques',
+  'banking',
+  'accounting',
+  'journal_entries',
+  'chart_of_accounts',
+  'financial_reports',
+  'vat',
+  'reports',
+  'audit_logs',
+  // HR
+  'employees',
+  'hr',
+  'payroll',
+  'attendance',
+  'leave_management',
+  'contracts',
+  'advanced_permissions',
+  'api_access',
+] as const;
+
+export type FeatureKey = typeof ALL_FEATURES[number];
+
+// ─── Human-readable labels ────────────────────────────────────────────────────
+
+export const FEATURE_LABEL: Record<FeatureKey, { ar: string; en: string }> = {
+  dashboard:            { ar: 'لوحة التحكم',           en: 'Dashboard' },
+  settings:             { ar: 'الإعدادات',              en: 'Settings' },
+  help:                 { ar: 'المساعدة',               en: 'Help' },
+  bookings:             { ar: 'الحجوزات',               en: 'Bookings' },
+  quotes:               { ar: 'عروض الأسعار',           en: 'Quotations' },
+  customers:            { ar: 'العملاء',                en: 'Customers' },
+  suppliers:            { ar: 'الموردين',               en: 'Suppliers' },
+  pnr:                  { ar: 'سجلات PNR',              en: 'PNR Records' },
+  tickets:              { ar: 'التذاكر',                en: 'Tickets' },
+  providers:            { ar: 'مزودو السفر (GDS)',      en: 'GDS Providers' },
+  invoices:             { ar: 'الفواتير',               en: 'Invoices' },
+  payments:             { ar: 'المدفوعات',              en: 'Payments' },
+  receipt_vouchers:     { ar: 'سندات القبض',            en: 'Receipt Vouchers' },
+  supplier_payments:    { ar: 'سندات الصرف',            en: 'Payment Vouchers' },
+  cheques:              { ar: 'الشيكات',                en: 'Cheques' },
+  banking:              { ar: 'البنوك والصناديق',       en: 'Banks & Cash' },
+  accounting:           { ar: 'المحاسبة',               en: 'Accounting' },
+  journal_entries:      { ar: 'القيود المحاسبية',       en: 'Journal Entries' },
+  chart_of_accounts:    { ar: 'دليل الحسابات',          en: 'Chart of Accounts' },
+  financial_reports:    { ar: 'التقارير المالية',       en: 'Financial Reports' },
+  vat:                  { ar: 'ضريبة القيمة المضافة',   en: 'VAT / ZATCA' },
+  reports:              { ar: 'التقارير',               en: 'Reports' },
+  audit_logs:           { ar: 'سجل المراجعة',           en: 'Audit Log' },
+  employees:            { ar: 'إدارة الموظفين',         en: 'Employees' },
+  hr:                   { ar: 'الموارد البشرية',        en: 'Human Resources' },
+  payroll:              { ar: 'الرواتب',                en: 'Payroll' },
+  attendance:           { ar: 'الحضور والانصراف',       en: 'Attendance' },
+  leave_management:     { ar: 'الإجازات',               en: 'Leave Management' },
+  contracts:            { ar: 'العقود',                 en: 'Contracts' },
+  advanced_permissions: { ar: 'الصلاحيات المتقدمة',    en: 'Advanced Permissions' },
+  api_access:           { ar: 'وصول API',               en: 'API Access' },
 };
 
-/**
- * Minimum plan rank each feature requires.
- * rank 1 = starter+   rank 2 = professional+
- */
-export const FEATURE_MIN_RANK = {
-  // ── Starter tier (all paid plans) ──────────────────────────────────────────
-  dashboard:         1,
-  bookings:          1,
-  customers:         1,
-  suppliers:         1,
-  invoices:          1,
-  quotes:            1,
-  payments:          1,
-  settings:          1,
-  help:              1,
+// ─── Feature groups for admin UI ──────────────────────────────────────────────
 
-  // ── Professional tier ──────────────────────────────────────────────────────
-  receipt_vouchers:  2,
-  supplier_payments: 2,
-  cheques:           2,
-  banking:           2,
-  accounting:        2,
-  employees:         2,
-  reports:           2,
-} as const;
+export const FEATURE_GROUPS: { key: string; ar: string; en: string; features: FeatureKey[] }[] = [
+  {
+    key: 'core',
+    ar: 'أساسي',
+    en: 'Core',
+    features: ['dashboard', 'settings', 'help'],
+  },
+  {
+    key: 'operations',
+    ar: 'العمليات',
+    en: 'Operations',
+    features: ['bookings', 'quotes', 'customers', 'suppliers', 'pnr', 'tickets', 'providers'],
+  },
+  {
+    key: 'finance',
+    ar: 'المالية',
+    en: 'Finance',
+    features: ['invoices', 'payments', 'receipt_vouchers', 'supplier_payments', 'cheques', 'banking', 'accounting', 'journal_entries', 'chart_of_accounts', 'financial_reports', 'vat', 'reports', 'audit_logs'],
+  },
+  {
+    key: 'hr',
+    ar: 'الموارد البشرية',
+    en: 'Human Resources',
+    features: ['employees', 'hr', 'payroll', 'attendance', 'leave_management', 'contracts', 'advanced_permissions', 'api_access'],
+  },
+];
 
-export type FeatureKey = keyof typeof FEATURE_MIN_RANK;
+// ─── Backward-compat stub (keeps old imports working) ─────────────────────────
 
-/** Returns true if the given plan string can access the requested feature. */
-export function planCanAccess(plan: string, feature: FeatureKey): boolean {
-  return (PLAN_RANK[plan] ?? 0) >= FEATURE_MIN_RANK[feature];
+/** @deprecated Plan tiers removed. All features available to all agencies. */
+export function planCanAccess(_plan: string, _feature: FeatureKey): boolean {
+  return true;
 }
