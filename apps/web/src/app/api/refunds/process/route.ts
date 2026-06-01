@@ -5,6 +5,8 @@ import { invoices, bookings, payments, journalEntries, journalLines, idempotency
 import { verifyAuth, assertRole, ApiAuthError, BusinessError, ROLES_ACCOUNTANT_UP } from '@/lib/api-auth';
 import { withIdempotency, buildIdempotencyInsert } from '@/lib/idempotency';
 import { getNextInvoiceNumber, getNextJournalNumber } from '@/lib/invoice-counter';
+import { assertPeriodOpen } from '@/lib/period-lock';
+import { GL } from '@/lib/gl-accounts';
 
 interface RefundBody {
   bookingId:              string;
@@ -21,6 +23,9 @@ const AC = {
   revenueAgent:     { code: '4000', ar: 'إيراد رسوم الوكالة',            en: 'Revenue - Agency Fees' },
   revenuePrincipal: { code: '4100', ar: 'إيراد خدمات السفر',             en: 'Revenue - Travel Services' },
   cancellationFee:  { code: '4000', ar: 'إيراد رسوم الإلغاء',            en: 'Cancellation Fee Revenue' },
+  // Reversing the original purchase posting (Dr 5000 / Cr 2000 booked at invoice time)
+  payableSupplier:  GL.payableSupplier,   // 2000 — Dr to reverse the original AP credit
+  costOfServices:   GL.costOfServices,    // 5000 — Cr to reverse the original COGS debit
 };
 
 export async function POST(request: Request) {
@@ -94,6 +99,9 @@ export async function POST(request: Request) {
         const refundPaymentId  = crypto.randomUUID();
         const today            = now.toISOString().split('T')[0]!;
 
+        // Block posting into a closed accounting period.
+        await assertPeriodOpen(agencyId, today, tx);
+
         // ── 5. Build journal lines (reversal + cancellation fee) ────────────
         type JLine = { code: string; ar: string; en: string; dr: number; cr: number };
         const jLines: JLine[] = refundVat > 0
@@ -116,6 +124,19 @@ export async function POST(request: Request) {
           if (cancelFeeVat > 0) {
             jLines.push({ ...AC.vatPayable, dr: 0, cr: cancelFeeVat });
           }
+        }
+
+        // ── Reverse the original COGS + AP for the refunded portion ─────────
+        // The original invoice booked the cost as Dr 5000 (COGS) / Cr 2000 (AP).
+        // A refund returns the customer's money AND unwinds the agency's
+        // obligation to the supplier, so we reverse the cost proportionally:
+        //   Dr 2000 Accounts Payable   (cancel the payable we no longer owe)
+        //      Cr 5000 Cost of Services (remove the cost we no longer incur)
+        // This pair is self-balancing and does not affect the cash/revenue legs.
+        const refundCost = Math.round((booking.costPriceHalalas ?? 0) * refundRatio);
+        if (refundCost > 0) {
+          jLines.push({ ...AC.payableSupplier, dr: refundCost, cr: 0 });
+          jLines.push({ ...AC.costOfServices,  dr: 0, cr: refundCost });
         }
 
         // ── 6. Write ────────────────────────────────────────────────────────
