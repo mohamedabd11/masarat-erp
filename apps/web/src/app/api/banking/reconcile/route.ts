@@ -20,9 +20,10 @@
 import { NextResponse } from 'next/server';
 import { eq, and, inArray, gte, lte } from 'drizzle-orm';
 import { db } from '@/lib/db';
-import { bankAccounts, bankTransactions } from '@/lib/schema';
+import { bankAccounts, bankTransactions, journalEntries, journalLines } from '@/lib/schema';
 import { verifyAuth, assertRole, ApiAuthError, BusinessError, ROLES_ACCOUNTANT_UP } from '@/lib/api-auth';
 import { logAudit } from '@/lib/audit';
+import { getNextJournalNumber } from '@/lib/invoice-counter';
 
 // ─── GET: list transactions eligible for reconciliation ──────────────────────
 
@@ -143,7 +144,66 @@ export async function POST(request: Request) {
 
       const discrepancy = account.currentBalanceHalalas - statementBalanceHalalas;
 
-      return { reconciledCount: validIds.length, discrepancyHalalas: discrepancy };
+      // If there is a discrepancy, create a journal entry to adjust the book balance
+      let discrepancyEntryId: string | undefined;
+      if (Math.abs(discrepancy) >= 1) {
+        const absDiscrepancy = Math.abs(discrepancy);
+        const isShortage     = discrepancy > 0; // book > statement → shortage/expense
+        discrepancyEntryId   = crypto.randomUUID();
+        const entryNumber    = await getNextJournalNumber(agencyId, new Date(statementDate).getFullYear(), tx);
+
+        await tx.insert(journalEntries).values({
+          id:              discrepancyEntryId,
+          agencyId,
+          entryNumber,
+          date:            statementDate,
+          descriptionAr:   `فروق مطابقة بنكية — ${account.nameAr} ${statementDate}`,
+          descriptionEn:   `Bank reconciliation discrepancy — ${account.nameAr} ${statementDate}`,
+          reference:       `RECON-${statementDate}`,
+          source:          'manual',
+          sourceId:        bankAccountId,
+          isPosted:        true,
+          totalDebitHalalas:  absDiscrepancy,
+          totalCreditHalalas: absDiscrepancy,
+          createdBy:       uid,
+        });
+
+        // Shortage (book > statement): DR Bank Discrepancy Expense (5510) / CR Bank (1100)
+        // Surplus  (statement > book): DR Bank (1100) / CR Bank Discrepancy Income (4510)
+        await tx.insert(journalLines).values([
+          {
+            id:             crypto.randomUUID(),
+            entryId:        discrepancyEntryId,
+            agencyId,
+            accountCode:    isShortage ? '5510' : '1100',
+            accountNameAr:  isShortage ? 'فروق مطابقة بنكية (عجز)' : 'نقدية وبنوك',
+            accountNameEn:  isShortage ? 'Bank Reconciliation Shortage' : 'Cash & Banks',
+            debitHalalas:   absDiscrepancy,
+            creditHalalas:  0,
+            description:    `RECON ${statementDate} ${account.nameAr}`,
+            sortOrder:      1,
+          },
+          {
+            id:             crypto.randomUUID(),
+            entryId:        discrepancyEntryId,
+            agencyId,
+            accountCode:    isShortage ? '1100' : '4510',
+            accountNameAr:  isShortage ? 'نقدية وبنوك' : 'فروق مطابقة بنكية (فائض)',
+            accountNameEn:  isShortage ? 'Cash & Banks' : 'Bank Reconciliation Surplus',
+            debitHalalas:   0,
+            creditHalalas:  absDiscrepancy,
+            description:    `RECON ${statementDate} ${account.nameAr}`,
+            sortOrder:      2,
+          },
+        ]);
+
+        // Adjust the book balance to match the statement
+        await tx.update(bankAccounts)
+          .set({ currentBalanceHalalas: statementBalanceHalalas })
+          .where(eq(bankAccounts.id, bankAccountId));
+      }
+
+      return { reconciledCount: validIds.length, discrepancyHalalas: discrepancy, discrepancyEntryId };
     });
 
     await logAudit({

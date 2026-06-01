@@ -138,7 +138,7 @@ export async function POST(request: Request) {
 
     for (const adj of adjustments) {
       const entryId     = crypto.randomUUID();
-      const entryNumber = await getNextJournalNumber(agencyId, db);
+      const entryNumber = await getNextJournalNumber(agencyId, new Date(revalDate).getFullYear());
       const isGain      = adj.gainLossSar > 0;
       const absAmount   = Math.abs(adj.gainLossSar);
 

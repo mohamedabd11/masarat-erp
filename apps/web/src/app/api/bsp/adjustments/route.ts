@@ -66,7 +66,7 @@ export async function POST(request: Request) {
     }
 
     const id          = crypto.randomUUID();
-    const entryNumber = await getNextJournalNumber(agencyId, db);
+    const entryNumber = await getNextJournalNumber(agencyId, new Date(body.issueDate).getFullYear());
     const entryId     = crypto.randomUUID();
     const isADM       = body.type === 'ADM';
 
