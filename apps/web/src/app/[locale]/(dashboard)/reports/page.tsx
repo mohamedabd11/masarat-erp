@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useMemo, type ReactNode } from 'react';
+import { useState, useEffect, useMemo, type ReactNode } from 'react';
 import { useLocale } from 'next-intl';
 import { useAuth } from '@masarat/firebase';
 import { Card } from '@/components/ui/Card';
