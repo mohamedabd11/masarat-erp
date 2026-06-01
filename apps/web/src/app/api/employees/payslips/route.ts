@@ -6,6 +6,7 @@ import { verifyAuth, assertRole, ApiAuthError, BusinessError, ROLES_ADMIN_ONLY }
 import { requireFeature } from '@/lib/feature-access';
 import { logAudit } from '@/lib/audit';
 import { getNextJournalNumber } from '@/lib/invoice-counter';
+import { assertPeriodOpen } from '@/lib/period-lock';
 import { GL } from '@/lib/gl-accounts';
 
 export async function GET(request: Request) {
@@ -131,6 +132,9 @@ export async function POST(request: Request) {
     }
 
     await db.transaction(async (tx) => {
+      // Block posting the payroll journal into a closed accounting period.
+      await assertPeriodOpen(agencyId, today, tx);
+
       await tx.insert(payslips).values({
         id,
         agencyId,
