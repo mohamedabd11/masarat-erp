@@ -5,6 +5,7 @@ import { DashboardStats } from '@/components/dashboard/DashboardStats';
 import { DashboardRecentBookings } from '@/components/dashboard/DashboardRecentBookings';
 import { DashboardCharts } from '@/components/dashboard/DashboardCharts';
 import { OnboardingBanner } from '@/components/dashboard/OnboardingBanner';
+import { VatThresholdBanner } from '@/components/dashboard/VatThresholdBanner';
 import {
   Plane, Building2, Moon, Stamp, Shield, Package,
   Car, Anchor, Layers, Users, TrendingUp, FileText,
@@ -53,6 +54,9 @@ export default async function DashboardPage({ params }: { params: { locale: stri
 
       {/* Onboarding banner — shown only when agency profile is incomplete */}
       <OnboardingBanner />
+
+      {/* VAT threshold warning — shown only when approaching/exceeding threshold */}
+      <VatThresholdBanner />
 
       {/* KPI Stats */}
       <DashboardStats locale={locale} />

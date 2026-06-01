@@ -1374,9 +1374,280 @@ function SupplierProfitabilityTab({ isAr, fmtLocale }: { isAr: boolean; fmtLocal
   );
 }
 
+// ─── Cash Flow Tab ────────────────────────────────────────────────────────────
+
+interface CfAdjustment { labelAr: string; labelEn: string; amount: number }
+interface CfLine       { code: string; nameAr: string; nameEn: string; amount: number }
+
+interface CashFlowData {
+  period:   { from: string; to: string };
+  operating: { netIncome: number; adjustments: CfAdjustment[]; total: number };
+  investing: { lines: CfLine[]; total: number };
+  financing: { lines: CfLine[]; total: number };
+  netCashChange:     number;
+  cashAndBankChange: number;
+  isReconciled:      boolean;
+}
+
+function CashFlowTab({ isAr, fmtLocale }: { isAr: boolean; fmtLocale: string }) {
+  const currentYear = new Date().getFullYear();
+  const [from, setFrom] = useState(`${currentYear}-01-01`);
+  const [to,   setTo]   = useState(`${currentYear}-12-31`);
+  const [data,    setData]    = useState<CashFlowData | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [err,     setErr]     = useState('');
+
+  function load() {
+    setLoading(true);
+    setErr('');
+    fetch(`/api/reports/cash-flow?from=${from}&to=${to}`)
+      .then(r => r.json())
+      .then((d: CashFlowData) => setData(d))
+      .catch(() => setErr(isAr ? 'تعذّر تحميل البيانات' : 'Failed to load data'))
+      .finally(() => setLoading(false));
+  }
+
+  useEffect(() => { load(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  function SectionHeader({ title, total, color }: { title: string; total: number; color: string }) {
+    return (
+      <div className={`flex items-center justify-between px-5 py-3 ${color} border-b`}>
+        <h3 className="text-sm font-bold text-slate-700 uppercase tracking-wide">{title}</h3>
+        <span className={`text-base font-black tabular-nums ${total >= 0 ? 'text-emerald-700' : 'text-red-600'}`}>
+          {total < 0 ? '(' : ''}{formatCurrency(Math.abs(total), fmtLocale)}{total < 0 ? ')' : ''}
+        </span>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-5">
+      {/* Date range controls */}
+      <Card padding="sm">
+        <div className="flex flex-wrap items-end gap-3">
+          <div>
+            <label className="text-xs font-medium text-slate-600 block mb-1">{isAr ? 'من' : 'From'}</label>
+            <input type="date" value={from} onChange={e => setFrom(e.target.value)}
+              className="rounded-lg border border-slate-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
+          </div>
+          <div>
+            <label className="text-xs font-medium text-slate-600 block mb-1">{isAr ? 'إلى' : 'To'}</label>
+            <input type="date" value={to} onChange={e => setTo(e.target.value)}
+              className="rounded-lg border border-slate-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
+          </div>
+          <button onClick={load} disabled={loading}
+            className="px-4 py-2 rounded-lg bg-brand-600 text-white text-sm font-medium hover:bg-brand-700 transition-colors disabled:opacity-50">
+            {loading ? '...' : (isAr ? 'تحديث' : 'Refresh')}
+          </button>
+        </div>
+      </Card>
+
+      {err && <Card><p className="text-red-600 text-sm py-4 text-center">{err}</p></Card>}
+      {loading && <LoadingPane />}
+
+      {!loading && data && (
+        <div className="space-y-4">
+          {/* Operating */}
+          <Card padding="none" className="overflow-hidden">
+            <SectionHeader
+              title={isAr ? 'أ. التدفقات النقدية من الأنشطة التشغيلية' : 'A. Cash Flows from Operating Activities'}
+              total={data.operating.total} color="bg-brand-50" />
+            <div className="divide-y divide-slate-100">
+              <div className="flex justify-between px-5 py-3 text-sm">
+                <span className="text-slate-700 font-medium">{isAr ? 'صافي الدخل' : 'Net Income'}</span>
+                <span className={`tabular-nums font-bold ${data.operating.netIncome >= 0 ? 'text-emerald-700' : 'text-red-600'}`}>
+                  {formatCurrency(data.operating.netIncome, fmtLocale)}
+                </span>
+              </div>
+              {data.operating.adjustments.filter(a => a.amount !== 0).map((a, i) => (
+                <div key={i} className="flex justify-between px-5 py-2.5 text-sm">
+                  <span className="text-slate-600">{isAr ? a.labelAr : a.labelEn}</span>
+                  <span className={`tabular-nums ${a.amount >= 0 ? 'text-slate-700' : 'text-red-500'}`}>
+                    {a.amount >= 0 ? '+' : ''}{formatCurrency(a.amount, fmtLocale)}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </Card>
+
+          {/* Investing */}
+          <Card padding="none" className="overflow-hidden">
+            <SectionHeader
+              title={isAr ? 'ب. التدفقات النقدية من الأنشطة الاستثمارية' : 'B. Cash Flows from Investing Activities'}
+              total={data.investing.total} color="bg-amber-50" />
+            {data.investing.lines.length === 0
+              ? <p className="px-5 py-4 text-sm text-slate-400">{isAr ? 'لا توجد حركات استثمارية' : 'No investing activity'}</p>
+              : <div className="divide-y divide-slate-100">
+                  {data.investing.lines.map((l, i) => (
+                    <div key={i} className="flex justify-between px-5 py-2.5 text-sm">
+                      <span className="text-slate-600">{isAr ? l.nameAr : l.nameEn} <span className="text-slate-400 text-xs">{l.code}</span></span>
+                      <span className={`tabular-nums ${l.amount >= 0 ? 'text-slate-700' : 'text-red-500'}`}>
+                        {l.amount >= 0 ? '+' : ''}{formatCurrency(l.amount, fmtLocale)}
+                      </span>
+                    </div>
+                  ))}
+                </div>}
+          </Card>
+
+          {/* Financing */}
+          <Card padding="none" className="overflow-hidden">
+            <SectionHeader
+              title={isAr ? 'ج. التدفقات النقدية من الأنشطة التمويلية' : 'C. Cash Flows from Financing Activities'}
+              total={data.financing.total} color="bg-purple-50" />
+            {data.financing.lines.length === 0
+              ? <p className="px-5 py-4 text-sm text-slate-400">{isAr ? 'لا توجد حركات تمويلية' : 'No financing activity'}</p>
+              : <div className="divide-y divide-slate-100">
+                  {data.financing.lines.map((l, i) => (
+                    <div key={i} className="flex justify-between px-5 py-2.5 text-sm">
+                      <span className="text-slate-600">{isAr ? l.nameAr : l.nameEn} <span className="text-slate-400 text-xs">{l.code}</span></span>
+                      <span className={`tabular-nums ${l.amount >= 0 ? 'text-slate-700' : 'text-red-500'}`}>
+                        {l.amount >= 0 ? '+' : ''}{formatCurrency(l.amount, fmtLocale)}
+                      </span>
+                    </div>
+                  ))}
+                </div>}
+          </Card>
+
+          {/* Net change */}
+          <Card className={`border-2 ${data.isReconciled ? 'border-emerald-300 bg-emerald-50' : 'border-amber-300 bg-amber-50'}`}>
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-xs font-bold uppercase tracking-widest text-slate-500 mb-0.5">
+                  {isAr ? 'صافي التغير في النقدية' : 'Net Change in Cash'}
+                </p>
+                <p className="text-xs text-slate-400">
+                  {data.isReconciled
+                    ? (isAr ? 'متوازن — يطابق حركة النقدية الفعلية' : 'Balanced — matches actual cash movement')
+                    : (isAr ? 'فرق صغير بسبب تقريب أو قيود غير مصنفة' : 'Minor difference due to rounding or unclassified entries')}
+                </p>
+              </div>
+              <p className={`text-2xl font-black tabular-nums ${data.netCashChange >= 0 ? 'text-emerald-700' : 'text-red-600'}`}>
+                {data.netCashChange < 0 ? '(' : ''}{formatCurrency(Math.abs(data.netCashChange), fmtLocale)}{data.netCashChange < 0 ? ')' : ''}
+              </p>
+            </div>
+          </Card>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Supplier Aging Tab ───────────────────────────────────────────────────────
+
+interface SupplierAgingRow {
+  supplierId:   string;
+  supplierName: string;
+  supplierType: string;
+  current:      number;
+  days31_60:    number;
+  days61_90:    number;
+  days91plus:   number;
+  total:        number;
+}
+
+interface AgingTotals {
+  current:    number;
+  days31_60:  number;
+  days61_90:  number;
+  days91plus: number;
+  total:      number;
+}
+
+function SupplierAgingTab({ isAr, fmtLocale }: { isAr: boolean; fmtLocale: string }) {
+  const today   = new Date().toISOString().slice(0, 10);
+  const [asOf,    setAsOf]    = useState(today);
+  const [rows,    setRows]    = useState<SupplierAgingRow[]>([]);
+  const [totals,  setTotals]  = useState<AgingTotals | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [err,     setErr]     = useState('');
+
+  function load() {
+    setLoading(true);
+    setErr('');
+    fetch(`/api/reports/supplier-aging?asOf=${asOf}`)
+      .then(r => r.json())
+      .then((d: { rows: SupplierAgingRow[]; totals: AgingTotals }) => {
+        setRows(d.rows ?? []);
+        setTotals(d.totals ?? null);
+      })
+      .catch(() => setErr(isAr ? 'تعذّر تحميل البيانات' : 'Failed to load data'))
+      .finally(() => setLoading(false));
+  }
+
+  useEffect(() => { load(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  return (
+    <div className="space-y-5">
+      <Card padding="sm">
+        <div className="flex items-end gap-3">
+          <div>
+            <label className="text-xs font-medium text-slate-600 block mb-1">{isAr ? 'كما في تاريخ' : 'As of Date'}</label>
+            <input type="date" value={asOf} onChange={e => setAsOf(e.target.value)}
+              className="rounded-lg border border-slate-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
+          </div>
+          <button onClick={load} disabled={loading}
+            className="px-4 py-2 rounded-lg bg-brand-600 text-white text-sm font-medium hover:bg-brand-700 transition-colors disabled:opacity-50">
+            {isAr ? 'تحديث' : 'Refresh'}
+          </button>
+        </div>
+      </Card>
+
+      {err    && <Card><p className="text-red-600 text-sm py-4 text-center">{err}</p></Card>}
+      {loading && <LoadingPane />}
+
+      {!loading && rows.length === 0 && !err && (
+        <Card><p className="text-sm text-slate-400 text-center py-10">{isAr ? 'لا توجد ذمم دائنة مستحقة' : 'No outstanding AP balances'}</p></Card>
+      )}
+
+      {!loading && rows.length > 0 && (
+        <Card>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-slate-100 text-[11px] font-bold uppercase tracking-wide text-slate-400">
+                  <th className="py-3 pe-4 text-start">{isAr ? 'المورد' : 'Supplier'}</th>
+                  <th className="py-3 px-3 text-end">{isAr ? 'جاري (0-30)' : 'Current (0-30d)'}</th>
+                  <th className="py-3 px-3 text-end">{isAr ? '31-60 يوم' : '31-60 days'}</th>
+                  <th className="py-3 px-3 text-end">{isAr ? '61-90 يوم' : '61-90 days'}</th>
+                  <th className="py-3 px-3 text-end">{isAr ? '+90 يوم' : '90+ days'}</th>
+                  <th className="py-3 ps-3 text-end">{isAr ? 'الإجمالي' : 'Total'}</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-50">
+                {rows.map(r => (
+                  <tr key={r.supplierId} className="hover:bg-slate-50/50 transition-colors">
+                    <td className="py-3 pe-4 font-medium text-slate-800">{r.supplierName}</td>
+                    <td className="py-3 px-3 text-end text-slate-700 tabular-nums">{r.current > 0 ? formatCurrency(r.current, fmtLocale) : '—'}</td>
+                    <td className="py-3 px-3 text-end tabular-nums">{r.days31_60  > 0 ? <span className="text-amber-600 font-medium">{formatCurrency(r.days31_60,  fmtLocale)}</span> : '—'}</td>
+                    <td className="py-3 px-3 text-end tabular-nums">{r.days61_90  > 0 ? <span className="text-orange-600 font-medium">{formatCurrency(r.days61_90,  fmtLocale)}</span> : '—'}</td>
+                    <td className="py-3 px-3 text-end tabular-nums">{r.days91plus > 0 ? <span className="text-red-600 font-bold">{formatCurrency(r.days91plus, fmtLocale)}</span> : '—'}</td>
+                    <td className="py-3 ps-3 text-end font-bold text-slate-900 tabular-nums">{formatCurrency(r.total, fmtLocale)}</td>
+                  </tr>
+                ))}
+              </tbody>
+              {totals && (
+                <tfoot>
+                  <tr className="border-t-2 border-slate-200 bg-slate-50 font-bold">
+                    <td className="py-3 pe-4 text-slate-800">{isAr ? 'الإجمالي' : 'Total'}</td>
+                    <td className="py-3 px-3 text-end text-slate-700 tabular-nums">{formatCurrency(totals.current,    fmtLocale)}</td>
+                    <td className="py-3 px-3 text-end text-amber-600 tabular-nums">{formatCurrency(totals.days31_60,  fmtLocale)}</td>
+                    <td className="py-3 px-3 text-end text-orange-600 tabular-nums">{formatCurrency(totals.days61_90,  fmtLocale)}</td>
+                    <td className="py-3 px-3 text-end text-red-600 tabular-nums">{formatCurrency(totals.days91plus, fmtLocale)}</td>
+                    <td className="py-3 ps-3 text-end text-slate-900 tabular-nums">{formatCurrency(totals.total,      fmtLocale)}</td>
+                  </tr>
+                </tfoot>
+              )}
+            </table>
+          </div>
+        </Card>
+      )}
+    </div>
+  );
+}
+
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
-type TabId = 'overview' | 'trial' | 'pl' | 'ar' | 'vat' | 'bs' | 'profit' | 'booking-profit' | 'supplier-profit';
+type TabId = 'overview' | 'trial' | 'pl' | 'ar' | 'ap' | 'vat' | 'bs' | 'profit' | 'booking-profit' | 'supplier-profit' | 'cashflow';
 
 export default function ReportsPage() {
   const locale    = useLocale();
@@ -1440,6 +1711,8 @@ export default function ReportsPage() {
     { id: 'profit',          labelAr: 'تحليل الربحية',       labelEn: 'Profitability',         icon: <PieChart   size={16} /> },
     { id: 'booking-profit',  labelAr: 'ربحية الحجوزات',      labelEn: 'Booking Profitability', icon: <TrendingUp size={16} /> },
     { id: 'supplier-profit', labelAr: 'ربحية الموردين',      labelEn: 'Supplier Profitability',icon: <Building2  size={16} /> },
+    { id: 'ap',              labelAr: 'ذمم الموردين (عمر)',   labelEn: 'AP Aging',              icon: <Receipt    size={16} /> },
+    { id: 'cashflow',        labelAr: 'التدفق النقدي',        labelEn: 'Cash Flow',             icon: <Wallet     size={16} /> },
     { id: 'vat',             labelAr: 'الإقرار الضريبي',     labelEn: 'VAT Return',            icon: <Stamp      size={16} />, badge: 'ZATCA' },
   ];
 
@@ -1545,6 +1818,12 @@ export default function ReportsPage() {
         )}
         {activeTab === 'supplier-profit' && (
           <SupplierProfitabilityTab isAr={isAr} fmtLocale={fmtLocale} />
+        )}
+        {activeTab === 'ap' && (
+          <SupplierAgingTab isAr={isAr} fmtLocale={fmtLocale} />
+        )}
+        {activeTab === 'cashflow' && (
+          <CashFlowTab isAr={isAr} fmtLocale={fmtLocale} />
         )}
         {activeTab === 'vat' && (
           <VATReturnTab vatInvoices={vatInvoices} loadingVat={loadingReports}
