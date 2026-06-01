@@ -56,6 +56,9 @@ export async function POST(request: Request) {
         );
         if (!invoice) throw new BusinessError(`الفاتورة ${originalInvoiceId} غير موجودة`, 404);
         if (invoice.status === 'cancelled') throw new BusinessError('الفاتورة ملغاة بالفعل', 400);
+        // Prevent double refunds — atomic check inside the transaction complements
+        // the idempotency-key guard against distinct keys targeting the same invoice.
+        if (invoice.status === 'refunded') throw new BusinessError('تم استرداد هذه الفاتورة بالفعل', 409);
 
         const [booking] = await tx.select().from(bookings).where(
           and(eq(bookings.id, bookingId), eq(bookings.agencyId, agencyId)),
