@@ -11,7 +11,7 @@ import { cn } from '@/lib/utils';
 import {
   ArrowRight, ArrowLeft, Printer, Building2, User,
   CalendarDays, Hash, ShieldCheck, Receipt, CheckCircle2,
-  FileX, AlertTriangle,
+  FileX, AlertTriangle, RotateCcw,
 } from 'lucide-react';
 import { ProcessPaymentModal } from '@/components/bookings/ProcessPaymentModal';
 
@@ -98,6 +98,11 @@ export function InvoiceDetailClient({ locale, invoiceId }: InvoiceDetailClientPr
   const [showCancel,     setShowCancel]     = useState(false);
   const [cancelErr,      setCancelErr]      = useState('');
   const [cancelBusy,     setCancelBusy]     = useState(false);
+  const [showRefund,     setShowRefund]     = useState(false);
+  const [refundErr,      setRefundErr]      = useState('');
+  const [refundBusy,     setRefundBusy]     = useState(false);
+  const [refundAmount,   setRefundAmount]   = useState('');
+  const [cancelFee,      setCancelFee]      = useState('0');
 
   const BackIcon = isAr ? ArrowRight : ArrowLeft;
 
@@ -225,8 +230,19 @@ export function InvoiceDetailClient({ locale, invoiceId }: InvoiceDetailClientPr
               {isAr ? 'إلغاء الفاتورة' : 'Cancel Invoice'}
             </button>
           )}
-          {/* Credit Note — only for tax invoices (380) that are not cancelled */}
-          {invoice.type === '380' && invoice.status !== 'cancelled' && (
+          {/* Refund — for any invoice with paid amount */}
+          {!isCreditNote && invoice.status !== 'cancelled' && amountPaid > 0 && (
+            <button
+              onClick={() => { setRefundAmount((amountPaid / 100).toFixed(2)); setCancelFee('0'); setShowRefund(true); }}
+              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-purple-200
+                         text-sm font-medium text-purple-600 hover:bg-purple-50 transition-colors"
+            >
+              <RotateCcw size={15} />
+              {isAr ? 'استرداد' : 'Refund'}
+            </button>
+          )}
+          {/* Credit Note — for any non-cancelled invoice (not just type 380) */}
+          {!isCreditNote && invoice.status !== 'cancelled' && (
             <button
               onClick={() => setShowCreditNote(true)}
               className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-red-200
@@ -779,6 +795,150 @@ export function InvoiceDetailClient({ locale, invoiceId }: InvoiceDetailClientPr
                   ? <span className="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin" />
                   : <AlertTriangle size={15} />}
                 {isAr ? 'تأكيد الإلغاء' : 'Confirm Cancel'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Refund Modal ───────────────────────────────────────────────────────── */}
+      {showRefund && invoice && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6 space-y-5">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-full bg-purple-100 flex items-center justify-center flex-shrink-0">
+                <RotateCcw size={20} className="text-purple-600" />
+              </div>
+              <div>
+                <h2 className="font-bold text-slate-800 text-lg">
+                  {isAr ? 'استرداد مبلغ' : 'Process Refund'}
+                </h2>
+                <p className="text-xs text-slate-500">
+                  {isAr ? `للفاتورة رقم: ${invoice.invoiceNumber}` : `Invoice: ${invoice.invoiceNumber}`}
+                </p>
+              </div>
+            </div>
+
+            <div className="bg-slate-50 rounded-xl p-4 text-sm space-y-1">
+              <div className="flex justify-between">
+                <span className="text-slate-500">{isAr ? 'المبلغ المدفوع' : 'Amount Paid'}</span>
+                <span className="font-semibold text-slate-800">{formatCurrency(amountPaid, fmtLocale)}</span>
+              </div>
+            </div>
+
+            <div className="space-y-4">
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium text-slate-700">
+                  {isAr ? 'مبلغ الاسترداد (ر.س)' : 'Refund Amount (SAR)'}
+                  <span className="text-red-500 ms-1">*</span>
+                </label>
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={refundAmount}
+                  onChange={e => setRefundAmount(e.target.value)}
+                  className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm
+                             focus:outline-none focus:ring-2 focus:ring-purple-500"
+                  dir="ltr"
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium text-slate-700">
+                  {isAr ? 'رسوم الإلغاء (ر.س) — اختياري' : 'Cancellation Fee (SAR) — optional'}
+                </label>
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={cancelFee}
+                  onChange={e => setCancelFee(e.target.value)}
+                  className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm
+                             focus:outline-none focus:ring-2 focus:ring-purple-500"
+                  dir="ltr"
+                />
+                <p className="text-xs text-slate-400">
+                  {isAr
+                    ? 'رسوم تُقتطع من المبلغ المدفوع وتُسجَّل كإيراد رسوم إلغاء'
+                    : 'Fee withheld from paid amount, recorded as cancellation fee revenue'}
+                </p>
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium text-slate-700">
+                  {isAr ? 'سبب الاسترداد' : 'Reason'}
+                  <span className="text-red-500 ms-1">*</span>
+                </label>
+                <textarea
+                  id="refund-reason"
+                  rows={3}
+                  placeholder={isAr ? 'أدخل سبب الاسترداد...' : 'Enter refund reason...'}
+                  className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm
+                             focus:outline-none focus:ring-2 focus:ring-purple-500 resize-none"
+                />
+              </div>
+            </div>
+
+            {refundErr && (
+              <div className="flex items-center gap-2 rounded-lg bg-red-50 border border-red-200 px-3 py-2 text-sm text-red-700">
+                <AlertTriangle size={15} className="flex-shrink-0" />
+                {refundErr}
+              </div>
+            )}
+
+            <div className="flex gap-3">
+              <button
+                onClick={() => { setShowRefund(false); setRefundErr(''); }}
+                disabled={refundBusy}
+                className="flex-1 px-4 py-2.5 rounded-lg border border-slate-200 text-sm font-medium
+                           text-slate-700 hover:bg-slate-50 transition-colors disabled:opacity-50"
+              >
+                {isAr ? 'إلغاء' : 'Cancel'}
+              </button>
+              <button
+                disabled={refundBusy}
+                onClick={async () => {
+                  const reason = (document.getElementById('refund-reason') as HTMLTextAreaElement)?.value?.trim();
+                  const refundHalalas = Math.round(parseFloat(refundAmount) * 100);
+                  const feeHalalas    = Math.round(parseFloat(cancelFee || '0') * 100);
+                  if (!reason) { setRefundErr(isAr ? 'يرجى إدخال سبب الاسترداد' : 'Please enter a reason'); return; }
+                  if (!refundHalalas || refundHalalas <= 0) { setRefundErr(isAr ? 'أدخل مبلغ الاسترداد' : 'Enter refund amount'); return; }
+                  if (refundHalalas + feeHalalas > amountPaid) {
+                    setRefundErr(isAr ? 'مجموع الاسترداد ورسوم الإلغاء يتجاوز المبلغ المدفوع' : 'Total exceeds paid amount');
+                    return;
+                  }
+                  setRefundBusy(true);
+                  setRefundErr('');
+                  try {
+                    await apiFetch('/api/refunds/process', {
+                      method: 'POST',
+                      body: JSON.stringify({
+                        bookingId:              invoice.bookingId,
+                        originalInvoiceId:      invoice.id,
+                        refundAmountHalalas:    refundHalalas,
+                        cancellationFeeHalalas: feeHalalas,
+                        reason,
+                      }),
+                    });
+                    setShowRefund(false);
+                    const data = await apiFetch<{ invoice: FirestoreInvoice }>(`/api/invoices/${invoice.id}`);
+                    setInvoice(data.invoice);
+                    setAmountPaid(data.invoice.paidHalalas ?? 0);
+                    setAmountDue((data.invoice.totalHalalas ?? 0) - (data.invoice.paidHalalas ?? 0));
+                  } catch (e: unknown) {
+                    setRefundErr(e instanceof Error ? e.message : (isAr ? 'حدث خطأ' : 'An error occurred'));
+                  } finally {
+                    setRefundBusy(false);
+                  }
+                }}
+                className="flex-1 px-4 py-2.5 rounded-lg bg-purple-600 text-white text-sm font-medium
+                           hover:bg-purple-700 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+              >
+                {refundBusy
+                  ? <span className="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin" />
+                  : <RotateCcw size={15} />}
+                {isAr ? 'تأكيد الاسترداد' : 'Confirm Refund'}
               </button>
             </div>
           </div>
