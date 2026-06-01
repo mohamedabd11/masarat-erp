@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
+import { eq, and } from 'drizzle-orm';
 import { db } from '@/lib/db';
-import { receiptVouchers, journalEntries, journalLines } from '@/lib/schema';
+import { receiptVouchers, journalEntries, journalLines, invoices } from '@/lib/schema';
 import { verifyAuth, assertRole, ApiAuthError, BusinessError, ROLES_ACCOUNTANT_UP } from '@/lib/api-auth';
 import { getNextReceiptNumber, getNextJournalNumber } from '@/lib/invoice-counter';
 import { assertPeriodOpen } from '@/lib/period-lock';
@@ -17,6 +18,10 @@ interface StandaloneReceiptBody {
   description?:    string;
   reference?:      string;
   notes?:          string;
+  // When supplied, the receipt settles an outstanding invoice (Dr cash / Cr 1120 AR)
+  // and updates that invoice's paid amount/status. When omitted, the receipt is a
+  // future deposit credited to 2300 Customer Deposits.
+  invoiceId?:      string;
 }
 
 const METHOD_ACCOUNT: Record<string, { code: string; ar: string; en: string }> = {
@@ -25,7 +30,8 @@ const METHOD_ACCOUNT: Record<string, { code: string; ar: string; en: string }> =
   card:          GL.posCard,
   online:        GL.posCard,
 };
-const AC_DEPOSITS = GL.customerDeposits;
+const AC_DEPOSITS   = GL.customerDeposits;
+const AC_RECEIVABLE = GL.receivable;
 
 export async function POST(request: Request) {
   try {
@@ -41,7 +47,7 @@ export async function POST(request: Request) {
     }
 
     const body = await request.json() as StandaloneReceiptBody;
-    const { customerNameAr, customerNameEn, amountHalalas, paymentMethod, description, reference, notes } = body;
+    const { customerNameAr, customerNameEn, amountHalalas, paymentMethod, description, reference, notes, invoiceId } = body;
 
     if (!customerNameAr || !paymentMethod) {
       return NextResponse.json({ error: 'بيانات مطلوبة ناقصة' }, { status: 400 });
@@ -63,6 +69,33 @@ export async function POST(request: Request) {
       const jeId          = crypto.randomUUID();
       const paymentAc     = METHOD_ACCOUNT[paymentMethod] ?? METHOD_ACCOUNT['cash']!;
 
+      // If the receipt is applied to a specific invoice, credit Accounts Receivable
+      // (settling the customer's debt). Otherwise credit Customer Deposits (a future
+      // advance the customer can apply later).
+      let creditAc = AC_DEPOSITS;
+      if (invoiceId) {
+        const [inv] = await tx.select().from(invoices)
+          .where(and(eq(invoices.id, invoiceId), eq(invoices.agencyId, agencyId)));
+        if (!inv) throw new BusinessError('الفاتورة غير موجودة', 404);
+        const outstanding = inv.totalHalalas - inv.paidHalalas;
+        if (amountHalalas > outstanding) {
+          throw new BusinessError(
+            `مبلغ السند (${amountHalalas / 100} ر.س) يتجاوز المتبقي على الفاتورة (${outstanding / 100} ر.س)`,
+            400,
+          );
+        }
+        creditAc = AC_RECEIVABLE;
+
+        const newPaid = inv.paidHalalas + amountHalalas;
+        await tx.update(invoices)
+          .set({
+            paidHalalas: newPaid,
+            status:      newPaid >= inv.totalHalalas ? 'paid' : inv.status,
+            updatedAt:   now,
+          })
+          .where(eq(invoices.id, invoiceId));
+      }
+
       await tx.insert(receiptVouchers).values({
         id:           voucherId,
         agencyId,
@@ -71,6 +104,7 @@ export async function POST(request: Request) {
         amountHalalas,
         method:       paymentMethod,
         description:  description ?? null,
+        invoiceId:    invoiceId ?? null,
         date:         today,
         journalEntryId: jeId,
         createdBy:    uid,
@@ -92,7 +126,7 @@ export async function POST(request: Request) {
 
       await tx.insert(journalLines).values([
         { id: crypto.randomUUID(), entryId: jeId, agencyId, accountCode: paymentAc.code, accountNameAr: paymentAc.ar, accountNameEn: paymentAc.en, debitHalalas: amountHalalas, creditHalalas: 0, sortOrder: 1 },
-        { id: crypto.randomUUID(), entryId: jeId, agencyId, accountCode: AC_DEPOSITS.code, accountNameAr: AC_DEPOSITS.ar, accountNameEn: AC_DEPOSITS.en, debitHalalas: 0, creditHalalas: amountHalalas, sortOrder: 2 },
+        { id: crypto.randomUUID(), entryId: jeId, agencyId, accountCode: creditAc.code, accountNameAr: creditAc.ar, accountNameEn: creditAc.en, debitHalalas: 0, creditHalalas: amountHalalas, sortOrder: 2 },
       ]);
 
       return { id: voucherId, voucherNumber };
