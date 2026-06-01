@@ -1116,9 +1116,267 @@ function ProfitabilityTab({ monthly, typeMix, loading, isAr, fmtLocale }: {
   );
 }
 
+// ─── Booking Profitability Tab ────────────────────────────────────────────────
+
+interface ProfitRow {
+  groupKey:     string;
+  label:        string;
+  bookingCount: number;
+  totalRevenue: number;
+  totalCost:    number;
+  totalProfit:  number;
+  marginPct:    number;
+}
+
+interface ProfitTotals {
+  totalRevenue: number;
+  totalCost:    number;
+  totalProfit:  number;
+  marginPct:    number;
+}
+
+function BookingProfitabilityTab({ isAr, fmtLocale }: { isAr: boolean; fmtLocale: string }) {
+  const [groupBy, setGroupBy] = useState<'serviceType' | 'employee' | 'month' | 'booking'>('serviceType');
+  const [rows,    setRows]    = useState<ProfitRow[]>([]);
+  const [totals,  setTotals]  = useState<ProfitTotals | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [err,     setErr]     = useState('');
+
+  useEffect(() => {
+    setLoading(true);
+    setErr('');
+    fetch(`/api/reports/booking-profitability?groupBy=${groupBy}`)
+      .then(r => r.json())
+      .then((d: { rows: ProfitRow[]; totals: ProfitTotals }) => {
+        setRows(d.rows ?? []);
+        setTotals(d.totals ?? null);
+      })
+      .catch(() => setErr(isAr ? 'تعذّر تحميل البيانات' : 'Failed to load data'))
+      .finally(() => setLoading(false));
+  }, [groupBy, isAr]);
+
+  const GROUP_OPTIONS = [
+    { id: 'serviceType' as const, labelAr: 'نوع الخدمة', labelEn: 'Service Type' },
+    { id: 'employee'   as const, labelAr: 'الموظف',      labelEn: 'Employee' },
+    { id: 'month'      as const, labelAr: 'الشهر',       labelEn: 'Month' },
+    { id: 'booking'    as const, labelAr: 'الحجز',       labelEn: 'Booking' },
+  ];
+
+  return (
+    <div className="space-y-5">
+      {/* Group-by selector */}
+      <div className="flex items-center gap-2 flex-wrap">
+        <span className="text-sm font-medium text-slate-600">{isAr ? 'التجميع حسب:' : 'Group by:'}</span>
+        {GROUP_OPTIONS.map(opt => (
+          <button
+            key={opt.id}
+            onClick={() => setGroupBy(opt.id)}
+            className={cn(
+              'px-3 py-1.5 text-sm rounded-lg border font-medium transition-colors',
+              groupBy === opt.id
+                ? 'border-brand-500 bg-brand-50 text-brand-700'
+                : 'border-slate-200 text-slate-500 hover:bg-slate-50',
+            )}
+          >
+            {isAr ? opt.labelAr : opt.labelEn}
+          </button>
+        ))}
+      </div>
+
+      {loading ? (
+        <LoadingPane />
+      ) : err ? (
+        <Card><p className="text-red-600 text-sm py-4 text-center">{err}</p></Card>
+      ) : rows.length === 0 ? (
+        <Card>
+          <p className="text-sm text-slate-400 text-center py-10">
+            {isAr ? 'لا توجد بيانات حجوزات بعد' : 'No booking data yet'}
+          </p>
+        </Card>
+      ) : (
+        <Card>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-slate-100 text-[11px] font-bold uppercase tracking-wide text-slate-400">
+                  <th className="py-3 pe-4 text-start">{isAr ? 'التصنيف' : 'Group'}</th>
+                  <th className="py-3 px-3 text-end">{isAr ? 'الحجوزات' : 'Bookings'}</th>
+                  <th className="py-3 px-3 text-end">{isAr ? 'الإيرادات' : 'Revenue'}</th>
+                  <th className="py-3 px-3 text-end">{isAr ? 'التكلفة' : 'Cost'}</th>
+                  <th className="py-3 px-3 text-end">{isAr ? 'الربح الإجمالي' : 'Gross Profit'}</th>
+                  <th className="py-3 ps-3 text-end">{isAr ? 'الهامش' : 'Margin'}</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-50">
+                {rows.map(r => (
+                  <tr key={r.groupKey} className="hover:bg-slate-50/50 transition-colors">
+                    <td className="py-3 pe-4 font-medium text-slate-800">{r.label || r.groupKey}</td>
+                    <td className="py-3 px-3 text-end text-slate-600 tabular-nums">{r.bookingCount}</td>
+                    <td className="py-3 px-3 text-end text-slate-700 tabular-nums font-medium">{formatCurrency(r.totalRevenue, fmtLocale)}</td>
+                    <td className="py-3 px-3 text-end text-slate-500 tabular-nums">{formatCurrency(r.totalCost, fmtLocale)}</td>
+                    <td className={cn('py-3 px-3 text-end tabular-nums font-semibold', r.totalProfit >= 0 ? 'text-emerald-700' : 'text-red-600')}>
+                      {r.totalProfit < 0 ? '(' : ''}{formatCurrency(Math.abs(r.totalProfit), fmtLocale)}{r.totalProfit < 0 ? ')' : ''}
+                    </td>
+                    <td className="py-3 ps-3 text-end">
+                      <span className={cn(
+                        'text-xs font-bold px-2 py-0.5 rounded-full',
+                        r.marginPct >= 20 ? 'bg-emerald-50 text-emerald-700' :
+                        r.marginPct >= 0  ? 'bg-amber-50 text-amber-700' :
+                                            'bg-red-50 text-red-600',
+                      )}>
+                        {r.marginPct}%
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+              {totals && (
+                <tfoot>
+                  <tr className="border-t-2 border-slate-200 bg-slate-50 font-bold">
+                    <td className="py-3 pe-4 text-slate-800">{isAr ? 'الإجمالي' : 'Total'}</td>
+                    <td className="py-3 px-3 text-end text-slate-600 tabular-nums">
+                      {rows.reduce((s, r) => s + r.bookingCount, 0)}
+                    </td>
+                    <td className="py-3 px-3 text-end text-slate-700 tabular-nums">{formatCurrency(totals.totalRevenue, fmtLocale)}</td>
+                    <td className="py-3 px-3 text-end text-slate-500 tabular-nums">{formatCurrency(totals.totalCost, fmtLocale)}</td>
+                    <td className={cn('py-3 px-3 text-end tabular-nums', totals.totalProfit >= 0 ? 'text-emerald-700' : 'text-red-600')}>
+                      {totals.totalProfit < 0 ? '(' : ''}{formatCurrency(Math.abs(totals.totalProfit), fmtLocale)}{totals.totalProfit < 0 ? ')' : ''}
+                    </td>
+                    <td className="py-3 ps-3 text-end">
+                      <span className={cn(
+                        'text-xs font-bold px-2 py-0.5 rounded-full',
+                        totals.marginPct >= 20 ? 'bg-emerald-100 text-emerald-700' :
+                        totals.marginPct >= 0  ? 'bg-amber-100 text-amber-700' :
+                                                  'bg-red-100 text-red-600',
+                      )}>
+                        {totals.marginPct}%
+                      </span>
+                    </td>
+                  </tr>
+                </tfoot>
+              )}
+            </table>
+          </div>
+        </Card>
+      )}
+    </div>
+  );
+}
+
+// ─── Supplier Profitability Tab ───────────────────────────────────────────────
+
+interface SupplierProfitRow {
+  supplierId:   string;
+  supplierName: string;
+  paymentCount: number;
+  bookingCount: number;
+  totalRevenue: number;
+  totalCost:    number;
+  totalProfit:  number;
+  marginPct:    number;
+}
+
+function SupplierProfitabilityTab({ isAr, fmtLocale }: { isAr: boolean; fmtLocale: string }) {
+  const [rows,    setRows]    = useState<SupplierProfitRow[]>([]);
+  const [totals,  setTotals]  = useState<ProfitTotals | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [err,     setErr]     = useState('');
+
+  useEffect(() => {
+    fetch('/api/reports/supplier-profitability')
+      .then(r => r.json())
+      .then((d: { rows: SupplierProfitRow[]; totals: ProfitTotals }) => {
+        setRows(d.rows ?? []);
+        setTotals(d.totals ?? null);
+      })
+      .catch(() => setErr(isAr ? 'تعذّر تحميل البيانات' : 'Failed to load data'))
+      .finally(() => setLoading(false));
+  }, [isAr]);
+
+  return (
+    <div className="space-y-5">
+      {loading ? (
+        <LoadingPane />
+      ) : err ? (
+        <Card><p className="text-red-600 text-sm py-4 text-center">{err}</p></Card>
+      ) : rows.length === 0 ? (
+        <Card>
+          <p className="text-sm text-slate-400 text-center py-10">
+            {isAr ? 'لا توجد مدفوعات موردين بعد' : 'No supplier payments yet'}
+          </p>
+        </Card>
+      ) : (
+        <Card>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-slate-100 text-[11px] font-bold uppercase tracking-wide text-slate-400">
+                  <th className="py-3 pe-4 text-start">{isAr ? 'المورد' : 'Supplier'}</th>
+                  <th className="py-3 px-3 text-end">{isAr ? 'الدفعات' : 'Payments'}</th>
+                  <th className="py-3 px-3 text-end">{isAr ? 'الحجوزات' : 'Bookings'}</th>
+                  <th className="py-3 px-3 text-end">{isAr ? 'الإيرادات' : 'Revenue'}</th>
+                  <th className="py-3 px-3 text-end">{isAr ? 'التكلفة' : 'Cost'}</th>
+                  <th className="py-3 px-3 text-end">{isAr ? 'الربح' : 'Profit'}</th>
+                  <th className="py-3 ps-3 text-end">{isAr ? 'الهامش' : 'Margin'}</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-50">
+                {rows.map(r => (
+                  <tr key={r.supplierId} className="hover:bg-slate-50/50 transition-colors">
+                    <td className="py-3 pe-4 font-medium text-slate-800">{r.supplierName}</td>
+                    <td className="py-3 px-3 text-end text-slate-500 tabular-nums">{r.paymentCount}</td>
+                    <td className="py-3 px-3 text-end text-slate-500 tabular-nums">{r.bookingCount}</td>
+                    <td className="py-3 px-3 text-end text-slate-700 tabular-nums font-medium">{formatCurrency(r.totalRevenue, fmtLocale)}</td>
+                    <td className="py-3 px-3 text-end text-slate-500 tabular-nums">{formatCurrency(r.totalCost, fmtLocale)}</td>
+                    <td className={cn('py-3 px-3 text-end tabular-nums font-semibold', r.totalProfit >= 0 ? 'text-emerald-700' : 'text-red-600')}>
+                      {r.totalProfit < 0 ? '(' : ''}{formatCurrency(Math.abs(r.totalProfit), fmtLocale)}{r.totalProfit < 0 ? ')' : ''}
+                    </td>
+                    <td className="py-3 ps-3 text-end">
+                      <span className={cn(
+                        'text-xs font-bold px-2 py-0.5 rounded-full',
+                        r.marginPct >= 20 ? 'bg-emerald-50 text-emerald-700' :
+                        r.marginPct >= 0  ? 'bg-amber-50 text-amber-700' :
+                                            'bg-red-50 text-red-600',
+                      )}>
+                        {r.marginPct}%
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+              {totals && (
+                <tfoot>
+                  <tr className="border-t-2 border-slate-200 bg-slate-50 font-bold">
+                    <td className="py-3 pe-4 text-slate-800" colSpan={3}>{isAr ? 'الإجمالي' : 'Total'}</td>
+                    <td className="py-3 px-3 text-end text-slate-700 tabular-nums">{formatCurrency(totals.totalRevenue, fmtLocale)}</td>
+                    <td className="py-3 px-3 text-end text-slate-500 tabular-nums">{formatCurrency(totals.totalCost, fmtLocale)}</td>
+                    <td className={cn('py-3 px-3 text-end tabular-nums', totals.totalProfit >= 0 ? 'text-emerald-700' : 'text-red-600')}>
+                      {totals.totalProfit < 0 ? '(' : ''}{formatCurrency(Math.abs(totals.totalProfit), fmtLocale)}{totals.totalProfit < 0 ? ')' : ''}
+                    </td>
+                    <td className="py-3 ps-3 text-end">
+                      <span className={cn(
+                        'text-xs font-bold px-2 py-0.5 rounded-full',
+                        totals.marginPct >= 20 ? 'bg-emerald-100 text-emerald-700' :
+                        totals.marginPct >= 0  ? 'bg-amber-100 text-amber-700' :
+                                                  'bg-red-100 text-red-600',
+                      )}>
+                        {totals.marginPct}%
+                      </span>
+                    </td>
+                  </tr>
+                </tfoot>
+              )}
+            </table>
+          </div>
+        </Card>
+      )}
+    </div>
+  );
+}
+
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
-type TabId = 'overview' | 'trial' | 'pl' | 'ar' | 'vat' | 'bs' | 'profit';
+type TabId = 'overview' | 'trial' | 'pl' | 'ar' | 'vat' | 'bs' | 'profit' | 'booking-profit' | 'supplier-profit';
 
 export default function ReportsPage() {
   const locale    = useLocale();
@@ -1179,8 +1437,10 @@ export default function ReportsPage() {
     { id: 'pl',       labelAr: 'قائمة الدخل',          labelEn: 'Income Statement',   icon: <ListTree   size={16} /> },
     { id: 'ar',       labelAr: 'الذمم المدينة',         labelEn: 'AR Aging',           icon: <Receipt    size={16} /> },
     { id: 'bs',       labelAr: 'الميزانية العمومية',   labelEn: 'Balance Sheet',      icon: <Building2  size={16} /> },
-    { id: 'profit',   labelAr: 'تحليل الربحية',        labelEn: 'Profitability',      icon: <PieChart   size={16} /> },
-    { id: 'vat',      labelAr: 'الإقرار الضريبي',      labelEn: 'VAT Return',         icon: <Stamp      size={16} />, badge: 'ZATCA' },
+    { id: 'profit',          labelAr: 'تحليل الربحية',       labelEn: 'Profitability',         icon: <PieChart   size={16} /> },
+    { id: 'booking-profit',  labelAr: 'ربحية الحجوزات',      labelEn: 'Booking Profitability', icon: <TrendingUp size={16} /> },
+    { id: 'supplier-profit', labelAr: 'ربحية الموردين',      labelEn: 'Supplier Profitability',icon: <Building2  size={16} /> },
+    { id: 'vat',             labelAr: 'الإقرار الضريبي',     labelEn: 'VAT Return',            icon: <Stamp      size={16} />, badge: 'ZATCA' },
   ];
 
   return (
@@ -1279,6 +1539,12 @@ export default function ReportsPage() {
         )}
         {activeTab === 'profit' && (
           <ProfitabilityTab monthly={monthly} typeMix={typeMix} loading={loadingReports} isAr={isAr} fmtLocale={fmtLocale} />
+        )}
+        {activeTab === 'booking-profit' && (
+          <BookingProfitabilityTab isAr={isAr} fmtLocale={fmtLocale} />
+        )}
+        {activeTab === 'supplier-profit' && (
+          <SupplierProfitabilityTab isAr={isAr} fmtLocale={fmtLocale} />
         )}
         {activeTab === 'vat' && (
           <VATReturnTab vatInvoices={vatInvoices} loadingVat={loadingReports}

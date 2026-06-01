@@ -200,6 +200,7 @@ interface CustomServiceType {
   nameEn: string;
   icon: string;
   color: string;
+  revenueMode: 'principal' | 'agent';
   isActive: boolean;
 }
 
@@ -342,10 +343,10 @@ export default function SettingsPage() {
     Object.fromEntries(DEFAULT_SERVICE_TYPES.map(d => [d.id, true]))
   );
   const [showAddForm, setShowAddForm] = useState(false);
-  const [addForm, setAddForm] = useState({ nameAr: '', nameEn: '', icon: 'layers', color: PRESET_COLORS[0] });
+  const [addForm, setAddForm] = useState({ nameAr: '', nameEn: '', icon: 'layers', color: PRESET_COLORS[0], revenueMode: 'principal' as 'principal' | 'agent' });
   const [addSaving, setAddSaving] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [editForm, setEditForm] = useState({ nameAr: '', nameEn: '', icon: 'layers', color: PRESET_COLORS[0] });
+  const [editForm, setEditForm] = useState({ nameAr: '', nameEn: '', icon: 'layers', color: PRESET_COLORS[0], revenueMode: 'principal' as 'principal' | 'agent' });
 
   // ── Agency users ────────────────────────────────────────────────────────
   const [agencyUsers, setAgencyUsers]     = useState<User[]>([]);
@@ -573,8 +574,9 @@ export default function SettingsPage() {
         nameAr: addForm.nameAr.trim(),
         nameEn: addForm.nameEn.trim() || addForm.nameAr.trim(),
         icon: addForm.icon,
+        revenueMode: addForm.revenueMode,
       }) });
-      setAddForm({ nameAr: '', nameEn: '', icon: 'layers', color: PRESET_COLORS[0] });
+      setAddForm({ nameAr: '', nameEn: '', icon: 'layers', color: PRESET_COLORS[0], revenueMode: 'principal' });
       setShowAddForm(false);
       setTick(t => t + 1);
     } catch (err) {
@@ -601,6 +603,7 @@ export default function SettingsPage() {
         nameAr: editForm.nameAr.trim(),
         nameEn: editForm.nameEn.trim() || editForm.nameAr.trim(),
         icon: editForm.icon,
+        revenueMode: editForm.revenueMode,
       }) });
       setEditingId(null);
       setTick(t => t + 1);
@@ -1492,6 +1495,37 @@ export default function SettingsPage() {
                       </div>
                     </div>
 
+                    {/* Revenue mode */}
+                    <div>
+                      <p className="text-xs font-medium text-slate-600 mb-2">
+                        {isAr ? 'نمط الإيراد (IFRS 15)' : 'Revenue Mode (IFRS 15)'}
+                      </p>
+                      <div className="flex gap-2">
+                        {(['principal', 'agent'] as const).map(mode => (
+                          <button
+                            key={mode}
+                            type="button"
+                            onClick={() => setAddForm(f => ({ ...f, revenueMode: mode }))}
+                            className={cn(
+                              'flex-1 py-2 px-3 text-xs font-semibold rounded-lg border transition-colors',
+                              addForm.revenueMode === mode
+                                ? 'border-brand-500 bg-brand-50 text-brand-700'
+                                : 'border-slate-200 text-slate-500 hover:bg-slate-50',
+                            )}
+                          >
+                            {mode === 'principal'
+                              ? (isAr ? 'أصيل — إيراد كامل' : 'Principal — Full Revenue')
+                              : (isAr ? 'وكيل — عمولة فقط' : 'Agent — Fee Only')}
+                          </button>
+                        ))}
+                      </div>
+                      <p className="text-[11px] text-slate-400 mt-1.5">
+                        {addForm.revenueMode === 'principal'
+                          ? (isAr ? 'يُسجَّل سعر البيع الكامل إيراداً (مثل الباقات السياحية)' : 'Full selling price recorded as revenue (e.g. tour packages)')
+                          : (isAr ? 'تُسجَّل العمولة فقط إيراداً (مثل تذاكر الطيران كوكيل IATA)' : 'Only the commission is recorded as revenue (e.g. airline tickets as IATA agent)')}
+                      </p>
+                    </div>
+
                     <div className="flex items-center justify-end gap-3">
                       <Button variant="secondary" size="sm" onClick={() => setShowAddForm(false)}>
                         {isAr ? 'إلغاء' : 'Cancel'}
@@ -1584,6 +1618,31 @@ export default function SettingsPage() {
                               ))}
                             </div>
                           </div>
+                          {/* Revenue mode */}
+                          <div>
+                            <p className="text-xs font-medium text-slate-600 mb-2">
+                              {isAr ? 'نمط الإيراد (IFRS 15)' : 'Revenue Mode (IFRS 15)'}
+                            </p>
+                            <div className="flex gap-2">
+                              {(['principal', 'agent'] as const).map(mode => (
+                                <button
+                                  key={mode}
+                                  type="button"
+                                  onClick={() => setEditForm(f => ({ ...f, revenueMode: mode }))}
+                                  className={cn(
+                                    'flex-1 py-2 px-3 text-xs font-semibold rounded-lg border transition-colors',
+                                    editForm.revenueMode === mode
+                                      ? 'border-brand-500 bg-brand-50 text-brand-700'
+                                      : 'border-slate-200 text-slate-500 hover:bg-slate-50',
+                                  )}
+                                >
+                                  {mode === 'principal'
+                                    ? (isAr ? 'أصيل — إيراد كامل' : 'Principal — Full Revenue')
+                                    : (isAr ? 'وكيل — عمولة فقط' : 'Agent — Fee Only')}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
                           <div className="flex items-center justify-end gap-2">
                             <Button variant="secondary" size="sm" onClick={() => setEditingId(null)}>
                               {isAr ? 'إلغاء' : 'Cancel'}
@@ -1604,9 +1663,19 @@ export default function SettingsPage() {
                           </div>
                           <div className="flex-1 min-w-0">
                             <p className="text-sm font-medium text-slate-900">{ct.nameAr}</p>
-                            {ct.nameEn && (
-                              <p className="text-xs text-slate-400">{ct.nameEn}</p>
-                            )}
+                            <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
+                              {ct.nameEn && <p className="text-xs text-slate-400">{ct.nameEn}</p>}
+                              <span className={cn(
+                                'text-[10px] font-bold px-1.5 py-0.5 rounded-full',
+                                (ct.revenueMode ?? 'principal') === 'agent'
+                                  ? 'bg-amber-50 text-amber-700'
+                                  : 'bg-brand-50 text-brand-700',
+                              )}>
+                                {(ct.revenueMode ?? 'principal') === 'agent'
+                                  ? (isAr ? 'وكيل' : 'Agent')
+                                  : (isAr ? 'أصيل' : 'Principal')}
+                              </span>
+                            </div>
                           </div>
                           <ToggleSwitch
                             checked={ct.isActive}
@@ -1616,7 +1685,7 @@ export default function SettingsPage() {
                           <button
                             onClick={() => {
                               setEditingId(ct.id);
-                              setEditForm({ nameAr: ct.nameAr, nameEn: ct.nameEn, icon: ct.icon, color: ct.color });
+                              setEditForm({ nameAr: ct.nameAr, nameEn: ct.nameEn, icon: ct.icon, color: ct.color, revenueMode: ct.revenueMode ?? 'principal' });
                             }}
                             className="p-1.5 rounded-lg text-slate-400 hover:text-brand-600 hover:bg-brand-50 transition-colors"
                           >

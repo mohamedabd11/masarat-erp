@@ -79,21 +79,22 @@ export async function POST(request: Request) {
     const body = await request.json() as {
       nameAr: string; nameEn?: string; phone?: string; email?: string;
       nationality?: string; nationalId?: string; passportNumber?: string;
-      dateOfBirth?: string; notes?: string;
+      dateOfBirth?: string; notes?: string; openingBalanceHalalas?: number;
     };
     if (!body.nameAr?.trim()) return NextResponse.json({ error: 'الاسم مطلوب' }, { status: 400 });
     const id = crypto.randomUUID();
     const [row] = await db.insert(customers).values({
       id, agencyId,
-      nameAr:         body.nameAr.trim(),
-      nameEn:         body.nameEn?.trim() ?? null,
-      phone:          body.phone?.trim() ?? null,
-      email:          body.email?.trim() ?? null,
-      nationality:    body.nationality ?? null,
-      nationalId:     body.nationalId ?? null,
-      passportNumber: body.passportNumber ?? null,
-      dateOfBirth:    body.dateOfBirth ?? null,
-      notes:          body.notes ?? null,
+      nameAr:                body.nameAr.trim(),
+      nameEn:                body.nameEn?.trim() ?? null,
+      phone:                 body.phone?.trim() ?? null,
+      email:                 body.email?.trim() ?? null,
+      nationality:           body.nationality ?? null,
+      nationalId:            body.nationalId ?? null,
+      passportNumber:        body.passportNumber ?? null,
+      dateOfBirth:           body.dateOfBirth ?? null,
+      notes:                 body.notes ?? null,
+      openingBalanceHalalas: body.openingBalanceHalalas ?? 0,
     }).returning();
     return NextResponse.json({ success: true, id, customer: row });
   } catch (err) {
