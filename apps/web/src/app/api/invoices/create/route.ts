@@ -9,14 +9,15 @@ import { withIdempotency, buildIdempotencyInsert } from '@/lib/idempotency';
 import { idempotencyKeys } from '@/lib/schema';
 import { getNextInvoiceNumber, getNextJournalNumber } from '@/lib/invoice-counter';
 import { assertPeriodOpen } from '@/lib/period-lock';
+import { GL } from '@/lib/gl-accounts';
 
 const AC = {
-  receivable:       { code: '1120', ar: 'ذمم مدينة - عملاء',           en: 'Accounts Receivable' },
-  payableSupplier:  { code: '2000', ar: 'ذمم دائنة - موردون',          en: 'Accounts Payable' },
-  vatPayable:       { code: '2200', ar: 'ضريبة القيمة المضافة مستحقة', en: 'VAT Payable' },
-  revenueAgent:     { code: '4000', ar: 'إيراد رسوم الوكالة',           en: 'Revenue - Agency Fees' },
-  revenuePrincipal: { code: '4100', ar: 'إيراد خدمات السفر',            en: 'Revenue - Travel Services' },
-  costOfServices:   { code: '5000', ar: 'تكلفة الخدمات',                en: 'Cost of Services' },
+  receivable:       GL.receivable,
+  payableSupplier:  GL.payableSupplier,
+  vatPayable:       GL.vatPayable,
+  revenueAgent:     GL.revenueAgent,
+  revenuePrincipal: GL.revenuePrincipal,
+  costOfServices:   GL.costOfServices,
 };
 
 interface InvoiceCreateBody {

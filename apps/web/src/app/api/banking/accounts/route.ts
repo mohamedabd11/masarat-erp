@@ -4,11 +4,12 @@ import { db } from '@/lib/db';
 import { bankAccounts, journalEntries, journalLines } from '@/lib/schema';
 import { verifyAuth, assertRole, ApiAuthError, ROLES_ACCOUNTANT_UP } from '@/lib/api-auth';
 import { getNextJournalNumber } from '@/lib/invoice-counter';
+import { GL } from '@/lib/gl-accounts';
 
 // Map bank account type to default GL code
 function glCodeForType(type: string): { code: string; ar: string; en: string } {
-  if (type === 'cash' || type === 'petty_cash') return { code: '1100', ar: 'النقدية', en: 'Cash' };
-  return { code: '1110', ar: 'البنك', en: 'Bank' };
+  if (type === 'cash' || type === 'petty_cash') return GL.cash;
+  return GL.bank;
 }
 
 export async function GET(request: Request) {
@@ -70,8 +71,8 @@ export async function POST(request: Request) {
         });
 
         await tx.insert(journalLines).values([
-          { id: crypto.randomUUID(), entryId: jeId, agencyId, accountCode: glAc.code,  accountNameAr: glAc.ar,         accountNameEn: glAc.en,          debitHalalas: opening, creditHalalas: 0,       sortOrder: 1 },
-          { id: crypto.randomUUID(), entryId: jeId, agencyId, accountCode: '3100',     accountNameAr: 'رأس مال المالك', accountNameEn: 'Owner Capital',  debitHalalas: 0,       creditHalalas: opening, sortOrder: 2 },
+          { id: crypto.randomUUID(), entryId: jeId, agencyId, accountCode: glAc.code,           accountNameAr: glAc.ar,              accountNameEn: glAc.en,              debitHalalas: opening, creditHalalas: 0,       sortOrder: 1 },
+          { id: crypto.randomUUID(), entryId: jeId, agencyId, accountCode: GL.ownerCapital.code, accountNameAr: GL.ownerCapital.ar, accountNameEn: GL.ownerCapital.en, debitHalalas: 0,       creditHalalas: opening, sortOrder: 2 },
         ]);
       }
     });

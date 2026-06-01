@@ -14,6 +14,7 @@ import { db } from '@/lib/db';
 import { bspBillings, journalEntries, journalLines } from '@/lib/schema';
 import { verifyAuth, assertRole, ApiAuthError, ROLES_ADMIN_ONLY, ROLES_MANAGER_UP } from '@/lib/api-auth';
 import { getNextJournalNumber } from '@/lib/invoice-counter';
+import { GL } from '@/lib/gl-accounts';
 
 export async function GET(request: Request) {
   try {
@@ -91,9 +92,9 @@ export async function POST(request: Request) {
           id:             crypto.randomUUID(),
           entryId,
           agencyId,
-          accountCode:    '1350',
-          accountNameAr:  'مقاصة BSP',
-          accountNameEn:  'BSP Clearing',
+          accountCode:    GL.bspClearing.code,
+          accountNameAr:  GL.bspClearing.ar,
+          accountNameEn:  GL.bspClearing.en,
           debitHalalas:   body.netRemitHalalas,
           creditHalalas:  0,
           description:    `BSP ${body.billingPeriod}`,
@@ -103,9 +104,9 @@ export async function POST(request: Request) {
           id:             crypto.randomUUID(),
           entryId,
           agencyId,
-          accountCode:    '2150',
-          accountNameAr:  'مستحقات BSP',
-          accountNameEn:  'BSP Payable',
+          accountCode:    GL.bspPayable.code,
+          accountNameAr:  GL.bspPayable.ar,
+          accountNameEn:  GL.bspPayable.en,
           debitHalalas:   0,
           creditHalalas:  body.netRemitHalalas,
           description:    `BSP ${body.billingPeriod}`,

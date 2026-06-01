@@ -14,6 +14,7 @@ import { db } from '@/lib/db';
 import { bspAdjustments, journalEntries, journalLines } from '@/lib/schema';
 import { verifyAuth, assertRole, ApiAuthError, ROLES_ADMIN_ONLY, ROLES_MANAGER_UP } from '@/lib/api-auth';
 import { getNextJournalNumber } from '@/lib/invoice-counter';
+import { GL } from '@/lib/gl-accounts';
 
 export async function GET(request: Request) {
   try {
@@ -95,9 +96,9 @@ export async function POST(request: Request) {
           id:             crypto.randomUUID(),
           entryId,
           agencyId,
-          accountCode:    isADM ? '5420' : '2150',
-          accountNameAr:  isADM ? 'مصروف ADM'      : 'مستحقات BSP',
-          accountNameEn:  isADM ? 'ADM Expense'     : 'BSP Payable',
+          accountCode:    isADM ? GL.admExpense.code : GL.bspPayable.code,
+          accountNameAr:  isADM ? GL.admExpense.ar   : GL.bspPayable.ar,
+          accountNameEn:  isADM ? GL.admExpense.en   : GL.bspPayable.en,
           debitHalalas:   body.amountHalalas,
           creditHalalas:  0,
           description:    `${body.type} ${body.referenceNumber}`,
@@ -107,9 +108,9 @@ export async function POST(request: Request) {
           id:             crypto.randomUUID(),
           entryId,
           agencyId,
-          accountCode:    isADM ? '2150' : '4420',
-          accountNameAr:  isADM ? 'مستحقات BSP'    : 'إيراد استرداد ADM',
-          accountNameEn:  isADM ? 'BSP Payable'     : 'ADM Recovery Income',
+          accountCode:    isADM ? GL.bspPayable.code : GL.admRecovery.code,
+          accountNameAr:  isADM ? GL.bspPayable.ar   : GL.admRecovery.ar,
+          accountNameEn:  isADM ? GL.bspPayable.en   : GL.admRecovery.en,
           debitHalalas:   0,
           creditHalalas:  body.amountHalalas,
           description:    `${body.type} ${body.referenceNumber}`,
