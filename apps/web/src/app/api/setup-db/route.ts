@@ -84,10 +84,12 @@ CREATE TABLE IF NOT EXISTS customers (
   national_id      TEXT,
   nationality      TEXT,
   date_of_birth    TEXT,
-  notes            TEXT,
-  is_active        BOOLEAN NOT NULL DEFAULT TRUE,
-  created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  updated_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  notes                    TEXT,
+  credit_limit_halalas     BIGINT NOT NULL DEFAULT 0,
+  opening_balance_halalas  BIGINT NOT NULL DEFAULT 0,
+  is_active                BOOLEAN NOT NULL DEFAULT TRUE,
+  created_at               TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at               TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 CREATE INDEX IF NOT EXISTS idx_customers_agency ON customers(agency_id);
 
@@ -822,7 +824,8 @@ ALTER TABLE service_types ADD COLUMN IF NOT EXISTS vat_rate     INTEGER;
 ALTER TABLE service_types ADD COLUMN IF NOT EXISTS is_taxable   BOOLEAN;
 
 -- ══ CUSTOMERS: add opening_balance_halalas for AR migration ══════════════════
-ALTER TABLE customers ADD COLUMN IF NOT EXISTS opening_balance_halalas INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE customers ADD COLUMN IF NOT EXISTS opening_balance_halalas  INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE customers ADD COLUMN IF NOT EXISTS credit_limit_halalas     BIGINT  NOT NULL DEFAULT 0;
 
 -- ══ BSP (Billing Settlement Plan) — IATA travel agencies ════════════════════
 CREATE TABLE IF NOT EXISTS bsp_billings (
@@ -950,7 +953,7 @@ ALTER TABLE eosb_accruals     ALTER COLUMN amount_halalas TYPE BIGINT;
 -- ══ SCH-01: DB CHECK CONSTRAINTS FOR STATUS FIELDS ════════════════════════════
 -- Enforce valid status values at the DB level to prevent free-text corruption.
 ALTER TABLE invoices ADD CONSTRAINT IF NOT EXISTS chk_invoice_status
-  CHECK (status IN ('draft','issued','sent','partial','paid','overdue','cancelled','void','credit_memo'));
+  CHECK (status IN ('draft','issued','sent','partial','paid','overdue','cancelled','void','credit_memo','refunded'));
 
 ALTER TABLE bookings ADD CONSTRAINT IF NOT EXISTS chk_booking_status
   CHECK (status IN ('pending','confirmed','completed','cancelled'));
@@ -968,7 +971,7 @@ ALTER TABLE receipt_vouchers ADD CONSTRAINT IF NOT EXISTS chk_receipt_method
   CHECK (method IN ('cash','bank_transfer','card','online','check'));
 
 ALTER TABLE supplier_payments ADD CONSTRAINT IF NOT EXISTS chk_supplier_payment_status
-  CHECK (status IN ('pending','completed','cancelled'));
+  CHECK (status IN ('pending','completed','cancelled','reversed'));
 
 ALTER TABLE agencies ADD CONSTRAINT IF NOT EXISTS chk_agency_subscription_status
   CHECK (subscription_status IN ('trial','active','expired','suspended','past_due','cancelled','lifetime'));
