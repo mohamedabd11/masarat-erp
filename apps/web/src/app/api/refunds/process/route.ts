@@ -276,6 +276,9 @@ export async function POST(request: Request) {
     if (err instanceof BusinessError) {
       return NextResponse.json({ error: err.message }, { status: err.status });
     }
+    if ((err as any)?.code === '23505') {
+      return NextResponse.json({ error: 'يوجد استرداد مسجل بالفعل لهذا الحجز' }, { status: 409 });
+    }
     console.error(JSON.stringify({ event: 'process_refund_failed', error: String(err) }));
     return NextResponse.json({ error: 'خطأ في الخادم' }, { status: 500 });
   }

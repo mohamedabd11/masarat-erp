@@ -1,4 +1,4 @@
-import { pgTable, text, integer, bigint, boolean, timestamp, jsonb, index, uniqueIndex } from 'drizzle-orm/pg-core';
+import { pgTable, text, integer, bigint, boolean, timestamp, jsonb, index } from 'drizzle-orm/pg-core';
 import { agencies } from './agencies';
 import { bookings } from './bookings';
 import { customers } from './customers';
@@ -55,9 +55,9 @@ export const invoices = pgTable('invoices', {
   index('idx_invoices_agency').on(t.agencyId),
   index('idx_invoices_agency_status').on(t.agencyId, t.status),
   index('idx_invoices_agency_created').on(t.agencyId, t.createdAt),
-  // One invoice per booking per agency (skips standalone invoices where bookingId is NULL —
-  // Postgres treats NULLs as distinct, so multiple booking-less invoices remain allowed).
-  uniqueIndex('uq_invoices_agency_booking').on(t.agencyId, t.bookingId),
+  // Uniqueness for one invoice per booking is enforced by the partial index
+  // invoices_one_per_booking (defined in setup-db, scoped to type='380' only) so
+  // that credit notes (381) and refunds can share a bookingId with the original.
 ]);
 
 export type Invoice    = typeof invoices.$inferSelect;

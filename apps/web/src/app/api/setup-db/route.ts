@@ -916,8 +916,11 @@ CREATE INDEX IF NOT EXISTS idx_invoices_agency_status   ON invoices(agency_id, s
 CREATE INDEX IF NOT EXISTS idx_je_agency_source         ON journal_entries(agency_id, source);
 CREATE INDEX IF NOT EXISTS idx_bookings_agency_status   ON bookings(agency_id, status);
 CREATE INDEX IF NOT EXISTS idx_payments_booking         ON payments(booking_id);
--- One invoice row per booking per agency (NULL booking_id rows stay unconstrained).
-CREATE UNIQUE INDEX IF NOT EXISTS uq_invoices_agency_booking ON invoices(agency_id, booking_id);
+-- Drop the broad (non-partial) booking-uniqueness index. It blocked credit notes
+-- (type=381) and refunds from sharing a bookingId with the original invoice
+-- (type=380). The partial invoices_one_per_booking index (type='380' only) is the
+-- correct constraint and remains in place.
+DROP INDEX IF EXISTS uq_invoices_agency_booking;
 
 -- ══ WIDEN MONETARY COLUMNS TO BIGINT ═════════════════════════════════════════
 -- Hajj/Umrah group invoices and BSP remittances can exceed the 32-bit signed
