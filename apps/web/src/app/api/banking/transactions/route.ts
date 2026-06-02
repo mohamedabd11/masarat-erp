@@ -37,6 +37,12 @@ export async function POST(request: Request) {
     if (!body.bankAccountId || !body.type || !body.amountHalalas || !body.date) {
       return NextResponse.json({ error: 'بيانات ناقصة' }, { status: 400 });
     }
+    if (!Number.isInteger(body.amountHalalas) || body.amountHalalas <= 0) {
+      return NextResponse.json({ error: 'المبلغ يجب أن يكون عدداً صحيحاً موجباً' }, { status: 400 });
+    }
+    if (!['deposit', 'withdrawal'].includes(body.type)) {
+      return NextResponse.json({ error: 'نوع المعاملة غير صالح' }, { status: 400 });
+    }
     await assertPeriodOpen(agencyId, body.date, db);
 
     const [account] = await db

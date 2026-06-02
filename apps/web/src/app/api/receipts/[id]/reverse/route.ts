@@ -102,7 +102,7 @@ export async function POST(
           .where(and(eq(invoices.id, orig.invoiceId), eq(invoices.agencyId, agencyId)));
         if (inv) {
           const newPaid = Math.max(0, (inv.paidHalalas ?? 0) - amountHalalas);
-          const newStatus = newPaid <= 0               ? 'refunded'
+          const newStatus = newPaid <= 0               ? 'issued'
             : newPaid < inv.totalHalalas               ? 'partial'
             : inv.status;
           await tx.update(invoices)

@@ -8,6 +8,7 @@ import { getNextPaymentVoucherNumber, getNextJournalNumber } from '@/lib/invoice
 import { assertPeriodOpen } from '@/lib/period-lock';
 import { lookupFxRate, fxToHalalas } from '@/lib/fx';
 import { GL } from '@/lib/gl-accounts';
+import { checkRateLimit, getClientIp, rateLimitHeaders } from '@/lib/rate-limit';
 import type { Tx } from '@/lib/db';
 
 interface SupplierPaymentBody {
@@ -69,6 +70,15 @@ export async function POST(request: Request) {
   try {
     const { uid, agencyId, role } = await verifyAuth(request);
     assertRole(role, [...ROLES_ACCOUNTANT_UP]);
+
+    const rl = await checkRateLimit(`${agencyId}:${getClientIp(request)}`, 'financial');
+    if (!rl.success) {
+      return NextResponse.json(
+        { error: 'تجاوزت الحد المسموح به من الطلبات. حاول مرة أخرى بعد دقيقة.' },
+        { status: 429, headers: rateLimitHeaders(rl) },
+      );
+    }
+
     await requireFeature(agencyId, 'supplier_payments', db);
 
     const body = await request.json() as SupplierPaymentBody;
@@ -113,12 +123,14 @@ export async function POST(request: Request) {
       }
     }
 
-    await assertPeriodOpen(agencyId, today0, db);
-
     const result = await db.transaction(async (tx: Tx) => {
       const now   = new Date();
       const year  = now.getFullYear();
       const today = now.toISOString().split('T')[0]!;
+
+      // Block posting into a closed accounting period — inside the tx to avoid a
+      // TOCTOU window between the open-period check and the journal insert.
+      await assertPeriodOpen(agencyId, today, tx);
 
       const voucherNumber = await getNextPaymentVoucherNumber(agencyId, year, tx);
       const jeNumber      = await getNextJournalNumber(agencyId, year, tx);
