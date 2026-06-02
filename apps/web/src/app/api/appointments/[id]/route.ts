@@ -26,7 +26,7 @@ export async function PATCH(request: Request, { params }: { params: { id: string
     const body = await request.json() as Partial<{
       title: string; scheduledAt: string; type: string; status: string;
       customerId: string; customerName: string; assignedTo: string;
-      description: string; durationMin: string; location: string;
+      description: string; durationMin: number; location: string;
       notes: string; outcome: string;
     }>;
 

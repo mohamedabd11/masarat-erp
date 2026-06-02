@@ -4,13 +4,8 @@
   "outputDirectory": ".next",
   "framework": "nextjs",
   "crons": [
-    {
-      "path": "/api/cron/check-subscriptions",
-      "schedule": "0 8 * * *"
-    },
-    {
-      "path": "/api/zatca/process-queue",
-      "schedule": "0 6 * * *"
-    }
+    { "path": "/api/jobs/expire-pnrs",               "schedule": "0 1 * * *" },
+    { "path": "/api/jobs/reconcile-pending-tickets", "schedule": "30 1 * * *" },
+    { "path": "/api/jobs/recognize-revenue",         "schedule": "0 2 * * *" }
   ]
 }

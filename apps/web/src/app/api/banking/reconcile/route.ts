@@ -173,16 +173,16 @@ export async function POST(request: Request) {
           createdBy:       uid,
         });
 
-        // Shortage (book > statement): DR Bank Discrepancy Expense (5510) / CR Bank (1100)
-        // Surplus  (statement > book): DR Bank (1100) / CR Bank Discrepancy Income (4510)
+        // Shortage (book > statement): DR Bank Discrepancy Expense (5510) / CR Bank (1110)
+        // Surplus  (statement > book): DR Bank (1110) / CR Bank Discrepancy Income (4510)
         await tx.insert(journalLines).values([
           {
             id:             crypto.randomUUID(),
             entryId:        discrepancyEntryId,
             agencyId,
-            accountCode:    isShortage ? '5510' : '1100',
-            accountNameAr:  isShortage ? 'فروق مطابقة بنكية (عجز)' : 'نقدية وبنوك',
-            accountNameEn:  isShortage ? 'Bank Reconciliation Shortage' : 'Cash & Banks',
+            accountCode:    isShortage ? '5510' : '1110',
+            accountNameAr:  isShortage ? 'فروق مطابقة بنكية (عجز)' : 'البنك',
+            accountNameEn:  isShortage ? 'Bank Reconciliation Shortage' : 'Bank',
             debitHalalas:   absDiscrepancy,
             creditHalalas:  0,
             description:    `RECON ${statementDate} ${account.nameAr}`,
@@ -192,9 +192,9 @@ export async function POST(request: Request) {
             id:             crypto.randomUUID(),
             entryId:        discrepancyEntryId,
             agencyId,
-            accountCode:    isShortage ? '1100' : '4510',
-            accountNameAr:  isShortage ? 'نقدية وبنوك' : 'فروق مطابقة بنكية (فائض)',
-            accountNameEn:  isShortage ? 'Cash & Banks' : 'Bank Reconciliation Surplus',
+            accountCode:    isShortage ? '1110' : '4510',
+            accountNameAr:  isShortage ? 'البنك' : 'فروق مطابقة بنكية (فائض)',
+            accountNameEn:  isShortage ? 'Bank' : 'Bank Reconciliation Surplus',
             debitHalalas:   0,
             creditHalalas:  absDiscrepancy,
             description:    `RECON ${statementDate} ${account.nameAr}`,

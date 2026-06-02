@@ -1,9 +1,10 @@
 import { NextResponse } from 'next/server';
 import { eq, and } from 'drizzle-orm';
 import { db } from '@/lib/db';
-import { invoices, journalEntries } from '@/lib/schema';
-import { verifyAuth, ApiAuthError } from '@/lib/api-auth';
+import { invoices, journalEntries, journalLines } from '@/lib/schema';
+import { verifyAuth, assertRole, ApiAuthError, BusinessError, ROLES_MANAGER_UP } from '@/lib/api-auth';
 import { logAudit } from '@/lib/audit';
+import { getNextJournalNumber } from '@/lib/invoice-counter';
 import { assertPeriodOpen } from '@/lib/period-lock';
 
 export async function GET(request: Request, { params }: { params: { id: string } }) {
@@ -21,7 +22,8 @@ export async function GET(request: Request, { params }: { params: { id: string }
 
 export async function PATCH(request: Request, { params }: { params: { id: string } }) {
   try {
-    const { uid, agencyId } = await verifyAuth(request);
+    const { uid, agencyId, role } = await verifyAuth(request);
+    assertRole(role, [...ROLES_MANAGER_UP]);
     const body = await request.json() as { action: string; reason?: string };
 
     if (body.action !== 'cancel') {
@@ -39,18 +41,54 @@ export async function PATCH(request: Request, { params }: { params: { id: string
       return NextResponse.json({ error: 'لا يمكن إلغاء فاتورة مدفوعة — يرجى إصدار إشعار دائن بدلاً من ذلك' }, { status: 409 });
     }
 
+    const today = new Date().toISOString().split('T')[0]!;
+    const year  = new Date().getFullYear();
+
     await db.transaction(async (tx) => {
-      await assertPeriodOpen(agencyId, new Date().toISOString().split('T')[0]!, tx);
+      await assertPeriodOpen(agencyId, today, tx);
 
       await tx.update(invoices)
         .set({ status: 'cancelled', updatedAt: new Date() } as never)
         .where(and(eq(invoices.id, params.id), eq(invoices.agencyId, agencyId)));
 
-      // Unpost the linked journal entry so the trial balance stays clean
+      // Post a reversing journal entry — preserves the audit trail of the original JE
       if (invoice.journalEntryId) {
-        await tx.update(journalEntries)
-          .set({ isPosted: false } as never)
-          .where(and(eq(journalEntries.id, invoice.journalEntryId), eq(journalEntries.agencyId, agencyId)));
+        const origLines = await tx.select().from(journalLines)
+          .where(eq(journalLines.entryId, invoice.journalEntryId));
+        if (origLines.length > 0) {
+          const revJeId = crypto.randomUUID();
+          const revNum  = await getNextJournalNumber(agencyId, year, tx);
+          const totalDr = origLines.reduce((s, l) => s + l.creditHalalas, 0);
+          await tx.insert(journalEntries).values({
+            id:                 revJeId,
+            agencyId,
+            entryNumber:        revNum,
+            date:               today,
+            descriptionAr:      `إلغاء فاتورة #${invoice.invoiceNumber}`,
+            descriptionEn:      `Reversal of invoice #${invoice.invoiceNumber}`,
+            source:             'manual',
+            sourceId:           invoice.id,
+            isPosted:           true,
+            totalDebitHalalas:  totalDr,
+            totalCreditHalalas: totalDr,
+            createdBy:          uid,
+          });
+          for (let i = 0; i < origLines.length; i++) {
+            const l = origLines[i]!;
+            await tx.insert(journalLines).values({
+              id:            crypto.randomUUID(),
+              entryId:       revJeId,
+              agencyId,
+              accountCode:   l.accountCode,
+              accountNameAr: l.accountNameAr ?? null,
+              accountNameEn: l.accountNameEn ?? null,
+              debitHalalas:  l.creditHalalas,
+              creditHalalas: l.debitHalalas,
+              description:   l.description ?? null,
+              sortOrder:     i + 1,
+            });
+          }
+        }
       }
     });
 
@@ -66,7 +104,8 @@ export async function PATCH(request: Request, { params }: { params: { id: string
       .where(and(eq(invoices.id, params.id), eq(invoices.agencyId, agencyId)));
     return NextResponse.json({ invoice: updated });
   } catch (err) {
-    if (err instanceof ApiAuthError) return NextResponse.json({ error: err.message }, { status: err.status });
+    if (err instanceof ApiAuthError)  return NextResponse.json({ error: err.message }, { status: err.status });
+    if (err instanceof BusinessError) return NextResponse.json({ error: err.message }, { status: err.status });
     console.error(JSON.stringify({ event: 'cancel_invoice_failed', invoiceId: params.id, error: String(err) }));
     return NextResponse.json({ error: 'خطأ في الخادم' }, { status: 500 });
   }

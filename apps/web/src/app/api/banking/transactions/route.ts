@@ -2,13 +2,24 @@ import { NextResponse } from 'next/server';
 import { eq, and, sql } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { bankAccounts, bankTransactions, journalEntries, journalLines } from '@/lib/schema';
-import { verifyAuth, ApiAuthError } from '@/lib/api-auth';
+import { verifyAuth, assertRole, ApiAuthError, BusinessError, ROLES_ACCOUNTANT_UP } from '@/lib/api-auth';
 import { getNextJournalNumber } from '@/lib/invoice-counter';
 import { assertPeriodOpen } from '@/lib/period-lock';
+import { checkRateLimit, getClientIp, rateLimitHeaders } from '@/lib/rate-limit';
 
 export async function POST(request: Request) {
   try {
-    const { uid, agencyId } = await verifyAuth(request);
+    const { uid, agencyId, role } = await verifyAuth(request);
+    assertRole(role, [...ROLES_ACCOUNTANT_UP]);
+
+    const rl = await checkRateLimit(`${agencyId}:${getClientIp(request)}`, 'financial');
+    if (!rl.success) {
+      return NextResponse.json(
+        { error: 'تجاوزت الحد المسموح به من الطلبات. حاول مرة أخرى بعد دقيقة.' },
+        { status: 429, headers: rateLimitHeaders(rl) },
+      );
+    }
+
     const body = await request.json() as {
       bankAccountId:       string;
       type:                string;    // 'deposit' | 'withdrawal'
@@ -26,7 +37,12 @@ export async function POST(request: Request) {
     if (!body.bankAccountId || !body.type || !body.amountHalalas || !body.date) {
       return NextResponse.json({ error: 'بيانات ناقصة' }, { status: 400 });
     }
-    await assertPeriodOpen(agencyId, body.date, db);
+    if (!Number.isInteger(body.amountHalalas) || body.amountHalalas <= 0) {
+      return NextResponse.json({ error: 'المبلغ يجب أن يكون عدداً صحيحاً موجباً' }, { status: 400 });
+    }
+    if (!['deposit', 'withdrawal'].includes(body.type)) {
+      return NextResponse.json({ error: 'نوع المعاملة غير صالح' }, { status: 400 });
+    }
 
     const [account] = await db
       .select({ id: bankAccounts.id, currentBalanceHalalas: bankAccounts.currentBalanceHalalas, type: bankAccounts.type, nameAr: bankAccounts.nameAr })
@@ -35,7 +51,6 @@ export async function POST(request: Request) {
     if (!account) return NextResponse.json({ error: 'حساب غير موجود' }, { status: 404 });
 
     const delta      = body.type === 'withdrawal' ? -body.amountHalalas : body.amountHalalas;
-    const newBalance = account.currentBalanceHalalas + delta;
     const isDeposit  = delta > 0;
 
     // GL codes — map account type to GL code
@@ -45,16 +60,27 @@ export async function POST(request: Request) {
     const bankGlEn   = (acType === 'cash' || acType === 'petty_cash') ? 'Cash'    : 'Bank';
 
     await db.transaction(async (tx) => {
+      await assertPeriodOpen(agencyId, body.date, tx);
+
       const txId  = crypto.randomUUID();
+
+      // Atomic increment to avoid lost updates under concurrent requests.
+      // The DB computes the new balance from its current value, not a stale read.
+      const [updatedAccount] = await tx.update(bankAccounts)
+        .set({
+          currentBalanceHalalas: sql`${bankAccounts.currentBalanceHalalas} + ${delta}`,
+          updatedAt: new Date(),
+        })
+        .where(eq(bankAccounts.id, body.bankAccountId))
+        .returning({ currentBalanceHalalas: bankAccounts.currentBalanceHalalas });
+      const newBalance = updatedAccount!.currentBalanceHalalas;
+
       await tx.insert(bankTransactions).values({
         id: txId, agencyId, bankAccountId: body.bankAccountId, type: body.type,
         amountHalalas: body.amountHalalas, balanceAfterHalalas: newBalance,
         description: body.description ?? null, reference: body.reference ?? null,
         date: body.date,
       });
-      await tx.update(bankAccounts)
-        .set({ currentBalanceHalalas: newBalance, updatedAt: new Date() })
-        .where(eq(bankAccounts.id, body.bankAccountId));
 
       // Post GL entry for manual deposit / withdrawal
       const now   = new Date();
@@ -100,7 +126,8 @@ export async function POST(request: Request) {
 
     return NextResponse.json({ success: true });
   } catch (err) {
-    if (err instanceof ApiAuthError) return NextResponse.json({ error: err.message }, { status: err.status });
+    if (err instanceof ApiAuthError)  return NextResponse.json({ error: err.message }, { status: err.status });
+    if (err instanceof BusinessError) return NextResponse.json({ error: err.message }, { status: err.status });
     console.error(JSON.stringify({ event: 'bank_transaction_failed', error: String(err) }));
     return NextResponse.json({ error: 'خطأ في الخادم' }, { status: 500 });
   }

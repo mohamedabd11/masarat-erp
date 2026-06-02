@@ -10,7 +10,6 @@ import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
 import { ChartOfAccountsClient } from '@/components/accounting/ChartOfAccountsClient';
 import { TrialBalanceTab } from '@/components/accounting/TrialBalanceTab';
-import { MigrationTool } from '@/components/accounting/MigrationTool';
 import { CurrenciesClient } from '@/components/currencies/CurrenciesClient';
 import { formatCurrency, formatDate, formatCount } from '@/lib/utils';
 import { cn } from '@/lib/utils';

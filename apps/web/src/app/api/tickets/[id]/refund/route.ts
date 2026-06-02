@@ -1,12 +1,15 @@
 import { NextResponse } from 'next/server';
 import { eq, and } from 'drizzle-orm';
 import { db } from '@/lib/db';
-import { tickets, ticketCoupons } from '@/lib/schema';
-import { verifyAuth, assertRole, ApiAuthError, ROLES_MANAGER_UP } from '@/lib/api-auth';
+import { tickets, ticketCoupons, journalEntries, journalLines, invoices } from '@/lib/schema';
+import { verifyAuth, assertRole, ApiAuthError, BusinessError, ROLES_MANAGER_UP } from '@/lib/api-auth';
 import { logAudit } from '@/lib/audit';
 import { logTravelEvent } from '@/lib/travel-event-log';
 import { logProviderSync } from '@/lib/provider-sync-log';
 import { resolveFlightProvider } from '@/lib/provider-factory';
+import { getNextJournalNumber } from '@/lib/invoice-counter';
+import { assertPeriodOpen } from '@/lib/period-lock';
+import { GL } from '@/lib/gl-accounts';
 import type { RefundParams } from '@/lib/providers/types';
 
 // POST /api/tickets/:id/refund
@@ -21,7 +24,22 @@ import type { RefundParams } from '@/lib/providers/types';
 //   If provider confirms refund (ticketNumber gone) → complete locally
 //   If provider still shows active → reset to 'active' (admin must verify)
 //
-// Financial note: refund creates a Refund Request + Payment Voucher in ERP (separate step)
+// Financial note: refund posts a reversing journal entry that unwinds the
+// revenue recognized at issuance/invoicing. The original taxable posting was:
+//   Dr 1120 Accounts Receivable
+//      Cr 4100 Revenue - Travel Services  (net of VAT)
+//      Cr 2200 VAT Payable                (output VAT, if any)
+// The refund reverses it, splitting the VAT back out so 2200 is not left
+// overstated by the tax portion (self-balancing on the reversed amount):
+//   Dr 4100 Revenue - Travel Services  (net)
+//   Dr 2200 VAT Payable                (proportional output VAT, if any)
+//      Cr 1120 Accounts Receivable
+// The recognized output VAT is NOT derivable from ticket fields (ticket.taxHalalas
+// is airline tax, not Saudi VAT); it lives on the tax invoice issued for the
+// ticket's booking. We read invoice.vatHalalas and prorate it by the reversed
+// amount, matching refunds/process. Zero-rated/international tickets
+// (invoice.vatHalalas=0) and tickets with no invoice reverse the full amount to
+// 4100 only. tagged journal_entries.service_type = 'ticket_refund'.
 //
 export async function POST(
   request: Request,
@@ -96,27 +114,122 @@ export async function POST(
     }
     const durationMs = Date.now() - t0;
 
-    // Phase 3: atomic local commit
-    await db.transaction(async (tx) => {
-      await tx.update(tickets).set({
-        status:     'refunded',
-        refundedAt: new Date(),
-        updatedAt:  new Date(),
-      }).where(eq(tickets.id, params.id));
+    // Phase 3: atomic local commit (status + coupons + reversing journal entry)
+    const now  = new Date();
+    const year = now.getFullYear();
+    const today = now.toISOString().split('T')[0]!;
 
-      await tx.update(ticketCoupons)
-        .set({ couponStatus: 'refunded', updatedAt: new Date() })
-        .where(eq(ticketCoupons.ticketId, params.id));
-    });
+    // Amount to reverse: prefer the provider-confirmed refund amount; fall back
+    // to the ticket's recorded total. Halalas, integer, never negative.
+    const reverseHalalas =
+      typeof refundResult?.refundAmountHalalas === 'number' && refundResult.refundAmountHalalas > 0
+        ? refundResult.refundAmountHalalas
+        : (ticket.totalHalalas ?? 0);
+
+    let journalEntryId: string | null = null;
+
+    try {
+      journalEntryId = await db.transaction(async (tx) => {
+        await tx.update(tickets).set({
+          status:     'refunded',
+          refundedAt: now,
+          updatedAt:  now,
+        }).where(eq(tickets.id, params.id));
+
+        await tx.update(ticketCoupons)
+          .set({ couponStatus: 'refunded', updatedAt: now })
+          .where(eq(ticketCoupons.ticketId, params.id));
+
+        // No amount to reverse → operational refund only, no accounting impact.
+        if (reverseHalalas <= 0) return null;
+
+        // Block posting into a closed accounting period.
+        await assertPeriodOpen(agencyId, today, tx);
+
+        const jeId     = crypto.randomUUID();
+        const jeNumber = await getNextJournalNumber(agencyId, year, tx);
+
+        // Recover the output VAT recognized at issuance so the reversal credits
+        // back 2200 VAT Payable instead of dumping the whole amount onto 4100.
+        // Source of truth is the tax invoice (type '380') issued for this ticket's
+        // booking — ticket.taxHalalas is airline tax, not Saudi VAT. Prorate the
+        // invoice VAT by the share of the invoice total being reversed.
+        let reverseVat = 0;
+        if (ticket.bookingId) {
+          const [inv] = await tx
+            .select({ totalHalalas: invoices.totalHalalas, vatHalalas: invoices.vatHalalas })
+            .from(invoices)
+            .where(and(
+              eq(invoices.bookingId, ticket.bookingId),
+              eq(invoices.agencyId, agencyId),
+              eq(invoices.type, '380'),
+            ));
+          if (inv && inv.totalHalalas > 0 && inv.vatHalalas > 0) {
+            const ratio = reverseHalalas / inv.totalHalalas;
+            reverseVat  = Math.min(reverseHalalas, Math.round(inv.vatHalalas * ratio));
+          }
+        }
+        const reverseNet = reverseHalalas - reverseVat;
+
+        // Reverse the recognized revenue (self-balancing on reverseHalalas):
+        //   Dr 4100 Revenue (net)  [+ Dr 2200 VAT Payable]   Cr 1120 Receivable
+        const jLines = reverseVat > 0
+          ? [
+              { ...GL.revenuePrincipal, dr: reverseNet, cr: 0 },
+              { ...GL.vatPayable,       dr: reverseVat, cr: 0 },
+              { ...GL.receivable,       dr: 0, cr: reverseHalalas },
+            ]
+          : [
+              { ...GL.revenuePrincipal, dr: reverseHalalas, cr: 0 },
+              { ...GL.receivable,       dr: 0, cr: reverseHalalas },
+            ];
+
+        await tx.insert(journalEntries).values({
+          id:                 jeId,
+          agencyId,
+          entryNumber:        jeNumber,
+          date:               today,
+          descriptionAr:      `استرداد تذكرة ${ticket.ticketNumber} - عكس الإيراد المعترف به`,
+          source:             'receipt',
+          sourceId:           params.id,
+          serviceType:        'ticket_refund',
+          isPosted:           true,
+          totalDebitHalalas:  jLines.reduce((s, l) => s + l.dr, 0),
+          totalCreditHalalas: jLines.reduce((s, l) => s + l.cr, 0),
+          createdBy:          uid,
+        });
+
+        for (let i = 0; i < jLines.length; i++) {
+          const l = jLines[i]!;
+          await tx.insert(journalLines).values({
+            id: crypto.randomUUID(), entryId: jeId, agencyId,
+            accountCode: l.code, accountNameAr: l.ar, accountNameEn: l.en,
+            debitHalalas: l.dr, creditHalalas: l.cr, sortOrder: i + 1,
+          });
+        }
+
+        return jeId;
+      });
+    } catch (txErr) {
+      // Period locked (BusinessError) or any local-commit failure: ticket stays
+      // 'pending_refund' so the reconcile cron can heal Phase 3 (no second
+      // provider call needed). Surface 4xx for a closed period, else re-throw.
+      if (txErr instanceof BusinessError) {
+        logProviderSync({ agencyId, provider: providerCode, operation: 'refund_ticket', status: 'success', referenceId: params.id, durationMs });
+        return NextResponse.json({ error: txErr.message }, { status: txErr.status });
+      }
+      throw txErr;
+    }
 
     logProviderSync({ agencyId, provider: providerCode, operation: 'refund_ticket', status: 'success', referenceId: params.id, durationMs });
-    await logAudit({ agencyId, userId: uid, action: 'update', resource: 'ticket', resourceId: params.id, before: { status: 'active', ticketNumber: ticket.ticketNumber }, after: { status: 'refunded', refundReference: refundResult?.refundReference } });
-    void logTravelEvent({ agencyId, eventType: 'ticket_refunded', provider: providerCode, resourceId: params.id, resourceType: 'ticket', actorId: uid, payload: { ticketNumber: ticket.ticketNumber, refundReference: refundResult?.refundReference, refundAmountHalalas: refundResult?.refundAmountHalalas, reason: body.reason } });
+    await logAudit({ agencyId, userId: uid, action: 'update', resource: 'ticket', resourceId: params.id, before: { status: 'active', ticketNumber: ticket.ticketNumber }, after: { status: 'refunded', refundReference: refundResult?.refundReference, journalEntryId, reversedHalalas: journalEntryId ? reverseHalalas : 0 } });
+    void logTravelEvent({ agencyId, eventType: 'ticket_refunded', provider: providerCode, resourceId: params.id, resourceType: 'ticket', actorId: uid, payload: { ticketNumber: ticket.ticketNumber, refundReference: refundResult?.refundReference, refundAmountHalalas: refundResult?.refundAmountHalalas, reason: body.reason, journalEntryId } });
 
     return NextResponse.json({
       success:             true,
       refundReference:     refundResult?.refundReference,
       refundAmountHalalas: refundResult?.refundAmountHalalas,
+      journalEntryId,
     });
   } catch (err) {
     if (err instanceof ApiAuthError) return NextResponse.json({ error: err.message }, { status: err.status });

@@ -23,6 +23,7 @@ function classify(code: string, coaType: AccountType | undefined): AccountType {
   if (code === '3201' || code === '3202') return 'liability';
   if (code.startsWith('3')) return 'equity';
   if (code.startsWith('4')) return 'revenue';
+  if (code.startsWith('9')) return 'liability'; // suspense/clearing accounts (9001, etc.)
   return 'expense'; // 5xxx + 6xxx
 }
 

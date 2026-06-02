@@ -2,7 +2,8 @@ import { NextResponse } from 'next/server';
 import { eq, and } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { invoices, journalEntries, journalLines } from '@/lib/schema';
-import { verifyAuth, assertRole, ApiAuthError, ROLES_MANAGER_UP } from '@/lib/api-auth';
+import { verifyAuth, assertRole, ApiAuthError, BusinessError, ROLES_MANAGER_UP } from '@/lib/api-auth';
+import { checkRateLimit, getClientIp, rateLimitHeaders } from '@/lib/rate-limit';
 import { logAudit } from '@/lib/audit';
 import { getNextInvoiceNumber, getNextJournalNumber, type InvoiceType } from '@/lib/invoice-counter';
 import { assertPeriodOpen } from '@/lib/period-lock';
@@ -21,6 +22,14 @@ export async function POST(request: Request) {
   try {
     const { uid, agencyId, role } = await verifyAuth(request);
     assertRole(role, [...ROLES_MANAGER_UP]);
+
+    const rl = await checkRateLimit(`${agencyId}:${getClientIp(request)}`, 'financial');
+    if (!rl.success) {
+      return NextResponse.json(
+        { error: 'تجاوزت الحد المسموح به من الطلبات. حاول مرة أخرى بعد دقيقة.' },
+        { status: 429, headers: rateLimitHeaders(rl) },
+      );
+    }
 
     const body = await request.json() as {
       originalInvoiceId?: string;
@@ -48,6 +57,18 @@ export async function POST(request: Request) {
       if (!orig) return NextResponse.json({ error: 'الفاتورة الأصلية غير موجودة' }, { status: 404 });
       if (orig.status === 'cancelled') return NextResponse.json({ error: 'الفاتورة الأصلية ملغاة' }, { status: 422 });
       originalInvoice = orig;
+
+      // Guard: a credit note can never reverse more than the invoice's remaining
+      // balance (total − already-paid − already-credited). Otherwise the GL would
+      // reverse more revenue/VAT than was originally booked.
+      const requestedTotal = body.subtotalHalalas + (body.vatHalalas ?? 0);
+      const maxCreditHalalas = orig.totalHalalas - (orig.paidHalalas ?? 0) - (orig.creditedHalalas ?? 0);
+      if (maxCreditHalalas <= 0) {
+        return NextResponse.json({ error: 'الفاتورة لا تحتوي على رصيد قابل للإشعار' }, { status: 422 });
+      }
+      if (requestedTotal > maxCreditHalalas) {
+        return NextResponse.json({ error: 'مبلغ الإشعار الدائن يتجاوز الرصيد المتبقي على الفاتورة' }, { status: 422 });
+      }
     }
 
     const result = await db.transaction(async (tx) => {
@@ -62,7 +83,7 @@ export async function POST(request: Request) {
 
       const subtotal = body.subtotalHalalas;
       const vat      = body.vatHalalas ?? 0;
-      const total    = body.totalHalalas ?? subtotal + vat;
+      const total    = subtotal + vat; // always server-computed — never trust client total
 
       // ── Resolve GL accounts from original invoice's journal ───────────────
       // When we have the original invoice's journal entry, mirror its accounts
@@ -161,14 +182,21 @@ export async function POST(request: Request) {
       await tx.insert(journalLines).values(jLines);
 
       // ── Update original invoice outstanding balance ────────────────────────
-      // Treat the credit note as reducing what the customer owes (like a payment).
+      // A credit note is NOT a cash payment: it lowers the receivable without any
+      // cash changing hands. We therefore track it in creditedHalalas (never in
+      // paidHalalas) so AR aging and collection reports stay accurate.
+      // Outstanding = totalHalalas - paidHalalas - creditedHalalas.
       if (originalInvoice) {
-        const newPaid   = Math.min((originalInvoice.paidHalalas ?? 0) + total, originalInvoice.totalHalalas);
-        const newStatus = newPaid >= originalInvoice.totalHalalas ? 'paid'
-          : newPaid > 0 ? 'partial'
+        const paid        = originalInvoice.paidHalalas ?? 0;
+        const newCredited = Math.min((originalInvoice.creditedHalalas ?? 0) + total, originalInvoice.totalHalalas - paid);
+        const outstanding = originalInvoice.totalHalalas - paid - newCredited;
+        // Fully settled (by payments + credits) → paid. Otherwise the status only
+        // reflects ACTUAL cash: 'partial' iff a real payment exists, else unchanged.
+        const newStatus = outstanding <= 0 ? 'paid'
+          : paid > 0 ? 'partial'
           : originalInvoice.status;
         await tx.update(invoices)
-          .set({ paidHalalas: newPaid, status: newStatus, updatedAt: new Date() })
+          .set({ creditedHalalas: newCredited, status: newStatus, updatedAt: new Date() })
           .where(eq(invoices.id, originalInvoice.id));
       }
 
@@ -181,7 +209,8 @@ export async function POST(request: Request) {
     });
     return NextResponse.json({ success: true, ...result });
   } catch (err) {
-    if (err instanceof ApiAuthError) return NextResponse.json({ error: err.message }, { status: err.status });
+    if (err instanceof ApiAuthError)  return NextResponse.json({ error: err.message }, { status: err.status });
+    if (err instanceof BusinessError) return NextResponse.json({ error: err.message }, { status: err.status });
     console.error(JSON.stringify({ event: 'credit_note_create_failed', error: (err as Error).message }));
     return NextResponse.json({ error: 'خطأ في الخادم' }, { status: 500 });
   }

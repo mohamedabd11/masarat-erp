@@ -1,10 +1,12 @@
 import { NextResponse } from 'next/server';
 import { eq, and } from 'drizzle-orm';
 import { db } from '@/lib/db';
-import { recurringInvoices, invoices } from '@/lib/schema';
+import { recurringInvoices, invoices, journalEntries, journalLines } from '@/lib/schema';
 import { verifyAuth, assertRole, ApiAuthError, ROLES_MANAGER_UP } from '@/lib/api-auth';
 import { logAudit } from '@/lib/audit';
-import { getNextInvoiceNumber, type InvoiceType } from '@/lib/invoice-counter';
+import { getNextInvoiceNumber, getNextJournalNumber, type InvoiceType } from '@/lib/invoice-counter';
+import { assertPeriodOpen } from '@/lib/period-lock';
+import { GL } from '@/lib/gl-accounts';
 
 export async function GET(request: Request, { params }: { params: { id: string } }) {
   try {
@@ -63,9 +65,13 @@ export async function POST(request: Request, { params }: { params: { id: string 
 
     const result = await db.transaction(async (tx) => {
       const year    = new Date().getFullYear();
-      const invNum  = await getNextInvoiceNumber(agencyId, 'taxInvoice' as InvoiceType, year, tx);
       const today   = new Date().toISOString().split('T')[0]!;
+      await assertPeriodOpen(agencyId, today, tx);
+
+      const invNum  = await getNextInvoiceNumber(agencyId, 'taxInvoice' as InvoiceType, year, tx);
+      const jeNum   = await getNextJournalNumber(agencyId, year, tx);
       const invId   = crypto.randomUUID();
+      const jeId    = crypto.randomUUID();
 
       await tx.insert(invoices).values({
         id:             invId,
@@ -83,7 +89,39 @@ export async function POST(request: Request, { params }: { params: { id: string 
         notes:          recurring.notes ?? null,
         paymentMethod:  recurring.paymentMethod ?? null,
         createdBy:      uid,
+        journalEntryId: jeId,
       });
+
+      // GL journal entry — DR Receivable / CR Revenue + CR VAT Payable
+      const jeLines: { code: string; ar: string; en: string; dr: number; cr: number; ord: number }[] = [
+        { code: GL.receivable.code, ar: GL.receivable.ar, en: GL.receivable.en, dr: recurring.totalHalalas, cr: 0, ord: 1 },
+        { code: GL.revenueAgent.code, ar: GL.revenueAgent.ar, en: GL.revenueAgent.en, dr: 0, cr: recurring.subtotalHalalas, ord: 2 },
+      ];
+      if (recurring.vatHalalas > 0) {
+        jeLines.push({ code: GL.vatPayable.code, ar: GL.vatPayable.ar, en: GL.vatPayable.en, dr: 0, cr: recurring.vatHalalas, ord: 3 });
+      }
+      await tx.insert(journalEntries).values({
+        id:                 jeId,
+        agencyId,
+        entryNumber:        jeNum,
+        date:               today,
+        descriptionAr:      `فاتورة دورية #${invNum}`,
+        descriptionEn:      `Recurring Invoice #${invNum}`,
+        source:             'invoice',
+        sourceId:           invId,
+        isPosted:           true,
+        totalDebitHalalas:  recurring.totalHalalas,
+        totalCreditHalalas: recurring.totalHalalas,
+        createdBy:          uid,
+      });
+      for (let i = 0; i < jeLines.length; i++) {
+        const l = jeLines[i]!;
+        await tx.insert(journalLines).values({
+          id: crypto.randomUUID(), entryId: jeId, agencyId,
+          accountCode: l.code, accountNameAr: l.ar, accountNameEn: l.en,
+          debitHalalas: l.dr, creditHalalas: l.cr, sortOrder: l.ord,
+        });
+      }
 
       // Compute next issue date
       const freq = recurring.frequency;

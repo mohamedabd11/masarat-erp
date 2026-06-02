@@ -115,6 +115,16 @@ export async function POST(request: Request) {
         // Margin scheme: VAT is calculated only on the profit margin (selling - cost).
         const vatScheme    = (details['vatScheme'] as string | undefined) ?? 'standard';
 
+        // KSA VAT — zero-rated supply (0%): international passenger air transport.
+        // Per ZATCA / VAT Implementing Regulations (Art. 33), international transport
+        // of passengers is zero-rated, NOT standard-rated 15%. The international flag
+        // is stored on the booking details JSON (set at booking-creation time) and is
+        // also what the VAT-return report keys off (reports/vat-return). When set we
+        // force VAT to 0 so no output VAT is charged and no VAT-payable line is posted.
+        const serviceType  = booking.serviceType ?? '';
+        const isFlight     = serviceType === 'flight' || serviceType === 'flights';
+        const isZeroRated  = isFlight && details['isInternational'] === true;
+
         let subtotalExclVat: number;
         let totalVat: number;
         let finalGrandTotal: number;
@@ -127,7 +137,16 @@ export async function POST(request: Request) {
           const storedFee = (details['serviceFee'] as number | undefined) ?? 0;
           const storedVat = (details['vatAmount']  as number | undefined) ?? 0;
           subtotalExclVat = storedCost + storedFee;
+          // Agent model: VAT is charged on the commission/service fee only. The
+          // underlying international air transport is itself zero-rated, but that
+          // cost is a pass-through here, so the stored commission VAT still applies.
           totalVat        = storedVat;
+          finalGrandTotal = grandTotal;
+        } else if (isZeroRated) {
+          // Zero-rated (0%): international passenger air transport. The full amount
+          // is the taxable base at 0%, so VAT = 0 and no VAT-payable line is posted.
+          subtotalExclVat = grandTotal;
+          totalVat        = 0;
           finalGrandTotal = grandTotal;
         } else if (vatScheme === 'margin' && storedCost > 0) {
           // ZATCA Margin Scheme (Special Scheme for Tour Operators):

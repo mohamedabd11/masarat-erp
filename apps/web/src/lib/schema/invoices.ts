@@ -1,3 +1,4 @@
+import { sql } from 'drizzle-orm';
 import { pgTable, text, integer, bigint, boolean, timestamp, jsonb, index, uniqueIndex } from 'drizzle-orm/pg-core';
 import { agencies } from './agencies';
 import { bookings } from './bookings';
@@ -27,6 +28,11 @@ export const invoices = pgTable('invoices', {
   vatHalalas:        bigint('vat_halalas', { mode: 'number' }).notNull().default(0),
   totalHalalas:      bigint('total_halalas', { mode: 'number' }).notNull().default(0),
   paidHalalas:       bigint('paid_halalas', { mode: 'number' }).notNull().default(0),
+  // Non-cash reduction of the receivable from credit notes (ZATCA type 381).
+  // A credit note lowers the customer's outstanding balance WITHOUT being a
+  // cash payment, so it is tracked separately from paidHalalas. Outstanding =
+  // totalHalalas - paidHalalas - creditedHalalas.
+  creditedHalalas:   bigint('credited_halalas', { mode: 'number' }).notNull().default(0),
   // dates
   issueDate:         text('issue_date').notNull(),            // YYYY-MM-DD
   supplyDate:        text('supply_date'),
@@ -55,9 +61,13 @@ export const invoices = pgTable('invoices', {
   index('idx_invoices_agency').on(t.agencyId),
   index('idx_invoices_agency_status').on(t.agencyId, t.status),
   index('idx_invoices_agency_created').on(t.agencyId, t.createdAt),
-  // One invoice per booking per agency (skips standalone invoices where bookingId is NULL —
-  // Postgres treats NULLs as distinct, so multiple booking-less invoices remain allowed).
-  uniqueIndex('uq_invoices_agency_booking').on(t.agencyId, t.bookingId),
+  // Deferred-revenue cron hot paths (jobs/recognize-revenue).
+  index('idx_invoices_agency_deferred').on(t.agencyId, t.deferredUntil).where(sql`${t.deferredUntil} IS NOT NULL`),
+  index('idx_invoices_deferred_recognized').on(t.deferredUntil, t.revenueRecognizedAt),
+  // One TAX invoice (type 380) per booking per agency. Credit notes (381) and
+  // debit notes (383) may reference the same booking, so the index is partial.
+  // Matches the DDL in setup-db (invoices_one_per_booking WHERE type = '380').
+  uniqueIndex('uq_invoices_agency_booking').on(t.agencyId, t.bookingId).where(sql`${t.type} = '380' AND ${t.bookingId} IS NOT NULL`),
 ]);
 
 export type Invoice    = typeof invoices.$inferSelect;

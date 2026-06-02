@@ -3,10 +3,12 @@ import { eq, and, sql } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { supplierPayments, suppliers, journalEntries, journalLines } from '@/lib/schema';
 import { verifyAuth, assertRole, ApiAuthError, BusinessError, ROLES_ACCOUNTANT_UP } from '@/lib/api-auth';
+import { requireFeature } from '@/lib/feature-access';
 import { getNextPaymentVoucherNumber, getNextJournalNumber } from '@/lib/invoice-counter';
 import { assertPeriodOpen } from '@/lib/period-lock';
 import { lookupFxRate, fxToHalalas } from '@/lib/fx';
 import { GL } from '@/lib/gl-accounts';
+import { checkRateLimit, getClientIp, rateLimitHeaders } from '@/lib/rate-limit';
 import type { Tx } from '@/lib/db';
 
 interface SupplierPaymentBody {
@@ -21,6 +23,10 @@ interface SupplierPaymentBody {
   bookingId?:         string;
   bookingNumber?:     string;
   supplierId?:        string;
+  // Input VAT on this supplier invoice (IAS 12 / ZATCA).
+  // Only for direct-expense categories (rent, marketing, operational, etc.).
+  // For 'supplier' AP payments the VAT was already posted at invoice creation time.
+  vatHalalas?:        number;
   // FX fields (IFRS 9)
   foreignCurrency?:   string;  // e.g. 'USD', 'AED'
   foreignAmountMinor?: number; // amount in minor units (cents, fils, etc.)
@@ -36,7 +42,10 @@ interface SupplierPaymentBody {
 // (no prior invoice posting) and keep debiting their expense account.
 const EXPENSE_ACCOUNT: Record<string, { code: string; ar: string; en: string }> = {
   supplier:    GL.payableSupplier,
-  salaries:    { code: '5100', ar: 'الرواتب والأجور',     en: 'Salaries' },
+  // Unified on 6100 Salary Expense (GL.salaryExpense) — the same account used by
+  // the primary payroll path (payslips). Previously this used a local 5100, which
+  // split salary costs across two accounts and fragmented the income statement.
+  salaries:    GL.salaryExpense,
   rent:        { code: '5200', ar: 'الإيجار',             en: 'Rent' },
   marketing:   { code: '5300', ar: 'التسويق والإعلان',    en: 'Marketing' },
   operational: { code: '5400', ar: 'المصاريف التشغيلية',  en: 'Operating Expenses' },
@@ -62,13 +71,35 @@ export async function POST(request: Request) {
     const { uid, agencyId, role } = await verifyAuth(request);
     assertRole(role, [...ROLES_ACCOUNTANT_UP]);
 
+    const rl = await checkRateLimit(`${agencyId}:${getClientIp(request)}`, 'financial');
+    if (!rl.success) {
+      return NextResponse.json(
+        { error: 'تجاوزت الحد المسموح به من الطلبات. حاول مرة أخرى بعد دقيقة.' },
+        { status: 429, headers: rateLimitHeaders(rl) },
+      );
+    }
+
+    await requireFeature(agencyId, 'supplier_payments', db);
+
     const body = await request.json() as SupplierPaymentBody;
     const { payeeName, expenseCategory, amountHalalas, paymentMethod, reference, notes,
             bookingId, bookingNumber, supplierId,
+            vatHalalas: rawVatHalalas,
             foreignCurrency, foreignAmountMinor, fxOriginalHalalas } = body;
+    const vatHalalas = rawVatHalalas ?? 0;
 
     if (!payeeName || !expenseCategory || !paymentMethod) {
       return NextResponse.json({ error: 'بيانات مطلوبة ناقصة' }, { status: 400 });
+    }
+    // Salary payments must go through the dedicated payroll flow (salary-payments
+    // route) which validates that a payslip accrual (Dr 6100 / Cr 2310) exists
+    // first. Using supplier-payments for salaries bypasses that guard and can
+    // drive 2310 Salaries Payable negative or double-count the expense.
+    if (expenseCategory === 'salaries') {
+      return NextResponse.json(
+        { error: 'لا يمكن صرف رواتب الموظفين عبر سندات الصرف — استخدم قسم الموارد البشرية > صرف الرواتب بعد إعداد كشف الراتب' },
+        { status: 422 },
+      );
     }
 
     const today0 = new Date().toISOString().split('T')[0]!;
@@ -96,13 +127,20 @@ export async function POST(request: Request) {
     if (!Number.isInteger(resolvedAmountHalalas) || resolvedAmountHalalas <= 0) {
       return NextResponse.json({ error: 'مبلغ الدفعة غير صالح' }, { status: 400 });
     }
-
-    await assertPeriodOpen(agencyId, today0, db);
+    if (!Number.isInteger(vatHalalas) || vatHalalas < 0 || vatHalalas >= resolvedAmountHalalas) {
+      if (vatHalalas !== 0) {
+        return NextResponse.json({ error: 'مبلغ الضريبة غير صالح' }, { status: 400 });
+      }
+    }
 
     const result = await db.transaction(async (tx: Tx) => {
       const now   = new Date();
       const year  = now.getFullYear();
       const today = now.toISOString().split('T')[0]!;
+
+      // Block posting into a closed accounting period — inside the tx to avoid a
+      // TOCTOU window between the open-period check and the journal insert.
+      await assertPeriodOpen(agencyId, today, tx);
 
       const voucherNumber = await getNextPaymentVoucherNumber(agencyId, year, tx);
       const jeNumber      = await getNextJournalNumber(agencyId, year, tx);
@@ -131,8 +169,22 @@ export async function POST(request: Request) {
         createdBy:       uid,
       });
 
-      // Decrease supplier balance if a supplierId was provided (positive = we owe them)
-      if (supplierId) {
+      // AP-01: Decrease supplier AP balance if supplierId provided.
+      // Atomic CAS: only update if the supplier's balance covers the payment amount
+      // (prevents paying more than owed and driving AP negative).
+      if (supplierId && expenseCategory === 'supplier') {
+        const [updatedSupplier] = await tx.update(suppliers)
+          .set({ balanceHalalas: sql`${suppliers.balanceHalalas} - ${resolvedAmountHalalas}`, updatedAt: now })
+          .where(and(
+            eq(suppliers.id, supplierId),
+            eq(suppliers.agencyId, agencyId),
+            sql`${suppliers.balanceHalalas} >= ${resolvedAmountHalalas}`,
+          ))
+          .returning({ id: suppliers.id });
+        if (!updatedSupplier) {
+          throw new BusinessError('رصيد المورد غير كافٍ لتغطية هذه الدفعة — تحقق من ذمم المورد أولاً', 400);
+        }
+      } else if (supplierId) {
         await tx.update(suppliers)
           .set({ balanceHalalas: sql`${suppliers.balanceHalalas} - ${resolvedAmountHalalas}`, updatedAt: now })
           .where(and(eq(suppliers.id, supplierId), eq(suppliers.agencyId, agencyId)));
@@ -157,27 +209,40 @@ export async function POST(request: Request) {
         source:             'payment',
         sourceId:           spId,
         isPosted:           true,
-        totalDebitHalalas:  resolvedAmountHalalas,
-        totalCreditHalalas: resolvedAmountHalalas,
+        totalDebitHalalas:  fxDiff < 0 ? expenseDebit : resolvedAmountHalalas,
+        totalCreditHalalas: fxDiff < 0 ? expenseDebit : resolvedAmountHalalas,
         createdBy:          uid,
       });
 
       type JLine = { id: string; entryId: string; agencyId: string; accountCode: string; accountNameAr: string; accountNameEn: string; debitHalalas: number; creditHalalas: number; sortOrder: number };
-      // Build journal lines with optional FX leg
+
+      // When vatHalalas > 0, split the expense debit: net expense + input VAT (1230).
+      // The 'supplier' AP category doesn't carry separate VAT here — it was already
+      // posted at purchase-invoice time, so vatHalalas is expected 0 for that category.
+      const netExpenseDebit = expenseDebit - vatHalalas;
+
+      // Build journal lines with optional VAT and FX legs
       const lines: JLine[] = [
-        { id: crypto.randomUUID(), entryId: jeId, agencyId, accountCode: expenseAc.code, accountNameAr: expenseAc.ar, accountNameEn: expenseAc.en, debitHalalas: expenseDebit, creditHalalas: 0, sortOrder: 1 },
+        { id: crypto.randomUUID(), entryId: jeId, agencyId, accountCode: expenseAc.code, accountNameAr: expenseAc.ar, accountNameEn: expenseAc.en, debitHalalas: netExpenseDebit, creditHalalas: 0, sortOrder: 1 },
       ];
+
+      // Input VAT line — Dr 1230 Input VAT Receivable
+      if (vatHalalas > 0) {
+        lines.push({ id: crypto.randomUUID(), entryId: jeId, agencyId, accountCode: GL.inputVat.code, accountNameAr: GL.inputVat.ar, accountNameEn: GL.inputVat.en, debitHalalas: vatHalalas, creditHalalas: 0, sortOrder: 2 });
+      }
+
+      const nextSort = vatHalalas > 0 ? 3 : 2;
 
       if (fxDiff > 0) {
         // FX Loss: paid more SAR than originally booked — Dr FX Loss (5900)
-        lines.push({ id: crypto.randomUUID(), entryId: jeId, agencyId, accountCode: AC_FX_LOSS.code, accountNameAr: AC_FX_LOSS.ar, accountNameEn: AC_FX_LOSS.en, debitHalalas: fxDiff, creditHalalas: 0, sortOrder: 2 });
-        lines.push({ id: crypto.randomUUID(), entryId: jeId, agencyId, accountCode: paymentAc.code, accountNameAr: paymentAc.ar, accountNameEn: paymentAc.en, debitHalalas: 0, creditHalalas: resolvedAmountHalalas, sortOrder: 3 });
+        lines.push({ id: crypto.randomUUID(), entryId: jeId, agencyId, accountCode: AC_FX_LOSS.code, accountNameAr: AC_FX_LOSS.ar, accountNameEn: AC_FX_LOSS.en, debitHalalas: fxDiff, creditHalalas: 0, sortOrder: nextSort });
+        lines.push({ id: crypto.randomUUID(), entryId: jeId, agencyId, accountCode: paymentAc.code, accountNameAr: paymentAc.ar, accountNameEn: paymentAc.en, debitHalalas: 0, creditHalalas: resolvedAmountHalalas, sortOrder: nextSort + 1 });
       } else if (fxDiff < 0) {
         // FX Gain: paid less SAR than originally booked — Cr FX Gain (4900)
-        lines.push({ id: crypto.randomUUID(), entryId: jeId, agencyId, accountCode: paymentAc.code, accountNameAr: paymentAc.ar, accountNameEn: paymentAc.en, debitHalalas: 0, creditHalalas: resolvedAmountHalalas, sortOrder: 2 });
-        lines.push({ id: crypto.randomUUID(), entryId: jeId, agencyId, accountCode: AC_FX_GAIN.code, accountNameAr: AC_FX_GAIN.ar, accountNameEn: AC_FX_GAIN.en, debitHalalas: 0, creditHalalas: -fxDiff, sortOrder: 3 });
+        lines.push({ id: crypto.randomUUID(), entryId: jeId, agencyId, accountCode: paymentAc.code, accountNameAr: paymentAc.ar, accountNameEn: paymentAc.en, debitHalalas: 0, creditHalalas: resolvedAmountHalalas, sortOrder: nextSort });
+        lines.push({ id: crypto.randomUUID(), entryId: jeId, agencyId, accountCode: AC_FX_GAIN.code, accountNameAr: AC_FX_GAIN.ar, accountNameEn: AC_FX_GAIN.en, debitHalalas: 0, creditHalalas: -fxDiff, sortOrder: nextSort + 1 });
       } else {
-        lines.push({ id: crypto.randomUUID(), entryId: jeId, agencyId, accountCode: paymentAc.code, accountNameAr: paymentAc.ar, accountNameEn: paymentAc.en, debitHalalas: 0, creditHalalas: resolvedAmountHalalas, sortOrder: 2 });
+        lines.push({ id: crypto.randomUUID(), entryId: jeId, agencyId, accountCode: paymentAc.code, accountNameAr: paymentAc.ar, accountNameEn: paymentAc.en, debitHalalas: 0, creditHalalas: resolvedAmountHalalas, sortOrder: nextSort });
       }
 
       await tx.insert(journalLines).values(lines);

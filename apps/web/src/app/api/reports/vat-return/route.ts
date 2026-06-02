@@ -45,16 +45,16 @@ export async function GET(request: Request) {
       .select({
         type:           invoices.type,
         count:          sql<number>`cast(count(*) as int)`,
-        netAmount:      sql<number>`cast(coalesce(sum(${invoices.subtotalHalalas}), 0) as int)`,
-        vatAmount:      sql<number>`cast(coalesce(sum(${invoices.vatHalalas}),      0) as int)`,
-        grossAmount:    sql<number>`cast(coalesce(sum(${invoices.totalHalalas}),    0) as int)`,
+        netAmount:      sql<number>`cast(coalesce(sum(${invoices.subtotalHalalas}), 0) as bigint)`,
+        vatAmount:      sql<number>`cast(coalesce(sum(${invoices.vatHalalas}),      0) as bigint)`,
+        grossAmount:    sql<number>`cast(coalesce(sum(${invoices.totalHalalas}),    0) as bigint)`,
       })
       .from(invoices)
       .where(and(
         eq(invoices.agencyId, agencyId),
         sql`${invoices.issueDate} >= ${from}`,
         sql`${invoices.issueDate} <= ${to}`,
-        sql`${invoices.status} NOT IN ('cancelled')`,
+        sql`${invoices.status} NOT IN ('cancelled', 'draft')`,
       ))
       .groupBy(invoices.type);
 
@@ -90,7 +90,7 @@ export async function GET(request: Request) {
     // Derived from invoices whose linked booking is an international flight.
     const zeroRatedRows = await db
       .select({
-        netAmount: sql<number>`cast(coalesce(sum(${invoices.subtotalHalalas}), 0) as int)`,
+        netAmount: sql<number>`cast(coalesce(sum(${invoices.subtotalHalalas}), 0) as bigint)`,
         count:     sql<number>`cast(count(*) as int)`,
       })
       .from(invoices)
@@ -99,7 +99,7 @@ export async function GET(request: Request) {
         eq(invoices.agencyId, agencyId),
         sql`${invoices.issueDate} >= ${from}`,
         sql`${invoices.issueDate} <= ${to}`,
-        sql`${invoices.status} NOT IN ('cancelled')`,
+        sql`${invoices.status} NOT IN ('cancelled', 'draft')`,
         sql`${invoices.type} IN ('380', '383')`,
         sql`${bookings.serviceType} IN ('flight', 'flights')`,
         sql`(${bookings.details} ->> 'isInternational') = 'true'`,
@@ -115,7 +115,7 @@ export async function GET(request: Request) {
     const purchaseRows = await db
       .select({
         count:      sql<number>`cast(count(*) as int)`,
-        netAmount:  sql<number>`cast(coalesce(sum(${supplierPayments.amountHalalas}), 0) as int)`,
+        netAmount:  sql<number>`cast(coalesce(sum(${supplierPayments.amountHalalas}), 0) as bigint)`,
       })
       .from(supplierPayments)
       .where(and(
@@ -128,28 +128,26 @@ export async function GET(request: Request) {
     const totalPurchases    = Number(purchaseRows[0]?.count ?? 0) > 0 ? Number(purchaseRows[0]?.netAmount ?? 0) : 0;
     const purchaseCount     = Number(purchaseRows[0]?.count ?? 0);
 
-    // Real Input VAT: sum of debits posted to the VAT accounts within the period.
-    // Output VAT is credited to 2200 (VAT Payable); input/reclaimable VAT is
-    // debited to either a dedicated input-VAT receivable (1230) or to 2200 itself.
+    // Real Input VAT: sum of debits posted to the input-VAT account (1230) within
+    // the period. Output VAT is credited to 2200 (VAT Payable); 2200 is also
+    // DEBITED by refunds/credit notes (reversing output VAT liability), so those
+    // 2200 debits are NOT reclaimable input VAT and must be excluded here.
     const inputVatRows = await db
       .select({
-        inputVat: sql<number>`cast(coalesce(sum(${journalLines.debitHalalas}), 0) as int)`,
+        inputVat: sql<number>`cast(coalesce(sum(${journalLines.debitHalalas}), 0) as bigint)`,
       })
       .from(journalLines)
       .innerJoin(journalEntries, eq(journalLines.entryId, journalEntries.id))
       .where(and(
         eq(journalLines.agencyId, agencyId),
         eq(journalEntries.isPosted, true),
-        sql`${journalLines.accountCode} IN ('1230', '2200')`,
+        sql`${journalLines.accountCode} = '1230'`,
         sql`${journalLines.debitHalalas} > 0`,
         sql`${journalEntries.date} >= ${from}`,
         sql`${journalEntries.date} <= ${to}`,
       ));
 
-    // Subtract VAT debits that originate from credit notes (already netted into
-    // output VAT above) so we don't double-count them as reclaimable input VAT.
-    const grossVatDebits = Number(inputVatRows[0]?.inputVat ?? 0);
-    const inputVat       = Math.max(0, grossVatDebits - creditNoteVat);
+    const inputVat = Number(inputVatRows[0]?.inputVat ?? 0);
 
     // ── Summary ───────────────────────────────────────────────────────────────
     const netVatPayable = netOutputVat - inputVat;

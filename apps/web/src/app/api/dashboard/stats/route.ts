@@ -54,16 +54,17 @@ export async function GET(request: Request) {
     }
     const monthProfit = monthRevenue - monthCost;
 
-    // AR outstanding (total - paid across all non-cancelled invoices)
+    // AR outstanding (total - paid - credited across all non-cancelled invoices).
+    // Credit notes (creditedHalalas) reduce the receivable without being cash.
     const arRows = await db
-      .select({ total: invoices.totalHalalas, paid: invoices.paidHalalas })
+      .select({ total: invoices.totalHalalas, paid: invoices.paidHalalas, credited: invoices.creditedHalalas })
       .from(invoices)
       .where(and(
         eq(invoices.agencyId, agencyId),
         sql`${invoices.status} NOT IN ('cancelled','refunded','paid')`,
       ));
 
-    const arOutstanding = arRows.reduce((s, r) => s + Math.max(0, r.total - r.paid), 0);
+    const arOutstanding = arRows.reduce((s, r) => s + Math.max(0, r.total - r.paid - r.credited), 0);
 
     // Active (confirmed, current month created) + pending (draft) bookings
     const bkRows = await db

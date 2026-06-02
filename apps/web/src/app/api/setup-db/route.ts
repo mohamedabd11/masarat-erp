@@ -84,10 +84,12 @@ CREATE TABLE IF NOT EXISTS customers (
   national_id      TEXT,
   nationality      TEXT,
   date_of_birth    TEXT,
-  notes            TEXT,
-  is_active        BOOLEAN NOT NULL DEFAULT TRUE,
-  created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  updated_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  notes                    TEXT,
+  credit_limit_halalas     BIGINT NOT NULL DEFAULT 0,
+  opening_balance_halalas  BIGINT NOT NULL DEFAULT 0,
+  is_active                BOOLEAN NOT NULL DEFAULT TRUE,
+  created_at               TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at               TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 CREATE INDEX IF NOT EXISTS idx_customers_agency ON customers(agency_id);
 
@@ -166,6 +168,7 @@ CREATE TABLE IF NOT EXISTS invoices (
   type               TEXT NOT NULL DEFAULT '380',
   booking_id         TEXT REFERENCES bookings(id),
   customer_id        TEXT REFERENCES customers(id),
+  original_invoice_id TEXT REFERENCES invoices(id),
   seller_name_ar     TEXT,
   seller_name_en     TEXT,
   seller_vat_number  TEXT,
@@ -180,6 +183,7 @@ CREATE TABLE IF NOT EXISTS invoices (
   vat_halalas        INTEGER NOT NULL DEFAULT 0,
   total_halalas      INTEGER NOT NULL DEFAULT 0,
   paid_halalas       INTEGER NOT NULL DEFAULT 0,
+  credited_halalas   BIGINT  NOT NULL DEFAULT 0,
   issue_date         TEXT NOT NULL,
   supply_date        TEXT,
   due_date           TEXT,
@@ -300,6 +304,7 @@ CREATE TABLE IF NOT EXISTS journal_entries (
   reference             TEXT,
   source                TEXT NOT NULL DEFAULT 'manual',
   source_id             TEXT,
+  service_type          TEXT,
   is_posted             BOOLEAN NOT NULL DEFAULT TRUE,
   total_debit_halalas   INTEGER NOT NULL DEFAULT 0,
   total_credit_halalas  INTEGER NOT NULL DEFAULT 0,
@@ -323,6 +328,12 @@ CREATE TABLE IF NOT EXISTS journal_lines (
   sort_order      INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_journal_lines_entry       ON journal_lines(entry_id);
+-- DB-02: account_code is free TEXT, so a real FK to chart_of_accounts is not
+-- feasible (REFERENCES needs a single-column unique/PK target; COA is unique on
+-- (agency_id, code), not on code alone). A trigger would add needless complexity,
+-- so referential integrity stays at the application layer. This composite index
+-- backs the existence lookups used for that validation and the agency-scoped GL
+-- queries that join lines to COA.
 CREATE INDEX IF NOT EXISTS idx_journal_lines_agency_code ON journal_lines(agency_id, account_code);
 
 -- ══ BANK ACCOUNTS ════════════════════════════════════════════════════════════
@@ -337,10 +348,12 @@ CREATE TABLE IF NOT EXISTS bank_accounts (
   iban                     TEXT,
   opening_balance_halalas  INTEGER NOT NULL DEFAULT 0,
   current_balance_halalas  INTEGER NOT NULL DEFAULT 0,
+  reconciled_balance_halalas INTEGER NOT NULL DEFAULT 0,
   currency                 TEXT NOT NULL DEFAULT 'SAR',
   gl_account_id            TEXT,
   is_active                BOOLEAN NOT NULL DEFAULT TRUE,
   is_reconciled            BOOLEAN NOT NULL DEFAULT FALSE,
+  reconciled_at            TIMESTAMPTZ,
   created_at               TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at               TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -359,9 +372,14 @@ CREATE TABLE IF NOT EXISTS bank_transactions (
   source_type              TEXT,
   source_id                TEXT,
   date                     TEXT NOT NULL,
+  is_reconciled            BOOLEAN NOT NULL DEFAULT FALSE,
+  reconciled_at            TIMESTAMPTZ,
+  reconciled_by            TEXT,
   created_at               TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 CREATE INDEX IF NOT EXISTS idx_bank_txn_account ON bank_transactions(bank_account_id);
+CREATE INDEX IF NOT EXISTS idx_bank_transactions_agency ON bank_transactions(agency_id);
+CREATE INDEX IF NOT EXISTS bank_txn_reconciled_idx ON bank_transactions(agency_id, is_reconciled);
 
 -- ══ CHEQUES ══════════════════════════════════════════════════════════════════
 CREATE TABLE IF NOT EXISTS cheques (
@@ -822,7 +840,8 @@ ALTER TABLE service_types ADD COLUMN IF NOT EXISTS vat_rate     INTEGER;
 ALTER TABLE service_types ADD COLUMN IF NOT EXISTS is_taxable   BOOLEAN;
 
 -- ══ CUSTOMERS: add opening_balance_halalas for AR migration ══════════════════
-ALTER TABLE customers ADD COLUMN IF NOT EXISTS opening_balance_halalas INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE customers ADD COLUMN IF NOT EXISTS opening_balance_halalas  INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE customers ADD COLUMN IF NOT EXISTS credit_limit_halalas     BIGINT  NOT NULL DEFAULT 0;
 
 -- ══ BSP (Billing Settlement Plan) — IATA travel agencies ════════════════════
 CREATE TABLE IF NOT EXISTS bsp_billings (
@@ -877,6 +896,9 @@ CREATE INDEX IF NOT EXISTS bsp_adj_agency_idx ON bsp_adjustments(agency_id);
 ALTER TABLE invoices ADD COLUMN IF NOT EXISTS deferred_until         TEXT;
 ALTER TABLE invoices ADD COLUMN IF NOT EXISTS revenue_recognized_at  TEXT;
 CREATE INDEX IF NOT EXISTS idx_invoices_deferred ON invoices(agency_id, deferred_until);
+-- DB-04: speed up jobs/recognize-revenue daily cron (scans pending deferred rows).
+CREATE INDEX IF NOT EXISTS idx_invoices_agency_deferred ON invoices(agency_id, deferred_until) WHERE deferred_until IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_invoices_deferred_recognized ON invoices(deferred_until, revenue_recognized_at);
 
 -- ══ EOSB ACCRUALS (IAS 19 — Saudi Labor Law art. 84) ═════════════════════════
 -- One row per agency+month tracking that the monthly EOSB provision was posted,
@@ -914,8 +936,25 @@ CREATE INDEX IF NOT EXISTS idx_invoices_agency_status   ON invoices(agency_id, s
 CREATE INDEX IF NOT EXISTS idx_je_agency_source         ON journal_entries(agency_id, source);
 CREATE INDEX IF NOT EXISTS idx_bookings_agency_status   ON bookings(agency_id, status);
 CREATE INDEX IF NOT EXISTS idx_payments_booking         ON payments(booking_id);
--- One invoice row per booking per agency (NULL booking_id rows stay unconstrained).
-CREATE UNIQUE INDEX IF NOT EXISTS uq_invoices_agency_booking ON invoices(agency_id, booking_id);
+-- One tax-invoice row per booking per agency (NULL booking_id rows stay unconstrained).
+-- FIX-07: restrict to type='380' so credit notes (type='381') can share the booking_id
+-- of their originating invoice. DROP first to apply the fix on pre-existing DBs where the
+-- old unconditional unique index already exists.
+DROP INDEX IF EXISTS uq_invoices_agency_booking;
+CREATE UNIQUE INDEX IF NOT EXISTS uq_invoices_agency_booking ON invoices(agency_id, booking_id) WHERE type = '380';
+
+-- ══ FIX-03: ensure columns referenced by later ALTERs exist on pre-existing tables
+-- CREATE TABLE IF NOT EXISTS will not add new columns to tables created by an
+-- earlier setup-db run, so backfill them explicitly here (idempotent). These must
+-- precede the BIGINT widening block below, which references reconciled_balance_halalas.
+ALTER TABLE journal_entries ADD COLUMN IF NOT EXISTS service_type TEXT;
+ALTER TABLE invoices        ADD COLUMN IF NOT EXISTS original_invoice_id TEXT REFERENCES invoices(id);
+-- FIX-05: credit notes reduce the receivable without being a cash payment.
+-- Tracked separately from paid_halalas so collection/cash reports stay accurate.
+ALTER TABLE invoices        ADD COLUMN IF NOT EXISTS credited_halalas BIGINT NOT NULL DEFAULT 0;
+ALTER TABLE bank_accounts   ADD COLUMN IF NOT EXISTS reconciled_balance_halalas INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE bank_accounts   ADD COLUMN IF NOT EXISTS reconciled_at TIMESTAMPTZ;
+ALTER TABLE bank_accounts   ADD COLUMN IF NOT EXISTS is_reconciled BOOLEAN NOT NULL DEFAULT FALSE;
 
 -- ══ WIDEN MONETARY COLUMNS TO BIGINT ═════════════════════════════════════════
 -- Hajj/Umrah group invoices and BSP remittances can exceed the 32-bit signed
@@ -936,10 +975,18 @@ ALTER TABLE bsp_billings      ALTER COLUMN total_sales_halalas TYPE BIGINT, ALTE
 ALTER TABLE bsp_adjustments   ALTER COLUMN amount_halalas TYPE BIGINT;
 ALTER TABLE bank_accounts     ALTER COLUMN opening_balance_halalas TYPE BIGINT, ALTER COLUMN current_balance_halalas TYPE BIGINT, ALTER COLUMN reconciled_balance_halalas TYPE BIGINT;
 ALTER TABLE bank_transactions ALTER COLUMN amount_halalas TYPE BIGINT, ALTER COLUMN balance_after_halalas TYPE BIGINT;
+ALTER TABLE bank_transactions ADD COLUMN IF NOT EXISTS is_reconciled BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE bank_transactions ADD COLUMN IF NOT EXISTS reconciled_at TIMESTAMPTZ;
+ALTER TABLE bank_transactions ADD COLUMN IF NOT EXISTS reconciled_by TEXT;
+CREATE INDEX IF NOT EXISTS bank_txn_reconciled_idx ON bank_transactions(agency_id, is_reconciled);
 ALTER TABLE cheques           ALTER COLUMN amount_halalas TYPE BIGINT;
 ALTER TABLE pnr_records       ALTER COLUMN fare_halalas TYPE BIGINT, ALTER COLUMN tax_halalas TYPE BIGINT, ALTER COLUMN total_halalas TYPE BIGINT;
 ALTER TABLE tickets           ALTER COLUMN fare_halalas TYPE BIGINT, ALTER COLUMN tax_halalas TYPE BIGINT, ALTER COLUMN total_halalas TYPE BIGINT;
 ALTER TABLE quotes            ALTER COLUMN total_halalas TYPE BIGINT;
+ALTER TABLE quotes ADD COLUMN IF NOT EXISTS converted_to_booking_id TEXT;
+ALTER TABLE quotes ADD COLUMN IF NOT EXISTS converted_at             TIMESTAMPTZ;
+CREATE UNIQUE INDEX IF NOT EXISTS quotes_agency_number_uq ON quotes(agency_id, quote_number);
+CREATE INDEX       IF NOT EXISTS bank_txn_account_date_idx ON bank_transactions(bank_account_id, date);
 ALTER TABLE employees         ALTER COLUMN salary_halalas TYPE BIGINT;
 ALTER TABLE employee_contracts ALTER COLUMN base_salary_halalas TYPE BIGINT, ALTER COLUMN housing_allowance_halalas TYPE BIGINT, ALTER COLUMN transport_allowance_halalas TYPE BIGINT, ALTER COLUMN other_allowances_halalas TYPE BIGINT;
 ALTER TABLE payslips          ALTER COLUMN base_salary_halalas TYPE BIGINT, ALTER COLUMN housing_allowance_halalas TYPE BIGINT, ALTER COLUMN transport_allowance_halalas TYPE BIGINT, ALTER COLUMN other_allowances_halalas TYPE BIGINT, ALTER COLUMN gross_halalas TYPE BIGINT, ALTER COLUMN deductions_halalas TYPE BIGINT, ALTER COLUMN advance_deduction_halalas TYPE BIGINT, ALTER COLUMN gosi_employee_halalas TYPE BIGINT, ALTER COLUMN gosi_employer_halalas TYPE BIGINT, ALTER COLUMN net_halalas TYPE BIGINT;
@@ -947,9 +994,160 @@ ALTER TABLE salary_advances   ALTER COLUMN amount_halalas TYPE BIGINT;
 ALTER TABLE salary_payments   ALTER COLUMN amount_halalas TYPE BIGINT;
 ALTER TABLE eosb_accruals     ALTER COLUMN amount_halalas TYPE BIGINT;
 
+-- ══ SCH-01: DB CHECK CONSTRAINTS FOR STATUS FIELDS ════════════════════════════
+-- PostgreSQL does not support ADD CONSTRAINT IF NOT EXISTS.
+-- Use DO/EXCEPTION pattern so re-running setup-db is idempotent.
+-- FIX-05: 'credited' added for original invoices fully offset by a credit note.
+-- Drop-and-recreate (not the DO/duplicate_object pattern) so the new allowed
+-- value is applied even on databases that already have the old constraint.
+ALTER TABLE invoices DROP CONSTRAINT IF EXISTS chk_invoice_status;
+ALTER TABLE invoices ADD  CONSTRAINT chk_invoice_status
+  CHECK (status IN ('draft','issued','sent','partial','paid','overdue','cancelled','void','credit_memo','credited','refunded'));
+
+DO $$ BEGIN
+  ALTER TABLE bookings ADD CONSTRAINT chk_booking_status
+    CHECK (status IN ('pending','confirmed','completed','cancelled'));
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+
+DO $$ BEGIN
+  ALTER TABLE cheques ADD CONSTRAINT chk_cheque_status
+    CHECK (status IN ('pending','cleared','bounced','cancelled'));
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+
+DO $$ BEGIN
+  ALTER TABLE cheques ADD CONSTRAINT chk_cheque_type
+    CHECK (type IN ('incoming','outgoing'));
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+
+DO $$ BEGIN
+  ALTER TABLE payments ADD CONSTRAINT chk_payment_method
+    CHECK (method IN ('cash','bank_transfer','card','online','check'));
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+
+DO $$ BEGIN
+  ALTER TABLE receipt_vouchers ADD CONSTRAINT chk_receipt_method
+    CHECK (method IN ('cash','bank_transfer','card','online','check'));
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+
+DO $$ BEGIN
+  ALTER TABLE supplier_payments ADD CONSTRAINT chk_supplier_payment_status
+    CHECK (status IN ('pending','completed','cancelled','reversed'));
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+
+DO $$ BEGIN
+  ALTER TABLE agencies ADD CONSTRAINT chk_agency_subscription_status
+    CHECK (subscription_status IN ('trial','active','expired','suspended','past_due','cancelled','lifetime'));
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+
+-- ══ COA-01: Seed missing system accounts into existing agencies ═══════════════
+-- 1230 (Input VAT Receivable) and 9001 (Suspense) were added to DEFAULT_COA
+-- for new registrations. Backfill them for existing agencies so trial-balance
+-- and VAT-return queries resolve correctly.
+INSERT INTO chart_of_accounts (id, agency_id, code, name_ar, name_en, type, is_system, allow_direct_entry, opening_balance_halalas)
+SELECT gen_random_uuid(), a.id, '1230',
+       'ضريبة المدخلات القابلة للاسترداد', 'Input VAT Receivable',
+       'asset', true, true, 0
+FROM   agencies a
+WHERE  NOT EXISTS (
+  SELECT 1 FROM chart_of_accounts c
+  WHERE  c.agency_id = a.id AND c.code = '1230'
+);
+
+INSERT INTO chart_of_accounts (id, agency_id, code, name_ar, name_en, type, is_system, allow_direct_entry, opening_balance_halalas)
+SELECT gen_random_uuid(), a.id, '9001',
+       'حساب تعليق - إيرادات غير مصنفة', 'Suspense - Unclassified Receipts',
+       'liability', true, true, 0
+FROM   agencies a
+WHERE  NOT EXISTS (
+  SELECT 1 FROM chart_of_accounts c
+  WHERE  c.agency_id = a.id AND c.code = '9001'
+);
+
 `;
 
+
 const SUPER_ADMIN_EMAIL = process.env['SUPER_ADMIN_EMAIL'] ?? '';
+
+/**
+ * Split a SQL script into individual statements on `;`, while respecting
+ * PostgreSQL dollar-quoted blocks. A `;` is only treated as a statement
+ * terminator when we are NOT inside a `$$ ... $$` (or `$tag$ ... $tag$`) block.
+ *
+ * Without this, the DO/EXCEPTION wrappers used for idempotent
+ * `ADD CONSTRAINT` (which contain internal semicolons after the CHECK clause
+ * and after `NULL`) get split into broken fragments and the DDL fails.
+ *
+ * Single-quoted string literals are also respected so a stray `;` inside a
+ * quoted value never terminates a statement.
+ */
+function splitSqlStatements(script: string): string[] {
+  const statements: string[] = [];
+  let buffer = '';
+  let dollarTag: string | null = null; // current open dollar-quote tag, e.g. "$$" or "$foo$"
+  let inSingleQuote = false;
+
+  for (let i = 0; i < script.length; i++) {
+    const ch = script[i];
+
+    if (dollarTag) {
+      // Inside a dollar-quoted block: look for the matching closing tag.
+      if (ch === '$' && script.startsWith(dollarTag, i)) {
+        buffer += dollarTag;
+        i += dollarTag.length - 1;
+        dollarTag = null;
+      } else {
+        buffer += ch;
+      }
+      continue;
+    }
+
+    if (inSingleQuote) {
+      buffer += ch;
+      if (ch === "'") {
+        // '' is an escaped quote — stay inside the literal.
+        if (script[i + 1] === "'") {
+          buffer += "'";
+          i++;
+        } else {
+          inSingleQuote = false;
+        }
+      }
+      continue;
+    }
+
+    if (ch === "'") {
+      inSingleQuote = true;
+      buffer += ch;
+      continue;
+    }
+
+    if (ch === '$') {
+      // Try to match an opening dollar-quote tag: $$ or $tag$ where tag is
+      // [A-Za-z_][A-Za-z0-9_]* . If it matches, enter the dollar block.
+      const match = /^\$([A-Za-z_][A-Za-z0-9_]*)?\$/.exec(script.slice(i));
+      if (match) {
+        dollarTag = match[0];
+        buffer += match[0];
+        i += match[0].length - 1;
+        continue;
+      }
+    }
+
+    if (ch === ';') {
+      const trimmed = buffer.trim();
+      if (trimmed.length > 0) statements.push(trimmed);
+      buffer = '';
+      continue;
+    }
+
+    buffer += ch;
+  }
+
+  const tail = buffer.trim();
+  if (tail.length > 0) statements.push(tail);
+
+  return statements;
+}
 
 export async function POST(req: NextRequest) {
   // Accept either the setup secret header OR a Firebase auth token (admin/owner role)
@@ -967,9 +1165,10 @@ export async function POST(req: NextRequest) {
       ensureAdminApp();
       const { getAuth } = await import('firebase-admin/auth');
       const decoded = await getAuth().verifyIdToken(bearerToken);
-      const role    = decoded['role'] as string | undefined;
       const email   = decoded.email ?? '';
-      if (role === 'admin' || role === 'owner' || email === SUPER_ADMIN_EMAIL) {
+      // SEC-02: restrict to super-admin email only — any agency admin/owner
+      // must NOT be able to run DDL against the entire database.
+      if (email && email === SUPER_ADMIN_EMAIL) {
         authorized = true;
       }
     } catch {
@@ -991,15 +1190,19 @@ export async function POST(req: NextRequest) {
   try {
     const sql = neon(process.env.DATABASE_URL);
 
-    // Strip single-line comments, split on semicolons, run each statement separately.
-    // Neon serverless doesn't allow multiple commands in one prepared statement.
-    const statements = CREATE_TABLES_SQL
+    // Strip single-line comments, then split on semicolons, running each
+    // statement separately (Neon serverless rejects multiple commands in one
+    // prepared statement). The splitter is dollar-quote aware: `;` characters
+    // inside a `$$ ... $$` block (e.g. the DO/EXCEPTION idempotency wrappers)
+    // must NOT terminate a statement, otherwise the block gets shredded into
+    // invalid fragments. Postgres also supports tagged dollar quotes ($tag$),
+    // so we match the full `$tag$` delimiter and only close on the same tag.
+    const cleanedSql = CREATE_TABLES_SQL
       .split('\n')
       .filter(line => !line.trim().startsWith('--'))
-      .join('\n')
-      .split(';')
-      .map(s => s.trim())
-      .filter(s => s.length > 0);
+      .join('\n');
+
+    const statements = splitSqlStatements(cleanedSql);
 
     for (const stmt of statements) {
       await sql.query(stmt);
@@ -1009,6 +1212,6 @@ export async function POST(req: NextRequest) {
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     console.error(JSON.stringify({ event: 'setup_db_failed', error: message }));
-    return NextResponse.json({ ok: false, error: message }, { status: 500 });
+    return NextResponse.json({ ok: false, error: 'فشل إعداد قاعدة البيانات — راجع السجلات' }, { status: 500 });
   }
 }

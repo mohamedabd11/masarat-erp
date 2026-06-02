@@ -3,6 +3,7 @@ import { eq, and } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { invoices, bookings, payments, journalEntries, journalLines, idempotencyKeys } from '@/lib/schema';
 import { verifyAuth, assertRole, ApiAuthError, BusinessError, ROLES_ACCOUNTANT_UP } from '@/lib/api-auth';
+import { checkRateLimit, getClientIp, rateLimitHeaders } from '@/lib/rate-limit';
 import { withIdempotency, buildIdempotencyInsert } from '@/lib/idempotency';
 import { getNextInvoiceNumber, getNextJournalNumber } from '@/lib/invoice-counter';
 import { assertPeriodOpen } from '@/lib/period-lock';
@@ -17,21 +18,22 @@ interface RefundBody {
   idempotencyKey?:        string;
 }
 
-const AC = {
-  bank:             { code: '1110', ar: 'البنك',                        en: 'Bank' },
-  vatPayable:       { code: '2200', ar: 'ضريبة القيمة المضافة مستحقة',  en: 'VAT Payable' },
-  revenueAgent:     { code: '4000', ar: 'إيراد رسوم الوكالة',            en: 'Revenue - Agency Fees' },
-  revenuePrincipal: { code: '4100', ar: 'إيراد خدمات السفر',             en: 'Revenue - Travel Services' },
-  cancellationFee:  { code: '4000', ar: 'إيراد رسوم الإلغاء',            en: 'Cancellation Fee Revenue' },
-  // Reversing the original purchase posting (Dr 5000 / Cr 2000 booked at invoice time)
-  payableSupplier:  GL.payableSupplier,   // 2000 — Dr to reverse the original AP credit
-  costOfServices:   GL.costOfServices,    // 5000 — Cr to reverse the original COGS debit
-};
+// Cancellation fee uses the same GL code as revenueAgent (4000) but a distinct
+// Arabic label so it appears separately on the P&L detail view.
+const AC_CANCELLATION_FEE = { ...GL.revenueAgent, ar: 'إيراد رسوم الإلغاء', en: 'Cancellation Fee Revenue' };
 
 export async function POST(request: Request) {
   try {
     const { uid, agencyId, role } = await verifyAuth(request);
     assertRole(role, [...ROLES_ACCOUNTANT_UP]);
+
+    const rl = await checkRateLimit(`${agencyId}:${getClientIp(request)}`, 'financial');
+    if (!rl.success) {
+      return NextResponse.json(
+        { error: 'تجاوزت الحد المسموح به من الطلبات. حاول مرة أخرى بعد دقيقة.' },
+        { status: 429, headers: rateLimitHeaders(rl) },
+      );
+    }
 
     const body = await request.json() as RefundBody;
     const { bookingId, originalInvoiceId, refundAmountHalalas, cancellationFeeHalalas, reason } = body;
@@ -55,7 +57,9 @@ export async function POST(request: Request) {
           and(eq(invoices.id, originalInvoiceId), eq(invoices.agencyId, agencyId)),
         );
         if (!invoice) throw new BusinessError(`الفاتورة ${originalInvoiceId} غير موجودة`, 404);
-        if (invoice.status === 'cancelled') throw new BusinessError('الفاتورة ملغاة بالفعل', 400);
+        if (invoice.status === 'cancelled' || invoice.status === 'refunded') {
+          throw new BusinessError('الفاتورة لا يمكن استردادها — الحالة: ' + invoice.status, 400);
+        }
 
         const [booking] = await tx.select().from(bookings).where(
           and(eq(bookings.id, bookingId), eq(bookings.agencyId, agencyId)),
@@ -73,8 +77,10 @@ export async function POST(request: Request) {
 
         // ── 3. Calculate ────────────────────────────────────────────────────
         const details      = (booking.details ?? {}) as Record<string, unknown>;
-        const revenueModel = (details['revenueModel'] as string | undefined) ?? 'agent';
-        const revenueAc    = revenueModel === 'agent' ? AC.revenueAgent : AC.revenuePrincipal;
+        // Default matches invoices/create (which defaults to 'principal') so the
+        // reversal always hits the same revenue account as the original posting.
+        const revenueModel = (details['revenueModel'] as string | undefined) ?? 'principal';
+        const revenueAc    = revenueModel === 'agent' ? GL.revenueAgent : GL.revenuePrincipal;
 
         // Prorate the original invoice's VAT by ratio of each component to the
         // original total. Works for standard rate, margin scheme, or any VAT rate.
@@ -105,25 +111,23 @@ export async function POST(request: Request) {
         // ── 5. Build journal lines (reversal + cancellation fee) ────────────
         type JLine = { code: string; ar: string; en: string; dr: number; cr: number };
         const jLines: JLine[] = refundVat > 0
-          ? [{ ...revenueAc, dr: refundSubtotal, cr: 0 }, { ...AC.vatPayable, dr: refundVat, cr: 0 }, { ...AC.bank, dr: 0, cr: refundAmountHalalas }]
-          : [{ ...revenueAc, dr: refundAmountHalalas, cr: 0 }, { ...AC.bank, dr: 0, cr: refundAmountHalalas }];
+          ? [{ ...revenueAc, dr: refundSubtotal, cr: 0 }, { ...GL.vatPayable, dr: refundVat, cr: 0 }, { ...GL.bank, dr: 0, cr: refundAmountHalalas }]
+          : [{ ...revenueAc, dr: refundAmountHalalas, cr: 0 }, { ...GL.bank, dr: 0, cr: refundAmountHalalas }];
 
-        // Cancellation fee lines — explicitly journalized (BUG-02 fix).
-        // The fee was already received in the original payment and remains in bank;
-        // we reclassify it from service revenue to cancellation fee revenue.
-        // Dr/Cr balance: cancellationFeeHalalas = cancelFeeNet + cancelFeeVat ✓
+        // Cancellation fee lines — reclassify net revenue from service revenue to
+        // cancellation fee revenue. VAT was already recognised in VAT Payable when
+        // the original invoice was posted and stays there (the fee is still VAT-able).
+        // Debit the NET component only (cancelFeeNet) so we don't touch VAT Payable twice.
+        // Dr/Cr balance: cancelFeeNet = cancelFeeNet ✓
         if (cancellationFeeHalalas > 0) {
           jLines.push({
             code: revenueAc.code,
             ar:   'رسوم إلغاء — مقتطعة من الحجز',
             en:   'Cancellation Fee Withheld',
-            dr:   cancellationFeeHalalas,
+            dr:   cancelFeeNet,
             cr:   0,
           });
-          jLines.push({ ...AC.cancellationFee, dr: 0, cr: cancelFeeNet });
-          if (cancelFeeVat > 0) {
-            jLines.push({ ...AC.vatPayable, dr: 0, cr: cancelFeeVat });
-          }
+          jLines.push({ ...AC_CANCELLATION_FEE, dr: 0, cr: cancelFeeNet });
         }
 
         // ── Reverse the original COGS + AP for the refunded portion ─────────
@@ -135,8 +139,8 @@ export async function POST(request: Request) {
         // This pair is self-balancing and does not affect the cash/revenue legs.
         const refundCost = Math.round((booking.costPriceHalalas ?? 0) * refundRatio);
         if (refundCost > 0) {
-          jLines.push({ ...AC.payableSupplier, dr: refundCost, cr: 0 });
-          jLines.push({ ...AC.costOfServices,  dr: 0, cr: refundCost });
+          jLines.push({ ...GL.payableSupplier, dr: refundCost, cr: 0 });
+          jLines.push({ ...GL.costOfServices,  dr: 0, cr: refundCost });
         }
 
         // ── 6. Write ────────────────────────────────────────────────────────
@@ -206,9 +210,11 @@ export async function POST(request: Request) {
           });
         }
 
-        // Update original invoice and booking
+        // Update original invoice: mark refunded and reduce paidHalalas so
+        // any subsequent attempt fails the paidHalalas validation as well.
+        const newPaidHalalas = Math.max(0, invoice.paidHalalas - refundAmountHalalas);
         await tx.update(invoices)
-          .set({ status: 'refunded', updatedAt: now })
+          .set({ status: 'refunded', paidHalalas: newPaidHalalas, updatedAt: now })
           .where(eq(invoices.id, originalInvoiceId));
 
         await tx.update(bookings)

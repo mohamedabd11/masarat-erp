@@ -16,15 +16,16 @@ interface AgingBuckets {
 }
 
 interface AgingInvoiceLine {
-  invoiceId:        string;
-  invoiceNumber:    string;
-  issueDate:        string;
-  dueDate:          string | null;
-  totalHalalas:     number;
-  paidHalalas:      number;
+  invoiceId:          string;
+  invoiceNumber:      string;
+  issueDate:          string;
+  dueDate:            string | null;
+  totalHalalas:       number;
+  paidHalalas:        number;
+  creditedHalalas:    number;
   outstandingHalalas: number;
-  daysOverdue:      number;
-  bucket:           'current' | '1-30' | '31-60' | '61-90' | '91+';
+  daysOverdue:        number;
+  bucket:             'current' | '1-30' | '31-60' | '61-90' | '91+';
 }
 
 interface AgingCustomerRow extends AgingBuckets {
@@ -85,7 +86,8 @@ export async function GET(request: Request) {
       eq(invoices.agencyId, agencyId),
       eq(invoices.type, '380'),
       inArray(invoices.status, ['issued', 'partial']),
-      sql`${invoices.totalHalalas} > ${invoices.paidHalalas}`,
+      // Outstanding = total - paid - credited (credit notes reduce the receivable).
+      sql`${invoices.totalHalalas} > ${invoices.paidHalalas} + ${invoices.creditedHalalas}`,
     ];
     if (filterCust) conditions.push(eq(invoices.customerId, filterCust));
 
@@ -96,13 +98,15 @@ export async function GET(request: Request) {
         customerId:    invoices.customerId,
         buyerNameAr:   invoices.buyerNameAr,
         buyerNameEn:   invoices.buyerNameEn,
-        totalHalalas:  invoices.totalHalalas,
-        paidHalalas:   invoices.paidHalalas,
-        issueDate:     invoices.issueDate,
-        dueDate:       invoices.dueDate,
+        totalHalalas:    invoices.totalHalalas,
+        paidHalalas:     invoices.paidHalalas,
+        creditedHalalas: invoices.creditedHalalas,
+        issueDate:       invoices.issueDate,
+        dueDate:         invoices.dueDate,
       })
       .from(invoices)
-      .where(and(...conditions));
+      .where(and(...conditions))
+      .limit(1000);
 
     // ── 2. Enrich with customer names where customerId is set ─────────────────
     const custIdSet: Record<string, boolean> = {};
@@ -123,7 +127,7 @@ export async function GET(request: Request) {
     const grouped: Record<string, AgingCustomerRow> = {};
 
     for (const r of rows) {
-      const outstanding = r.totalHalalas - r.paidHalalas;
+      const outstanding = r.totalHalalas - r.paidHalalas - r.creditedHalalas;
       if (outstanding <= 0) continue;
 
       // Use dueDate if set, otherwise fall back to issueDate (invoice is overdue from day of issue)
@@ -137,6 +141,7 @@ export async function GET(request: Request) {
         dueDate:            r.dueDate ?? null,
         totalHalalas:       r.totalHalalas,
         paidHalalas:        r.paidHalalas,
+        creditedHalalas:    r.creditedHalalas,
         outstandingHalalas: outstanding,
         daysOverdue,
         bucket,
@@ -179,7 +184,12 @@ export async function GET(request: Request) {
       summary.totalOutstanding += row.totalOutstanding;
     }
 
-    return NextResponse.json({ asOf: asOfStr, summary, customers: customerList });
+    return NextResponse.json({
+      asOf:      asOfStr,
+      summary,
+      customers: customerList,
+      truncated: rows.length >= 1000,
+    });
   } catch (err) {
     if (err instanceof ApiAuthError) return NextResponse.json({ error: err.message }, { status: err.status });
     console.error(JSON.stringify({ event: 'aging_report_failed', error: (err as Error).message }));

@@ -1,10 +1,11 @@
 {
-  "buildCommand": "cd apps/web && pnpm db:push && pnpm build",
+  "buildCommand": "cd apps/web && pnpm build",
   "outputDirectory": "apps/web/.next",
   "installCommand": "pnpm install --frozen-lockfile",
   "framework": "nextjs",
   "crons": [
-    { "path": "/api/jobs/expire-pnrs",               "schedule": "0 * * * *" },
-    { "path": "/api/jobs/reconcile-pending-tickets", "schedule": "30 * * * *" }
+    { "path": "/api/jobs/expire-pnrs",               "schedule": "0 1 * * *" },
+    { "path": "/api/jobs/reconcile-pending-tickets", "schedule": "30 1 * * *" },
+    { "path": "/api/jobs/recognize-revenue",         "schedule": "0 2 * * *" }
   ]
 }

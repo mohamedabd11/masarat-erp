@@ -3,8 +3,12 @@ import { eq, and, sql } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { invoices, bookings, payments, journalEntries, journalLines, idempotencyKeys } from '@/lib/schema';
 import { verifyAuth, assertRole, ApiAuthError, BusinessError, ROLES_ACCOUNTANT_UP } from '@/lib/api-auth';
+import { checkRateLimit, getClientIp, rateLimitHeaders } from '@/lib/rate-limit';
 import { withIdempotency, buildIdempotencyInsert } from '@/lib/idempotency';
 import { getNextReceiptNumber, getNextJournalNumber } from '@/lib/invoice-counter';
+import { assertPeriodOpen } from '@/lib/period-lock';
+import { requireFeature } from '@/lib/feature-access';
+import { GL } from '@/lib/gl-accounts';
 
 interface PaymentRecordBody {
   bookingId?:    string;
@@ -22,12 +26,21 @@ const METHOD_ACCOUNT: Record<string, { code: string; ar: string; en: string }> =
   card:          { code: '1115', ar: 'نقاط البيع',      en: 'POS / Card' },
   online:        { code: '1115', ar: 'نقاط البيع',      en: 'POS / Card' },
 };
-const AC_RECEIVABLE = { code: '1120', ar: 'ذمم مدينة - عملاء', en: 'Accounts Receivable' };
 
 export async function POST(request: Request) {
   try {
     const { uid, agencyId, role } = await verifyAuth(request);
     assertRole(role, [...ROLES_ACCOUNTANT_UP]);
+
+    const rl = await checkRateLimit(`${agencyId}:${getClientIp(request)}`, 'financial');
+    if (!rl.success) {
+      return NextResponse.json(
+        { error: 'تجاوزت الحد المسموح به من الطلبات. حاول مرة أخرى بعد دقيقة.' },
+        { status: 429, headers: rateLimitHeaders(rl) },
+      );
+    }
+
+    await requireFeature(agencyId, 'payments', db);
 
     const body = await request.json() as PaymentRecordBody;
     const { bookingId, invoiceId, amountHalalas, paymentMethod, reference, notes } = body;
@@ -49,6 +62,13 @@ export async function POST(request: Request) {
         );
         if (!invoice) throw new BusinessError(`الفاتورة ${invoiceId} غير موجودة`, 404);
         if (bookingId && invoice.bookingId && invoice.bookingId !== bookingId) throw new BusinessError('الفاتورة لا تنتمي لهذا الحجز', 400);
+        if (invoice.type === '381') throw new BusinessError('لا يمكن تسجيل دفعة على إشعار دائن — أصدر استرداداً بدلاً من ذلك', 400);
+
+        // SM-01: Block payment on terminal-status invoices
+        const TERMINAL = new Set(['cancelled', 'void', 'credit_memo']);
+        if (TERMINAL.has(invoice.status ?? '')) {
+          throw new BusinessError(`لا يمكن تسجيل دفعة على فاتورة بحالة "${invoice.status}"`, 400);
+        }
 
         // ── 2. Validate (fast-fail before any writes) ──────────────────────
         const currentDue = invoice.totalHalalas - invoice.paidHalalas;
@@ -59,13 +79,18 @@ export async function POST(request: Request) {
         // ── 3. Calculate ────────────────────────────────────────────────────
         const now  = new Date();
         const year = now.getFullYear();
+        const today = now.toISOString().split('T')[0]!;
+
+        // ── 3b. Period lock check ───────────────────────────────────────────
+        // A payment posts a GL entry (Dr cash / Cr AR); like every other
+        // financial posting it must be blocked in a closed accounting period.
+        await assertPeriodOpen(agencyId, today, tx);
 
         // ── 4. Counters + IDs ───────────────────────────────────────────────
         const receiptNumber = await getNextReceiptNumber(agencyId, year, tx);
         const jeNumber      = await getNextJournalNumber(agencyId, year, tx);
         const paymentId     = crypto.randomUUID();
         const jeId          = crypto.randomUUID();
-        const today         = now.toISOString().split('T')[0]!;
         const cashAc        = METHOD_ACCOUNT[paymentMethod] ?? METHOD_ACCOUNT['bank_transfer']!;
 
         // ── 5. Write ────────────────────────────────────────────────────────
@@ -101,8 +126,8 @@ export async function POST(request: Request) {
         });
 
         await tx.insert(journalLines).values([
-          { id: crypto.randomUUID(), entryId: jeId, agencyId, accountCode: cashAc.code, accountNameAr: cashAc.ar, accountNameEn: cashAc.en, debitHalalas: amountHalalas, creditHalalas: 0, sortOrder: 1 },
-          { id: crypto.randomUUID(), entryId: jeId, agencyId, accountCode: AC_RECEIVABLE.code, accountNameAr: AC_RECEIVABLE.ar, accountNameEn: AC_RECEIVABLE.en, debitHalalas: 0, creditHalalas: amountHalalas, sortOrder: 2 },
+          { id: crypto.randomUUID(), entryId: jeId, agencyId, accountCode: cashAc.code,         accountNameAr: cashAc.ar,         accountNameEn: cashAc.en,         debitHalalas: amountHalalas, creditHalalas: 0,             sortOrder: 1 },
+          { id: crypto.randomUUID(), entryId: jeId, agencyId, accountCode: GL.receivable.code,  accountNameAr: GL.receivable.ar,  accountNameEn: GL.receivable.en,  debitHalalas: 0,             creditHalalas: amountHalalas, sortOrder: 2 },
         ]);
 
         // Atomic update: only succeeds if remaining due still covers the amount.

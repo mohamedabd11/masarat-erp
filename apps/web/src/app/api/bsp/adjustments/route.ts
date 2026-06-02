@@ -67,12 +67,13 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'رقم المرجع, تاريخ الإصدار, المبلغ, والسبب مطلوبة' }, { status: 400 });
     }
 
-    const id          = crypto.randomUUID();
-    const entryNumber = await getNextJournalNumber(agencyId, new Date(body.issueDate).getFullYear());
-    const entryId     = crypto.randomUUID();
-    const isADM       = body.type === 'ADM';
+    const id      = crypto.randomUUID();
+    const entryId = crypto.randomUUID();
+    const isADM   = body.type === 'ADM';
 
     await db.transaction(async tx => {
+      const entryNumber = await getNextJournalNumber(agencyId, new Date(body.issueDate).getFullYear(), tx);
+
       await tx.insert(journalEntries).values({
         id:              entryId,
         agencyId,

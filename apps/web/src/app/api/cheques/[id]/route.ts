@@ -2,16 +2,25 @@ import { NextResponse } from 'next/server';
 import { eq, and } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { cheques, journalEntries, journalLines } from '@/lib/schema';
-import { verifyAuth, ApiAuthError, BusinessError } from '@/lib/api-auth';
+import { verifyAuth, assertRole, ApiAuthError, BusinessError, ROLES_ACCOUNTANT_UP } from '@/lib/api-auth';
+import { requireFeature } from '@/lib/feature-access';
 import { getNextJournalNumber } from '@/lib/invoice-counter';
+import { GL } from '@/lib/gl-accounts';
 
-const AC_RECEIVABLE  = { code: '1120', ar: 'ذمم مدينة - عملاء', en: 'Accounts Receivable' };
-const AC_CHEQUES_RCV = { code: '1125', ar: 'أوراق قبض - شيكات', en: 'Cheques Receivable'  };
-const AC_BANK        = { code: '1110', ar: 'البنك',              en: 'Bank'                };
+// SM-02: Valid incoming-cheque status transitions.
+// bounced→cleared or cancelled→cleared would create phantom bank entries.
+const ALLOWED_TRANSITIONS: Record<string, Set<string>> = {
+  pending:   new Set(['cleared', 'bounced', 'cancelled']),
+  bounced:   new Set(['cancelled']),          // re-presenting → create NEW cheque
+  cancelled: new Set([]),                     // terminal — no further transitions
+  cleared:   new Set([]),                     // terminal
+};
 
 export async function PATCH(request: Request, { params }: { params: { id: string } }) {
   try {
-    const { uid, agencyId } = await verifyAuth(request);
+    const { uid, agencyId, role } = await verifyAuth(request);
+    assertRole(role, [...ROLES_ACCOUNTANT_UP]);
+    await requireFeature(agencyId, 'cheques', db);
     const body = await request.json() as Record<string, unknown>;
     const now  = new Date();
 
@@ -23,13 +32,24 @@ export async function PATCH(request: Request, { params }: { params: { id: string
 
       if (!existing) throw new BusinessError('الشيك غير موجود', 404);
 
+      const newStatus  = body['status'] as string | undefined;
+      const prevStatus = existing.status ?? 'pending';
+
+      // SM-02: Enforce state machine for incoming cheques
+      if (newStatus && newStatus !== prevStatus && existing.type === 'incoming') {
+        const allowed = ALLOWED_TRANSITIONS[prevStatus] ?? new Set();
+        if (!allowed.has(newStatus)) {
+          throw new BusinessError(
+            `لا يمكن تغيير حالة الشيك من "${prevStatus}" إلى "${newStatus}". لإعادة تقديم شيك مرتجع، أنشئ شيكاً جديداً.`,
+            422,
+          );
+        }
+      }
+
       await tx
         .update(cheques)
         .set({ ...(body as Partial<typeof cheques.$inferInsert>), updatedAt: now })
         .where(and(eq(cheques.id, params.id), eq(cheques.agencyId, agencyId)));
-
-      const newStatus  = body['status'] as string | undefined;
-      const prevStatus = existing.status;
 
       if (newStatus && newStatus !== prevStatus && existing.type === 'incoming') {
         const year  = now.getFullYear();
@@ -38,7 +58,7 @@ export async function PATCH(request: Request, { params }: { params: { id: string
         const jeNum = await getNextJournalNumber(agencyId, year, tx);
         const amt   = existing.amountHalalas;
 
-        // Cheque cleared → deposit to bank
+        // Cheque cleared (only valid from pending) → deposit to bank
         if (newStatus === 'cleared') {
           await tx.insert(journalEntries).values({
             id: jeId, agencyId, entryNumber: jeNum, date: today,
@@ -49,12 +69,12 @@ export async function PATCH(request: Request, { params }: { params: { id: string
             createdBy: uid,
           });
           await tx.insert(journalLines).values([
-            { id: crypto.randomUUID(), entryId: jeId, agencyId, accountCode: AC_BANK.code,        accountNameAr: AC_BANK.ar,        accountNameEn: AC_BANK.en,        debitHalalas: amt, creditHalalas: 0,   sortOrder: 1 },
-            { id: crypto.randomUUID(), entryId: jeId, agencyId, accountCode: AC_CHEQUES_RCV.code, accountNameAr: AC_CHEQUES_RCV.ar, accountNameEn: AC_CHEQUES_RCV.en, debitHalalas: 0,   creditHalalas: amt, sortOrder: 2 },
+            { id: crypto.randomUUID(), entryId: jeId, agencyId, accountCode: GL.bank.code,             accountNameAr: GL.bank.ar,             accountNameEn: GL.bank.en,             debitHalalas: amt, creditHalalas: 0,   sortOrder: 1 },
+            { id: crypto.randomUUID(), entryId: jeId, agencyId, accountCode: GL.chequesReceivable.code, accountNameAr: GL.chequesReceivable.ar, accountNameEn: GL.chequesReceivable.en, debitHalalas: 0,   creditHalalas: amt, sortOrder: 2 },
           ]);
         }
 
-        // Cheque bounced → reverse the receivable transfer
+        // Cheque bounced (only valid from pending) → reverse the receivable transfer
         if (newStatus === 'bounced') {
           await tx.insert(journalEntries).values({
             id: jeId, agencyId, entryNumber: jeNum, date: today,
@@ -65,8 +85,8 @@ export async function PATCH(request: Request, { params }: { params: { id: string
             createdBy: uid,
           });
           await tx.insert(journalLines).values([
-            { id: crypto.randomUUID(), entryId: jeId, agencyId, accountCode: AC_RECEIVABLE.code,  accountNameAr: AC_RECEIVABLE.ar,  accountNameEn: AC_RECEIVABLE.en,  debitHalalas: amt, creditHalalas: 0,   sortOrder: 1 },
-            { id: crypto.randomUUID(), entryId: jeId, agencyId, accountCode: AC_CHEQUES_RCV.code, accountNameAr: AC_CHEQUES_RCV.ar, accountNameEn: AC_CHEQUES_RCV.en, debitHalalas: 0,   creditHalalas: amt, sortOrder: 2 },
+            { id: crypto.randomUUID(), entryId: jeId, agencyId, accountCode: GL.receivable.code,       accountNameAr: GL.receivable.ar,       accountNameEn: GL.receivable.en,       debitHalalas: amt, creditHalalas: 0,   sortOrder: 1 },
+            { id: crypto.randomUUID(), entryId: jeId, agencyId, accountCode: GL.chequesReceivable.code, accountNameAr: GL.chequesReceivable.ar, accountNameEn: GL.chequesReceivable.en, debitHalalas: 0,   creditHalalas: amt, sortOrder: 2 },
           ]);
         }
       }

@@ -3,16 +3,23 @@ import { eq, and, sql } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { supplierPayments, suppliers, journalEntries, journalLines } from '@/lib/schema';
 import { verifyAuth, assertRole, ApiAuthError, BusinessError, ROLES_ADMIN_ONLY } from '@/lib/api-auth';
+import { checkRateLimit, getClientIp, rateLimitHeaders } from '@/lib/rate-limit';
 import { getNextJournalNumber } from '@/lib/invoice-counter';
+import { assertPeriodOpen } from '@/lib/period-lock';
+import { GL } from '@/lib/gl-accounts';
 
 interface ReverseBody {
   supplierPaymentId: string;
   reason?:           string;
 }
 
+// Must mirror create/route.ts exactly so the reversal credits the same account
+// the original debited. 'supplier' debits 2000 (AP), not 5000 (COGS).
+// Salaries unified on GL.salaryExpense (6100) to match create/route.ts and the
+// primary payroll path — NOT the old local 5100.
 const EXPENSE_ACCOUNT: Record<string, { code: string; ar: string; en: string }> = {
-  supplier:    { code: '5000', ar: 'تكلفة الخدمات',       en: 'Cost of Services' },
-  salaries:    { code: '5100', ar: 'الرواتب والأجور',     en: 'Salaries' },
+  supplier:    GL.payableSupplier,
+  salaries:    GL.salaryExpense,
   rent:        { code: '5200', ar: 'الإيجار',             en: 'Rent' },
   marketing:   { code: '5300', ar: 'التسويق والإعلان',    en: 'Marketing' },
   operational: { code: '5400', ar: 'المصاريف التشغيلية',  en: 'Operating Expenses' },
@@ -32,6 +39,14 @@ export async function POST(request: Request) {
   try {
     const { uid, agencyId, role } = await verifyAuth(request);
     assertRole(role, [...ROLES_ADMIN_ONLY]);
+
+    const rl = await checkRateLimit(`${agencyId}:${getClientIp(request)}`, 'financial');
+    if (!rl.success) {
+      return NextResponse.json(
+        { error: 'تجاوزت الحد المسموح به من الطلبات. حاول مرة أخرى بعد دقيقة.' },
+        { status: 429, headers: rateLimitHeaders(rl) },
+      );
+    }
 
     const body = await request.json() as ReverseBody;
     const { supplierPaymentId, reason } = body;
@@ -63,6 +78,9 @@ export async function POST(request: Request) {
       const jeId                = crypto.randomUUID();
       const reversalVoucherNumber = `${originalVoucherNumber}-REV`;
       const today               = now.toISOString().split('T')[0]!;
+
+      // Block reversal posting into a closed accounting period.
+      await assertPeriodOpen(agencyId, today, tx);
 
       const expenseAc = EXPENSE_ACCOUNT[expenseCategory] ?? EXPENSE_ACCOUNT['other']!;
       const paymentAc = METHOD_ACCOUNT[paymentMethod]    ?? METHOD_ACCOUNT['cash']!;

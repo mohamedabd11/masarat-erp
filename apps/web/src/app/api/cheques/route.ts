@@ -1,8 +1,9 @@
 import { NextResponse } from 'next/server';
-import { eq, desc } from 'drizzle-orm';
+import { eq, desc, count } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { cheques, journalEntries, journalLines } from '@/lib/schema';
 import { verifyAuth, assertRole, ApiAuthError, ROLES_ACCOUNTANT_UP } from '@/lib/api-auth';
+import { requireFeature } from '@/lib/feature-access';
 import { getNextJournalNumber } from '@/lib/invoice-counter';
 
 const AC_RECEIVABLE      = { code: '1120', ar: 'ذمم مدينة - عملاء',  en: 'Accounts Receivable' };
@@ -10,15 +11,30 @@ const AC_CHEQUES_RCV     = { code: '1125', ar: 'أوراق قبض - شيكات',
 const AC_PAYABLE         = { code: '2000', ar: 'ذمم دائنة - موردون', en: 'Accounts Payable'     };
 const AC_BANK            = { code: '1110', ar: 'البنك',               en: 'Bank'                };
 
+const DEFAULT_PAGE_SIZE = 50;
+const MAX_PAGE_SIZE     = 200;
+
 export async function GET(request: Request) {
   try {
     const { agencyId } = await verifyAuth(request);
+    const url      = new URL(request.url);
+    const page     = Math.max(1, parseInt(url.searchParams.get('page')  ?? '1',  10) || 1);
+    const pageSize = Math.min(MAX_PAGE_SIZE, Math.max(1, parseInt(url.searchParams.get('limit') ?? String(DEFAULT_PAGE_SIZE), 10) || DEFAULT_PAGE_SIZE));
+    const offset   = (page - 1) * pageSize;
+
+    const [{ total }] = await db
+      .select({ total: count(cheques.id) })
+      .from(cheques)
+      .where(eq(cheques.agencyId, agencyId));
+
     const rows = await db
       .select()
       .from(cheques)
       .where(eq(cheques.agencyId, agencyId))
-      .orderBy(desc(cheques.createdAt));
-    return NextResponse.json({ cheques: rows });
+      .orderBy(desc(cheques.createdAt))
+      .limit(pageSize)
+      .offset(offset);
+    return NextResponse.json({ cheques: rows, total, page, pageSize });
   } catch (err) {
     if (err instanceof ApiAuthError) return NextResponse.json({ error: err.message }, { status: err.status });
     return NextResponse.json({ error: 'خطأ في الخادم' }, { status: 500 });
@@ -29,6 +45,7 @@ export async function POST(request: Request) {
   try {
     const { uid, agencyId, role } = await verifyAuth(request);
     assertRole(role, [...ROLES_ACCOUNTANT_UP]);
+    await requireFeature(agencyId, 'cheques', db);
     const body = await request.json() as {
       chequeNumber: string; bankName?: string; amountHalalas: number;
       type: string; status?: string; issueDate?: string; dueDate?: string;

@@ -3,6 +3,7 @@ import { ensureAdminApp } from '@/lib/firebase-admin';
 import { db } from '@/lib/db';
 import { agencies, users, chartOfAccounts } from '@/lib/schema';
 import { TRIAL_DAYS } from '@masarat/accounting';
+import { checkRateLimit, getClientIp, rateLimitHeaders } from '@/lib/rate-limit';
 
 const EMAIL_RE  = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 const PHONE_RE  = /^[+\d\s\-()]{7,20}$/;
@@ -24,9 +25,10 @@ const DEFAULT_COA = [
   { code: '1110', nameAr: 'البنك',                        nameEn: 'Bank',                         type: 'asset',     },
   { code: '1115', nameAr: 'نقاط البيع / بطاقات الائتمان', nameEn: 'POS / Credit Cards',           type: 'asset',     },
   { code: '1120', nameAr: 'ذمم مدينة - عملاء',           nameEn: 'Accounts Receivable',          type: 'asset',     },
-  { code: '1125', nameAr: 'أوراق قبض - شيكات',           nameEn: 'Cheques Receivable',           type: 'asset',     },
-  { code: '1130', nameAr: 'المصاريف المدفوعة مقدماً',    nameEn: 'Prepaid Expenses',             type: 'asset',     },
-  { code: '1350', nameAr: 'مقاصة BSP',                    nameEn: 'BSP Clearing',                 type: 'asset',     },
+  { code: '1125', nameAr: 'أوراق قبض - شيكات',                    nameEn: 'Cheques Receivable',                    type: 'asset',     },
+  { code: '1130', nameAr: 'المصاريف المدفوعة مقدماً',             nameEn: 'Prepaid Expenses',                      type: 'asset',     },
+  { code: '1230', nameAr: 'ضريبة المدخلات القابلة للاسترداد',     nameEn: 'Input VAT Receivable',                  type: 'asset',     },
+  { code: '1350', nameAr: 'مقاصة BSP',                             nameEn: 'BSP Clearing',                          type: 'asset',     },
   { code: '2000', nameAr: 'ذمم دائنة - موردون',          nameEn: 'Accounts Payable - Suppliers', type: 'liability', },
   { code: '2100', nameAr: 'ذمم دائنة — شركات الطيران',   nameEn: 'Accounts Payable - Airlines',  type: 'liability', },
   { code: '2110', nameAr: 'ذمم دائنة — فنادق',           nameEn: 'Accounts Payable - Hotels',    type: 'liability', },
@@ -60,10 +62,23 @@ const DEFAULT_COA = [
   { code: '6100', nameAr: 'مصروف الرواتب',               nameEn: 'Salary Expense',               type: 'expense',   },
   { code: '6200', nameAr: 'مصروف GOSI - صاحب العمل',     nameEn: 'GOSI Expense - Employer',      type: 'expense',   },
   { code: '6300', nameAr: 'مصروف مكافأة نهاية الخدمة',   nameEn: 'EOSB Expense',                 type: 'expense',   },
+  // Suspense/clearing — holds unclassified deposits until reclassified by accountant.
+  // Typed as liability because the agency owes an explanation (or a refund) until resolved.
+  { code: '9001', nameAr: 'حساب تعليق - إيرادات غير مصنفة', nameEn: 'Suspense - Unclassified Receipts', type: 'liability' },
 ] as const;
 
 export async function POST(request: Request) {
   let firebaseUid: string | null = null;
+
+  // SEC-01: throttle registration attempts by client IP to prevent abuse.
+  const ip = getClientIp(request);
+  const rl = await checkRateLimit(ip, 'register');
+  if (!rl.success) {
+    return NextResponse.json(
+      { error: 'تم تجاوز عدد المحاولات المسموح. حاول لاحقاً.' },
+      { status: 429, headers: rateLimitHeaders(rl) },
+    );
+  }
 
   try {
     ensureAdminApp();

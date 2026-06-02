@@ -14,6 +14,7 @@ import { db } from '@/lib/db';
 import { bspBillings, journalEntries, journalLines } from '@/lib/schema';
 import { verifyAuth, assertRole, ApiAuthError, ROLES_ADMIN_ONLY, ROLES_MANAGER_UP } from '@/lib/api-auth';
 import { getNextJournalNumber } from '@/lib/invoice-counter';
+import { assertPeriodOpen } from '@/lib/period-lock';
 import { GL } from '@/lib/gl-accounts';
 
 export async function GET(request: Request) {
@@ -62,20 +63,31 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'billingPeriod, netRemitHalalas, dueDate مطلوبة' }, { status: 400 });
     }
 
-    const id = crypto.randomUUID();
+    const id          = crypto.randomUUID();
+    const entryId     = crypto.randomUUID();
+    const billingDate = body.billingPeriod + '-01';
+    const year        = new Date(billingDate).getFullYear();
+
+    // Duplicate guard — same billing period already exists
+    const [duplicate] = await db.select({ id: bspBillings.id }).from(bspBillings)
+      .where(and(eq(bspBillings.agencyId, agencyId), eq(bspBillings.billingPeriod, body.billingPeriod)))
+      .limit(1);
+    if (duplicate) {
+      return NextResponse.json({ error: `فاتورة BSP للفترة ${body.billingPeriod} موجودة مسبقاً` }, { status: 409 });
+    }
 
     // Create journal entry for BSP payable:
     //   DR: BSP Clearing (1350)   — asset reducing, now owed to BSP
     //   CR: BSP Payable (2150)    — liability to IATA
-    const entryNumber = await getNextJournalNumber(agencyId, new Date(body.billingPeriod + '-01').getFullYear());
-    const entryId     = crypto.randomUUID();
-
     await db.transaction(async tx => {
+      await assertPeriodOpen(agencyId, billingDate, tx);
+      const entryNumber = await getNextJournalNumber(agencyId, year, tx);
+
       await tx.insert(journalEntries).values({
         id:              entryId,
         agencyId,
         entryNumber,
-        date:            body.billingPeriod + '-01',
+        date:            billingDate,
         descriptionAr:   `فاتورة BSP — فترة ${body.billingPeriod}`,
         descriptionEn:   `BSP Billing — Period ${body.billingPeriod}`,
         reference:       body.reference ?? body.billingPeriod,
