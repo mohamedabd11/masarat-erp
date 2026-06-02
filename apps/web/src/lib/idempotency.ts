@@ -51,7 +51,18 @@ export async function withIdempotency<T>(
     // downstream CAS / unique constraints prevent double-writes.
   }
 
-  return fn();
+  const result = await fn();
+
+  // Transition to 'complete' so retries return the cached result instead of
+  // re-executing. This is the only write that ever makes it to 'complete';
+  // callers that call buildIdempotencyInsert inside their transaction hit a
+  // conflict and do nothing (the pending row already exists).
+  await db
+    .update(idempotencyKeys)
+    .set({ status: 'complete', result: result as unknown })
+    .where(eq(idempotencyKeys.id, id));
+
+  return result;
 }
 
 export function buildIdempotencyInsert(
