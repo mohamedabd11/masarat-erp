@@ -15,14 +15,33 @@ export async function GET(request: Request) {
     const asOf  = url.searchParams.get('asOf') ?? new Date().toISOString().split('T')[0]!;
     const from  = url.searchParams.get('from');  // optional period start
 
-    // ── 1. Fetch all active accounts for this agency ─────────────────────────
+    // ── 1. Chart-of-accounts metadata (type, names, level, opening balance) ──
+    // Used only to enrich the journal-sourced rows below — the trial balance is
+    // built from journal lines, not from the COA, so postings to parent or
+    // non-direct-entry accounts are never dropped (matches balance-sheet/P&L).
     const accounts = await db
       .select()
       .from(chartOfAccounts)
-      .where(and(eq(chartOfAccounts.agencyId, agencyId), eq(chartOfAccounts.isActive, true)))
-      .orderBy(chartOfAccounts.code);
+      .where(eq(chartOfAccounts.agencyId, agencyId));
 
-    // ── 2. Fetch period movements from journal lines ──────────────────────────
+    const coaByCode = new Map(accounts.map(a => [a.code, a]));
+
+    // Resolve an account type, preferring the explicit COA `type` and falling
+    // back to the numeric code range when the account has no COA row — mirrors
+    // the balance-sheet `classify` so the two reports agree.
+    type AccountType = 'asset' | 'liability' | 'equity' | 'revenue' | 'expense';
+    const classifyType = (code: string, coaType: string | undefined): AccountType => {
+      if (coaType) return coaType as AccountType;
+      if (code.startsWith('1')) return 'asset';
+      if (code.startsWith('2')) return 'liability';
+      if (code === '3201' || code === '3202') return 'liability'; // deferred revenue
+      if (code.startsWith('3')) return 'equity';
+      if (code.startsWith('4')) return 'revenue';
+      return 'expense'; // 5xxx + 6xxx
+    };
+    const isDebitNormalType = (type: AccountType): boolean => type === 'asset' || type === 'expense';
+
+    // ── 2. Aggregate movements from journal lines (source of truth) ──────────
     const conditions = [
       eq(journalLines.agencyId, agencyId),
       eq(journalEntries.isPosted, true),
@@ -32,29 +51,52 @@ export async function GET(request: Request) {
 
     const movements = await db
       .select({
-        accountCode: journalLines.accountCode,
-        totalDebit:  sql<number>`cast(coalesce(sum(${journalLines.debitHalalas}),0)  as int)`,
-        totalCredit: sql<number>`cast(coalesce(sum(${journalLines.creditHalalas}),0) as int)`,
+        accountCode:  journalLines.accountCode,
+        accountNameAr: journalLines.accountNameAr,
+        accountNameEn: journalLines.accountNameEn,
+        totalDebit:  sql<number>`cast(coalesce(sum(${journalLines.debitHalalas}),0)  as bigint)`,
+        totalCredit: sql<number>`cast(coalesce(sum(${journalLines.creditHalalas}),0) as bigint)`,
       })
       .from(journalLines)
       .innerJoin(journalEntries, eq(journalLines.entryId, journalEntries.id))
       .where(and(...conditions))
-      .groupBy(journalLines.accountCode);
+      .groupBy(journalLines.accountCode, journalLines.accountNameAr, journalLines.accountNameEn);
 
-    const movMap = new Map<string, { debit: number; credit: number }>();
+    // Collapse rows so each account code appears once (names may vary per line).
+    const movMap = new Map<string, { debit: number; credit: number; nameAr: string | null; nameEn: string | null }>();
     for (const m of movements) {
-      movMap.set(m.accountCode, { debit: Number(m.totalDebit), credit: Number(m.totalCredit) });
+      const prev = movMap.get(m.accountCode);
+      if (prev) {
+        prev.debit  += Number(m.totalDebit);
+        prev.credit += Number(m.totalCredit);
+        if (!prev.nameAr) prev.nameAr = m.accountNameAr ?? null;
+        if (!prev.nameEn) prev.nameEn = m.accountNameEn ?? null;
+      } else {
+        movMap.set(m.accountCode, {
+          debit:  Number(m.totalDebit),
+          credit: Number(m.totalCredit),
+          nameAr: m.accountNameAr ?? null,
+          nameEn: m.accountNameEn ?? null,
+        });
+      }
     }
 
     // ── 3. Build trial balance rows ───────────────────────────────────────────
-    // Normal balance: Assets(1xxx) & Expenses(5xxx) → debit; others → credit
-    const rows = accounts
-      .filter(a => !a.parentId || a.allowDirectEntry) // leaf or direct-entry accounts
-      .map(a => {
-        const mov    = movMap.get(a.code) ?? { debit: 0, credit: 0 };
-        const open   = a.openingBalanceHalalas ?? 0;
-        const type   = a.type; // asset|liability|equity|revenue|expense
-        const isDebitNormal = type === 'asset' || type === 'expense';
+    // Codes = every account with journal movement plus any COA account carrying
+    // an opening balance (so the opening figure shows even before its first post).
+    const codes = new Set<string>(movMap.keys());
+    for (const a of accounts) {
+      if ((a.openingBalanceHalalas ?? 0) !== 0) codes.add(a.code);
+    }
+
+    const rows = Array.from(codes)
+      .sort()
+      .map(code => {
+        const mov   = movMap.get(code) ?? { debit: 0, credit: 0, nameAr: null, nameEn: null };
+        const coa   = coaByCode.get(code);
+        const open  = coa?.openingBalanceHalalas ?? 0;
+        const type  = classifyType(code, coa?.type); // asset|liability|equity|revenue|expense
+        const isDebitNormal = isDebitNormalType(type);
 
         // Opening balance sign convention: stored as positive, sign applied here
         const openDebit  = isDebitNormal ? open : 0;
@@ -69,11 +111,11 @@ export async function GET(request: Request) {
           : totalCredit - totalDebit;    // positive = credit balance
 
         return {
-          code:         a.code,
-          nameAr:       a.nameAr,
-          nameEn:       a.nameEn ?? null,
+          code,
+          nameAr:       coa?.nameAr ?? mov.nameAr ?? code,
+          nameEn:       coa?.nameEn ?? mov.nameEn ?? null,
           type,
-          level:        a.level,
+          level:        coa?.level ?? 1,
           openDebit,
           openCredit,
           periodDebit:  mov.debit,
