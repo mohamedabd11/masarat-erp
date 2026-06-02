@@ -25,6 +25,7 @@ interface SupplierPaymentBody {
   foreignCurrency?:   string;  // e.g. 'USD', 'AED'
   foreignAmountMinor?: number; // amount in minor units (cents, fils, etc.)
   fxOriginalHalalas?: number;  // SAR at original booking rate — if supplied, difference posts to 5900/4900
+  vatAmountHalalas?: number;  // optional: VAT portion of the payment (for Input VAT claim)
 }
 
 // Debit account chosen per expense category.
@@ -66,6 +67,7 @@ export async function POST(request: Request) {
     const { payeeName, expenseCategory, amountHalalas, paymentMethod, reference, notes,
             bookingId, bookingNumber, supplierId,
             foreignCurrency, foreignAmountMinor, fxOriginalHalalas } = body;
+    const vatAmount = body.vatAmountHalalas ?? 0;
 
     if (!payeeName || !expenseCategory || !paymentMethod) {
       return NextResponse.json({ error: 'بيانات مطلوبة ناقصة' }, { status: 400 });
@@ -163,8 +165,26 @@ export async function POST(request: Request) {
       });
 
       type JLine = { id: string; entryId: string; agencyId: string; accountCode: string; accountNameAr: string; accountNameEn: string; debitHalalas: number; creditHalalas: number; sortOrder: number };
+      let lines: JLine[];
+
+      // Input VAT split (GL 1230): for supplier purchases where a VAT portion is
+      // supplied, the debit is split into net cost (expense/AP) + recoverable
+      // input VAT, with the full amount credited to cash/bank. This lets
+      // VAT-registered agencies reclaim input tax from ZATCA instead of burying
+      // it in the cost. Mutually exclusive with the FX-difference legs.
+      if (expenseCategory === 'supplier' && vatAmount > 0 && vatAmount < resolvedAmountHalalas) {
+        const netAmount = resolvedAmountHalalas - vatAmount;
+        lines = [
+          { id: crypto.randomUUID(), entryId: jeId, agencyId, accountCode: expenseAc.code, accountNameAr: expenseAc.ar, accountNameEn: expenseAc.en, debitHalalas: netAmount, creditHalalas: 0, sortOrder: 1 },
+          { id: crypto.randomUUID(), entryId: jeId, agencyId, accountCode: GL.inputVat.code, accountNameAr: GL.inputVat.ar, accountNameEn: GL.inputVat.en, debitHalalas: vatAmount, creditHalalas: 0, sortOrder: 2 },
+          { id: crypto.randomUUID(), entryId: jeId, agencyId, accountCode: paymentAc.code, accountNameAr: paymentAc.ar, accountNameEn: paymentAc.en, debitHalalas: 0, creditHalalas: resolvedAmountHalalas, sortOrder: 3 },
+        ];
+        await tx.insert(journalLines).values(lines);
+        return { id: spId, voucherNumber, resolvedAmountHalalas, appliedFxRate, appliedFxRateDate };
+      }
+
       // Build journal lines with optional FX leg
-      const lines: JLine[] = [
+      lines = [
         { id: crypto.randomUUID(), entryId: jeId, agencyId, accountCode: expenseAc.code, accountNameAr: expenseAc.ar, accountNameEn: expenseAc.en, debitHalalas: expenseDebit, creditHalalas: 0, sortOrder: 1 },
       ];
 

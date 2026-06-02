@@ -47,7 +47,7 @@ export const GL = {
   // FX gain (IFRS 9 — realised exchange differences favourable to the agency)
   fxGain:           { code: '4900', ar: 'أرباح فروق أسعار الصرف', en: 'FX Gain' },
   // Bank reconciliation income (small favourable differences on reconciliation)
-  reconcileIncome:  { code: '4510', ar: 'إيراد فروق المطابقة البنكية', en: 'Bank Reconciliation Income' },
+  reconcileIncome:  { code: '4510', ar: 'فروق مطابقة بنكية (فائض)', en: 'Bank Reconciliation Surplus / Income' },
   // Deferred revenue lives in the equity/liability bridge range used by the seed
   // (3201 sits just after retainedEarnings 3200). It is a liability in substance.
   deferredRevenue:  { code: '3201', ar: 'إيراد مؤجل - خدمات سفر', en: 'Deferred Revenue - Travel' },
@@ -58,11 +58,18 @@ export const GL = {
   // FX loss (IFRS 9 — realised exchange differences unfavourable to the agency)
   fxLoss:           { code: '5900', ar: 'خسائر فروق أسعار الصرف', en: 'FX Loss' },
   // Bank reconciliation expense (small unfavourable differences on reconciliation)
-  reconcileExpense: { code: '5510', ar: 'مصروف فروق المطابقة البنكية', en: 'Bank Reconciliation Expense' },
+  reconcileExpense: { code: '5510', ar: 'فروق مطابقة بنكية (عجز)', en: 'Bank Reconciliation Shortage / Expense' },
+  // Operating expenses — default counter account for manual withdrawals / direct opex
+  operatingExpenses:{ code: '5400', ar: 'المصاريف التشغيلية', en: 'Operating Expenses' },
   // Payroll expenses (IAS 19)
   salaryExpense:    { code: '6100', ar: 'مصروف الرواتب',          en: 'Salary Expense' },
   gosiExpense:      { code: '6200', ar: 'مصروف GOSI - صاحب العمل', en: 'GOSI Expense - Employer' },
   eosbExpense:      { code: '6300', ar: 'مصروف مكافأة نهاية الخدمة', en: 'EOSB Expense' },
+
+  // ── Suspense / clearing (9xxx) ─────────────────────────────────────────────
+  // Default counter account for unclassified manual deposits — held in suspense
+  // until reclassified, never posted directly to retained earnings.
+  suspenseIncome:   { code: '9001', ar: 'حساب تعليق — إيرادات غير مصنفة', en: 'Suspense - Unclassified Receipts' },
 } as const;
 
 export type GLAccount = { code: string; ar: string; en: string };

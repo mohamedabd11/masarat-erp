@@ -16,17 +16,17 @@ const EXPENSE_ACCOUNT: Record<string, { code: string; ar: string; en: string }> 
   salaries:    { code: '5100', ar: 'الرواتب والأجور',     en: 'Salaries' },
   rent:        { code: '5200', ar: 'الإيجار',             en: 'Rent' },
   marketing:   { code: '5300', ar: 'التسويق والإعلان',    en: 'Marketing' },
-  operational: { code: '5400', ar: 'المصاريف التشغيلية',  en: 'Operating Expenses' },
-  office:      { code: '5400', ar: 'المصاريف التشغيلية',  en: 'Operating Expenses' },
-  other:       { code: '5400', ar: 'المصاريف التشغيلية',  en: 'Operating Expenses' },
+  operational: GL.operatingExpenses,
+  office:      GL.operatingExpenses,
+  other:       GL.operatingExpenses,
 };
 
 const METHOD_ACCOUNT: Record<string, { code: string; ar: string; en: string }> = {
-  cash:          { code: '1100', ar: 'الصندوق النقدي', en: 'Cash' },
-  bank_transfer: { code: '1110', ar: 'البنك',           en: 'Bank' },
-  card:          { code: '1115', ar: 'نقاط البيع',      en: 'POS / Card' },
-  online:        { code: '1115', ar: 'نقاط البيع',      en: 'POS / Card' },
-  check:         { code: '1110', ar: 'البنك',           en: 'Bank' },
+  cash:          GL.cash,
+  bank_transfer: GL.bank,
+  card:          GL.posCard,
+  online:        GL.posCard,
+  check:         GL.bank,
 };
 
 export async function POST(request: Request) {
