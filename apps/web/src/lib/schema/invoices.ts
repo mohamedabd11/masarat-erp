@@ -64,9 +64,10 @@ export const invoices = pgTable('invoices', {
   // Deferred-revenue cron hot paths (jobs/recognize-revenue).
   index('idx_invoices_agency_deferred').on(t.agencyId, t.deferredUntil).where(sql`${t.deferredUntil} IS NOT NULL`),
   index('idx_invoices_deferred_recognized').on(t.deferredUntil, t.revenueRecognizedAt),
-  // One invoice per booking per agency (skips standalone invoices where bookingId is NULL —
-  // Postgres treats NULLs as distinct, so multiple booking-less invoices remain allowed).
-  uniqueIndex('uq_invoices_agency_booking').on(t.agencyId, t.bookingId),
+  // One TAX invoice (type 380) per booking per agency. Credit notes (381) and
+  // debit notes (383) may reference the same booking, so the index is partial.
+  // Matches the DDL in setup-db (invoices_one_per_booking WHERE type = '380').
+  uniqueIndex('uq_invoices_agency_booking').on(t.agencyId, t.bookingId).where(sql`${t.type} = '380' AND ${t.bookingId} IS NOT NULL`),
 ]);
 
 export type Invoice    = typeof invoices.$inferSelect;
