@@ -16,15 +16,16 @@ interface AgingBuckets {
 }
 
 interface AgingInvoiceLine {
-  invoiceId:        string;
-  invoiceNumber:    string;
-  issueDate:        string;
-  dueDate:          string | null;
-  totalHalalas:     number;
-  paidHalalas:      number;
+  invoiceId:          string;
+  invoiceNumber:      string;
+  issueDate:          string;
+  dueDate:            string | null;
+  totalHalalas:       number;
+  paidHalalas:        number;
+  creditedHalalas:    number;
   outstandingHalalas: number;
-  daysOverdue:      number;
-  bucket:           'current' | '1-30' | '31-60' | '61-90' | '91+';
+  daysOverdue:        number;
+  bucket:             'current' | '1-30' | '31-60' | '61-90' | '91+';
 }
 
 interface AgingCustomerRow extends AgingBuckets {
@@ -104,7 +105,8 @@ export async function GET(request: Request) {
         dueDate:         invoices.dueDate,
       })
       .from(invoices)
-      .where(and(...conditions));
+      .where(and(...conditions))
+      .limit(1000);
 
     // ── 2. Enrich with customer names where customerId is set ─────────────────
     const custIdSet: Record<string, boolean> = {};
@@ -139,6 +141,7 @@ export async function GET(request: Request) {
         dueDate:            r.dueDate ?? null,
         totalHalalas:       r.totalHalalas,
         paidHalalas:        r.paidHalalas,
+        creditedHalalas:    r.creditedHalalas,
         outstandingHalalas: outstanding,
         daysOverdue,
         bucket,
@@ -181,7 +184,12 @@ export async function GET(request: Request) {
       summary.totalOutstanding += row.totalOutstanding;
     }
 
-    return NextResponse.json({ asOf: asOfStr, summary, customers: customerList });
+    return NextResponse.json({
+      asOf:      asOfStr,
+      summary,
+      customers: customerList,
+      truncated: rows.length >= 1000,
+    });
   } catch (err) {
     if (err instanceof ApiAuthError) return NextResponse.json({ error: err.message }, { status: err.status });
     console.error(JSON.stringify({ event: 'aging_report_failed', error: (err as Error).message }));

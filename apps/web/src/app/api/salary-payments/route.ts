@@ -28,12 +28,17 @@ export async function GET(request: Request) {
     const conditions = [eq(salaryPayments.agencyId, agencyId)];
     if (employeeId) conditions.push(eq(salaryPayments.employeeId, employeeId));
 
+    const pageSize = Math.min(Math.max(1, Number(url.searchParams.get('limit') ?? 200)), 500);
+    const offset   = Math.max(0, Number(url.searchParams.get('offset') ?? 0));
+
     const rows = await db
       .select()
       .from(salaryPayments)
       .where(and(...conditions))
-      .orderBy(desc(salaryPayments.createdAt));
-    return NextResponse.json({ salaryPayments: rows });
+      .orderBy(desc(salaryPayments.createdAt))
+      .limit(pageSize)
+      .offset(offset);
+    return NextResponse.json({ salaryPayments: rows, limit: pageSize, offset });
   } catch (err) {
     if (err instanceof ApiAuthError) return NextResponse.json({ error: err.message }, { status: err.status });
     return NextResponse.json({ error: 'خطأ في الخادم' }, { status: 500 });
