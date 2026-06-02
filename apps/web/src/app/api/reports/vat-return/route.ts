@@ -128,9 +128,10 @@ export async function GET(request: Request) {
     const totalPurchases    = Number(purchaseRows[0]?.count ?? 0) > 0 ? Number(purchaseRows[0]?.netAmount ?? 0) : 0;
     const purchaseCount     = Number(purchaseRows[0]?.count ?? 0);
 
-    // Real Input VAT: sum of debits posted to the VAT accounts within the period.
-    // Output VAT is credited to 2200 (VAT Payable); input/reclaimable VAT is
-    // debited to either a dedicated input-VAT receivable (1230) or to 2200 itself.
+    // Real Input VAT: sum of debits posted to the input-VAT account (1230) within
+    // the period. Output VAT is credited to 2200 (VAT Payable); 2200 is also
+    // DEBITED by refunds/credit notes (reversing output VAT liability), so those
+    // 2200 debits are NOT reclaimable input VAT and must be excluded here.
     const inputVatRows = await db
       .select({
         inputVat: sql<number>`cast(coalesce(sum(${journalLines.debitHalalas}), 0) as bigint)`,
@@ -140,16 +141,13 @@ export async function GET(request: Request) {
       .where(and(
         eq(journalLines.agencyId, agencyId),
         eq(journalEntries.isPosted, true),
-        sql`${journalLines.accountCode} IN ('1230', '2200')`,
+        sql`${journalLines.accountCode} = '1230'`,
         sql`${journalLines.debitHalalas} > 0`,
         sql`${journalEntries.date} >= ${from}`,
         sql`${journalEntries.date} <= ${to}`,
       ));
 
-    // Subtract VAT debits that originate from credit notes (already netted into
-    // output VAT above) so we don't double-count them as reclaimable input VAT.
-    const grossVatDebits = Number(inputVatRows[0]?.inputVat ?? 0);
-    const inputVat       = Math.max(0, grossVatDebits - creditNoteVat);
+    const inputVat = Number(inputVatRows[0]?.inputVat ?? 0);
 
     // ── Summary ───────────────────────────────────────────────────────────────
     const netVatPayable = netOutputVat - inputVat;
