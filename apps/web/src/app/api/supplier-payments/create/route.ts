@@ -158,20 +158,6 @@ export async function POST(request: Request) {
         ? ` (${foreignCurrency}${foreignAmountMinor != null ? ' ' + (foreignAmountMinor / 100).toFixed(2) : ''}${appliedFxRate ? ' @ ' + appliedFxRate.toFixed(4) : ''})`
         : '';
 
-      await tx.insert(journalEntries).values({
-        id:                 jeId,
-        agencyId,
-        entryNumber:        jeNumber,
-        date:               today,
-        descriptionAr:      `سند صرف ${voucherNumber} — ${payeeName}${fxNote}`,
-        source:             'payment',
-        sourceId:           spId,
-        isPosted:           true,
-        totalDebitHalalas:  resolvedAmountHalalas,
-        totalCreditHalalas: resolvedAmountHalalas,
-        createdBy:          uid,
-      });
-
       type JLine = { id: string; entryId: string; agencyId: string; accountCode: string; accountNameAr: string; accountNameEn: string; debitHalalas: number; creditHalalas: number; sortOrder: number };
       let sortOrder = 1;
       const mkLine = (ac: { code: string; ar: string; en: string }, dr: number, cr: number): JLine =>
@@ -195,6 +181,24 @@ export async function POST(request: Request) {
       } else {
         lines.push(mkLine(paymentAc, 0, resolvedAmountHalalas));
       }
+
+      // Derive header totals from the actual lines so FX legs are reflected.
+      const totalDr = lines.reduce((s, l) => s + l.debitHalalas, 0);
+      const totalCr = lines.reduce((s, l) => s + l.creditHalalas, 0);
+
+      await tx.insert(journalEntries).values({
+        id:                 jeId,
+        agencyId,
+        entryNumber:        jeNumber,
+        date:               today,
+        descriptionAr:      `سند صرف ${voucherNumber} — ${payeeName}${fxNote}`,
+        source:             'payment',
+        sourceId:           spId,
+        isPosted:           true,
+        totalDebitHalalas:  totalDr,
+        totalCreditHalalas: totalCr,
+        createdBy:          uid,
+      });
 
       await tx.insert(journalLines).values(lines);
 
