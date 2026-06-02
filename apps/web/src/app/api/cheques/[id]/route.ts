@@ -46,7 +46,6 @@ export async function PATCH(request: Request, { params }: { params: { id: string
         .set({
           ...(newStatus !== undefined ? { status: newStatus } : {}),
           ...(typeof body['notes'] === 'string' ? { notes: body['notes'] as string } : {}),
-          ...(typeof body['reference'] === 'string' ? { reference: body['reference'] as string } : {}),
           updatedAt: now,
         })
         .where(and(eq(cheques.id, params.id), eq(cheques.agencyId, agencyId)));
