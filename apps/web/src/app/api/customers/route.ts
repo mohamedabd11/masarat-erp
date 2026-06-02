@@ -82,6 +82,10 @@ export async function POST(request: Request) {
       dateOfBirth?: string; notes?: string; openingBalanceHalalas?: number;
     };
     if (!body.nameAr?.trim()) return NextResponse.json({ error: 'الاسم مطلوب' }, { status: 400 });
+    const openingBalanceHalalas = body.openingBalanceHalalas ?? 0;
+    if (!Number.isInteger(openingBalanceHalalas) || openingBalanceHalalas < 0) {
+      return NextResponse.json({ error: 'الرصيد الافتتاحي يجب أن يكون عدداً صحيحاً غير سالب' }, { status: 400 });
+    }
     const id = crypto.randomUUID();
     const [row] = await db.insert(customers).values({
       id, agencyId,
@@ -94,7 +98,7 @@ export async function POST(request: Request) {
       passportNumber:        body.passportNumber ?? null,
       dateOfBirth:           body.dateOfBirth ?? null,
       notes:                 body.notes ?? null,
-      openingBalanceHalalas: body.openingBalanceHalalas ?? 0,
+      openingBalanceHalalas,
     }).returning();
     return NextResponse.json({ success: true, id, customer: row });
   } catch (err) {
