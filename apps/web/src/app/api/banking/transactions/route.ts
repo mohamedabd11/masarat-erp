@@ -63,15 +63,17 @@ export async function POST(request: Request) {
     const bankGlEn   = (acType === 'cash' || acType === 'petty_cash') ? 'Cash'    : 'Bank';
 
     await db.transaction(async (tx) => {
-      const txId  = crypto.randomUUID();
+      const txId         = crypto.randomUUID();
+      const balanceAfter = account.currentBalanceHalalas + delta;
       await tx.insert(bankTransactions).values({
         id: txId, agencyId, bankAccountId: body.bankAccountId, type: body.type,
-        amountHalalas: body.amountHalalas, balanceAfterHalalas: newBalance,
+        amountHalalas: body.amountHalalas, balanceAfterHalalas: balanceAfter,
         description: body.description ?? null, reference: body.reference ?? null,
         date: body.date,
       });
+      // Atomic increment — avoids the read-modify-write race condition (M-05).
       await tx.update(bankAccounts)
-        .set({ currentBalanceHalalas: newBalance, updatedAt: new Date() })
+        .set({ currentBalanceHalalas: sql`${bankAccounts.currentBalanceHalalas} + ${delta}`, updatedAt: new Date() })
         .where(eq(bankAccounts.id, body.bankAccountId));
 
       // Post GL entry for manual deposit / withdrawal
