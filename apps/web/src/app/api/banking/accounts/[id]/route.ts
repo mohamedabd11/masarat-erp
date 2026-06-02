@@ -1,8 +1,8 @@
 import { NextResponse } from 'next/server';
 import { eq, and, count } from 'drizzle-orm';
 import { db } from '@/lib/db';
-import { bankAccounts, bankTransactions, journalEntries, journalLines } from '@/lib/schema';
-import { verifyAuth, ApiAuthError } from '@/lib/api-auth';
+import { bankAccounts, bankTransactions, journalEntries } from '@/lib/schema';
+import { verifyAuth, ApiAuthError, BusinessError } from '@/lib/api-auth';
 import { logAudit } from '@/lib/audit';
 
 export async function DELETE(request: Request, { params }: { params: { id: string } }) {
@@ -13,31 +13,22 @@ export async function DELETE(request: Request, { params }: { params: { id: strin
       .where(and(eq(bankAccounts.id, params.id), eq(bankAccounts.agencyId, agencyId)));
     if (!account) return NextResponse.json({ error: 'الحساب غير موجود' }, { status: 404 });
 
-    // Check for linked transactions — cannot delete if any exist
+    // Block deletion if the account has any history. Deleting a bank account used
+    // to hard-delete posted journal entries (including those in locked periods),
+    // corrupting the trial balance. We now only allow deleting empty, unused,
+    // zero-balance accounts.
     const [{ txCount }] = await db.select({ txCount: count() }).from(bankTransactions)
       .where(and(eq(bankTransactions.bankAccountId, params.id), eq(bankTransactions.agencyId, agencyId)));
 
-    if (txCount > 0) {
-      return NextResponse.json(
-        { error: `لا يمكن حذف الحساب — يحتوي على ${txCount} معاملة. يمكنك تعطيله بدلاً من حذفه.`, canDeactivate: true },
-        { status: 409 },
-      );
+    const [{ jeCount }] = await db.select({ jeCount: count() }).from(journalEntries)
+      .where(and(eq(journalEntries.sourceId, params.id), eq(journalEntries.agencyId, agencyId)));
+
+    if (txCount > 0 || jeCount > 0 || account.currentBalanceHalalas !== 0) {
+      throw new BusinessError('لا يمكن حذف حساب بنكي له معاملات أو رصيد غير صفري', 409);
     }
 
-    await db.transaction(async (tx) => {
-      // Remove opening-balance journal entry if one exists (sourceId = account id)
-      const [je] = await tx.select({ id: journalEntries.id }).from(journalEntries)
-        .where(and(eq(journalEntries.sourceId, params.id), eq(journalEntries.agencyId, agencyId)))
-        .limit(1);
-
-      if (je) {
-        await tx.delete(journalLines).where(eq(journalLines.entryId, je.id));
-        await tx.delete(journalEntries).where(eq(journalEntries.id, je.id));
-      }
-
-      await tx.delete(bankAccounts)
-        .where(and(eq(bankAccounts.id, params.id), eq(bankAccounts.agencyId, agencyId)));
-    });
+    await db.delete(bankAccounts)
+      .where(and(eq(bankAccounts.id, params.id), eq(bankAccounts.agencyId, agencyId)));
 
     await logAudit({
       agencyId, userId: uid,
@@ -50,6 +41,7 @@ export async function DELETE(request: Request, { params }: { params: { id: strin
     return NextResponse.json({ success: true });
   } catch (err) {
     if (err instanceof ApiAuthError) return NextResponse.json({ error: err.message }, { status: err.status });
+    if (err instanceof BusinessError) return NextResponse.json({ error: err.message, canDeactivate: true }, { status: err.status });
     console.error(JSON.stringify({ event: 'delete_bank_account_failed', id: params.id, error: String(err) }));
     return NextResponse.json({ error: 'خطأ في الخادم' }, { status: 500 });
   }
