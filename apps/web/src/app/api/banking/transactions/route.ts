@@ -43,7 +43,6 @@ export async function POST(request: Request) {
     if (!['deposit', 'withdrawal'].includes(body.type)) {
       return NextResponse.json({ error: 'نوع المعاملة غير صالح' }, { status: 400 });
     }
-    await assertPeriodOpen(agencyId, body.date, db);
 
     const [account] = await db
       .select({ id: bankAccounts.id, currentBalanceHalalas: bankAccounts.currentBalanceHalalas, type: bankAccounts.type, nameAr: bankAccounts.nameAr })
@@ -61,6 +60,8 @@ export async function POST(request: Request) {
     const bankGlEn   = (acType === 'cash' || acType === 'petty_cash') ? 'Cash'    : 'Bank';
 
     await db.transaction(async (tx) => {
+      await assertPeriodOpen(agencyId, body.date, tx);
+
       const txId  = crypto.randomUUID();
 
       // Atomic increment to avoid lost updates under concurrent requests.

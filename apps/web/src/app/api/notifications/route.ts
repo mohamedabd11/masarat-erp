@@ -40,7 +40,8 @@ export async function GET(request: Request) {
       .where(and(
         eq(invoices.agencyId, agencyId),
         sql`${invoices.status} IN ('issued','partial')`,
-      ));
+      ))
+      .limit(200);
 
     for (const inv of overdueInvs) {
       const daysOld = Math.floor((now - new Date(inv.issueDate).getTime()) / 86_400_000);
@@ -65,7 +66,8 @@ export async function GET(request: Request) {
       .where(and(
         eq(bookings.agencyId, agencyId),
         sql`${bookings.status} NOT IN ('cancelled','completed')`,
-      ));
+      ))
+      .limit(500);
 
     for (const bk of activeBookings) {
       const details    = (bk.details ?? {}) as Record<string, unknown>;

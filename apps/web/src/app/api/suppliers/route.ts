@@ -8,7 +8,7 @@ export async function GET(request: Request) {
   try {
     const { agencyId, role } = await verifyAuth(request);
     assertRole(role, [...ROLES_ACCOUNTANT_UP]);
-    const rows = await db.select().from(suppliers).where(eq(suppliers.agencyId, agencyId)).orderBy(desc(suppliers.createdAt));
+    const rows = await db.select().from(suppliers).where(eq(suppliers.agencyId, agencyId)).orderBy(desc(suppliers.createdAt)).limit(1000);
     return NextResponse.json({ suppliers: rows });
   } catch (err) {
     if (err instanceof ApiAuthError) return NextResponse.json({ error: err.message }, { status: err.status });

@@ -19,6 +19,7 @@ import { eq, and, ne, sql } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { bankAccounts, exchangeRates, journalEntries, journalLines } from '@/lib/schema';
 import { verifyAuth, assertRole, ApiAuthError, BusinessError, ROLES_ACCOUNTANT_UP } from '@/lib/api-auth';
+import { checkRateLimit, getClientIp, rateLimitHeaders } from '@/lib/rate-limit';
 import { getNextJournalNumber } from '@/lib/invoice-counter';
 import { assertPeriodOpen } from '@/lib/period-lock';
 import { logAudit } from '@/lib/audit';
@@ -32,6 +33,14 @@ export async function POST(request: Request) {
   try {
     const { uid, agencyId, role } = await verifyAuth(request);
     assertRole(role, [...ROLES_ACCOUNTANT_UP]);
+
+    const rl = await checkRateLimit(`${agencyId}:${getClientIp(request)}`, 'financial');
+    if (!rl.success) {
+      return NextResponse.json(
+        { error: 'تجاوزت الحد المسموح به من الطلبات. حاول مرة أخرى بعد دقيقة.' },
+        { status: 429, headers: rateLimitHeaders(rl) },
+      );
+    }
 
     const body = await request.json() as { revaluationDate?: string; dryRun?: boolean };
     const revalDate = body.revaluationDate ?? new Date().toISOString().slice(0, 10);
