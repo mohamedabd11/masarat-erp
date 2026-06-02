@@ -91,9 +91,26 @@ export async function POST(request: Request) {
     const gross     = base + housing + transport + other;
     const deduct    = body.deductionsHalalas ?? 0;
     const gosiEmployee = body.gosiEmployeeHalalas ?? 0;
-    // GOSI Saudi employer contribution: 9.75% on basic + housing (GOSI-eligible base)
+    // GOSI employer contribution on the GOSI-eligible base (basic + housing).
+    // Saudi rate is 11.75% (9% pension + 2% SANED + 0.75% occupational hazard);
+    // non-Saudis are 2% (SANED only). The employees table has no nationality
+    // column yet, so we apply the Saudi rate as the default — TODO: make this
+    // configurable per-employee once a `nationality` column is added (use
+    // GOSI_EMPLOYER_NON_SAUDI = 0.02 for non-Saudis).
+    const GOSI_EMPLOYER_SAUDI = 0.1175; // 11.75% — Saudis
     const gosiBase     = base + housing;
-    const gosiEmployer = Math.round(gosiBase * 0.0975);
+    const gosiEmployer = Math.round(gosiBase * GOSI_EMPLOYER_SAUDI);
+
+    // Validate the employee GOSI share server-side: 0 ≤ gosiEmployee ≤ 10% of base.
+    // (Employee share is 10% for Saudis, 0% for non-Saudis.)
+    const maxGosiEmployee = Math.round(gosiBase * 0.10);
+    if (!Number.isInteger(gosiEmployee) || gosiEmployee < 0 || gosiEmployee > maxGosiEmployee) {
+      return NextResponse.json(
+        { error: `حصة الموظف من التأمينات غير صالحة (يجب أن تكون بين 0 و ${maxGosiEmployee})` },
+        { status: 400 },
+      );
+    }
+
     const net          = gross - deduct - advanceDeduction - gosiEmployee;
 
     const id    = crypto.randomUUID();
