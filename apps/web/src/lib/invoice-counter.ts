@@ -16,15 +16,19 @@ const PREFIX: Record<string, string> = {
   journal:        'JE',
 };
 
+// CNT-01: Include year in the counter key so sequences reset annually.
+// Key format: "<type>-<year>"  e.g. "taxInvoice-2025", "receipt-2025"
 async function nextCounter(
   agencyId: string,
   counterType: string,
+  year: number,
   tx?: Tx,
 ): Promise<number> {
   const executor = tx ?? db;
+  const yearlyType = `${counterType}-${year}`;
   const result = await executor
     .insert(agencyCounters)
-    .values({ agencyId, counterType, currentValue: 1 })
+    .values({ agencyId, counterType: yearlyType, currentValue: 1 })
     .onConflictDoUpdate({
       target: [agencyCounters.agencyId, agencyCounters.counterType],
       set: { currentValue: sql`${agencyCounters.currentValue} + 1` },
@@ -39,7 +43,7 @@ export async function getNextInvoiceNumber(
   year: number,
   tx?: Tx,
 ): Promise<string> {
-  const n = await nextCounter(agencyId, invoiceType, tx);
+  const n = await nextCounter(agencyId, invoiceType, year, tx);
   return `${PREFIX[invoiceType]}-${year}-${String(n).padStart(6, '0')}`;
 }
 
@@ -48,7 +52,7 @@ export async function getNextReceiptNumber(
   year: number,
   tx?: Tx,
 ): Promise<string> {
-  const n = await nextCounter(agencyId, 'receipt', tx);
+  const n = await nextCounter(agencyId, 'receipt', year, tx);
   return `RCT-${year}-${String(n).padStart(6, '0')}`;
 }
 
@@ -57,7 +61,7 @@ export async function getNextPaymentVoucherNumber(
   year: number,
   tx?: Tx,
 ): Promise<string> {
-  const n = await nextCounter(agencyId, 'paymentVoucher', tx);
+  const n = await nextCounter(agencyId, 'paymentVoucher', year, tx);
   return `PV-${year}-${String(n).padStart(6, '0')}`;
 }
 
@@ -66,7 +70,7 @@ export async function getNextJournalNumber(
   year: number,
   tx?: Tx,
 ): Promise<string> {
-  const n = await nextCounter(agencyId, 'journal', tx);
+  const n = await nextCounter(agencyId, 'journal', year, tx);
   return `JE-${year}-${String(n).padStart(6, '0')}`;
 }
 
@@ -75,7 +79,7 @@ export async function getNextBookingNumber(
   year: number,
   tx?: Tx,
 ): Promise<string> {
-  const n = await nextCounter(agencyId, 'booking', tx);
+  const n = await nextCounter(agencyId, 'booking', year, tx);
   const yy = String(year).slice(-2);
   return `BK-${yy}-${String(n).padStart(6, '0')}`;
 }

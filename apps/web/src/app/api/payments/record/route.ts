@@ -5,6 +5,7 @@ import { invoices, bookings, payments, journalEntries, journalLines, idempotency
 import { verifyAuth, assertRole, ApiAuthError, BusinessError, ROLES_ACCOUNTANT_UP } from '@/lib/api-auth';
 import { withIdempotency, buildIdempotencyInsert } from '@/lib/idempotency';
 import { getNextReceiptNumber, getNextJournalNumber } from '@/lib/invoice-counter';
+import { requireFeature } from '@/lib/feature-access';
 
 interface PaymentRecordBody {
   bookingId?:    string;
@@ -28,6 +29,7 @@ export async function POST(request: Request) {
   try {
     const { uid, agencyId, role } = await verifyAuth(request);
     assertRole(role, [...ROLES_ACCOUNTANT_UP]);
+    await requireFeature(agencyId, 'payments', db);
 
     const body = await request.json() as PaymentRecordBody;
     const { bookingId, invoiceId, amountHalalas, paymentMethod, reference, notes } = body;
@@ -49,6 +51,12 @@ export async function POST(request: Request) {
         );
         if (!invoice) throw new BusinessError(`الفاتورة ${invoiceId} غير موجودة`, 404);
         if (bookingId && invoice.bookingId && invoice.bookingId !== bookingId) throw new BusinessError('الفاتورة لا تنتمي لهذا الحجز', 400);
+
+        // SM-01: Block payment on terminal-status invoices
+        const TERMINAL = new Set(['cancelled', 'void', 'credit_memo']);
+        if (TERMINAL.has(invoice.status ?? '')) {
+          throw new BusinessError(`لا يمكن تسجيل دفعة على فاتورة بحالة "${invoice.status}"`, 400);
+        }
 
         // ── 2. Validate (fast-fail before any writes) ──────────────────────
         const currentDue = invoice.totalHalalas - invoice.paidHalalas;

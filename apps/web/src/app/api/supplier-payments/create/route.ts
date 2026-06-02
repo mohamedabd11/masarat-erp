@@ -3,6 +3,7 @@ import { eq, and, sql } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { supplierPayments, suppliers, journalEntries, journalLines } from '@/lib/schema';
 import { verifyAuth, assertRole, ApiAuthError, BusinessError, ROLES_ACCOUNTANT_UP } from '@/lib/api-auth';
+import { requireFeature } from '@/lib/feature-access';
 import { getNextPaymentVoucherNumber, getNextJournalNumber } from '@/lib/invoice-counter';
 import { assertPeriodOpen } from '@/lib/period-lock';
 import { lookupFxRate, fxToHalalas } from '@/lib/fx';
@@ -61,6 +62,7 @@ export async function POST(request: Request) {
   try {
     const { uid, agencyId, role } = await verifyAuth(request);
     assertRole(role, [...ROLES_ACCOUNTANT_UP]);
+    await requireFeature(agencyId, 'supplier_payments', db);
 
     const body = await request.json() as SupplierPaymentBody;
     const { payeeName, expenseCategory, amountHalalas, paymentMethod, reference, notes,
@@ -131,8 +133,22 @@ export async function POST(request: Request) {
         createdBy:       uid,
       });
 
-      // Decrease supplier balance if a supplierId was provided (positive = we owe them)
-      if (supplierId) {
+      // AP-01: Decrease supplier AP balance if supplierId provided.
+      // Atomic CAS: only update if the supplier's balance covers the payment amount
+      // (prevents paying more than owed and driving AP negative).
+      if (supplierId && expenseCategory === 'supplier') {
+        const [updatedSupplier] = await tx.update(suppliers)
+          .set({ balanceHalalas: sql`${suppliers.balanceHalalas} - ${resolvedAmountHalalas}`, updatedAt: now })
+          .where(and(
+            eq(suppliers.id, supplierId),
+            eq(suppliers.agencyId, agencyId),
+            sql`${suppliers.balanceHalalas} >= ${resolvedAmountHalalas}`,
+          ))
+          .returning({ id: suppliers.id });
+        if (!updatedSupplier) {
+          throw new BusinessError('رصيد المورد غير كافٍ لتغطية هذه الدفعة — تحقق من ذمم المورد أولاً', 400);
+        }
+      } else if (supplierId) {
         await tx.update(suppliers)
           .set({ balanceHalalas: sql`${suppliers.balanceHalalas} - ${resolvedAmountHalalas}`, updatedAt: now })
           .where(and(eq(suppliers.id, supplierId), eq(suppliers.agencyId, agencyId)));

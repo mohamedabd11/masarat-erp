@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { eq, and } from 'drizzle-orm';
+import { eq, and, sql } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { receiptVouchers, journalEntries, journalLines, invoices } from '@/lib/schema';
 import { verifyAuth, assertRole, ApiAuthError, BusinessError, ROLES_ACCOUNTANT_UP } from '@/lib/api-auth';
@@ -8,6 +8,7 @@ import { assertPeriodOpen } from '@/lib/period-lock';
 import { logAudit } from '@/lib/audit';
 import { checkRateLimit, getClientIp, rateLimitHeaders } from '@/lib/rate-limit';
 import { GL } from '@/lib/gl-accounts';
+import { requireFeature } from '@/lib/feature-access';
 
 interface StandaloneReceiptBody {
   customerNameAr:  string;
@@ -37,6 +38,7 @@ export async function POST(request: Request) {
   try {
     const { uid, agencyId, role } = await verifyAuth(request);
     assertRole(role, [...ROLES_ACCOUNTANT_UP]);
+    await requireFeature(agencyId, 'receipt_vouchers', db);
 
     const rl = await checkRateLimit(`${agencyId}:${getClientIp(request)}`, 'financial');
     if (!rl.success) {
@@ -77,6 +79,13 @@ export async function POST(request: Request) {
         const [inv] = await tx.select().from(invoices)
           .where(and(eq(invoices.id, invoiceId), eq(invoices.agencyId, agencyId)));
         if (!inv) throw new BusinessError('الفاتورة غير موجودة', 404);
+
+        // SM-01/DEP-02: Block receipt on terminal-status invoices
+        const TERMINAL = new Set(['cancelled', 'void', 'credit_memo']);
+        if (TERMINAL.has(inv.status ?? '')) {
+          throw new BusinessError(`لا يمكن تسجيل سند قبض على فاتورة بحالة "${inv.status}"`, 400);
+        }
+
         const outstanding = inv.totalHalalas - inv.paidHalalas;
         if (amountHalalas > outstanding) {
           throw new BusinessError(
@@ -86,14 +95,21 @@ export async function POST(request: Request) {
         }
         creditAc = AC_RECEIVABLE;
 
-        const newPaid = inv.paidHalalas + amountHalalas;
-        await tx.update(invoices)
+        // Atomic CAS: only update if the invoice still has enough outstanding balance.
+        const [updated] = await tx.update(invoices)
           .set({
-            paidHalalas: newPaid,
-            status:      newPaid >= inv.totalHalalas ? 'paid' : inv.status,
+            paidHalalas: sql`${invoices.paidHalalas} + ${amountHalalas}`,
+            status: sql`CASE WHEN ${invoices.paidHalalas} + ${amountHalalas} >= ${invoices.totalHalalas} THEN 'paid' ELSE ${invoices.status} END`,
             updatedAt:   now,
           })
-          .where(eq(invoices.id, invoiceId));
+          .where(and(
+            eq(invoices.id, invoiceId),
+            sql`(${invoices.totalHalalas} - ${invoices.paidHalalas}) >= ${amountHalalas}`,
+          ))
+          .returning({ id: invoices.id });
+        if (!updated) {
+          throw new BusinessError('تعذّر تسجيل السند — قد تكون دفعة أخرى سجّلت في نفس الوقت، حاول مجدداً', 400);
+        }
       }
 
       await tx.insert(receiptVouchers).values({

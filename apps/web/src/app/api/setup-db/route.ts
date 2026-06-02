@@ -947,7 +947,34 @@ ALTER TABLE salary_advances   ALTER COLUMN amount_halalas TYPE BIGINT;
 ALTER TABLE salary_payments   ALTER COLUMN amount_halalas TYPE BIGINT;
 ALTER TABLE eosb_accruals     ALTER COLUMN amount_halalas TYPE BIGINT;
 
+-- ══ SCH-01: DB CHECK CONSTRAINTS FOR STATUS FIELDS ════════════════════════════
+-- Enforce valid status values at the DB level to prevent free-text corruption.
+ALTER TABLE invoices ADD CONSTRAINT IF NOT EXISTS chk_invoice_status
+  CHECK (status IN ('draft','issued','sent','partial','paid','overdue','cancelled','void','credit_memo'));
+
+ALTER TABLE bookings ADD CONSTRAINT IF NOT EXISTS chk_booking_status
+  CHECK (status IN ('pending','confirmed','completed','cancelled'));
+
+ALTER TABLE cheques ADD CONSTRAINT IF NOT EXISTS chk_cheque_status
+  CHECK (status IN ('pending','cleared','bounced','cancelled'));
+
+ALTER TABLE cheques ADD CONSTRAINT IF NOT EXISTS chk_cheque_type
+  CHECK (type IN ('incoming','outgoing'));
+
+ALTER TABLE payments ADD CONSTRAINT IF NOT EXISTS chk_payment_method
+  CHECK (method IN ('cash','bank_transfer','card','online','check'));
+
+ALTER TABLE receipt_vouchers ADD CONSTRAINT IF NOT EXISTS chk_receipt_method
+  CHECK (method IN ('cash','bank_transfer','card','online','check'));
+
+ALTER TABLE supplier_payments ADD CONSTRAINT IF NOT EXISTS chk_supplier_payment_status
+  CHECK (status IN ('pending','completed','cancelled'));
+
+ALTER TABLE agencies ADD CONSTRAINT IF NOT EXISTS chk_agency_subscription_status
+  CHECK (subscription_status IN ('trial','active','expired','suspended','past_due','cancelled','lifetime'));
+
 `;
+
 
 const SUPER_ADMIN_EMAIL = process.env['SUPER_ADMIN_EMAIL'] ?? '';
 

@@ -78,11 +78,24 @@ export async function POST(request: Request) {
     const advanceDeduction = pendingAdvances.reduce((s, a) => s + a.amountHalalas, 0);
 
     // Fetch employee for the journal-entry description (and to validate it exists)
-    const [employee] = await db.select({ id: employees.id, nameAr: employees.nameAr })
+    const [employee] = await db.select({ id: employees.id, nameAr: employees.nameAr, endDate: employees.endDate })
       .from(employees)
       .where(and(eq(employees.id, body.employeeId), eq(employees.agencyId, agencyId)))
       .limit(1);
     if (!employee) return NextResponse.json({ error: 'الموظف غير موجود' }, { status: 404 });
+
+    // PAY-01: Block payslip for terminated employees
+    if (employee.endDate) {
+      const termDate  = new Date(employee.endDate);
+      const [yr, mo]  = body.month.split('-').map(Number) as [number, number];
+      const monthDate = new Date(yr, mo - 1, 1);
+      if (termDate < monthDate) {
+        return NextResponse.json(
+          { error: `الموظف "${employee.nameAr}" أنهى خدمته في ${employee.endDate} — لا يمكن إنشاء قسيمة راتب لهذا الشهر` },
+          { status: 400 },
+        );
+      }
+    }
 
     const base      = body.baseSalaryHalalas;
     const housing   = body.housingAllowanceHalalas   ?? 0;

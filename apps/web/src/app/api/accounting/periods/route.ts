@@ -10,7 +10,7 @@
  * Earnings (3200).
  */
 import { NextResponse } from 'next/server';
-import { eq, and, ne, desc, sql } from 'drizzle-orm';
+import { eq, and, ne, desc, sql, gte, lte } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { accountingPeriods, journalEntries, journalLines } from '@/lib/schema';
 import { verifyAuth, assertRole, ApiAuthError, BusinessError, ROLES_ADMIN_ONLY } from '@/lib/api-auth';
@@ -205,6 +205,26 @@ export async function POST(request: Request) {
             updatedAt: now,
           },
         });
+
+      // SM-03: When December is UNLOCKED, delete the existing year-end closing entry
+      // so it will be fully recomputed (with current data) when December is re-locked.
+      if (!body.isLocked && body.month === 12) {
+        const yearStart = `${body.year}-01-01`;
+        const yearEnd   = `${body.year}-12-31`;
+        const closingEntries = await tx
+          .select({ id: journalEntries.id })
+          .from(journalEntries)
+          .where(and(
+            eq(journalEntries.agencyId, agencyId),
+            eq(journalEntries.source, 'closing'),
+            gte(journalEntries.date, yearStart),
+            lte(journalEntries.date, yearEnd),
+          ));
+        for (const entry of closingEntries) {
+          await tx.delete(journalLines).where(eq(journalLines.entryId, entry.id));
+          await tx.delete(journalEntries).where(eq(journalEntries.id, entry.id));
+        }
+      }
 
       // Year-end closing: automatically create the closing entry when December is locked
       if (body.isLocked && body.month === 12) {
