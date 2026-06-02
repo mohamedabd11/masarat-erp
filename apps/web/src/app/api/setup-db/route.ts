@@ -877,6 +877,7 @@ CREATE INDEX IF NOT EXISTS bsp_adj_agency_idx ON bsp_adjustments(agency_id);
 -- recognition journal (Dr 3201 / Cr 4100) is posted, revenue_recognized_at is set.
 ALTER TABLE invoices ADD COLUMN IF NOT EXISTS deferred_until         TEXT;
 ALTER TABLE invoices ADD COLUMN IF NOT EXISTS revenue_recognized_at  TEXT;
+ALTER TABLE invoices ADD COLUMN IF NOT EXISTS original_invoice_id    TEXT;
 CREATE INDEX IF NOT EXISTS idx_invoices_deferred ON invoices(agency_id, deferred_until);
 
 -- ══ EOSB ACCRUALS (IAS 19 — Saudi Labor Law art. 84) ═════════════════════════
