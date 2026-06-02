@@ -5,9 +5,9 @@
  *
  * When December is locked, a year-end closing entry is automatically created
  * (idempotent — won't duplicate if December is re-locked).
- * The closing entry zeros all revenue (4xxx) and expense (5xxx) account
- * balances for the year and transfers the net income/loss to Retained
- * Earnings (3200).
+ * The closing entry zeros all revenue (4xxx) and expense (5xxx + 6xxx
+ * payroll) account balances for the year and transfers the net income/loss
+ * to Retained Earnings (3200).
  */
 import { NextResponse } from 'next/server';
 import { eq, and, ne, desc, sql, gte, lte } from 'drizzle-orm';
@@ -65,7 +65,7 @@ async function createYearEndClosingEntry(
       ne(journalEntries.source, 'closing'),
       sql`${journalEntries.date} >= ${yearStart}`,
       sql`${journalEntries.date} <= ${yearEnd}`,
-      sql`(${journalLines.accountCode} LIKE '4%' OR ${journalLines.accountCode} LIKE '5%')`,
+      sql`(${journalLines.accountCode} LIKE '4%' OR ${journalLines.accountCode} LIKE '5%' OR ${journalLines.accountCode} LIKE '6%')`,
     ))
     .groupBy(
       journalLines.accountCode,
@@ -89,8 +89,8 @@ async function createYearEndClosingEntry(
       const netCredit = credit - debit;
       if (netCredit > 0) { jLines.push({ code, ar, en, dr: netCredit, cr: 0 }); netIncome += netCredit; }
       else if (netCredit < 0) { jLines.push({ code, ar, en, dr: 0, cr: -netCredit }); netIncome += netCredit; }
-    } else if (code.startsWith('5')) {
-      // Expense: normal debit balance → Cr to zero it out
+    } else if (code.startsWith('5') || code.startsWith('6')) {
+      // Expense (5xxx general + 6xxx payroll): normal debit balance → Cr to zero it out
       const netDebit = debit - credit;
       if (netDebit > 0) { jLines.push({ code, ar, en, dr: 0, cr: netDebit }); netIncome -= netDebit; }
       else if (netDebit < 0) { jLines.push({ code, ar, en, dr: -netDebit, cr: 0 }); netIncome -= netDebit; }
