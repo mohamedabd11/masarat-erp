@@ -8,6 +8,7 @@
 import { eq, and } from 'drizzle-orm';
 import { accountingPeriods } from '@/lib/schema';
 import type { db as DbType } from '@/lib/db';
+import { BusinessError } from '@/lib/api-auth';
 
 type Tx = Parameters<Parameters<typeof DbType.transaction>[0]>[0];
 
@@ -34,6 +35,9 @@ export async function assertPeriodOpen(
 
   if (period?.isLocked) {
     const periodLabel = `${year}/${String(month).padStart(2, '0')}`;
-    throw new Error(`الفترة المحاسبية ${periodLabel} مقفلة — لا يمكن إنشاء قيود جديدة${period.notes ? ': ' + period.notes : ''}`);
+    throw new BusinessError(
+      `الفترة المحاسبية ${periodLabel} مقفلة — لا يمكن إنشاء قيود جديدة${period.notes ? ': ' + period.notes : ''}`,
+      422,
+    );
   }
 }
