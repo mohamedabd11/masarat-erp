@@ -1031,6 +1031,87 @@ WHERE  NOT EXISTS (
 
 const SUPER_ADMIN_EMAIL = process.env['SUPER_ADMIN_EMAIL'] ?? '';
 
+/**
+ * Split a SQL script into individual statements on `;`, while respecting
+ * PostgreSQL dollar-quoted blocks. A `;` is only treated as a statement
+ * terminator when we are NOT inside a `$$ ... $$` (or `$tag$ ... $tag$`) block.
+ *
+ * Without this, the DO/EXCEPTION wrappers used for idempotent
+ * `ADD CONSTRAINT` (which contain internal semicolons after the CHECK clause
+ * and after `NULL`) get split into broken fragments and the DDL fails.
+ *
+ * Single-quoted string literals are also respected so a stray `;` inside a
+ * quoted value never terminates a statement.
+ */
+function splitSqlStatements(script: string): string[] {
+  const statements: string[] = [];
+  let buffer = '';
+  let dollarTag: string | null = null; // current open dollar-quote tag, e.g. "$$" or "$foo$"
+  let inSingleQuote = false;
+
+  for (let i = 0; i < script.length; i++) {
+    const ch = script[i];
+
+    if (dollarTag) {
+      // Inside a dollar-quoted block: look for the matching closing tag.
+      if (ch === '$' && script.startsWith(dollarTag, i)) {
+        buffer += dollarTag;
+        i += dollarTag.length - 1;
+        dollarTag = null;
+      } else {
+        buffer += ch;
+      }
+      continue;
+    }
+
+    if (inSingleQuote) {
+      buffer += ch;
+      if (ch === "'") {
+        // '' is an escaped quote — stay inside the literal.
+        if (script[i + 1] === "'") {
+          buffer += "'";
+          i++;
+        } else {
+          inSingleQuote = false;
+        }
+      }
+      continue;
+    }
+
+    if (ch === "'") {
+      inSingleQuote = true;
+      buffer += ch;
+      continue;
+    }
+
+    if (ch === '$') {
+      // Try to match an opening dollar-quote tag: $$ or $tag$ where tag is
+      // [A-Za-z_][A-Za-z0-9_]* . If it matches, enter the dollar block.
+      const match = /^\$([A-Za-z_][A-Za-z0-9_]*)?\$/.exec(script.slice(i));
+      if (match) {
+        dollarTag = match[0];
+        buffer += match[0];
+        i += match[0].length - 1;
+        continue;
+      }
+    }
+
+    if (ch === ';') {
+      const trimmed = buffer.trim();
+      if (trimmed.length > 0) statements.push(trimmed);
+      buffer = '';
+      continue;
+    }
+
+    buffer += ch;
+  }
+
+  const tail = buffer.trim();
+  if (tail.length > 0) statements.push(tail);
+
+  return statements;
+}
+
 export async function POST(req: NextRequest) {
   // Accept either the setup secret header OR a Firebase auth token (admin/owner role)
   const secret     = req.headers.get('x-setup-secret');
@@ -1072,15 +1153,19 @@ export async function POST(req: NextRequest) {
   try {
     const sql = neon(process.env.DATABASE_URL);
 
-    // Strip single-line comments, split on semicolons, run each statement separately.
-    // Neon serverless doesn't allow multiple commands in one prepared statement.
-    const statements = CREATE_TABLES_SQL
+    // Strip single-line comments, then split on semicolons, running each
+    // statement separately (Neon serverless rejects multiple commands in one
+    // prepared statement). The splitter is dollar-quote aware: `;` characters
+    // inside a `$$ ... $$` block (e.g. the DO/EXCEPTION idempotency wrappers)
+    // must NOT terminate a statement, otherwise the block gets shredded into
+    // invalid fragments. Postgres also supports tagged dollar quotes ($tag$),
+    // so we match the full `$tag$` delimiter and only close on the same tag.
+    const cleanedSql = CREATE_TABLES_SQL
       .split('\n')
       .filter(line => !line.trim().startsWith('--'))
-      .join('\n')
-      .split(';')
-      .map(s => s.trim())
-      .filter(s => s.length > 0);
+      .join('\n');
+
+    const statements = splitSqlStatements(cleanedSql);
 
     for (const stmt of statements) {
       await sql.query(stmt);
