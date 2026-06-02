@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { eq, and } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { invoices, journalEntries } from '@/lib/schema';
-import { verifyAuth, ApiAuthError } from '@/lib/api-auth';
+import { verifyAuth, assertRole, ApiAuthError, ROLES_MANAGER_UP } from '@/lib/api-auth';
 import { logAudit } from '@/lib/audit';
 import { assertPeriodOpen } from '@/lib/period-lock';
 
@@ -21,7 +21,11 @@ export async function GET(request: Request, { params }: { params: { id: string }
 
 export async function PATCH(request: Request, { params }: { params: { id: string } }) {
   try {
-    const { uid, agencyId } = await verifyAuth(request);
+    const { uid, agencyId, role } = await verifyAuth(request);
+    // Cancelling an invoice unposts its journal entry — a financial-integrity
+    // operation. Restrict to manager+ (owner/admin/manager); viewer/agent/staff
+    // and even accountant must not be able to silently void issued invoices.
+    assertRole(role, [...ROLES_MANAGER_UP]);
     const body = await request.json() as { action: string; reason?: string };
 
     if (body.action !== 'cancel') {
