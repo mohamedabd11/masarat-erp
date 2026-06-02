@@ -6,6 +6,8 @@ import { verifyAuth, assertRole, ApiAuthError, BusinessError, ROLES_ADMIN_ONLY }
 import { requireFeature } from '@/lib/feature-access';
 import { getNextJournalNumber } from '@/lib/invoice-counter';
 import { assertPeriodOpen } from '@/lib/period-lock';
+import { checkRateLimit, getClientIp, rateLimitHeaders } from '@/lib/rate-limit';
+import { logAudit } from '@/lib/audit';
 import { GL } from '@/lib/gl-accounts';
 
 const METHOD_ACCOUNT: Record<string, { code: string; ar: string; en: string }> = {
@@ -44,6 +46,15 @@ export async function POST(request: Request) {
   try {
     const { uid, agencyId, role } = await verifyAuth(request);
     assertRole(role, [...ROLES_ADMIN_ONLY]);
+
+    const rl = await checkRateLimit(`${agencyId}:${getClientIp(request)}`, 'financial');
+    if (!rl.success) {
+      return NextResponse.json(
+        { error: 'تجاوزت الحد المسموح به من الطلبات. حاول مرة أخرى بعد دقيقة.' },
+        { status: 429, headers: rateLimitHeaders(rl) },
+      );
+    }
+
     const body = await request.json() as {
       employeeId:    string;
       amountHalalas: number;
@@ -161,6 +172,14 @@ export async function POST(request: Request) {
       ]);
 
       return { id: payId };
+    });
+
+    await logAudit({
+      agencyId, userId: uid,
+      action: 'create',
+      resource: 'salary_payment',
+      resourceId: result.id,
+      after: { amountHalalas, month, employeeId },
     });
 
     return NextResponse.json({ success: true, ...result });
