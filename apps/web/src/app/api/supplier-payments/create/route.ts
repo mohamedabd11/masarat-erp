@@ -91,6 +91,16 @@ export async function POST(request: Request) {
     if (!payeeName || !expenseCategory || !paymentMethod) {
       return NextResponse.json({ error: 'بيانات مطلوبة ناقصة' }, { status: 400 });
     }
+    // Salary payments must go through the dedicated payroll flow (salary-payments
+    // route) which validates that a payslip accrual (Dr 6100 / Cr 2310) exists
+    // first. Using supplier-payments for salaries bypasses that guard and can
+    // drive 2310 Salaries Payable negative or double-count the expense.
+    if (expenseCategory === 'salaries') {
+      return NextResponse.json(
+        { error: 'لا يمكن صرف رواتب الموظفين عبر سندات الصرف — استخدم قسم الموارد البشرية > صرف الرواتب بعد إعداد كشف الراتب' },
+        { status: 422 },
+      );
+    }
 
     const today0 = new Date().toISOString().split('T')[0]!;
 

@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { eq, and, desc } from 'drizzle-orm';
 import { db } from '@/lib/db';
-import { salaryPayments, employees, journalEntries, journalLines } from '@/lib/schema';
+import { salaryPayments, employees, payslips, journalEntries, journalLines } from '@/lib/schema';
 import { verifyAuth, assertRole, ApiAuthError, BusinessError, ROLES_ADMIN_ONLY } from '@/lib/api-auth';
 import { requireFeature } from '@/lib/feature-access';
 import { getNextJournalNumber } from '@/lib/invoice-counter';
@@ -94,6 +94,33 @@ export async function POST(request: Request) {
         .limit(1);
       if (existing) throw new BusinessError(`تم صرف راتب ${month} للموظف "${employee.nameAr}" مسبقاً`, 409);
 
+      // Payslip must exist to guarantee the 2310 Salaries Payable accrual was
+      // already posted (Dr 6100 / Cr 2310). Without it, debiting 2310 here
+      // would drive the account negative and double-count the expense later.
+      const [payslip] = await tx
+        .select({ id: payslips.id, netHalalas: payslips.netHalalas, salaryPaymentId: payslips.salaryPaymentId })
+        .from(payslips)
+        .where(and(eq(payslips.employeeId, employeeId), eq(payslips.month, month), eq(payslips.agencyId, agencyId)))
+        .limit(1);
+      if (!payslip) {
+        throw new BusinessError(
+          `لا يوجد كشف راتب لـ "${employee.nameAr}" للشهر ${month} — أنشئ كشف الراتب أولاً لتسجيل الاستحقاق (Dr 6100 / Cr 2310) قبل الصرف`,
+          400,
+        );
+      }
+      if (payslip.salaryPaymentId) {
+        throw new BusinessError(
+          `كشف راتب ${month} لـ "${employee.nameAr}" مرتبط بسند صرف سابق — لا يمكن الدفع مرتين على نفس الكشف`,
+          409,
+        );
+      }
+      if (amountHalalas > payslip.netHalalas) {
+        throw new BusinessError(
+          `مبلغ الصرف (${(amountHalalas / 100).toFixed(2)} ر.س) يتجاوز صافي الراتب المعتمد في كشف ${month} (${(payslip.netHalalas / 100).toFixed(2)} ر.س)`,
+          400,
+        );
+      }
+
       const now    = new Date();
       const year   = now.getFullYear();
       const today  = now.toISOString().split('T')[0]!;
@@ -139,6 +166,12 @@ export async function POST(request: Request) {
         { id: crypto.randomUUID(), entryId: jeId, agencyId, accountCode: AC_SALARIES_PAYABLE.code, accountNameAr: AC_SALARIES_PAYABLE.ar, accountNameEn: AC_SALARIES_PAYABLE.en, debitHalalas: amountHalalas, creditHalalas: 0,             sortOrder: 1 },
         { id: crypto.randomUUID(), entryId: jeId, agencyId, accountCode: cashAc.code,               accountNameAr: cashAc.ar,               accountNameEn: cashAc.en,               debitHalalas: 0,             creditHalalas: amountHalalas, sortOrder: 2 },
       ]);
+
+      // Close the accrual loop: link the payslip to this payment so the same
+      // payslip cannot be paid twice (second guard on top of the unique index).
+      await tx.update(payslips)
+        .set({ salaryPaymentId: payId })
+        .where(and(eq(payslips.id, payslip.id), eq(payslips.agencyId, agencyId)));
 
       return { id: payId };
     });
