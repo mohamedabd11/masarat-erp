@@ -94,7 +94,7 @@ export async function GET(request: Request) {
     const inventoryChange   = sum('13');   // increase in inventory = outflow
     const prepaidChange     = sum('14');   // increase in prepaid = outflow
     const apChange          = sum('21');   // increase in AP = inflow (net credit = negative netDebit)
-    const vatPayableChange  = sum('215');  // increase in VAT payable = inflow
+    const vatPayableChange  = sum('2200'); // VAT Payable (2200); increase = inflow
     const accruedChange     = sum('216');  // increase in accrued liabilities = inflow
 
     const workingCapitalAdj = -arChange - inventoryChange - prepaidChange - apChange - vatPayableChange - accruedChange;

@@ -61,7 +61,7 @@ export async function POST(request: Request) {
           // Nothing to recognise; still flag it as recognised so it isn't re-scanned.
           await tx.update(invoices)
             .set({ revenueRecognizedAt: today, updatedAt: new Date() })
-            .where(eq(invoices.id, inv.id));
+            .where(and(eq(invoices.id, inv.id), eq(invoices.agencyId, agencyId)));
           continue;
         }
 
@@ -104,7 +104,7 @@ export async function POST(request: Request) {
 
         await tx.update(invoices)
           .set({ revenueRecognizedAt: today, updatedAt: new Date() })
-          .where(eq(invoices.id, inv.id));
+          .where(and(eq(invoices.id, inv.id), eq(invoices.agencyId, agencyId)));
 
         recognized.push({ id: inv.id, invoiceNumber: inv.invoiceNumber, amountHalalas: amount, journalEntryId: jeId });
       }

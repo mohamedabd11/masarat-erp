@@ -103,7 +103,7 @@ export async function POST(
             : inv.status;
           await tx.update(invoices)
             .set({ paidHalalas: newPaid, status: newStatus, updatedAt: now })
-            .where(eq(invoices.id, orig.invoiceId));
+            .where(and(eq(invoices.id, orig.invoiceId), eq(invoices.agencyId, agencyId)));
         }
       }
 

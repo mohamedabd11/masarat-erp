@@ -13,7 +13,8 @@ const AC_BANK            = { code: '1110', ar: 'البنك',               en: '
 
 export async function GET(request: Request) {
   try {
-    const { agencyId } = await verifyAuth(request);
+    const { agencyId, role } = await verifyAuth(request);
+    assertRole(role, [...ROLES_ACCOUNTANT_UP]);
     const rows = await db
       .select()
       .from(cheques)
@@ -36,7 +37,9 @@ export async function POST(request: Request) {
       payerName?: string; payeeName?: string; notes?: string;
     };
     if (!body.chequeNumber) return NextResponse.json({ error: 'رقم الشيك مطلوب' }, { status: 400 });
-    if (!body.amountHalalas) return NextResponse.json({ error: 'المبلغ مطلوب' }, { status: 400 });
+    if (!Number.isInteger(body.amountHalalas) || body.amountHalalas <= 0) {
+      return NextResponse.json({ error: 'المبلغ غير صالح' }, { status: 400 });
+    }
 
     const chequeType = body.type ?? 'incoming';
     const id = crypto.randomUUID();

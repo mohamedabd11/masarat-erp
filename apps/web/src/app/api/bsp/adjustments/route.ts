@@ -69,13 +69,16 @@ export async function POST(request: Request) {
     }
 
     const id          = crypto.randomUUID();
-    const entryNumber = await getNextJournalNumber(agencyId, new Date(body.issueDate).getFullYear());
     const entryId     = crypto.randomUUID();
     const isADM       = body.type === 'ADM';
 
     await db.transaction(async tx => {
       // The adjustment entry is dated to its issue date — block closed periods.
       await assertPeriodOpen(agencyId, body.issueDate, tx);
+
+      // Allocate the journal number inside the transaction so a rollback does not
+      // burn a sequence value and concurrent requests cannot collide.
+      const entryNumber = await getNextJournalNumber(agencyId, new Date(body.issueDate).getFullYear(), tx);
 
       await tx.insert(journalEntries).values({
         id:              entryId,

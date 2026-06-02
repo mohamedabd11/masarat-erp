@@ -14,11 +14,18 @@ export async function POST(request: Request) {
     }
 
     const result = await db.transaction(async (tx) => {
-      // Case 1: accountCode='5900' (non-existent "other") → '5400' Operating Expenses
+      // Case 1: legacy accountCode='5900' named 'مصاريف أخرى' (the old "other expenses"
+      // mapping) → '5400' Operating Expenses. Scoped to the legacy name so we do NOT
+      // touch legitimate FX Loss entries, which also use 5900 but are named
+      // 'خسائر فروق أسعار الصرف' / 'FX Exchange Loss'.
       const r1 = await tx
         .update(journalLines)
         .set({ accountCode: '5400', accountNameAr: 'المصاريف التشغيلية', accountNameEn: 'Operating Expenses' })
-        .where(and(eq(journalLines.agencyId, agencyId), eq(journalLines.accountCode, '5900')));
+        .where(and(
+          eq(journalLines.agencyId, agencyId),
+          eq(journalLines.accountCode, '5900'),
+          eq(journalLines.accountNameAr, 'مصاريف أخرى'),
+        ));
 
       // Case 2: accountCode='5100' but name says 'المصاريف التشغيلية' (was operational/office wrongly) → '5400'
       const r2 = await tx

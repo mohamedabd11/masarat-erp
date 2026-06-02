@@ -218,7 +218,7 @@ export async function POST(request: Request) {
           bookingId,
           customerName:  invoice.buyerNameAr ?? '',
           amountHalalas: -refundAmountHalalas,
-          method:        'bank_transfer',
+          method:        refundMethod,
           voucherNumber: creditNoteNumber,
           date:          today,
           journalEntryId: jeId,
@@ -254,7 +254,7 @@ export async function POST(request: Request) {
         // Update original invoice and booking
         await tx.update(invoices)
           .set({ status: 'refunded', updatedAt: now })
-          .where(eq(invoices.id, originalInvoiceId));
+          .where(and(eq(invoices.id, originalInvoiceId), eq(invoices.agencyId, agencyId)));
 
         await tx.update(bookings)
           .set({ status: 'cancelled', updatedAt: now })
