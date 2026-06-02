@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { eq, and } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { cheques, journalEntries, journalLines } from '@/lib/schema';
-import { verifyAuth, ApiAuthError, BusinessError } from '@/lib/api-auth';
+import { verifyAuth, assertRole, ApiAuthError, BusinessError, ROLES_ACCOUNTANT_UP } from '@/lib/api-auth';
 import { getNextJournalNumber } from '@/lib/invoice-counter';
 import { assertPeriodOpen } from '@/lib/period-lock';
 
@@ -12,7 +12,8 @@ const AC_BANK        = { code: '1110', ar: 'البنك',              en: 'Bank'
 
 export async function PATCH(request: Request, { params }: { params: { id: string } }) {
   try {
-    const { uid, agencyId } = await verifyAuth(request);
+    const { uid, agencyId, role } = await verifyAuth(request);
+    assertRole(role, [...ROLES_ACCOUNTANT_UP]);
     const body = await request.json() as Record<string, unknown>;
     const now  = new Date();
 
@@ -28,13 +29,27 @@ export async function PATCH(request: Request, { params }: { params: { id: string
 
       if (!existing) throw new BusinessError('الشيك غير موجود', 404);
 
-      await tx
-        .update(cheques)
-        .set({ ...(body as Partial<typeof cheques.$inferInsert>), updatedAt: now })
-        .where(and(eq(cheques.id, params.id), eq(cheques.agencyId, agencyId)));
-
       const newStatus  = body['status'] as string | undefined;
       const prevStatus = existing.status;
+
+      // Double-bounce / clearing-reversal guard: a cleared cheque already moved the
+      // amount Dr 1110 Bank / Cr 1125. Bouncing it via the standard path (Dr 1120 /
+      // Cr 1125) would double-credit the receivable. Block this transition.
+      if (newStatus === 'bounced' && prevStatus === 'cleared') {
+        throw new BusinessError('لا يمكن ارتداد شيك مُصفَّى — يرجى التواصل مع المحاسب', 409);
+      }
+
+      // Column whitelist: only allow updating status (and notes/reference). Spreading
+      // the raw body would let callers mass-assign amount, agencyId, type, etc.
+      await tx
+        .update(cheques)
+        .set({
+          ...(newStatus !== undefined ? { status: newStatus } : {}),
+          ...(typeof body['notes'] === 'string' ? { notes: body['notes'] as string } : {}),
+          ...(typeof body['reference'] === 'string' ? { reference: body['reference'] as string } : {}),
+          updatedAt: now,
+        })
+        .where(and(eq(cheques.id, params.id), eq(cheques.agencyId, agencyId)));
 
       if (newStatus && newStatus !== prevStatus && existing.type === 'incoming') {
         const year  = now.getFullYear();
