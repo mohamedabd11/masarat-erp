@@ -11,6 +11,7 @@ const DEFAULT_COA = [
   { code: '1120', nameAr: 'ذمم مدينة - عملاء',           nameEn: 'Accounts Receivable',          type: 'asset'     },
   { code: '1125', nameAr: 'أوراق قبض - شيكات',           nameEn: 'Cheques Receivable',           type: 'asset'     },
   { code: '1130', nameAr: 'المصاريف المدفوعة مقدماً',    nameEn: 'Prepaid Expenses',             type: 'asset'     },
+  { code: '1230', nameAr: 'ضريبة المدخلات القابلة للاسترداد', nameEn: 'Input VAT Receivable',     type: 'asset'     },
   { code: '2000', nameAr: 'ذمم دائنة - موردون',          nameEn: 'Accounts Payable - Suppliers', type: 'liability' },
   { code: '2100', nameAr: 'ذمم دائنة — شركات الطيران',   nameEn: 'Accounts Payable - Airlines',  type: 'liability' },
   { code: '2110', nameAr: 'ذمم دائنة — فنادق',           nameEn: 'Accounts Payable - Hotels',    type: 'liability' },

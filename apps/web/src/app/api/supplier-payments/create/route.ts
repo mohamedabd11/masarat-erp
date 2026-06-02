@@ -15,6 +15,9 @@ interface SupplierPaymentBody {
   // SAR amount in halalas. If 0 or omitted AND foreignCurrency+foreignAmountMinor
   // are provided, the system auto-looks up the rate and computes it.
   amountHalalas:      number;
+  // Reclaimable input VAT included in amountHalalas (gross). When > 0 the expense
+  // debit is posted net-of-VAT and a Dr 1230 Input VAT leg is added. Default 0.
+  vatHalalas?:        number;
   paymentMethod:      string;
   reference?:         string;
   notes?:             string;
@@ -63,9 +66,10 @@ export async function POST(request: Request) {
     assertRole(role, [...ROLES_ACCOUNTANT_UP]);
 
     const body = await request.json() as SupplierPaymentBody;
-    const { payeeName, expenseCategory, amountHalalas, paymentMethod, reference, notes,
+    const { payeeName, expenseCategory, amountHalalas, vatHalalas: vatHalalasRaw, paymentMethod, reference, notes,
             bookingId, bookingNumber, supplierId,
             foreignCurrency, foreignAmountMinor, fxOriginalHalalas } = body;
+    const vatHalalas = vatHalalasRaw ?? 0;
 
     if (!payeeName || !expenseCategory || !paymentMethod) {
       return NextResponse.json({ error: 'بيانات مطلوبة ناقصة' }, { status: 400 });
@@ -97,9 +101,12 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'مبلغ الدفعة غير صالح' }, { status: 400 });
     }
 
-    await assertPeriodOpen(agencyId, today0, db);
+    if (!Number.isInteger(vatHalalas) || vatHalalas < 0 || vatHalalas >= resolvedAmountHalalas) {
+      return NextResponse.json({ error: 'مبلغ الضريبة غير صالح' }, { status: 400 });
+    }
 
     const result = await db.transaction(async (tx: Tx) => {
+      await assertPeriodOpen(agencyId, today0, tx);
       const now   = new Date();
       const year  = now.getFullYear();
       const today = now.toISOString().split('T')[0]!;
@@ -139,10 +146,13 @@ export async function POST(request: Request) {
       }
 
       // FX gain/loss (IFRS 9): if fxOriginalHalalas supplied, post difference to 6100
-      const expenseDebit = (fxOriginalHalalas != null && fxOriginalHalalas > 0)
+      const grossExpenseDebit = (fxOriginalHalalas != null && fxOriginalHalalas > 0)
         ? fxOriginalHalalas
         : resolvedAmountHalalas;
-      const fxDiff = resolvedAmountHalalas - expenseDebit; // >0 = loss, <0 = gain
+      const fxDiff = resolvedAmountHalalas - grossExpenseDebit; // >0 = loss, <0 = gain
+      // When input VAT is present, the expense/payable leg is recognised net of VAT
+      // and the reclaimable VAT is posted to 1230 Input VAT Receivable.
+      const expenseDebit = grossExpenseDebit - vatHalalas;
 
       const fxNote = foreignCurrency
         ? ` (${foreignCurrency}${foreignAmountMinor != null ? ' ' + (foreignAmountMinor / 100).toFixed(2) : ''}${appliedFxRate ? ' @ ' + appliedFxRate.toFixed(4) : ''})`
@@ -163,21 +173,27 @@ export async function POST(request: Request) {
       });
 
       type JLine = { id: string; entryId: string; agencyId: string; accountCode: string; accountNameAr: string; accountNameEn: string; debitHalalas: number; creditHalalas: number; sortOrder: number };
-      // Build journal lines with optional FX leg
-      const lines: JLine[] = [
-        { id: crypto.randomUUID(), entryId: jeId, agencyId, accountCode: expenseAc.code, accountNameAr: expenseAc.ar, accountNameEn: expenseAc.en, debitHalalas: expenseDebit, creditHalalas: 0, sortOrder: 1 },
-      ];
+      let sortOrder = 1;
+      const mkLine = (ac: { code: string; ar: string; en: string }, dr: number, cr: number): JLine =>
+        ({ id: crypto.randomUUID(), entryId: jeId, agencyId, accountCode: ac.code, accountNameAr: ac.ar, accountNameEn: ac.en, debitHalalas: dr, creditHalalas: cr, sortOrder: sortOrder++ });
+
+      // Build journal lines: Dr expense (net of VAT) [/ Dr 1230 input VAT] [/ FX leg] / Cr cash (gross)
+      const lines: JLine[] = [ mkLine(expenseAc, expenseDebit, 0) ];
+
+      if (vatHalalas > 0) {
+        lines.push(mkLine(GL.inputVat, vatHalalas, 0));
+      }
 
       if (fxDiff > 0) {
         // FX Loss: paid more SAR than originally booked — Dr FX Loss (5900)
-        lines.push({ id: crypto.randomUUID(), entryId: jeId, agencyId, accountCode: AC_FX_LOSS.code, accountNameAr: AC_FX_LOSS.ar, accountNameEn: AC_FX_LOSS.en, debitHalalas: fxDiff, creditHalalas: 0, sortOrder: 2 });
-        lines.push({ id: crypto.randomUUID(), entryId: jeId, agencyId, accountCode: paymentAc.code, accountNameAr: paymentAc.ar, accountNameEn: paymentAc.en, debitHalalas: 0, creditHalalas: resolvedAmountHalalas, sortOrder: 3 });
+        lines.push(mkLine(AC_FX_LOSS, fxDiff, 0));
+        lines.push(mkLine(paymentAc, 0, resolvedAmountHalalas));
       } else if (fxDiff < 0) {
         // FX Gain: paid less SAR than originally booked — Cr FX Gain (4900)
-        lines.push({ id: crypto.randomUUID(), entryId: jeId, agencyId, accountCode: paymentAc.code, accountNameAr: paymentAc.ar, accountNameEn: paymentAc.en, debitHalalas: 0, creditHalalas: resolvedAmountHalalas, sortOrder: 2 });
-        lines.push({ id: crypto.randomUUID(), entryId: jeId, agencyId, accountCode: AC_FX_GAIN.code, accountNameAr: AC_FX_GAIN.ar, accountNameEn: AC_FX_GAIN.en, debitHalalas: 0, creditHalalas: -fxDiff, sortOrder: 3 });
+        lines.push(mkLine(paymentAc, 0, resolvedAmountHalalas));
+        lines.push(mkLine(AC_FX_GAIN, 0, -fxDiff));
       } else {
-        lines.push({ id: crypto.randomUUID(), entryId: jeId, agencyId, accountCode: paymentAc.code, accountNameAr: paymentAc.ar, accountNameEn: paymentAc.en, debitHalalas: 0, creditHalalas: resolvedAmountHalalas, sortOrder: 2 });
+        lines.push(mkLine(paymentAc, 0, resolvedAmountHalalas));
       }
 
       await tx.insert(journalLines).values(lines);

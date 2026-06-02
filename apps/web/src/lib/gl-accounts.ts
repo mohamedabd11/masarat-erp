@@ -19,6 +19,8 @@ export const GL = {
   receivable:       { code: '1120', ar: 'ذمم مدينة - عملاء',       en: 'Accounts Receivable' },
   chequesReceivable:{ code: '1125', ar: 'أوراق قبض - شيكات',      en: 'Cheques Receivable' },
   prepaidExpenses:  { code: '1130', ar: 'المصاريف المدفوعة مقدماً', en: 'Prepaid Expenses' },
+  // Reclaimable input VAT on purchases/expenses (ZATCA — offsets output VAT 2200)
+  inputVat:         { code: '1230', ar: 'ضريبة المدخلات القابلة للاسترداد', en: 'Input VAT Receivable' },
   bspClearing:      { code: '1350', ar: 'مقاصة BSP',               en: 'BSP Clearing' },
 
   // ── Liabilities (2xxx) ─────────────────────────────────────────────────────
