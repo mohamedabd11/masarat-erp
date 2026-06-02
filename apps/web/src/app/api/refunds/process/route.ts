@@ -117,7 +117,7 @@ export async function POST(request: Request) {
           });
           jLines.push({ ...AC_CANCELLATION_FEE, dr: 0, cr: cancelFeeNet });
           if (cancelFeeVat > 0) {
-            jLines.push({ ...AC.vatPayable, dr: 0, cr: cancelFeeVat });
+            jLines.push({ ...GL.vatPayable, dr: 0, cr: cancelFeeVat });
           }
         }
 
