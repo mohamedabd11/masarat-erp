@@ -47,8 +47,13 @@ export async function withIdempotency<T>(
     if (existing?.status === 'complete' && existing.expiresAt && existing.expiresAt > new Date()) {
       return existing.result as T;
     }
-    // Still pending (concurrent in-flight request). Fall through and execute;
-    // downstream CAS / unique constraints prevent double-writes.
+    // Still pending — a concurrent request is in-flight. Reject instead of
+    // falling through to prevent duplicate execution on routes (like
+    // create-direct invoices) that have no downstream unique constraint.
+    if (existing?.status === 'pending' && existing.expiresAt && existing.expiresAt > new Date()) {
+      const { BusinessError } = await import('@/lib/api-auth');
+      throw new BusinessError('الطلب قيد التنفيذ — انتظر لحظة وأعد المحاولة', 409);
+    }
   }
 
   const result = await fn();

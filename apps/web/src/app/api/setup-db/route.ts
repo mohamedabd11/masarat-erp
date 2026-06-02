@@ -372,10 +372,14 @@ CREATE TABLE IF NOT EXISTS bank_transactions (
   source_type              TEXT,
   source_id                TEXT,
   date                     TEXT NOT NULL,
+  is_reconciled            BOOLEAN NOT NULL DEFAULT FALSE,
+  reconciled_at            TIMESTAMPTZ,
+  reconciled_by            TEXT,
   created_at               TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 CREATE INDEX IF NOT EXISTS idx_bank_txn_account ON bank_transactions(bank_account_id);
 CREATE INDEX IF NOT EXISTS idx_bank_transactions_agency ON bank_transactions(agency_id);
+CREATE INDEX IF NOT EXISTS bank_txn_reconciled_idx ON bank_transactions(agency_id, is_reconciled);
 
 -- ══ CHEQUES ══════════════════════════════════════════════════════════════════
 CREATE TABLE IF NOT EXISTS cheques (
@@ -971,6 +975,10 @@ ALTER TABLE bsp_billings      ALTER COLUMN total_sales_halalas TYPE BIGINT, ALTE
 ALTER TABLE bsp_adjustments   ALTER COLUMN amount_halalas TYPE BIGINT;
 ALTER TABLE bank_accounts     ALTER COLUMN opening_balance_halalas TYPE BIGINT, ALTER COLUMN current_balance_halalas TYPE BIGINT, ALTER COLUMN reconciled_balance_halalas TYPE BIGINT;
 ALTER TABLE bank_transactions ALTER COLUMN amount_halalas TYPE BIGINT, ALTER COLUMN balance_after_halalas TYPE BIGINT;
+ALTER TABLE bank_transactions ADD COLUMN IF NOT EXISTS is_reconciled BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE bank_transactions ADD COLUMN IF NOT EXISTS reconciled_at TIMESTAMPTZ;
+ALTER TABLE bank_transactions ADD COLUMN IF NOT EXISTS reconciled_by TEXT;
+CREATE INDEX IF NOT EXISTS bank_txn_reconciled_idx ON bank_transactions(agency_id, is_reconciled);
 ALTER TABLE cheques           ALTER COLUMN amount_halalas TYPE BIGINT;
 ALTER TABLE pnr_records       ALTER COLUMN fare_halalas TYPE BIGINT, ALTER COLUMN tax_halalas TYPE BIGINT, ALTER COLUMN total_halalas TYPE BIGINT;
 ALTER TABLE tickets           ALTER COLUMN fare_halalas TYPE BIGINT, ALTER COLUMN tax_halalas TYPE BIGINT, ALTER COLUMN total_halalas TYPE BIGINT;
@@ -1200,6 +1208,6 @@ export async function POST(req: NextRequest) {
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     console.error(JSON.stringify({ event: 'setup_db_failed', error: message }));
-    return NextResponse.json({ ok: false, error: message }, { status: 500 });
+    return NextResponse.json({ ok: false, error: 'فشل إعداد قاعدة البيانات — راجع السجلات' }, { status: 500 });
   }
 }

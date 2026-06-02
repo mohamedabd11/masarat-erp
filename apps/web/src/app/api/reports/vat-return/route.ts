@@ -54,7 +54,7 @@ export async function GET(request: Request) {
         eq(invoices.agencyId, agencyId),
         sql`${invoices.issueDate} >= ${from}`,
         sql`${invoices.issueDate} <= ${to}`,
-        sql`${invoices.status} NOT IN ('cancelled')`,
+        sql`${invoices.status} NOT IN ('cancelled', 'draft')`,
       ))
       .groupBy(invoices.type);
 
@@ -99,7 +99,7 @@ export async function GET(request: Request) {
         eq(invoices.agencyId, agencyId),
         sql`${invoices.issueDate} >= ${from}`,
         sql`${invoices.issueDate} <= ${to}`,
-        sql`${invoices.status} NOT IN ('cancelled')`,
+        sql`${invoices.status} NOT IN ('cancelled', 'draft')`,
         sql`${invoices.type} IN ('380', '383')`,
         sql`${bookings.serviceType} IN ('flight', 'flights')`,
         sql`(${bookings.details} ->> 'isInternational') = 'true'`,

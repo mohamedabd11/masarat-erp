@@ -10,7 +10,12 @@ export async function PATCH(request: Request, { params }: { params: { id: string
     assertRole(role, [...ROLES_MANAGER_UP]);
     const body = await request.json() as Record<string, unknown>;
     const now = new Date();
-    await db.update(employees).set({ ...body as Partial<typeof employees.$inferInsert>, updatedAt: now })
+    const allowed: Partial<typeof employees.$inferInsert> = { updatedAt: now };
+    const permit = ['nameAr','nameEn','department','position','phone','email',
+                    'nationalId','iqamaNumber','bankAccountNumber','bankName',
+                    'isActive','hireDate','endDate','salaryHalalas','glAccountId'] as const;
+    for (const k of permit) { if (body[k] !== undefined) (allowed as Record<string, unknown>)[k] = body[k]; }
+    await db.update(employees).set(allowed)
       .where(and(eq(employees.id, params.id), eq(employees.agencyId, agencyId)));
     return NextResponse.json({ success: true });
   } catch (err) {

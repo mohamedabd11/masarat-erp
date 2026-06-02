@@ -211,6 +211,9 @@ export async function POST(request: Request) {
     return NextResponse.json({ success: true, id, journalEntryId: jeId, netHalalas: netPayable, advanceDeduction, gosiEmployer });
   } catch (err) {
     if (err instanceof ApiAuthError || err instanceof BusinessError) return NextResponse.json({ error: err.message }, { status: err.status });
+    if ((err as { code?: string }).code === '23505') {
+      return NextResponse.json({ error: 'كشف الراتب لهذا الموظف والشهر موجود مسبقاً' }, { status: 409 });
+    }
     console.error(JSON.stringify({ event: 'payslip_create_failed', error: (err as Error).message }));
     return NextResponse.json({ error: 'خطأ في الخادم' }, { status: 500 });
   }

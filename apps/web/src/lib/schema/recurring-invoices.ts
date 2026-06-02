@@ -20,7 +20,7 @@ export const recurringInvoices = pgTable('recurring_invoices', {
   endDate:           text('end_date'),                                // null = indefinite
   // Tracking
   lastIssuedAt:      text('last_issued_at'),                          // YYYY-MM-DD of last generation
-  nextIssueAt:       text('next_issue_at').notNull(),                 // YYYY-MM-DD of next generation
+  nextIssueAt:       text('next_issue_at'),                           // YYYY-MM-DD of next generation
   totalIssued:       integer('total_issued').notNull().default(0),
   isActive:          boolean('is_active').notNull().default(true),
   // Buyer snapshot
