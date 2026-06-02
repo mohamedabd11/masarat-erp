@@ -209,8 +209,8 @@ export async function POST(request: Request) {
         source:             'payment',
         sourceId:           spId,
         isPosted:           true,
-        totalDebitHalalas:  resolvedAmountHalalas,
-        totalCreditHalalas: resolvedAmountHalalas,
+        totalDebitHalalas:  fxDiff < 0 ? expenseDebit : resolvedAmountHalalas,
+        totalCreditHalalas: fxDiff < 0 ? expenseDebit : resolvedAmountHalalas,
         createdBy:          uid,
       });
 

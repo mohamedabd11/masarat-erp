@@ -3,6 +3,7 @@ import { eq, and, lte, isNull, isNotNull, ne } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { invoices, journalEntries, journalLines } from '@/lib/schema';
 import { getNextJournalNumber } from '@/lib/invoice-counter';
+import { assertPeriodOpen } from '@/lib/period-lock';
 import { GL } from '@/lib/gl-accounts';
 
 // JOB-01: Cron job for automatic deferred revenue recognition (IFRS 15).
@@ -63,6 +64,7 @@ export async function GET(request: Request) {
       await db.transaction(async (tx) => {
         const amount = inv.subtotalHalalas;
         const now    = new Date();
+        await assertPeriodOpen(inv.agencyId, today, tx);
 
         if (amount > 0) {
           const jeId  = crypto.randomUUID();
