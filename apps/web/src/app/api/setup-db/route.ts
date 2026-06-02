@@ -951,30 +951,47 @@ ALTER TABLE salary_payments   ALTER COLUMN amount_halalas TYPE BIGINT;
 ALTER TABLE eosb_accruals     ALTER COLUMN amount_halalas TYPE BIGINT;
 
 -- ══ SCH-01: DB CHECK CONSTRAINTS FOR STATUS FIELDS ════════════════════════════
--- Enforce valid status values at the DB level to prevent free-text corruption.
-ALTER TABLE invoices ADD CONSTRAINT IF NOT EXISTS chk_invoice_status
-  CHECK (status IN ('draft','issued','sent','partial','paid','overdue','cancelled','void','credit_memo','refunded'));
+-- PostgreSQL does not support ADD CONSTRAINT IF NOT EXISTS.
+-- Use DO/EXCEPTION pattern so re-running setup-db is idempotent.
+DO $$ BEGIN
+  ALTER TABLE invoices ADD CONSTRAINT chk_invoice_status
+    CHECK (status IN ('draft','issued','sent','partial','paid','overdue','cancelled','void','credit_memo','refunded'));
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
-ALTER TABLE bookings ADD CONSTRAINT IF NOT EXISTS chk_booking_status
-  CHECK (status IN ('pending','confirmed','completed','cancelled'));
+DO $$ BEGIN
+  ALTER TABLE bookings ADD CONSTRAINT chk_booking_status
+    CHECK (status IN ('pending','confirmed','completed','cancelled'));
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
-ALTER TABLE cheques ADD CONSTRAINT IF NOT EXISTS chk_cheque_status
-  CHECK (status IN ('pending','cleared','bounced','cancelled'));
+DO $$ BEGIN
+  ALTER TABLE cheques ADD CONSTRAINT chk_cheque_status
+    CHECK (status IN ('pending','cleared','bounced','cancelled'));
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
-ALTER TABLE cheques ADD CONSTRAINT IF NOT EXISTS chk_cheque_type
-  CHECK (type IN ('incoming','outgoing'));
+DO $$ BEGIN
+  ALTER TABLE cheques ADD CONSTRAINT chk_cheque_type
+    CHECK (type IN ('incoming','outgoing'));
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
-ALTER TABLE payments ADD CONSTRAINT IF NOT EXISTS chk_payment_method
-  CHECK (method IN ('cash','bank_transfer','card','online','check'));
+DO $$ BEGIN
+  ALTER TABLE payments ADD CONSTRAINT chk_payment_method
+    CHECK (method IN ('cash','bank_transfer','card','online','check'));
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
-ALTER TABLE receipt_vouchers ADD CONSTRAINT IF NOT EXISTS chk_receipt_method
-  CHECK (method IN ('cash','bank_transfer','card','online','check'));
+DO $$ BEGIN
+  ALTER TABLE receipt_vouchers ADD CONSTRAINT chk_receipt_method
+    CHECK (method IN ('cash','bank_transfer','card','online','check'));
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
-ALTER TABLE supplier_payments ADD CONSTRAINT IF NOT EXISTS chk_supplier_payment_status
-  CHECK (status IN ('pending','completed','cancelled','reversed'));
+DO $$ BEGIN
+  ALTER TABLE supplier_payments ADD CONSTRAINT chk_supplier_payment_status
+    CHECK (status IN ('pending','completed','cancelled','reversed'));
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
-ALTER TABLE agencies ADD CONSTRAINT IF NOT EXISTS chk_agency_subscription_status
-  CHECK (subscription_status IN ('trial','active','expired','suspended','past_due','cancelled','lifetime'));
+DO $$ BEGIN
+  ALTER TABLE agencies ADD CONSTRAINT chk_agency_subscription_status
+    CHECK (subscription_status IN ('trial','active','expired','suspended','past_due','cancelled','lifetime'));
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 `;
 

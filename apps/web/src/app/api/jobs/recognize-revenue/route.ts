@@ -97,7 +97,7 @@ export async function GET(request: Request) {
             },
             {
               id: crypto.randomUUID(), entryId: jeId, agencyId: inv.agencyId,
-              accountCode: GL.revenueAgent.code, accountNameAr: GL.revenueAgent.ar, accountNameEn: GL.revenueAgent.en,
+              accountCode: GL.revenuePrincipal.code, accountNameAr: GL.revenuePrincipal.ar, accountNameEn: GL.revenuePrincipal.en,
               debitHalalas: 0, creditHalalas: amount, sortOrder: 2,
             },
           ]);
