@@ -48,6 +48,18 @@ export async function POST(request: Request) {
       if (!orig) return NextResponse.json({ error: 'الفاتورة الأصلية غير موجودة' }, { status: 404 });
       if (orig.status === 'cancelled') return NextResponse.json({ error: 'الفاتورة الأصلية ملغاة' }, { status: 422 });
       originalInvoice = orig;
+
+      // Guard: a credit note can never reverse more than the invoice's remaining
+      // balance (total − already-paid − already-credited). Otherwise the GL would
+      // reverse more revenue/VAT than was originally booked.
+      const requestedTotal = body.totalHalalas ?? (body.subtotalHalalas + (body.vatHalalas ?? 0));
+      const maxCreditHalalas = orig.totalHalalas - (orig.paidHalalas ?? 0) - (orig.creditedHalalas ?? 0);
+      if (maxCreditHalalas <= 0) {
+        return NextResponse.json({ error: 'الفاتورة لا تحتوي على رصيد قابل للإشعار' }, { status: 422 });
+      }
+      if (requestedTotal > maxCreditHalalas) {
+        return NextResponse.json({ error: 'مبلغ الإشعار الدائن يتجاوز الرصيد المتبقي على الفاتورة' }, { status: 422 });
+      }
     }
 
     const result = await db.transaction(async (tx) => {
