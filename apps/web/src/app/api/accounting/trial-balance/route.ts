@@ -33,8 +33,8 @@ export async function GET(request: Request) {
     const movements = await db
       .select({
         accountCode: journalLines.accountCode,
-        totalDebit:  sql<number>`cast(coalesce(sum(${journalLines.debitHalalas}),0)  as int)`,
-        totalCredit: sql<number>`cast(coalesce(sum(${journalLines.creditHalalas}),0) as int)`,
+        totalDebit:  sql<number>`cast(coalesce(sum(${journalLines.debitHalalas}),0)  as bigint)`,
+        totalCredit: sql<number>`cast(coalesce(sum(${journalLines.creditHalalas}),0) as bigint)`,
       })
       .from(journalLines)
       .innerJoin(journalEntries, eq(journalLines.entryId, journalEntries.id))

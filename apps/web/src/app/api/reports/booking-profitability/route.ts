@@ -36,10 +36,10 @@ export async function GET(request: Request) {
         .select({
           serviceType:       bookings.serviceType,
           bookingCount:      sql<number>`cast(count(*) as int)`,
-          totalRevenue:      sql<number>`cast(coalesce(sum(${bookings.totalPriceHalalas}), 0) as int)`,
-          totalCost:         sql<number>`cast(coalesce(sum(${bookings.costPriceHalalas}),  0) as int)`,
-          totalProfit:       sql<number>`cast(coalesce(sum(${bookings.profitHalalas}),     0) as int)`,
-          totalPaid:         sql<number>`cast(coalesce(sum(${bookings.paidHalalas}),       0) as int)`,
+          totalRevenue:      sql<number>`cast(coalesce(sum(${bookings.totalPriceHalalas}), 0) as bigint)`,
+          totalCost:         sql<number>`cast(coalesce(sum(${bookings.costPriceHalalas}),  0) as bigint)`,
+          totalProfit:       sql<number>`cast(coalesce(sum(${bookings.profitHalalas}),     0) as bigint)`,
+          totalPaid:         sql<number>`cast(coalesce(sum(${bookings.paidHalalas}),       0) as bigint)`,
         })
         .from(bookings)
         .where(baseWhere)
@@ -75,9 +75,9 @@ export async function GET(request: Request) {
         .select({
           employeeId:    bookings.createdBy,
           bookingCount:  sql<number>`cast(count(*) as int)`,
-          totalRevenue:  sql<number>`cast(coalesce(sum(${bookings.totalPriceHalalas}), 0) as int)`,
-          totalCost:     sql<number>`cast(coalesce(sum(${bookings.costPriceHalalas}),  0) as int)`,
-          totalProfit:   sql<number>`cast(coalesce(sum(${bookings.profitHalalas}),     0) as int)`,
+          totalRevenue:  sql<number>`cast(coalesce(sum(${bookings.totalPriceHalalas}), 0) as bigint)`,
+          totalCost:     sql<number>`cast(coalesce(sum(${bookings.costPriceHalalas}),  0) as bigint)`,
+          totalProfit:   sql<number>`cast(coalesce(sum(${bookings.profitHalalas}),     0) as bigint)`,
         })
         .from(bookings)
         .where(baseWhere)
@@ -104,9 +104,9 @@ export async function GET(request: Request) {
         .select({
           month:         sql<string>`to_char(${bookings.createdAt}, 'YYYY-MM')`,
           bookingCount:  sql<number>`cast(count(*) as int)`,
-          totalRevenue:  sql<number>`cast(coalesce(sum(${bookings.totalPriceHalalas}), 0) as int)`,
-          totalCost:     sql<number>`cast(coalesce(sum(${bookings.costPriceHalalas}),  0) as int)`,
-          totalProfit:   sql<number>`cast(coalesce(sum(${bookings.profitHalalas}),     0) as int)`,
+          totalRevenue:  sql<number>`cast(coalesce(sum(${bookings.totalPriceHalalas}), 0) as bigint)`,
+          totalCost:     sql<number>`cast(coalesce(sum(${bookings.costPriceHalalas}),  0) as bigint)`,
+          totalProfit:   sql<number>`cast(coalesce(sum(${bookings.profitHalalas}),     0) as bigint)`,
         })
         .from(bookings)
         .where(baseWhere)

@@ -29,7 +29,7 @@ export async function GET(request: Request) {
         supplierId:   supplierPayments.supplierId,
         supplierName: supplierPayments.supplierName,
         paymentCount: sql<number>`cast(count(*) as int)`,
-        totalCost:    sql<number>`cast(coalesce(sum(${supplierPayments.amountHalalas}), 0) as int)`,
+        totalCost:    sql<number>`cast(coalesce(sum(${supplierPayments.amountHalalas}), 0) as bigint)`,
       })
       .from(supplierPayments)
       .where(and(
@@ -46,7 +46,7 @@ export async function GET(request: Request) {
     const revenueRows = await db
       .select({
         supplierId:    supplierPayments.supplierId,
-        totalRevenue:  sql<number>`cast(coalesce(sum(${bookings.totalPriceHalalas}), 0) as int)`,
+        totalRevenue:  sql<number>`cast(coalesce(sum(${bookings.totalPriceHalalas}), 0) as bigint)`,
         bookingCount:  sql<number>`cast(count(distinct ${bookings.id}) as int)`,
       })
       .from(supplierPayments)

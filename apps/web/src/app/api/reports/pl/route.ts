@@ -43,8 +43,8 @@ export async function GET(request: Request) {
         accountNameAr: journalLines.accountNameAr,
         accountNameEn: journalLines.accountNameEn,
         serviceType:   journalEntries.serviceType,
-        debitTotal:    sql<number>`cast(sum(${journalLines.debitHalalas})  as int)`,
-        creditTotal:   sql<number>`cast(sum(${journalLines.creditHalalas}) as int)`,
+        debitTotal:    sql<number>`cast(sum(${journalLines.debitHalalas})  as bigint)`,
+        creditTotal:   sql<number>`cast(sum(${journalLines.creditHalalas}) as bigint)`,
       })
       .from(journalLines)
       .innerJoin(journalEntries, eq(journalLines.entryId, journalEntries.id))

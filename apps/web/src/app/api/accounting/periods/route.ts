@@ -54,8 +54,8 @@ async function createYearEndClosingEntry(
       accountCode:   journalLines.accountCode,
       accountNameAr: journalLines.accountNameAr,
       accountNameEn: journalLines.accountNameEn,
-      totalDebit:    sql<number>`cast(sum(${journalLines.debitHalalas})  as int)`,
-      totalCredit:   sql<number>`cast(sum(${journalLines.creditHalalas}) as int)`,
+      totalDebit:    sql<number>`cast(sum(${journalLines.debitHalalas})  as bigint)`,
+      totalCredit:   sql<number>`cast(sum(${journalLines.creditHalalas}) as bigint)`,
     })
     .from(journalLines)
     .innerJoin(journalEntries, eq(journalLines.entryId, journalEntries.id))

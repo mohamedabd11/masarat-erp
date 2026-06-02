@@ -45,9 +45,9 @@ export async function GET(request: Request) {
       .select({
         type:           invoices.type,
         count:          sql<number>`cast(count(*) as int)`,
-        netAmount:      sql<number>`cast(coalesce(sum(${invoices.subtotalHalalas}), 0) as int)`,
-        vatAmount:      sql<number>`cast(coalesce(sum(${invoices.vatHalalas}),      0) as int)`,
-        grossAmount:    sql<number>`cast(coalesce(sum(${invoices.totalHalalas}),    0) as int)`,
+        netAmount:      sql<number>`cast(coalesce(sum(${invoices.subtotalHalalas}), 0) as bigint)`,
+        vatAmount:      sql<number>`cast(coalesce(sum(${invoices.vatHalalas}),      0) as bigint)`,
+        grossAmount:    sql<number>`cast(coalesce(sum(${invoices.totalHalalas}),    0) as bigint)`,
       })
       .from(invoices)
       .where(and(
@@ -90,7 +90,7 @@ export async function GET(request: Request) {
     // Derived from invoices whose linked booking is an international flight.
     const zeroRatedRows = await db
       .select({
-        netAmount: sql<number>`cast(coalesce(sum(${invoices.subtotalHalalas}), 0) as int)`,
+        netAmount: sql<number>`cast(coalesce(sum(${invoices.subtotalHalalas}), 0) as bigint)`,
         count:     sql<number>`cast(count(*) as int)`,
       })
       .from(invoices)
@@ -115,7 +115,7 @@ export async function GET(request: Request) {
     const purchaseRows = await db
       .select({
         count:      sql<number>`cast(count(*) as int)`,
-        netAmount:  sql<number>`cast(coalesce(sum(${supplierPayments.amountHalalas}), 0) as int)`,
+        netAmount:  sql<number>`cast(coalesce(sum(${supplierPayments.amountHalalas}), 0) as bigint)`,
       })
       .from(supplierPayments)
       .where(and(
@@ -133,7 +133,7 @@ export async function GET(request: Request) {
     // debited to either a dedicated input-VAT receivable (1230) or to 2200 itself.
     const inputVatRows = await db
       .select({
-        inputVat: sql<number>`cast(coalesce(sum(${journalLines.debitHalalas}), 0) as int)`,
+        inputVat: sql<number>`cast(coalesce(sum(${journalLines.debitHalalas}), 0) as bigint)`,
       })
       .from(journalLines)
       .innerJoin(journalEntries, eq(journalLines.entryId, journalEntries.id))
