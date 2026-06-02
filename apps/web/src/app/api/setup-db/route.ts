@@ -993,6 +993,30 @@ DO $$ BEGIN
     CHECK (subscription_status IN ('trial','active','expired','suspended','past_due','cancelled','lifetime'));
 EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
+-- ══ COA-01: Seed missing system accounts into existing agencies ═══════════════
+-- 1230 (Input VAT Receivable) and 9001 (Suspense) were added to DEFAULT_COA
+-- for new registrations. Backfill them for existing agencies so trial-balance
+-- and VAT-return queries resolve correctly.
+INSERT INTO chart_of_accounts (id, agency_id, code, name_ar, name_en, type, is_system, allow_direct_entry, opening_balance_halalas)
+SELECT gen_random_uuid(), a.id, '1230',
+       'ضريبة المدخلات القابلة للاسترداد', 'Input VAT Receivable',
+       'asset', true, true, 0
+FROM   agencies a
+WHERE  NOT EXISTS (
+  SELECT 1 FROM chart_of_accounts c
+  WHERE  c.agency_id = a.id AND c.code = '1230'
+);
+
+INSERT INTO chart_of_accounts (id, agency_id, code, name_ar, name_en, type, is_system, allow_direct_entry, opening_balance_halalas)
+SELECT gen_random_uuid(), a.id, '9001',
+       'حساب تعليق - إيرادات غير مصنفة', 'Suspense - Unclassified Receipts',
+       'liability', true, true, 0
+FROM   agencies a
+WHERE  NOT EXISTS (
+  SELECT 1 FROM chart_of_accounts c
+  WHERE  c.agency_id = a.id AND c.code = '9001'
+);
+
 `;
 
 

@@ -73,7 +73,9 @@ export async function POST(request: Request) {
 
         // ── 3. Calculate ────────────────────────────────────────────────────
         const details      = (booking.details ?? {}) as Record<string, unknown>;
-        const revenueModel = (details['revenueModel'] as string | undefined) ?? 'agent';
+        // Default matches invoices/create (which defaults to 'principal') so the
+        // reversal always hits the same revenue account as the original posting.
+        const revenueModel = (details['revenueModel'] as string | undefined) ?? 'principal';
         const revenueAc    = revenueModel === 'agent' ? AC.revenueAgent : AC.revenuePrincipal;
 
         // Prorate the original invoice's VAT by ratio of each component to the

@@ -24,9 +24,10 @@ const DEFAULT_COA = [
   { code: '1110', nameAr: 'البنك',                        nameEn: 'Bank',                         type: 'asset',     },
   { code: '1115', nameAr: 'نقاط البيع / بطاقات الائتمان', nameEn: 'POS / Credit Cards',           type: 'asset',     },
   { code: '1120', nameAr: 'ذمم مدينة - عملاء',           nameEn: 'Accounts Receivable',          type: 'asset',     },
-  { code: '1125', nameAr: 'أوراق قبض - شيكات',           nameEn: 'Cheques Receivable',           type: 'asset',     },
-  { code: '1130', nameAr: 'المصاريف المدفوعة مقدماً',    nameEn: 'Prepaid Expenses',             type: 'asset',     },
-  { code: '1350', nameAr: 'مقاصة BSP',                    nameEn: 'BSP Clearing',                 type: 'asset',     },
+  { code: '1125', nameAr: 'أوراق قبض - شيكات',                    nameEn: 'Cheques Receivable',                    type: 'asset',     },
+  { code: '1130', nameAr: 'المصاريف المدفوعة مقدماً',             nameEn: 'Prepaid Expenses',                      type: 'asset',     },
+  { code: '1230', nameAr: 'ضريبة المدخلات القابلة للاسترداد',     nameEn: 'Input VAT Receivable',                  type: 'asset',     },
+  { code: '1350', nameAr: 'مقاصة BSP',                             nameEn: 'BSP Clearing',                          type: 'asset',     },
   { code: '2000', nameAr: 'ذمم دائنة - موردون',          nameEn: 'Accounts Payable - Suppliers', type: 'liability', },
   { code: '2100', nameAr: 'ذمم دائنة — شركات الطيران',   nameEn: 'Accounts Payable - Airlines',  type: 'liability', },
   { code: '2110', nameAr: 'ذمم دائنة — فنادق',           nameEn: 'Accounts Payable - Hotels',    type: 'liability', },
@@ -60,6 +61,9 @@ const DEFAULT_COA = [
   { code: '6100', nameAr: 'مصروف الرواتب',               nameEn: 'Salary Expense',               type: 'expense',   },
   { code: '6200', nameAr: 'مصروف GOSI - صاحب العمل',     nameEn: 'GOSI Expense - Employer',      type: 'expense',   },
   { code: '6300', nameAr: 'مصروف مكافأة نهاية الخدمة',   nameEn: 'EOSB Expense',                 type: 'expense',   },
+  // Suspense/clearing — holds unclassified deposits until reclassified by accountant.
+  // Typed as liability because the agency owes an explanation (or a refund) until resolved.
+  { code: '9001', nameAr: 'حساب تعليق - إيرادات غير مصنفة', nameEn: 'Suspense - Unclassified Receipts', type: 'liability' },
 ] as const;
 
 export async function POST(request: Request) {
