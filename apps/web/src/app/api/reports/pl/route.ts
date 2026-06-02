@@ -85,7 +85,7 @@ export async function GET(request: Request) {
         if (existing) { existing.debit += debit; existing.credit += credit; existing.balance += balance; }
         else revenue.push({ code, nameAr: r.accountNameAr ?? '', nameEn: r.accountNameEn ?? null, debit, credit, balance });
         bucket.revenue += balance;
-      } else if (code.startsWith('5')) {
+      } else if (code.startsWith('5') || code.startsWith('6')) {
         const balance = debit - credit;
         const existing = expenses.find(l => l.code === code);
         if (existing) { existing.debit += debit; existing.credit += credit; existing.balance += balance; }
