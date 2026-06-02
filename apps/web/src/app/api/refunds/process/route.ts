@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { eq, and } from 'drizzle-orm';
+import { eq, and, desc, gt } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { invoices, bookings, payments, journalEntries, journalLines, idempotencyKeys } from '@/lib/schema';
 import { verifyAuth, assertRole, ApiAuthError, BusinessError, ROLES_ACCOUNTANT_UP } from '@/lib/api-auth';
@@ -14,11 +14,22 @@ interface RefundBody {
   refundAmountHalalas:    number;
   cancellationFeeHalalas: number;
   reason:                 string;
+  // Refund cash-out account. If omitted, resolved from the original payment method.
+  paymentMethod?:         string;
   idempotencyKey?:        string;
 }
 
+// Cash/bank account the refund is paid out of — mirrors payments/record route.
+const METHOD_ACCOUNT: Record<string, { code: string; ar: string; en: string }> = {
+  cash:          GL.cash,
+  bank_transfer: GL.bank,
+  card:          GL.posCard,
+  online:        GL.posCard,
+};
+
 const AC = {
   bank:             { code: '1110', ar: 'البنك',                        en: 'Bank' },
+  receivable:       GL.receivable,   // 1120 — clear any unpaid AR on cancellation
   vatPayable:       { code: '2200', ar: 'ضريبة القيمة المضافة مستحقة',  en: 'VAT Payable' },
   revenueAgent:     { code: '4000', ar: 'إيراد رسوم الوكالة',            en: 'Revenue - Agency Fees' },
   revenuePrincipal: { code: '4100', ar: 'إيراد خدمات السفر',             en: 'Revenue - Travel Services' },
@@ -114,19 +125,21 @@ export async function POST(request: Request) {
         // Cancellation fee lines — explicitly journalized (BUG-02 fix).
         // The fee was already received in the original payment and remains in bank;
         // we reclassify it from service revenue to cancellation fee revenue.
-        // Dr/Cr balance: cancellationFeeHalalas = cancelFeeNet + cancelFeeVat ✓
+        // M-A: service revenue was originally recognised NET of VAT (the VAT was
+        // credited to 2200 at invoice time and stays there). So the reclassification
+        // moves only the NET fee — debiting revenue by the gross fee would
+        // over-reverse revenue by the VAT portion.
+        //   Dr <service revenue>      cancelFeeNet
+        //      Cr 4000 Cancellation Fee Revenue  cancelFeeNet
         if (cancellationFeeHalalas > 0) {
           jLines.push({
             code: revenueAc.code,
             ar:   'رسوم إلغاء — مقتطعة من الحجز',
             en:   'Cancellation Fee Withheld',
-            dr:   cancellationFeeHalalas,
+            dr:   cancelFeeNet,
             cr:   0,
           });
           jLines.push({ ...AC.cancellationFee, dr: 0, cr: cancelFeeNet });
-          if (cancelFeeVat > 0) {
-            jLines.push({ ...AC.vatPayable, dr: 0, cr: cancelFeeVat });
-          }
         }
 
         // ── Reverse the original COGS + AP for the refunded portion ─────────
