@@ -2,15 +2,5 @@
   "installCommand": "cd ../.. && npx pnpm@9 install",
   "buildCommand": "cd ../.. && npx pnpm@9 --filter @masarat/web build",
   "outputDirectory": ".next",
-  "framework": "nextjs",
-  "crons": [
-    {
-      "path": "/api/cron/check-subscriptions",
-      "schedule": "0 8 * * *"
-    },
-    {
-      "path": "/api/zatca/process-queue",
-      "schedule": "0 6 * * *"
-    }
-  ]
+  "framework": "nextjs"
 }
