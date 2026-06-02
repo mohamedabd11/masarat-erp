@@ -25,6 +25,7 @@ import { verifyAuth, assertRole, ApiAuthError, BusinessError, ROLES_ACCOUNTANT_U
 import { logAudit } from '@/lib/audit';
 import { getNextJournalNumber } from '@/lib/invoice-counter';
 import { assertPeriodOpen } from '@/lib/period-lock';
+import { GL } from '@/lib/gl-accounts';
 
 // ─── GET: list transactions eligible for reconciliation ──────────────────────
 
@@ -180,9 +181,9 @@ export async function POST(request: Request) {
             id:             crypto.randomUUID(),
             entryId:        discrepancyEntryId,
             agencyId,
-            accountCode:    isShortage ? '5510' : '1100',
-            accountNameAr:  isShortage ? 'فروق مطابقة بنكية (عجز)' : 'نقدية وبنوك',
-            accountNameEn:  isShortage ? 'Bank Reconciliation Shortage' : 'Cash & Banks',
+            accountCode:    isShortage ? GL.reconcileExpense.code : GL.cash.code,
+            accountNameAr:  isShortage ? GL.reconcileExpense.ar   : GL.cash.ar,
+            accountNameEn:  isShortage ? GL.reconcileExpense.en   : GL.cash.en,
             debitHalalas:   absDiscrepancy,
             creditHalalas:  0,
             description:    `RECON ${statementDate} ${account.nameAr}`,
@@ -192,9 +193,9 @@ export async function POST(request: Request) {
             id:             crypto.randomUUID(),
             entryId:        discrepancyEntryId,
             agencyId,
-            accountCode:    isShortage ? '1100' : '4510',
-            accountNameAr:  isShortage ? 'نقدية وبنوك' : 'فروق مطابقة بنكية (فائض)',
-            accountNameEn:  isShortage ? 'Cash & Banks' : 'Bank Reconciliation Surplus',
+            accountCode:    isShortage ? GL.cash.code : GL.reconcileIncome.code,
+            accountNameAr:  isShortage ? GL.cash.ar   : GL.reconcileIncome.ar,
+            accountNameEn:  isShortage ? GL.cash.en   : GL.reconcileIncome.en,
             debitHalalas:   0,
             creditHalalas:  absDiscrepancy,
             description:    `RECON ${statementDate} ${account.nameAr}`,

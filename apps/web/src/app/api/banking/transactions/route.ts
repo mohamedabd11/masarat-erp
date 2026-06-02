@@ -5,6 +5,7 @@ import { bankAccounts, bankTransactions, journalEntries, journalLines } from '@/
 import { verifyAuth, ApiAuthError, assertRole, ROLES_ACCOUNTANT_UP } from '@/lib/api-auth';
 import { getNextJournalNumber } from '@/lib/invoice-counter';
 import { assertPeriodOpen } from '@/lib/period-lock';
+import { GL } from '@/lib/gl-accounts';
 
 export async function POST(request: Request) {
   try {
@@ -41,9 +42,10 @@ export async function POST(request: Request) {
 
     // GL codes — map account type to GL code
     const acType = account.type;
-    const bankGlCode = (acType === 'cash' || acType === 'petty_cash') ? '1100' : '1110';
-    const bankGlAr   = (acType === 'cash' || acType === 'petty_cash') ? 'النقدية' : 'البنك';
-    const bankGlEn   = (acType === 'cash' || acType === 'petty_cash') ? 'Cash'    : 'Bank';
+    const bankGl     = (acType === 'cash' || acType === 'petty_cash') ? GL.cash : GL.bank;
+    const bankGlCode = bankGl.code;
+    const bankGlAr   = bankGl.ar;
+    const bankGlEn   = bankGl.en;
 
     await db.transaction(async (tx) => {
       const txId  = crypto.randomUUID();
@@ -80,9 +82,10 @@ export async function POST(request: Request) {
       // Counter-account: use caller-supplied code or a safe default.
       // Deposits  → default 9001 (Suspense - Unclassified Receipts)   NOT Retained Earnings
       // Withdrawals → default 5400 (Operating Expenses)
-      const counterCode = body.counterAccountCode ?? (isDeposit ? '9001' : '5400');
-      const counterAr   = body.counterAccountAr   ?? (isDeposit ? 'حساب تعليق - إيرادات غير مصنفة' : 'المصاريف التشغيلية');
-      const counterEn   = body.counterAccountEn   ?? (isDeposit ? 'Suspense - Unclassified Receipts' : 'Operating Expenses');
+      const counterDefault = isDeposit ? GL.suspenseIncome : GL.operatingExpenses;
+      const counterCode = body.counterAccountCode ?? counterDefault.code;
+      const counterAr   = body.counterAccountAr   ?? counterDefault.ar;
+      const counterEn   = body.counterAccountEn   ?? counterDefault.en;
 
       if (isDeposit) {
         // Deposit: Dr Bank/Cash, Cr counter account

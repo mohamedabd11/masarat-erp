@@ -10,6 +10,7 @@ import { idempotencyKeys } from '@/lib/schema';
 import { getNextInvoiceNumber, getNextJournalNumber } from '@/lib/invoice-counter';
 import { assertPeriodOpen } from '@/lib/period-lock';
 import { GL } from '@/lib/gl-accounts';
+import { buildZatcaQr } from '@/lib/zatca-qr';
 
 const AC = {
   receivable:       GL.receivable,
@@ -208,6 +209,17 @@ export async function POST(request: Request) {
           rawLineItems, finalGrandTotal, subtotalExclVat, totalVat, typeLabel,
         );
 
+        // ── ZATCA QR — only for VAT-registered agencies with a vatNumber ─────
+        const zatcaQr = isVatRegistered && agency.vatNumber
+          ? buildZatcaQr({
+              sellerName:   agency.nameAr,
+              vatNumber:    agency.vatNumber,
+              invoiceDate:  today,
+              totalHalalas: finalGrandTotal,
+              vatHalalas:   totalVat,
+            })
+          : null;
+
         // ── 6. Write ────────────────────────────────────────────────────────
         await tx.insert(invoices).values({
           id:              invoiceId,
@@ -235,6 +247,7 @@ export async function POST(request: Request) {
           journalEntryId:  jLines.length > 0 ? jeId : null,
           createdBy:       uid,
           zatcaUuid:       crypto.randomUUID(),
+          zatcaHash:       zatcaQr,
         });
 
         if (jLines.length > 0) {
