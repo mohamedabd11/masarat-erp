@@ -4,6 +4,7 @@ import { db } from '@/lib/db';
 import { supplierPayments, suppliers, journalEntries, journalLines } from '@/lib/schema';
 import { verifyAuth, assertRole, ApiAuthError, BusinessError, ROLES_ADMIN_ONLY } from '@/lib/api-auth';
 import { getNextJournalNumber } from '@/lib/invoice-counter';
+import { assertPeriodOpen } from '@/lib/period-lock';
 import { GL } from '@/lib/gl-accounts';
 
 interface ReverseBody {
@@ -66,6 +67,9 @@ export async function POST(request: Request) {
       const jeId                = crypto.randomUUID();
       const reversalVoucherNumber = `${originalVoucherNumber}-REV`;
       const today               = now.toISOString().split('T')[0]!;
+
+      // Block reversal posting into a closed accounting period.
+      await assertPeriodOpen(agencyId, today, tx);
 
       const expenseAc = EXPENSE_ACCOUNT[expenseCategory] ?? EXPENSE_ACCOUNT['other']!;
       const paymentAc = METHOD_ACCOUNT[paymentMethod]    ?? METHOD_ACCOUNT['cash']!;
