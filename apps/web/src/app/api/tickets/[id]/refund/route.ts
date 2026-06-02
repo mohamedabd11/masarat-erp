@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { eq, and } from 'drizzle-orm';
 import { db } from '@/lib/db';
-import { tickets, ticketCoupons, journalEntries, journalLines } from '@/lib/schema';
+import { tickets, ticketCoupons, journalEntries, journalLines, invoices } from '@/lib/schema';
 import { verifyAuth, assertRole, ApiAuthError, BusinessError, ROLES_MANAGER_UP } from '@/lib/api-auth';
 import { logAudit } from '@/lib/audit';
 import { logTravelEvent } from '@/lib/travel-event-log';
@@ -25,11 +25,21 @@ import type { RefundParams } from '@/lib/providers/types';
 //   If provider still shows active → reset to 'active' (admin must verify)
 //
 // Financial note: refund posts a reversing journal entry that unwinds the
-// revenue recognized at issuance/invoicing. The original principal posting was:
-//   Dr 1120 Accounts Receivable   Cr 4100 Revenue - Travel Services
-// The refund reverses it (self-balancing, by the ticket's totalHalalas):
-//   Dr 4100 Revenue - Travel Services   Cr 1120 Accounts Receivable
-// tagged journal_entries.service_type = 'ticket_refund'.
+// revenue recognized at issuance/invoicing. The original taxable posting was:
+//   Dr 1120 Accounts Receivable
+//      Cr 4100 Revenue - Travel Services  (net of VAT)
+//      Cr 2200 VAT Payable                (output VAT, if any)
+// The refund reverses it, splitting the VAT back out so 2200 is not left
+// overstated by the tax portion (self-balancing on the reversed amount):
+//   Dr 4100 Revenue - Travel Services  (net)
+//   Dr 2200 VAT Payable                (proportional output VAT, if any)
+//      Cr 1120 Accounts Receivable
+// The recognized output VAT is NOT derivable from ticket fields (ticket.taxHalalas
+// is airline tax, not Saudi VAT); it lives on the tax invoice issued for the
+// ticket's booking. We read invoice.vatHalalas and prorate it by the reversed
+// amount, matching refunds/process. Zero-rated/international tickets
+// (invoice.vatHalalas=0) and tickets with no invoice reverse the full amount to
+// 4100 only. tagged journal_entries.service_type = 'ticket_refund'.
 //
 export async function POST(
   request: Request,
@@ -139,12 +149,40 @@ export async function POST(
         const jeId     = crypto.randomUUID();
         const jeNumber = await getNextJournalNumber(agencyId, year, tx);
 
-        // Reverse the recognized revenue (self-balancing on totalHalalas):
-        //   Dr 4100 Revenue - Travel Services   Cr 1120 Accounts Receivable
-        const jLines = [
-          { ...GL.revenuePrincipal, dr: reverseHalalas, cr: 0 },
-          { ...GL.receivable,       dr: 0, cr: reverseHalalas },
-        ];
+        // Recover the output VAT recognized at issuance so the reversal credits
+        // back 2200 VAT Payable instead of dumping the whole amount onto 4100.
+        // Source of truth is the tax invoice (type '380') issued for this ticket's
+        // booking — ticket.taxHalalas is airline tax, not Saudi VAT. Prorate the
+        // invoice VAT by the share of the invoice total being reversed.
+        let reverseVat = 0;
+        if (ticket.bookingId) {
+          const [inv] = await tx
+            .select({ totalHalalas: invoices.totalHalalas, vatHalalas: invoices.vatHalalas })
+            .from(invoices)
+            .where(and(
+              eq(invoices.bookingId, ticket.bookingId),
+              eq(invoices.agencyId, agencyId),
+              eq(invoices.type, '380'),
+            ));
+          if (inv && inv.totalHalalas > 0 && inv.vatHalalas > 0) {
+            const ratio = reverseHalalas / inv.totalHalalas;
+            reverseVat  = Math.min(reverseHalalas, Math.round(inv.vatHalalas * ratio));
+          }
+        }
+        const reverseNet = reverseHalalas - reverseVat;
+
+        // Reverse the recognized revenue (self-balancing on reverseHalalas):
+        //   Dr 4100 Revenue (net)  [+ Dr 2200 VAT Payable]   Cr 1120 Receivable
+        const jLines = reverseVat > 0
+          ? [
+              { ...GL.revenuePrincipal, dr: reverseNet, cr: 0 },
+              { ...GL.vatPayable,       dr: reverseVat, cr: 0 },
+              { ...GL.receivable,       dr: 0, cr: reverseHalalas },
+            ]
+          : [
+              { ...GL.revenuePrincipal, dr: reverseHalalas, cr: 0 },
+              { ...GL.receivable,       dr: 0, cr: reverseHalalas },
+            ];
 
         await tx.insert(journalEntries).values({
           id:                 jeId,
