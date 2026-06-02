@@ -6,7 +6,7 @@ import { verifyAuth, ApiAuthError, BusinessError } from '@/lib/api-auth';
 import { requireFeature } from '@/lib/feature-access';
 
 const DEFAULT_PAGE_SIZE = 50;
-const MAX_PAGE_SIZE     = 200;
+const MAX_PAGE_SIZE     = 1000;
 
 export async function GET(request: Request) {
   try {
