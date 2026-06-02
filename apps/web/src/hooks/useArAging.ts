@@ -58,7 +58,8 @@ export function useArAging() {
         if (cancelled) return;
         const result: ArAgingRow[] = [];
         for (const inv of data.invoices) {
-          const due = inv.totalHalalas - inv.paidHalalas;
+          // Credit notes (creditedHalalas) reduce the receivable without cash.
+          const due = inv.totalHalalas - inv.paidHalalas - inv.creditedHalalas;
           if (due <= 0) continue;
           if (inv.status === 'cancelled' || inv.status === 'refunded') continue;
           const issueDate = new Date(inv.issueDate);

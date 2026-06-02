@@ -85,7 +85,8 @@ export async function GET(request: Request) {
       eq(invoices.agencyId, agencyId),
       eq(invoices.type, '380'),
       inArray(invoices.status, ['issued', 'partial']),
-      sql`${invoices.totalHalalas} > ${invoices.paidHalalas}`,
+      // Outstanding = total - paid - credited (credit notes reduce the receivable).
+      sql`${invoices.totalHalalas} > ${invoices.paidHalalas} + ${invoices.creditedHalalas}`,
     ];
     if (filterCust) conditions.push(eq(invoices.customerId, filterCust));
 
@@ -96,10 +97,11 @@ export async function GET(request: Request) {
         customerId:    invoices.customerId,
         buyerNameAr:   invoices.buyerNameAr,
         buyerNameEn:   invoices.buyerNameEn,
-        totalHalalas:  invoices.totalHalalas,
-        paidHalalas:   invoices.paidHalalas,
-        issueDate:     invoices.issueDate,
-        dueDate:       invoices.dueDate,
+        totalHalalas:    invoices.totalHalalas,
+        paidHalalas:     invoices.paidHalalas,
+        creditedHalalas: invoices.creditedHalalas,
+        issueDate:       invoices.issueDate,
+        dueDate:         invoices.dueDate,
       })
       .from(invoices)
       .where(and(...conditions));
@@ -123,7 +125,7 @@ export async function GET(request: Request) {
     const grouped: Record<string, AgingCustomerRow> = {};
 
     for (const r of rows) {
-      const outstanding = r.totalHalalas - r.paidHalalas;
+      const outstanding = r.totalHalalas - r.paidHalalas - r.creditedHalalas;
       if (outstanding <= 0) continue;
 
       // Use dueDate if set, otherwise fall back to issueDate (invoice is overdue from day of issue)

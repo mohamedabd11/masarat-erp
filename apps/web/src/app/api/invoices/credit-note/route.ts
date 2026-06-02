@@ -161,14 +161,21 @@ export async function POST(request: Request) {
       await tx.insert(journalLines).values(jLines);
 
       // ── Update original invoice outstanding balance ────────────────────────
-      // Treat the credit note as reducing what the customer owes (like a payment).
+      // A credit note is NOT a cash payment: it lowers the receivable without any
+      // cash changing hands. We therefore track it in creditedHalalas (never in
+      // paidHalalas) so AR aging and collection reports stay accurate.
+      // Outstanding = totalHalalas - paidHalalas - creditedHalalas.
       if (originalInvoice) {
-        const newPaid   = Math.min((originalInvoice.paidHalalas ?? 0) + total, originalInvoice.totalHalalas);
-        const newStatus = newPaid >= originalInvoice.totalHalalas ? 'paid'
-          : newPaid > 0 ? 'partial'
+        const paid        = originalInvoice.paidHalalas ?? 0;
+        const newCredited = Math.min((originalInvoice.creditedHalalas ?? 0) + total, originalInvoice.totalHalalas - paid);
+        const outstanding = originalInvoice.totalHalalas - paid - newCredited;
+        // Fully settled (by payments + credits) → paid. Otherwise the status only
+        // reflects ACTUAL cash: 'partial' iff a real payment exists, else unchanged.
+        const newStatus = outstanding <= 0 ? 'paid'
+          : paid > 0 ? 'partial'
           : originalInvoice.status;
         await tx.update(invoices)
-          .set({ paidHalalas: newPaid, status: newStatus, updatedAt: new Date() })
+          .set({ creditedHalalas: newCredited, status: newStatus, updatedAt: new Date() })
           .where(eq(invoices.id, originalInvoice.id));
       }
 

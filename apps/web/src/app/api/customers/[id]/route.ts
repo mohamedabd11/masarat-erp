@@ -26,6 +26,7 @@ export async function GET(
       .select({
         totalInvoiced: sum(invoices.totalHalalas),
         totalPaid:     sum(invoices.paidHalalas),
+        totalCredited: sum(invoices.creditedHalalas),
         invoiceCount:  count(invoices.id),
       })
       .from(invoices)
@@ -33,12 +34,13 @@ export async function GET(
 
     const recentInvoices = await db
       .select({
-        id:            invoices.id,
-        invoiceNumber: invoices.invoiceNumber,
-        totalHalalas:  invoices.totalHalalas,
-        paidHalalas:   invoices.paidHalalas,
-        status:        invoices.status,
-        issueDate:     invoices.issueDate,
+        id:              invoices.id,
+        invoiceNumber:   invoices.invoiceNumber,
+        totalHalalas:    invoices.totalHalalas,
+        paidHalalas:     invoices.paidHalalas,
+        creditedHalalas: invoices.creditedHalalas,
+        status:          invoices.status,
+        issueDate:       invoices.issueDate,
       })
       .from(invoices)
       .where(and(eq(invoices.customerId, id), eq(invoices.agencyId, agencyId)))
@@ -62,13 +64,16 @@ export async function GET(
 
     const totalInvoiced = Number(invoiceSummary?.totalInvoiced ?? 0);
     const totalPaid     = Number(invoiceSummary?.totalPaid     ?? 0);
+    const totalCredited = Number(invoiceSummary?.totalCredited ?? 0);
 
     return NextResponse.json({
       customer,
       statement: {
         totalInvoiced,
         totalPaid,
-        outstanding:  totalInvoiced - totalPaid,
+        totalCredited,
+        // Credit notes reduce the receivable without being cash payments.
+        outstanding:  totalInvoiced - totalPaid - totalCredited,
         invoiceCount: Number(invoiceSummary?.invoiceCount ?? 0),
       },
       recentInvoices,
