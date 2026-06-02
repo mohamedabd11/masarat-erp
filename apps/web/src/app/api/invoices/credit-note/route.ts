@@ -1,8 +1,10 @@
 import { NextResponse } from 'next/server';
 import { eq, and } from 'drizzle-orm';
 import { db } from '@/lib/db';
-import { invoices, journalEntries, journalLines } from '@/lib/schema';
-import { verifyAuth, assertRole, ApiAuthError, ROLES_MANAGER_UP } from '@/lib/api-auth';
+import { invoices, journalEntries, journalLines, idempotencyKeys } from '@/lib/schema';
+import { verifyAuth, assertRole, ApiAuthError, BusinessError, ROLES_MANAGER_UP } from '@/lib/api-auth';
+import { checkRateLimit, getClientIp, rateLimitHeaders } from '@/lib/rate-limit';
+import { withIdempotency, buildIdempotencyInsert } from '@/lib/idempotency';
 import { logAudit } from '@/lib/audit';
 import { getNextInvoiceNumber, getNextJournalNumber, type InvoiceType } from '@/lib/invoice-counter';
 import { assertPeriodOpen } from '@/lib/period-lock';
@@ -22,6 +24,14 @@ export async function POST(request: Request) {
     const { uid, agencyId, role } = await verifyAuth(request);
     assertRole(role, [...ROLES_MANAGER_UP]);
 
+    const rl = await checkRateLimit(`${agencyId}:${getClientIp(request)}`, 'financial');
+    if (!rl.success) {
+      return NextResponse.json(
+        { error: 'تجاوزت الحد المسموح به من الطلبات. حاول مرة أخرى بعد دقيقة.' },
+        { status: 429, headers: rateLimitHeaders(rl) },
+      );
+    }
+
     const body = await request.json() as {
       originalInvoiceId?: string;
       customerId?:        string;
@@ -32,7 +42,9 @@ export async function POST(request: Request) {
       reason:             string;
       items?:             unknown;
       notes?:             string;
+      idempotencyKey?:    string;
     };
+    const idempKey = request.headers.get('x-idempotency-key') ?? body.idempotencyKey ?? crypto.randomUUID();
 
     if (!body.reason?.trim()) {
       return NextResponse.json({ error: 'سبب الإشعار الدائن مطلوب' }, { status: 400 });
@@ -50,7 +62,7 @@ export async function POST(request: Request) {
       originalInvoice = orig;
     }
 
-    const result = await db.transaction(async (tx) => {
+    const result = await withIdempotency(idempKey, agencyId, 'createCreditNote', async () => db.transaction(async (tx) => {
       const now   = new Date();
       const year  = now.getFullYear();
       const today = now.toISOString().split('T')[0]!;
@@ -164,16 +176,23 @@ export async function POST(request: Request) {
       // Treat the credit note as reducing what the customer owes (like a payment).
       if (originalInvoice) {
         const newPaid   = Math.min((originalInvoice.paidHalalas ?? 0) + total, originalInvoice.totalHalalas);
-        const newStatus = newPaid >= originalInvoice.totalHalalas ? 'paid'
+        // When the credit note fully offsets the invoice, mark it 'credited'
+        // (more accurate than 'paid' — no cash was received).
+        const newStatus = newPaid >= originalInvoice.totalHalalas ? 'credited'
           : newPaid > 0 ? 'partial'
           : originalInvoice.status;
         await tx.update(invoices)
           .set({ paidHalalas: newPaid, status: newStatus, updatedAt: new Date() })
-          .where(eq(invoices.id, originalInvoice.id));
+          .where(and(eq(invoices.id, originalInvoice.id), eq(invoices.agencyId, agencyId)));
       }
 
+      // Record idempotency to make double-submit a no-op replay.
+      await tx.insert(idempotencyKeys)
+        .values(buildIdempotencyInsert(agencyId, 'createCreditNote', idempKey, { invoiceId: invId, invoiceNumber: invNum }))
+        .onConflictDoNothing();
+
       return { invoiceId: invId, invoiceNumber: invNum };
-    });
+    }));
 
     await logAudit({
       agencyId, userId: uid, action: 'create', resource: 'credit_note', resourceId: result.invoiceId,
@@ -181,7 +200,8 @@ export async function POST(request: Request) {
     });
     return NextResponse.json({ success: true, ...result });
   } catch (err) {
-    if (err instanceof ApiAuthError) return NextResponse.json({ error: err.message }, { status: err.status });
+    if (err instanceof ApiAuthError)  return NextResponse.json({ error: err.message }, { status: err.status });
+    if (err instanceof BusinessError) return NextResponse.json({ error: err.message }, { status: err.status });
     console.error(JSON.stringify({ event: 'credit_note_create_failed', error: (err as Error).message }));
     return NextResponse.json({ error: 'خطأ في الخادم' }, { status: 500 });
   }

@@ -32,7 +32,7 @@ export const invoices = pgTable('invoices', {
   supplyDate:        text('supply_date'),
   dueDate:           text('due_date'),
   // status
-  status:            text('status').notNull().default('issued'), // draft|issued|paid|cancelled|refunded
+  status:            text('status').notNull().default('issued'), // draft|issued|paid|partial|credited|cancelled|refunded
   paymentMethod:     text('payment_method'),
   paymentRef:        text('payment_ref'),
   // ZATCA
