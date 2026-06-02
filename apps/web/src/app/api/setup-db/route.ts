@@ -375,6 +375,7 @@ CREATE TABLE IF NOT EXISTS bank_transactions (
   created_at               TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 CREATE INDEX IF NOT EXISTS idx_bank_txn_account ON bank_transactions(bank_account_id);
+CREATE INDEX IF NOT EXISTS idx_bank_transactions_agency ON bank_transactions(agency_id);
 
 -- ══ CHEQUES ══════════════════════════════════════════════════════════════════
 CREATE TABLE IF NOT EXISTS cheques (
