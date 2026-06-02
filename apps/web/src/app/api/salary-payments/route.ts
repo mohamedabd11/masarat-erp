@@ -94,7 +94,7 @@ export async function POST(request: Request) {
       // Payable liability that this disbursement settles; paying without one
       // would clear a liability that was never booked.
       const [existingPayslip] = await tx
-        .select({ id: payslips.id })
+        .select({ id: payslips.id, netHalalas: payslips.netHalalas })
         .from(payslips)
         .where(and(
           eq(payslips.employeeId, employeeId),
@@ -104,6 +104,14 @@ export async function POST(request: Request) {
         .limit(1);
       if (!existingPayslip) {
         throw new BusinessError('لا توجد قسيمة راتب معتمدة لهذا الموظف في هذا الشهر', 400);
+      }
+      // The disbursement must clear exactly the net payable accrued by the payslip.
+      // Passing gross (or any other amount) would over/under-clear 2310 Salaries Payable.
+      if (amountHalalas !== existingPayslip.netHalalas) {
+        throw new BusinessError(
+          `مبلغ الصرف (${amountHalalas}) لا يطابق صافي الراتب في كشف الراتب (${existingPayslip.netHalalas})`,
+          400,
+        );
       }
 
       const now    = new Date();
