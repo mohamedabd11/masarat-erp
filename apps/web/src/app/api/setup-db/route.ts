@@ -420,7 +420,8 @@ CREATE TABLE IF NOT EXISTS salary_payments (
   payment_method   TEXT,
   notes            TEXT,
   journal_entry_id TEXT,
-  created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  CONSTRAINT salary_payments_emp_month_uq UNIQUE (agency_id, employee_id, month)
 );
 CREATE INDEX IF NOT EXISTS idx_salary_payments_agency    ON salary_payments(agency_id);
 CREATE INDEX IF NOT EXISTS idx_salary_payments_employee  ON salary_payments(employee_id);

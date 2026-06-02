@@ -37,7 +37,9 @@ export const salaryPayments = pgTable('salary_payments', {
   notes:          text('notes'),
   journalEntryId: text('journal_entry_id'),
   createdAt:      timestamp('created_at').notNull().defaultNow(),
-});
+}, (t) => ({
+  empMonthUq: uniqueIndex('salary_payments_emp_month_uq').on(t.agencyId, t.employeeId, t.month),
+}));
 
 export type SalaryPayment    = typeof salaryPayments.$inferSelect;
 export type NewSalaryPayment = typeof salaryPayments.$inferInsert;

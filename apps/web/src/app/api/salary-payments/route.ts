@@ -171,6 +171,10 @@ export async function POST(request: Request) {
     if (err instanceof BusinessError) {
       return NextResponse.json({ error: err.message }, { status: err.status });
     }
+    // Unique-constraint violation (agency, employee, month) — concurrent double-pay.
+    if ((err as { code?: string })?.code === '23505') {
+      return NextResponse.json({ error: 'تم صرف راتب هذا الشهر للموظف مسبقاً' }, { status: 409 });
+    }
     console.error(JSON.stringify({ event: 'salary_payment_failed', error: String(err) }));
     return NextResponse.json({ error: 'خطأ في الخادم' }, { status: 500 });
   }
