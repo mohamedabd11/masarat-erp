@@ -90,7 +90,8 @@ export async function PATCH(
   { params }: { params: { id: string } },
 ) {
   try {
-    const { agencyId } = await verifyAuth(request);
+    const { agencyId, role } = await verifyAuth(request);
+    assertRole(role, [...ROLES_MANAGER_UP]);
     const { id } = params;
 
     const body = await request.json() as Partial<{
@@ -109,9 +110,13 @@ export async function PATCH(
       return NextResponse.json({ error: 'العميل غير موجود' }, { status: 404 });
     }
 
+    // Opening balance is set at creation only — it cannot be edited afterwards
+    // because it has no offsetting GL entry on update.
+    const { openingBalanceHalalas: _ignoredOpeningBalance, ...allowed } = body;
+
     const [updated] = await db
       .update(customers)
-      .set({ ...body, updatedAt: new Date() })
+      .set({ ...allowed, updatedAt: new Date() })
       .where(and(eq(customers.id, id), eq(customers.agencyId, agencyId)))
       .returning();
 

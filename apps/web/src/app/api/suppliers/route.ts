@@ -2,11 +2,12 @@ import { NextResponse } from 'next/server';
 import { eq, desc } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { suppliers } from '@/lib/schema';
-import { verifyAuth, ApiAuthError } from '@/lib/api-auth';
+import { verifyAuth, assertRole, ApiAuthError, ROLES_MANAGER_UP, ROLES_ACCOUNTANT_UP } from '@/lib/api-auth';
 
 export async function GET(request: Request) {
   try {
-    const { agencyId } = await verifyAuth(request);
+    const { agencyId, role } = await verifyAuth(request);
+    assertRole(role, [...ROLES_ACCOUNTANT_UP]);
     const rows = await db.select().from(suppliers).where(eq(suppliers.agencyId, agencyId)).orderBy(desc(suppliers.createdAt));
     return NextResponse.json({ suppliers: rows });
   } catch (err) {
@@ -17,7 +18,8 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
-    const { uid, agencyId } = await verifyAuth(request);
+    const { agencyId, role } = await verifyAuth(request);
+    assertRole(role, [...ROLES_MANAGER_UP]);
     const body = await request.json() as {
       nameAr: string; nameEn?: string; type?: string; phone?: string;
       email?: string; vatNumber?: string; notes?: string;

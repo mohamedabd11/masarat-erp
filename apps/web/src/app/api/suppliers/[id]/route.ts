@@ -6,7 +6,8 @@ import { verifyAuth, assertRole, ApiAuthError, ROLES_MANAGER_UP } from '@/lib/ap
 
 export async function PATCH(request: Request, { params }: { params: { id: string } }) {
   try {
-    const { agencyId } = await verifyAuth(request);
+    const { agencyId, role } = await verifyAuth(request);
+    assertRole(role, [...ROLES_MANAGER_UP]);
     const body = await request.json() as Partial<{
       nameAr: string; nameEn: string | null; type: string | null;
       phone: string | null; email: string | null; vatNumber: string | null;

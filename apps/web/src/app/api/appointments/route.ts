@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { eq, and, desc, gte, lte } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { appointments } from '@/lib/schema';
-import { verifyAuth, ApiAuthError } from '@/lib/api-auth';
+import { verifyAuth, assertRole, ApiAuthError, ROLES_ACCOUNTANT_UP } from '@/lib/api-auth';
 import { logAudit } from '@/lib/audit';
 
 const VALID_TYPES   = new Set(['meeting', 'call', 'followup', 'booking', 'other']);
@@ -10,7 +10,8 @@ const VALID_STATUSES = new Set(['scheduled', 'completed', 'cancelled', 'noshow']
 
 export async function GET(request: Request) {
   try {
-    const { agencyId } = await verifyAuth(request);
+    const { agencyId, role } = await verifyAuth(request);
+    assertRole(role, [...ROLES_ACCOUNTANT_UP]);
     const url        = new URL(request.url);
     const customerId = url.searchParams.get('customerId') ?? undefined;
     const assignedTo = url.searchParams.get('assignedTo') ?? undefined;
@@ -41,7 +42,8 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
-    const { uid, agencyId } = await verifyAuth(request);
+    const { uid, agencyId, role } = await verifyAuth(request);
+    assertRole(role, [...ROLES_ACCOUNTANT_UP]);
     const body = await request.json() as {
       title:        string;
       scheduledAt:  string;
@@ -50,7 +52,7 @@ export async function POST(request: Request) {
       customerName?: string;
       assignedTo?:  string;
       description?: string;
-      durationMin?: string;
+      durationMin?: number;
       location?:    string;
       notes?:       string;
     };
@@ -77,7 +79,7 @@ export async function POST(request: Request) {
       customerName: body.customerName ?? null,
       assignedTo:   body.assignedTo   ?? null,
       description:  body.description  ?? null,
-      durationMin:  body.durationMin  ?? '30',
+      durationMin:  body.durationMin  ?? 30,
       location:     body.location     ?? null,
       notes:        body.notes        ?? null,
       createdBy:    uid,
