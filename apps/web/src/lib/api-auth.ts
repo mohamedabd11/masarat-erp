@@ -56,7 +56,12 @@ export async function verifyAuth(request: Request): Promise<AuthClaims> {
   if (!token) throw new ApiAuthError('يجب تسجيل الدخول أولاً', 401);
 
   const { getAuth } = await import('firebase-admin/auth');
-  const decoded = await getAuth().verifyIdToken(token);
+  let decoded: Awaited<ReturnType<ReturnType<typeof getAuth>['verifyIdToken']>>;
+  try {
+    decoded = await getAuth().verifyIdToken(token);
+  } catch {
+    throw new ApiAuthError('رمز المصادقة غير صالح أو منتهي الصلاحية', 401);
+  }
   const agencyId = decoded['agencyId'] as string | undefined;
 
   const superAdminEmail = getSuperAdminEmail();

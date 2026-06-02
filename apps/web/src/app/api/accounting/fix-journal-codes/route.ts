@@ -3,12 +3,13 @@ import { and, eq } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { journalLines } from '@/lib/schema';
 import { verifyAuth, ApiAuthError } from '@/lib/api-auth';
+import { logAudit } from '@/lib/audit';
 
 // Fixes wrong expense account codes inserted by the old supplier-payments handler.
 // Safe to re-run: if already fixed, 0 rows will be updated.
 export async function POST(request: Request) {
   try {
-    const { agencyId, role } = await verifyAuth(request);
+    const { uid, agencyId, role } = await verifyAuth(request);
     if (role !== 'admin' && role !== 'owner') {
       return NextResponse.json({ error: 'غير مصرح' }, { status: 403 });
     }
@@ -48,6 +49,14 @@ export async function POST(request: Request) {
     });
 
     const total = result.fixed5900to5400 + result.fixed5100to5400 + result.fixed5200to5100;
+    await logAudit({
+      agencyId,
+      userId: uid ?? 'system',
+      action: 'update',
+      resource: 'journal_lines',
+      resourceId: 'fix-journal-codes',
+      after: { ...result, event: 'fix_journal_codes_migration' },
+    });
     console.log(JSON.stringify({ event: 'fix_journal_codes', agencyId, ...result, total }));
     return NextResponse.json({ success: true, ...result, total });
   } catch (err) {

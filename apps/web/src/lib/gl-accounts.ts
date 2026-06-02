@@ -20,6 +20,7 @@ export const GL = {
   chequesReceivable:{ code: '1125', ar: 'أوراق قبض - شيكات',      en: 'Cheques Receivable' },
   prepaidExpenses:  { code: '1130', ar: 'المصاريف المدفوعة مقدماً', en: 'Prepaid Expenses' },
   bspClearing:      { code: '1350', ar: 'مقاصة BSP',               en: 'BSP Clearing' },
+  inputVat:         { code: '1230', ar: 'ضريبة المدخلات القابلة للاسترداد', en: 'Input VAT Receivable' },
 
   // ── Liabilities (2xxx) ─────────────────────────────────────────────────────
   payableSupplier:  { code: '2000', ar: 'ذمم دائنة - موردون',      en: 'Accounts Payable' },
