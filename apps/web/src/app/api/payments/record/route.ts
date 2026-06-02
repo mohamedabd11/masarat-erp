@@ -5,6 +5,7 @@ import { invoices, bookings, payments, journalEntries, journalLines, idempotency
 import { verifyAuth, assertRole, ApiAuthError, BusinessError, ROLES_ACCOUNTANT_UP } from '@/lib/api-auth';
 import { withIdempotency, buildIdempotencyInsert } from '@/lib/idempotency';
 import { getNextReceiptNumber, getNextJournalNumber } from '@/lib/invoice-counter';
+import { assertPeriodOpen } from '@/lib/period-lock';
 import { requireFeature } from '@/lib/feature-access';
 import { GL } from '@/lib/gl-accounts';
 
@@ -67,13 +68,18 @@ export async function POST(request: Request) {
         // ── 3. Calculate ────────────────────────────────────────────────────
         const now  = new Date();
         const year = now.getFullYear();
+        const today = now.toISOString().split('T')[0]!;
+
+        // ── 3b. Period lock check ───────────────────────────────────────────
+        // A payment posts a GL entry (Dr cash / Cr AR); like every other
+        // financial posting it must be blocked in a closed accounting period.
+        await assertPeriodOpen(agencyId, today, tx);
 
         // ── 4. Counters + IDs ───────────────────────────────────────────────
         const receiptNumber = await getNextReceiptNumber(agencyId, year, tx);
         const jeNumber      = await getNextJournalNumber(agencyId, year, tx);
         const paymentId     = crypto.randomUUID();
         const jeId          = crypto.randomUUID();
-        const today         = now.toISOString().split('T')[0]!;
         const cashAc        = METHOD_ACCOUNT[paymentMethod] ?? METHOD_ACCOUNT['bank_transfer']!;
 
         // ── 5. Write ────────────────────────────────────────────────────────

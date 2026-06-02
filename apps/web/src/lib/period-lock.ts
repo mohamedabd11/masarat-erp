@@ -35,6 +35,11 @@ export async function assertPeriodOpen(
 
   if (period?.isLocked) {
     const periodLabel = `${year}/${String(month).padStart(2, '0')}`;
-    throw new Error(`الفترة المحاسبية ${periodLabel} مقفلة — لا يمكن إنشاء قيود جديدة${period.notes ? ': ' + period.notes : ''}`);
+    // Throw BusinessError (422) so the standard route catch blocks surface a clear
+    // 4xx with this Arabic message instead of masking it as a generic HTTP 500.
+    throw new BusinessError(
+      `الفترة المحاسبية ${periodLabel} مقفلة — لا يمكن إنشاء قيود جديدة${period.notes ? ': ' + period.notes : ''}`,
+      422,
+    );
   }
 }
