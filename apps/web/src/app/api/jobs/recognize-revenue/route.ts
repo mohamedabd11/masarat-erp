@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { eq, and, lte, isNull, isNotNull, ne } from 'drizzle-orm';
 import { db } from '@/lib/db';
-import { invoices, journalEntries, journalLines, agencies } from '@/lib/schema';
+import { invoices, journalEntries, journalLines } from '@/lib/schema';
 import { getNextJournalNumber } from '@/lib/invoice-counter';
 import { GL } from '@/lib/gl-accounts';
 
@@ -51,22 +51,16 @@ export async function GET(request: Request) {
     return NextResponse.json({ success: true, recognized: 0 });
   }
 
-  // Verify all agencies in the result still exist (active subscription is not
-  // checked here — cron runs across all agencies regardless of plan status so
-  // already-earned revenue is always recognised).
-  const agencyIds = [...new Set(due.map((r) => r.agencyId))];
-  const existingAgencies = await db
-    .select({ id: agencies.id })
-    .from(agencies)
-    .where(eq(agencies.id, agencyIds[0]!)); // simplified — all are valid if schema is sound
-  void existingAgencies;
-
   const recognized: string[] = [];
   const errors: Array<{ id: string; error: string }> = [];
 
-  await db.transaction(async (tx) => {
-    for (const inv of due) {
-      try {
+  // Each invoice is recognised in its OWN transaction so one bad row cannot roll
+  // back the entire night's recognition for every other agency/invoice. The
+  // operation is idempotent via revenueRecognizedAt (the WHERE filter above
+  // excludes already-recognised invoices), so retrying a failed row is safe.
+  for (const inv of due) {
+    try {
+      await db.transaction(async (tx) => {
         const amount = inv.subtotalHalalas;
         const now    = new Date();
 
@@ -106,13 +100,12 @@ export async function GET(request: Request) {
         await tx.update(invoices)
           .set({ revenueRecognizedAt: today, updatedAt: new Date() })
           .where(eq(invoices.id, inv.id));
-
-        recognized.push(inv.id);
-      } catch (e) {
-        errors.push({ id: inv.id, error: String(e) });
-      }
+      });
+      recognized.push(inv.id);
+    } catch (e) {
+      errors.push({ id: inv.id, error: String(e) });
     }
-  });
+  }
 
   console.log(JSON.stringify({ event: 'cron_recognize_revenue', recognized: recognized.length, errors: errors.length, date: today }));
   return NextResponse.json({ success: true, recognized: recognized.length, errors });
