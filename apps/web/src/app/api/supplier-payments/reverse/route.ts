@@ -4,6 +4,7 @@ import { db } from '@/lib/db';
 import { supplierPayments, suppliers, journalEntries, journalLines } from '@/lib/schema';
 import { verifyAuth, assertRole, ApiAuthError, BusinessError, ROLES_ADMIN_ONLY } from '@/lib/api-auth';
 import { getNextJournalNumber } from '@/lib/invoice-counter';
+import { GL } from '@/lib/gl-accounts';
 
 interface ReverseBody {
   supplierPaymentId: string;
@@ -11,7 +12,7 @@ interface ReverseBody {
 }
 
 const EXPENSE_ACCOUNT: Record<string, { code: string; ar: string; en: string }> = {
-  supplier:    { code: '5000', ar: 'تكلفة الخدمات',       en: 'Cost of Services' },
+  supplier:    GL.payableSupplier,
   salaries:    { code: '5100', ar: 'الرواتب والأجور',     en: 'Salaries' },
   rent:        { code: '5200', ar: 'الإيجار',             en: 'Rent' },
   marketing:   { code: '5300', ar: 'التسويق والإعلان',    en: 'Marketing' },

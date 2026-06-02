@@ -46,6 +46,7 @@ export const journalEntries = pgTable('journal_entries', {
   index('idx_je_agency').on(t.agencyId),
   index('idx_je_agency_date').on(t.agencyId, t.date),
   index('idx_je_agency_source').on(t.agencyId, t.source),
+  uniqueIndex('journal_entries_agency_number_uq').on(t.agencyId, t.entryNumber),
 ]);
 
 export type JournalEntry    = typeof journalEntries.$inferSelect;

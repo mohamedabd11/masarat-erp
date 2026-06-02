@@ -58,6 +58,7 @@ export const invoices = pgTable('invoices', {
   // One invoice per booking per agency (skips standalone invoices where bookingId is NULL —
   // Postgres treats NULLs as distinct, so multiple booking-less invoices remain allowed).
   uniqueIndex('uq_invoices_agency_booking').on(t.agencyId, t.bookingId),
+  uniqueIndex('invoices_agency_number_uq').on(t.agencyId, t.invoiceNumber),
 ]);
 
 export type Invoice    = typeof invoices.$inferSelect;

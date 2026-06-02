@@ -12,6 +12,8 @@ export async function withIdempotency<T>(
   fn: () => Promise<T>,
 ): Promise<T> {
   const id = `${agencyId}_${operation}_${key}`;
+
+  // Check for completed or in-progress request
   const [existing] = await db
     .select()
     .from(idempotencyKeys)
@@ -22,7 +24,35 @@ export async function withIdempotency<T>(
     return existing.result as T;
   }
 
-  return fn();
+  if (existing?.status === 'pending') {
+    throw new Error('طلب مكرر قيد المعالجة — يرجى المحاولة مجدداً بعد لحظات');
+  }
+
+  // Claim the key with 'pending' status before executing
+  try {
+    await db.insert(idempotencyKeys).values({
+      id,
+      agencyId,
+      status:    'pending',
+      expiresAt: new Date(Date.now() + TTL_MS),
+    });
+  } catch {
+    // Another concurrent request already inserted — treat as duplicate
+    throw new Error('طلب مكرر قيد المعالجة — يرجى المحاولة مجدداً بعد لحظات');
+  }
+
+  try {
+    const result = await fn();
+    await db.update(idempotencyKeys)
+      .set({ status: 'complete', result: result as Record<string, unknown>, expiresAt: new Date(Date.now() + TTL_MS) })
+      .where(eq(idempotencyKeys.id, id));
+    return result;
+  } catch (err) {
+    await db.update(idempotencyKeys)
+      .set({ status: 'failed' })
+      .where(eq(idempotencyKeys.id, id));
+    throw err;
+  }
 }
 
 export function buildIdempotencyInsert(

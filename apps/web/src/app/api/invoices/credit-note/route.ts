@@ -160,18 +160,6 @@ export async function POST(request: Request) {
 
       await tx.insert(journalLines).values(jLines);
 
-      // ── Update original invoice outstanding balance ────────────────────────
-      // Treat the credit note as reducing what the customer owes (like a payment).
-      if (originalInvoice) {
-        const newPaid   = Math.min((originalInvoice.paidHalalas ?? 0) + total, originalInvoice.totalHalalas);
-        const newStatus = newPaid >= originalInvoice.totalHalalas ? 'paid'
-          : newPaid > 0 ? 'partial'
-          : originalInvoice.status;
-        await tx.update(invoices)
-          .set({ paidHalalas: newPaid, status: newStatus, updatedAt: new Date() })
-          .where(eq(invoices.id, originalInvoice.id));
-      }
-
       return { invoiceId: invId, invoiceNumber: invNum };
     });
 

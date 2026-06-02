@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { eq, and } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { invoices, journalEntries } from '@/lib/schema';
-import { verifyAuth, ApiAuthError } from '@/lib/api-auth';
+import { verifyAuth, ApiAuthError, assertRole, ROLES_MANAGER_UP } from '@/lib/api-auth';
 import { logAudit } from '@/lib/audit';
 import { assertPeriodOpen } from '@/lib/period-lock';
 
@@ -21,7 +21,8 @@ export async function GET(request: Request, { params }: { params: { id: string }
 
 export async function PATCH(request: Request, { params }: { params: { id: string } }) {
   try {
-    const { uid, agencyId } = await verifyAuth(request);
+    const { uid, agencyId, role } = await verifyAuth(request);
+    assertRole(role, [...ROLES_MANAGER_UP]);
     const body = await request.json() as { action: string; reason?: string };
 
     if (body.action !== 'cancel') {

@@ -1,4 +1,4 @@
-import { pgTable, text, bigint, timestamp, index } from 'drizzle-orm/pg-core';
+import { pgTable, text, bigint, timestamp, index, uniqueIndex } from 'drizzle-orm/pg-core';
 import { agencies } from './agencies';
 import { invoices } from './invoices';
 import { bookings } from './bookings';
@@ -23,6 +23,7 @@ export const payments = pgTable('payments', {
 }, (t) => [
   index('idx_payments_agency').on(t.agencyId),
   index('idx_payments_booking').on(t.bookingId),
+  uniqueIndex('payments_agency_voucher_uq').on(t.agencyId, t.voucherNumber),
 ]);
 
 export type Payment    = typeof payments.$inferSelect;
@@ -47,7 +48,9 @@ export const receiptVouchers = pgTable('receipt_vouchers', {
   originalVoucherId: text('original_voucher_id'),
   createdBy:       text('created_by'),
   createdAt:       timestamp('created_at').notNull().defaultNow(),
-});
+}, (t) => [
+  uniqueIndex('receipt_vouchers_agency_voucher_uq').on(t.agencyId, t.voucherNumber),
+]);
 
 export type ReceiptVoucher    = typeof receiptVouchers.$inferSelect;
 export type NewReceiptVoucher = typeof receiptVouchers.$inferInsert;
@@ -74,7 +77,9 @@ export const supplierPayments = pgTable('supplier_payments', {
   journalEntryId:  text('journal_entry_id'),
   createdBy:       text('created_by'),
   createdAt:       timestamp('created_at').notNull().defaultNow(),
-});
+}, (t) => [
+  uniqueIndex('supplier_payments_agency_voucher_uq').on(t.agencyId, t.voucherNumber),
+]);
 
 export type SupplierPayment    = typeof supplierPayments.$inferSelect;
 export type NewSupplierPayment = typeof supplierPayments.$inferInsert;
