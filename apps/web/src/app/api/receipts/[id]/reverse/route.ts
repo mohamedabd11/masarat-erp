@@ -32,6 +32,13 @@ export async function POST(
       if (!orig) throw new BusinessError('سند القبض غير موجود', 404);
       if (orig.isRefund === 'true') throw new BusinessError('لا يمكن عكس سند استرداد', 400);
 
+      // Block repeated reversal — check for an existing reversal voucher
+      const [existingReversal] = await tx.select({ id: receiptVouchers.id })
+        .from(receiptVouchers)
+        .where(and(eq(receiptVouchers.originalVoucherId, params.id), eq(receiptVouchers.agencyId, agencyId)))
+        .limit(1);
+      if (existingReversal) throw new BusinessError('سند القبض عُكس مسبقاً', 409);
+
       const now   = new Date();
       const year  = now.getFullYear();
       const today = now.toISOString().split('T')[0]!;

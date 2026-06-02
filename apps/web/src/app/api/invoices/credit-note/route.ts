@@ -52,7 +52,7 @@ export async function POST(request: Request) {
       // Guard: a credit note can never reverse more than the invoice's remaining
       // balance (total − already-paid − already-credited). Otherwise the GL would
       // reverse more revenue/VAT than was originally booked.
-      const requestedTotal = body.totalHalalas ?? (body.subtotalHalalas + (body.vatHalalas ?? 0));
+      const requestedTotal = body.subtotalHalalas + (body.vatHalalas ?? 0);
       const maxCreditHalalas = orig.totalHalalas - (orig.paidHalalas ?? 0) - (orig.creditedHalalas ?? 0);
       if (maxCreditHalalas <= 0) {
         return NextResponse.json({ error: 'الفاتورة لا تحتوي على رصيد قابل للإشعار' }, { status: 422 });
@@ -74,7 +74,7 @@ export async function POST(request: Request) {
 
       const subtotal = body.subtotalHalalas;
       const vat      = body.vatHalalas ?? 0;
-      const total    = body.totalHalalas ?? subtotal + vat;
+      const total    = subtotal + vat; // always server-computed — never trust client total
 
       // ── Resolve GL accounts from original invoice's journal ───────────────
       // When we have the original invoice's journal entry, mirror its accounts

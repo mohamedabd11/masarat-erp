@@ -48,7 +48,9 @@ export async function POST(request: Request) {
           and(eq(invoices.id, originalInvoiceId), eq(invoices.agencyId, agencyId)),
         );
         if (!invoice) throw new BusinessError(`الفاتورة ${originalInvoiceId} غير موجودة`, 404);
-        if (invoice.status === 'cancelled') throw new BusinessError('الفاتورة ملغاة بالفعل', 400);
+        if (invoice.status === 'cancelled' || invoice.status === 'refunded') {
+          throw new BusinessError('الفاتورة لا يمكن استردادها — الحالة: ' + invoice.status, 400);
+        }
 
         const [booking] = await tx.select().from(bookings).where(
           and(eq(bookings.id, bookingId), eq(bookings.agencyId, agencyId)),
@@ -201,9 +203,11 @@ export async function POST(request: Request) {
           });
         }
 
-        // Update original invoice and booking
+        // Update original invoice: mark refunded and reduce paidHalalas so
+        // any subsequent attempt fails the paidHalalas validation as well.
+        const newPaidHalalas = Math.max(0, invoice.paidHalalas - refundAmountHalalas);
         await tx.update(invoices)
-          .set({ status: 'refunded', updatedAt: now })
+          .set({ status: 'refunded', paidHalalas: newPaidHalalas, updatedAt: now })
           .where(eq(invoices.id, originalInvoiceId));
 
         await tx.update(bookings)
