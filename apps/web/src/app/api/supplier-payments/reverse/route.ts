@@ -20,6 +20,18 @@ const METHOD_ACCOUNT: Record<string, { code: string; ar: string; en: string }> =
   check:         { code: '1110', ar: 'البنك',           en: 'Bank' },
 };
 
+// Mirror of EXPENSE_ACCOUNT in ../create/route.ts — maps the expense category to
+// the GL account that was DEBITED on creation, so the reversal can credit it back.
+const EXPENSE_ACCOUNT: Record<string, { code: string; ar: string; en: string }> = {
+  supplier:    GL.payableSupplier,
+  salaries:    { code: '5100', ar: 'الرواتب والأجور',     en: 'Salaries' },
+  rent:        { code: '5200', ar: 'الإيجار',             en: 'Rent' },
+  marketing:   { code: '5300', ar: 'التسويق والإعلان',    en: 'Marketing' },
+  operational: { code: '5400', ar: 'المصاريف التشغيلية',  en: 'Operating Expenses' },
+  office:      { code: '5400', ar: 'المصاريف التشغيلية',  en: 'Operating Expenses' },
+  other:       { code: '5400', ar: 'المصاريف التشغيلية',  en: 'Operating Expenses' },
+};
+
 export async function POST(request: Request) {
   try {
     const { uid, agencyId, role } = await verifyAuth(request);
@@ -62,6 +74,14 @@ export async function POST(request: Request) {
 
       const paymentAc = METHOD_ACCOUNT[paymentMethod]    ?? METHOD_ACCOUNT['cash']!;
 
+      // Determine the correct credit account for this reversal. Only true supplier
+      // payments settled a payable (Cr 2000); every other category was a direct
+      // expense (Dr <expense> / Cr cash), so the reversal credits that expense back.
+      const isSupplierPayment = expenseCategory === 'supplier' || !orig.expenseCategory;
+      const creditAccount = isSupplierPayment
+        ? GL.payableSupplier
+        : (EXPENSE_ACCOUNT[expenseCategory] ?? EXPENSE_ACCOUNT['other']!);
+
       await tx.insert(supplierPayments).values({
         id:              reversalId,
         agencyId,
@@ -94,20 +114,21 @@ export async function POST(request: Request) {
         createdBy:          uid,
       });
 
-      // Reversal of a supplier payment (the money is returned to the agency):
-      //   Dr bank/cash            (refund received back from supplier)
-      //      Cr 2000 Accounts Payable (the liability towards the supplier is restored)
+      // Reversal of the original payment (the money is returned to the agency):
+      //   Dr bank/cash                 (cash returned)
+      //      Cr <creditAccount>        supplier payments → 2000 AP (liability restored);
+      //                                direct expenses    → original expense account
       await tx.insert(journalLines).values([
         { id: crypto.randomUUID(), entryId: jeId, agencyId, accountCode: paymentAc.code, accountNameAr: paymentAc.ar, accountNameEn: paymentAc.en, debitHalalas: amountHalalas, creditHalalas: 0, sortOrder: 1 },
-        { id: crypto.randomUUID(), entryId: jeId, agencyId, accountCode: GL.payableSupplier.code, accountNameAr: GL.payableSupplier.ar, accountNameEn: GL.payableSupplier.en, debitHalalas: 0, creditHalalas: amountHalalas, sortOrder: 2 },
+        { id: crypto.randomUUID(), entryId: jeId, agencyId, accountCode: creditAccount.code, accountNameAr: creditAccount.ar, accountNameEn: creditAccount.en, debitHalalas: 0, creditHalalas: amountHalalas, sortOrder: 2 },
       ]);
 
       await tx.update(supplierPayments)
         .set({ status: 'reversed' })
         .where(eq(supplierPayments.id, supplierPaymentId));
 
-      // Restore supplier balance if the original payment was linked to a supplier
-      if (orig.supplierId) {
+      // Restore supplier balance only for true supplier payments linked to a supplier
+      if (isSupplierPayment && orig.supplierId) {
         await tx.update(suppliers)
           .set({ balanceHalalas: sql`${suppliers.balanceHalalas} + ${amountHalalas}`, updatedAt: now })
           .where(and(eq(suppliers.id, orig.supplierId), eq(suppliers.agencyId, agencyId)));
