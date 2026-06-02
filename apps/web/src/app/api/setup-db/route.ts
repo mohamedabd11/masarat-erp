@@ -183,6 +183,7 @@ CREATE TABLE IF NOT EXISTS invoices (
   vat_halalas        INTEGER NOT NULL DEFAULT 0,
   total_halalas      INTEGER NOT NULL DEFAULT 0,
   paid_halalas       INTEGER NOT NULL DEFAULT 0,
+  credited_halalas   BIGINT  NOT NULL DEFAULT 0,
   issue_date         TEXT NOT NULL,
   supply_date        TEXT,
   due_date           TEXT,
@@ -939,6 +940,9 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_invoices_agency_booking ON invoices(agency_
 -- precede the BIGINT widening block below, which references reconciled_balance_halalas.
 ALTER TABLE journal_entries ADD COLUMN IF NOT EXISTS service_type TEXT;
 ALTER TABLE invoices        ADD COLUMN IF NOT EXISTS original_invoice_id TEXT REFERENCES invoices(id);
+-- FIX-05: credit notes reduce the receivable without being a cash payment.
+-- Tracked separately from paid_halalas so collection/cash reports stay accurate.
+ALTER TABLE invoices        ADD COLUMN IF NOT EXISTS credited_halalas BIGINT NOT NULL DEFAULT 0;
 ALTER TABLE bank_accounts   ADD COLUMN IF NOT EXISTS reconciled_balance_halalas INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE bank_accounts   ADD COLUMN IF NOT EXISTS reconciled_at TIMESTAMPTZ;
 ALTER TABLE bank_accounts   ADD COLUMN IF NOT EXISTS is_reconciled BOOLEAN NOT NULL DEFAULT FALSE;
@@ -976,10 +980,12 @@ ALTER TABLE eosb_accruals     ALTER COLUMN amount_halalas TYPE BIGINT;
 -- ══ SCH-01: DB CHECK CONSTRAINTS FOR STATUS FIELDS ════════════════════════════
 -- PostgreSQL does not support ADD CONSTRAINT IF NOT EXISTS.
 -- Use DO/EXCEPTION pattern so re-running setup-db is idempotent.
-DO $$ BEGIN
-  ALTER TABLE invoices ADD CONSTRAINT chk_invoice_status
-    CHECK (status IN ('draft','issued','sent','partial','paid','overdue','cancelled','void','credit_memo','refunded'));
-EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+-- FIX-05: 'credited' added for original invoices fully offset by a credit note.
+-- Drop-and-recreate (not the DO/duplicate_object pattern) so the new allowed
+-- value is applied even on databases that already have the old constraint.
+ALTER TABLE invoices DROP CONSTRAINT IF EXISTS chk_invoice_status;
+ALTER TABLE invoices ADD  CONSTRAINT chk_invoice_status
+  CHECK (status IN ('draft','issued','sent','partial','paid','overdue','cancelled','void','credit_memo','credited','refunded'));
 
 DO $$ BEGIN
   ALTER TABLE bookings ADD CONSTRAINT chk_booking_status

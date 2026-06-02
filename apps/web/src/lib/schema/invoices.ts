@@ -28,6 +28,11 @@ export const invoices = pgTable('invoices', {
   vatHalalas:        bigint('vat_halalas', { mode: 'number' }).notNull().default(0),
   totalHalalas:      bigint('total_halalas', { mode: 'number' }).notNull().default(0),
   paidHalalas:       bigint('paid_halalas', { mode: 'number' }).notNull().default(0),
+  // Non-cash reduction of the receivable from credit notes (ZATCA type 381).
+  // A credit note lowers the customer's outstanding balance WITHOUT being a
+  // cash payment, so it is tracked separately from paidHalalas. Outstanding =
+  // totalHalalas - paidHalalas - creditedHalalas.
+  creditedHalalas:   bigint('credited_halalas', { mode: 'number' }).notNull().default(0),
   // dates
   issueDate:         text('issue_date').notNull(),            // YYYY-MM-DD
   supplyDate:        text('supply_date'),
