@@ -7,6 +7,7 @@
  */
 import { eq, and } from 'drizzle-orm';
 import { accountingPeriods } from '@/lib/schema';
+import { BusinessError } from '@/lib/api-auth';
 import type { db as DbType } from '@/lib/db';
 
 type Tx = Parameters<Parameters<typeof DbType.transaction>[0]>[0];
