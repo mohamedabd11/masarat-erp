@@ -1,3 +1,4 @@
+import { sql } from 'drizzle-orm';
 import { pgTable, text, integer, bigint, boolean, timestamp, jsonb, index, uniqueIndex } from 'drizzle-orm/pg-core';
 import { agencies } from './agencies';
 import { bookings } from './bookings';
@@ -55,6 +56,9 @@ export const invoices = pgTable('invoices', {
   index('idx_invoices_agency').on(t.agencyId),
   index('idx_invoices_agency_status').on(t.agencyId, t.status),
   index('idx_invoices_agency_created').on(t.agencyId, t.createdAt),
+  // Deferred-revenue cron hot paths (jobs/recognize-revenue).
+  index('idx_invoices_agency_deferred').on(t.agencyId, t.deferredUntil).where(sql`${t.deferredUntil} IS NOT NULL`),
+  index('idx_invoices_deferred_recognized').on(t.deferredUntil, t.revenueRecognizedAt),
   // One invoice per booking per agency (skips standalone invoices where bookingId is NULL —
   // Postgres treats NULLs as distinct, so multiple booking-less invoices remain allowed).
   uniqueIndex('uq_invoices_agency_booking').on(t.agencyId, t.bookingId),

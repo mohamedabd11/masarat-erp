@@ -325,6 +325,12 @@ CREATE TABLE IF NOT EXISTS journal_lines (
   sort_order      INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_journal_lines_entry       ON journal_lines(entry_id);
+-- DB-02: account_code is free TEXT, so a real FK to chart_of_accounts is not
+-- feasible (REFERENCES needs a single-column unique/PK target; COA is unique on
+-- (agency_id, code), not on code alone). A trigger would add needless complexity,
+-- so referential integrity stays at the application layer. This composite index
+-- backs the existence lookups used for that validation and the agency-scoped GL
+-- queries that join lines to COA.
 CREATE INDEX IF NOT EXISTS idx_journal_lines_agency_code ON journal_lines(agency_id, account_code);
 
 -- ══ BANK ACCOUNTS ════════════════════════════════════════════════════════════
@@ -880,6 +886,9 @@ CREATE INDEX IF NOT EXISTS bsp_adj_agency_idx ON bsp_adjustments(agency_id);
 ALTER TABLE invoices ADD COLUMN IF NOT EXISTS deferred_until         TEXT;
 ALTER TABLE invoices ADD COLUMN IF NOT EXISTS revenue_recognized_at  TEXT;
 CREATE INDEX IF NOT EXISTS idx_invoices_deferred ON invoices(agency_id, deferred_until);
+-- DB-04: speed up jobs/recognize-revenue daily cron (scans pending deferred rows).
+CREATE INDEX IF NOT EXISTS idx_invoices_agency_deferred ON invoices(agency_id, deferred_until) WHERE deferred_until IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_invoices_deferred_recognized ON invoices(deferred_until, revenue_recognized_at);
 
 -- ══ EOSB ACCRUALS (IAS 19 — Saudi Labor Law art. 84) ═════════════════════════
 -- One row per agency+month tracking that the monthly EOSB provision was posted,

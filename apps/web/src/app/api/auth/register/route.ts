@@ -3,6 +3,7 @@ import { ensureAdminApp } from '@/lib/firebase-admin';
 import { db } from '@/lib/db';
 import { agencies, users, chartOfAccounts } from '@/lib/schema';
 import { TRIAL_DAYS } from '@masarat/accounting';
+import { checkRateLimit, getClientIp, rateLimitHeaders } from '@/lib/rate-limit';
 
 const EMAIL_RE  = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 const PHONE_RE  = /^[+\d\s\-()]{7,20}$/;
@@ -68,6 +69,16 @@ const DEFAULT_COA = [
 
 export async function POST(request: Request) {
   let firebaseUid: string | null = null;
+
+  // SEC-01: throttle registration attempts by client IP to prevent abuse.
+  const ip = getClientIp(request);
+  const rl = await checkRateLimit(ip, 'register');
+  if (!rl.success) {
+    return NextResponse.json(
+      { error: 'تم تجاوز عدد المحاولات المسموح. حاول لاحقاً.' },
+      { status: 429, headers: rateLimitHeaders(rl) },
+    );
+  }
 
   try {
     ensureAdminApp();
