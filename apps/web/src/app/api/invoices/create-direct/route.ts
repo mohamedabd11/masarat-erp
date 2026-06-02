@@ -1,18 +1,14 @@
 import { NextResponse } from 'next/server';
 import { eq } from 'drizzle-orm';
 import { db } from '@/lib/db';
-import { agencies, invoices, journalEntries, journalLines } from '@/lib/schema';
+import { agencies, invoices, journalEntries, journalLines, idempotencyKeys } from '@/lib/schema';
 import { verifyAuth, assertRole, ApiAuthError, BusinessError, ROLES_ACCOUNTANT_UP } from '@/lib/api-auth';
 import { checkRateLimit, getClientIp, rateLimitHeaders } from '@/lib/rate-limit';
+import { withIdempotency, buildIdempotencyInsert } from '@/lib/idempotency';
 import { getNextInvoiceNumber, getNextJournalNumber } from '@/lib/invoice-counter';
 import { assertPeriodOpen } from '@/lib/period-lock';
+import { GL } from '@/lib/gl-accounts';
 import type { Tx } from '@/lib/db';
-
-const AC = {
-  receivable: { code: '1120', ar: 'ذمم مدينة - عملاء',           en: 'Accounts Receivable' },
-  revenue:    { code: '4100', ar: 'إيراد خدمات السفر',            en: 'Revenue - Travel Services' },
-  vatPayable: { code: '2200', ar: 'ضريبة القيمة المضافة مستحقة', en: 'VAT Payable' },
-};
 
 interface DirectInvoiceLine {
   serviceType:      string;
@@ -28,10 +24,11 @@ interface CreateDirectInvoiceBody {
   buyerPhone?:   string;
   customerId?:   string;
   lines:         DirectInvoiceLine[];
-  supplierName?: string;
-  supplierId?:   string;
-  dueDate?:      string;
-  notes?:        string;
+  supplierName?:    string;
+  supplierId?:      string;
+  dueDate?:         string;
+  notes?:           string;
+  idempotencyKey?:  string;
 }
 
 export async function POST(request: Request) {
@@ -48,6 +45,7 @@ export async function POST(request: Request) {
     }
 
     const body = await request.json() as CreateDirectInvoiceBody;
+    const idempKey = body.idempotencyKey ?? crypto.randomUUID();
 
     if (!body.buyerNameAr?.trim()) {
       return NextResponse.json({ error: 'اسم العميل مطلوب' }, { status: 400 });
@@ -88,7 +86,8 @@ export async function POST(request: Request) {
 
     await assertPeriodOpen(agencyId, today, db);
 
-    const result = await db.transaction(async (tx: Tx) => {
+    const result = await withIdempotency(idempKey, agencyId, 'directInvoice', async () => {
+    return db.transaction(async (tx: Tx) => {
       const now  = new Date();
       const year = now.getFullYear();
 
@@ -166,16 +165,21 @@ export async function POST(request: Request) {
         debitHalalas: number; creditHalalas: number; sortOrder: number;
       };
       const jLines: JLine[] = [
-        { id: crypto.randomUUID(), entryId: jeId, agencyId, accountCode: AC.receivable.code, accountNameAr: AC.receivable.ar, accountNameEn: AC.receivable.en, debitHalalas: totalHalalas,    creditHalalas: 0,               sortOrder: 1 },
-        { id: crypto.randomUUID(), entryId: jeId, agencyId, accountCode: AC.revenue.code,    accountNameAr: AC.revenue.ar,    accountNameEn: AC.revenue.en,    debitHalalas: 0,               creditHalalas: subtotalHalalas, sortOrder: 2 },
+        { id: crypto.randomUUID(), entryId: jeId, agencyId, accountCode: GL.receivable.code,       accountNameAr: GL.receivable.ar,       accountNameEn: GL.receivable.en,       debitHalalas: totalHalalas,    creditHalalas: 0,               sortOrder: 1 },
+        { id: crypto.randomUUID(), entryId: jeId, agencyId, accountCode: GL.revenuePrincipal.code, accountNameAr: GL.revenuePrincipal.ar, accountNameEn: GL.revenuePrincipal.en, debitHalalas: 0,               creditHalalas: subtotalHalalas, sortOrder: 2 },
       ];
       if (vatHalalas > 0) {
-        jLines.push({ id: crypto.randomUUID(), entryId: jeId, agencyId, accountCode: AC.vatPayable.code, accountNameAr: AC.vatPayable.ar, accountNameEn: AC.vatPayable.en, debitHalalas: 0, creditHalalas: vatHalalas, sortOrder: 3 });
+        jLines.push({ id: crypto.randomUUID(), entryId: jeId, agencyId, accountCode: GL.vatPayable.code, accountNameAr: GL.vatPayable.ar, accountNameEn: GL.vatPayable.en, debitHalalas: 0, creditHalalas: vatHalalas, sortOrder: 3 });
       }
       await tx.insert(journalLines).values(jLines);
 
+      await tx.insert(idempotencyKeys)
+        .values(buildIdempotencyInsert(agencyId, 'directInvoice', idempKey, { id: invId, invoiceNumber }))
+        .onConflictDoNothing();
+
       return { id: invId, invoiceNumber };
     });
+    }); // end withIdempotency
 
     return NextResponse.json({ success: true, ...result });
   } catch (err) {

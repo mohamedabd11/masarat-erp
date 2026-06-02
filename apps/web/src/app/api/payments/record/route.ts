@@ -6,6 +6,7 @@ import { verifyAuth, assertRole, ApiAuthError, BusinessError, ROLES_ACCOUNTANT_U
 import { withIdempotency, buildIdempotencyInsert } from '@/lib/idempotency';
 import { getNextReceiptNumber, getNextJournalNumber } from '@/lib/invoice-counter';
 import { requireFeature } from '@/lib/feature-access';
+import { GL } from '@/lib/gl-accounts';
 
 interface PaymentRecordBody {
   bookingId?:    string;
@@ -23,7 +24,6 @@ const METHOD_ACCOUNT: Record<string, { code: string; ar: string; en: string }> =
   card:          { code: '1115', ar: 'نقاط البيع',      en: 'POS / Card' },
   online:        { code: '1115', ar: 'نقاط البيع',      en: 'POS / Card' },
 };
-const AC_RECEIVABLE = { code: '1120', ar: 'ذمم مدينة - عملاء', en: 'Accounts Receivable' };
 
 export async function POST(request: Request) {
   try {
@@ -109,8 +109,8 @@ export async function POST(request: Request) {
         });
 
         await tx.insert(journalLines).values([
-          { id: crypto.randomUUID(), entryId: jeId, agencyId, accountCode: cashAc.code, accountNameAr: cashAc.ar, accountNameEn: cashAc.en, debitHalalas: amountHalalas, creditHalalas: 0, sortOrder: 1 },
-          { id: crypto.randomUUID(), entryId: jeId, agencyId, accountCode: AC_RECEIVABLE.code, accountNameAr: AC_RECEIVABLE.ar, accountNameEn: AC_RECEIVABLE.en, debitHalalas: 0, creditHalalas: amountHalalas, sortOrder: 2 },
+          { id: crypto.randomUUID(), entryId: jeId, agencyId, accountCode: cashAc.code,         accountNameAr: cashAc.ar,         accountNameEn: cashAc.en,         debitHalalas: amountHalalas, creditHalalas: 0,             sortOrder: 1 },
+          { id: crypto.randomUUID(), entryId: jeId, agencyId, accountCode: GL.receivable.code,  accountNameAr: GL.receivable.ar,  accountNameEn: GL.receivable.en,  debitHalalas: 0,             creditHalalas: amountHalalas, sortOrder: 2 },
         ]);
 
         // Atomic update: only succeeds if remaining due still covers the amount.

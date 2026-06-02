@@ -1038,9 +1038,10 @@ export async function POST(req: NextRequest) {
       ensureAdminApp();
       const { getAuth } = await import('firebase-admin/auth');
       const decoded = await getAuth().verifyIdToken(bearerToken);
-      const role    = decoded['role'] as string | undefined;
       const email   = decoded.email ?? '';
-      if (role === 'admin' || role === 'owner' || email === SUPER_ADMIN_EMAIL) {
+      // SEC-02: restrict to super-admin email only — any agency admin/owner
+      // must NOT be able to run DDL against the entire database.
+      if (email && email === SUPER_ADMIN_EMAIL) {
         authorized = true;
       }
     } catch {

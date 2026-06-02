@@ -5,10 +5,7 @@ import { cheques, journalEntries, journalLines } from '@/lib/schema';
 import { verifyAuth, assertRole, ApiAuthError, BusinessError, ROLES_ACCOUNTANT_UP } from '@/lib/api-auth';
 import { requireFeature } from '@/lib/feature-access';
 import { getNextJournalNumber } from '@/lib/invoice-counter';
-
-const AC_RECEIVABLE  = { code: '1120', ar: 'ذمم مدينة - عملاء', en: 'Accounts Receivable' };
-const AC_CHEQUES_RCV = { code: '1125', ar: 'أوراق قبض - شيكات', en: 'Cheques Receivable'  };
-const AC_BANK        = { code: '1110', ar: 'البنك',              en: 'Bank'                };
+import { GL } from '@/lib/gl-accounts';
 
 // SM-02: Valid incoming-cheque status transitions.
 // bounced→cleared or cancelled→cleared would create phantom bank entries.
@@ -72,8 +69,8 @@ export async function PATCH(request: Request, { params }: { params: { id: string
             createdBy: uid,
           });
           await tx.insert(journalLines).values([
-            { id: crypto.randomUUID(), entryId: jeId, agencyId, accountCode: AC_BANK.code,        accountNameAr: AC_BANK.ar,        accountNameEn: AC_BANK.en,        debitHalalas: amt, creditHalalas: 0,   sortOrder: 1 },
-            { id: crypto.randomUUID(), entryId: jeId, agencyId, accountCode: AC_CHEQUES_RCV.code, accountNameAr: AC_CHEQUES_RCV.ar, accountNameEn: AC_CHEQUES_RCV.en, debitHalalas: 0,   creditHalalas: amt, sortOrder: 2 },
+            { id: crypto.randomUUID(), entryId: jeId, agencyId, accountCode: GL.bank.code,             accountNameAr: GL.bank.ar,             accountNameEn: GL.bank.en,             debitHalalas: amt, creditHalalas: 0,   sortOrder: 1 },
+            { id: crypto.randomUUID(), entryId: jeId, agencyId, accountCode: GL.chequesReceivable.code, accountNameAr: GL.chequesReceivable.ar, accountNameEn: GL.chequesReceivable.en, debitHalalas: 0,   creditHalalas: amt, sortOrder: 2 },
           ]);
         }
 
@@ -88,8 +85,8 @@ export async function PATCH(request: Request, { params }: { params: { id: string
             createdBy: uid,
           });
           await tx.insert(journalLines).values([
-            { id: crypto.randomUUID(), entryId: jeId, agencyId, accountCode: AC_RECEIVABLE.code,  accountNameAr: AC_RECEIVABLE.ar,  accountNameEn: AC_RECEIVABLE.en,  debitHalalas: amt, creditHalalas: 0,   sortOrder: 1 },
-            { id: crypto.randomUUID(), entryId: jeId, agencyId, accountCode: AC_CHEQUES_RCV.code, accountNameAr: AC_CHEQUES_RCV.ar, accountNameEn: AC_CHEQUES_RCV.en, debitHalalas: 0,   creditHalalas: amt, sortOrder: 2 },
+            { id: crypto.randomUUID(), entryId: jeId, agencyId, accountCode: GL.receivable.code,       accountNameAr: GL.receivable.ar,       accountNameEn: GL.receivable.en,       debitHalalas: amt, creditHalalas: 0,   sortOrder: 1 },
+            { id: crypto.randomUUID(), entryId: jeId, agencyId, accountCode: GL.chequesReceivable.code, accountNameAr: GL.chequesReceivable.ar, accountNameEn: GL.chequesReceivable.en, debitHalalas: 0,   creditHalalas: amt, sortOrder: 2 },
           ]);
         }
       }
