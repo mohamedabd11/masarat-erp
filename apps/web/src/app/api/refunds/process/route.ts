@@ -46,6 +46,7 @@ export async function POST(request: Request) {
 
     const body = await request.json() as RefundBody;
     const { bookingId, originalInvoiceId, refundAmountHalalas, cancellationFeeHalalas, reason } = body;
+    const bodyPaymentMethod = body.paymentMethod;
     const idempKey = body.idempotencyKey ?? crypto.randomUUID();
 
     if (!bookingId || !originalInvoiceId || !reason) {
@@ -76,6 +77,22 @@ export async function POST(request: Request) {
         );
         if (!booking) throw new BusinessError(`الحجز ${bookingId} غير موجود`, 404);
         if (booking.status === 'cancelled') throw new BusinessError('الحجز ملغى بالفعل', 400);
+
+        // Resolve the cash-out account from the original payment method (the refund
+        // should leave the same account the money came in on), falling back to the
+        // optional body override then to bank_transfer.
+        const [lastPayment] = await tx
+          .select({ method: payments.method })
+          .from(payments)
+          .where(and(
+            eq(payments.invoiceId, originalInvoiceId),
+            eq(payments.agencyId, agencyId),
+            gt(payments.amountHalalas, 0),
+          ))
+          .orderBy(desc(payments.date))
+          .limit(1);
+        const refundMethod = lastPayment?.method ?? bodyPaymentMethod ?? 'bank_transfer';
+        const cashAc       = METHOD_ACCOUNT[refundMethod] ?? GL.bank;
 
         // ── 2. Validate ────────────────────────────────────────────────────
         if (refundAmountHalalas + cancellationFeeHalalas > invoice.paidHalalas) {
@@ -119,8 +136,8 @@ export async function POST(request: Request) {
         // ── 5. Build journal lines (reversal + cancellation fee) ────────────
         type JLine = { code: string; ar: string; en: string; dr: number; cr: number };
         const jLines: JLine[] = refundVat > 0
-          ? [{ ...revenueAc, dr: refundSubtotal, cr: 0 }, { ...AC.vatPayable, dr: refundVat, cr: 0 }, { ...AC.bank, dr: 0, cr: refundAmountHalalas }]
-          : [{ ...revenueAc, dr: refundAmountHalalas, cr: 0 }, { ...AC.bank, dr: 0, cr: refundAmountHalalas }];
+          ? [{ ...revenueAc, dr: refundSubtotal, cr: 0 }, { ...AC.vatPayable, dr: refundVat, cr: 0 }, { ...cashAc, dr: 0, cr: refundAmountHalalas }]
+          : [{ ...revenueAc, dr: refundAmountHalalas, cr: 0 }, { ...cashAc, dr: 0, cr: refundAmountHalalas }];
 
         // Cancellation fee lines — explicitly journalized (BUG-02 fix).
         // The fee was already received in the original payment and remains in bank;
@@ -153,6 +170,18 @@ export async function POST(request: Request) {
         if (refundCost > 0) {
           jLines.push({ ...AC.payableSupplier, dr: refundCost, cr: 0 });
           jLines.push({ ...AC.costOfServices,  dr: 0, cr: refundCost });
+        }
+
+        // ── M-B: write off any uncollected receivable on cancellation ──────────
+        // If the customer never fully paid, the unpaid portion still sits on 1120
+        // AR from the original invoice posting. Cancelling the invoice voids that
+        // claim, so we write it off against revenue:
+        //   Dr <service revenue>   unpaidHalalas
+        //      Cr 1120 AR          unpaidHalalas
+        const unpaidHalalas = invoice.totalHalalas - invoice.paidHalalas;
+        if (unpaidHalalas > 0) {
+          jLines.push({ ...revenueAc, dr: unpaidHalalas, cr: 0 });
+          jLines.push({ ...AC.receivable, dr: 0, cr: unpaidHalalas });
         }
 
         // ── 6. Write ────────────────────────────────────────────────────────
