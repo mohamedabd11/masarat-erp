@@ -79,11 +79,13 @@ export async function POST(request: Request) {
       }
     }
 
-    await assertPeriodOpen(agencyId, body.date, db);
     const id   = crypto.randomUUID();
     const year = new Date(body.date).getFullYear();
 
     await db.transaction(async (tx) => {
+      // Period-lock check runs inside the transaction (first statement) to close
+      // the TOCTOU window between the check and the inserts.
+      await assertPeriodOpen(agencyId, body.date, tx);
       const entryNumber = await getNextJournalNumber(agencyId, year, tx);
 
       await tx.insert(journalEntries).values({
