@@ -14,9 +14,11 @@ interface ReverseBody {
 
 // Must mirror create/route.ts exactly so the reversal credits the same account
 // the original debited. 'supplier' debits 2000 (AP), not 5000 (COGS).
+// Salaries unified on GL.salaryExpense (6100) to match create/route.ts and the
+// primary payroll path — NOT the old local 5100.
 const EXPENSE_ACCOUNT: Record<string, { code: string; ar: string; en: string }> = {
   supplier:    GL.payableSupplier,
-  salaries:    { code: '5100', ar: 'الرواتب والأجور',     en: 'Salaries' },
+  salaries:    GL.salaryExpense,
   rent:        { code: '5200', ar: 'الإيجار',             en: 'Rent' },
   marketing:   { code: '5300', ar: 'التسويق والإعلان',    en: 'Marketing' },
   operational: { code: '5400', ar: 'المصاريف التشغيلية',  en: 'Operating Expenses' },
