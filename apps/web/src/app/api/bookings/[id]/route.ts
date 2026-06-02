@@ -1,8 +1,10 @@
 import { NextResponse } from 'next/server';
-import { eq, and } from 'drizzle-orm';
+import { eq, and, ne } from 'drizzle-orm';
 import { db } from '@/lib/db';
-import { bookings, invoices } from '@/lib/schema';
+import { bookings, invoices, journalEntries, journalLines } from '@/lib/schema';
 import { verifyAuth, assertRole, ApiAuthError, ROLES_MANAGER_UP } from '@/lib/api-auth';
+import { getNextJournalNumber } from '@/lib/invoice-counter';
+import { assertPeriodOpen } from '@/lib/period-lock';
 
 const VALID_STATUSES = new Set(['draft', 'confirmed', 'completed', 'cancelled']);
 
@@ -42,7 +44,7 @@ export async function GET(request: Request, { params }: { params: { id: string }
 
 export async function PATCH(request: Request, { params }: { params: { id: string } }) {
   try {
-    const { agencyId, role } = await verifyAuth(request);
+    const { uid, agencyId, role } = await verifyAuth(request);
     assertRole(role, [...ROLES_MANAGER_UP]);
     const body = await request.json() as Record<string, unknown>;
     const now  = new Date();
@@ -90,10 +92,79 @@ export async function PATCH(request: Request, { params }: { params: { id: string
       if (!STRIP.has(k)) patch[k] = v;
     }
 
-    await db
-      .update(bookings)
-      .set(patch as Partial<typeof bookings.$inferInsert>)
-      .where(and(eq(bookings.id, params.id), eq(bookings.agencyId, agencyId)));
+    if (patch['status'] === 'cancelled') {
+      await db.transaction(async (tx) => {
+        await assertPeriodOpen(agencyId, now.toISOString().split('T')[0]!, tx);
+
+        await tx
+          .update(bookings)
+          .set(patch as Partial<typeof bookings.$inferInsert>)
+          .where(and(eq(bookings.id, params.id), eq(bookings.agencyId, agencyId)));
+
+        // Cascade cancel unpaid invoices for this booking + post reversing GL entries
+        const openInvoices = await tx.select().from(invoices)
+          .where(and(
+            eq(invoices.bookingId, params.id),
+            eq(invoices.agencyId, agencyId),
+            ne(invoices.status, 'cancelled'),
+            ne(invoices.status, 'paid'),
+            ne(invoices.status, 'partially_paid'),
+            eq(invoices.paidHalalas, 0),
+          ));
+
+        for (const inv of openInvoices) {
+          await tx.update(invoices)
+            .set({ status: 'cancelled', updatedAt: now } as never)
+            .where(and(eq(invoices.id, inv.id), eq(invoices.agencyId, agencyId)));
+
+          if (inv.journalEntryId) {
+            const origLines = await tx.select().from(journalLines)
+              .where(eq(journalLines.entryId, inv.journalEntryId));
+            if (origLines.length > 0) {
+              const revJeId = crypto.randomUUID();
+              const year    = now.getFullYear();
+              const today   = now.toISOString().split('T')[0]!;
+              const revNum  = await getNextJournalNumber(agencyId, year, tx);
+              const totalDr = origLines.reduce((s, l) => s + l.creditHalalas, 0);
+              await tx.insert(journalEntries).values({
+                id:                 revJeId,
+                agencyId,
+                entryNumber:        revNum,
+                date:               today,
+                descriptionAr:      `إلغاء فاتورة #${inv.invoiceNumber} — إلغاء حجز`,
+                descriptionEn:      `Reversal of invoice #${inv.invoiceNumber} — booking cancelled`,
+                source:             'manual',
+                sourceId:           inv.id,
+                isPosted:           true,
+                totalDebitHalalas:  totalDr,
+                totalCreditHalalas: totalDr,
+                createdBy:          uid,
+              });
+              for (let i = 0; i < origLines.length; i++) {
+                const l = origLines[i]!;
+                await tx.insert(journalLines).values({
+                  id:            crypto.randomUUID(),
+                  entryId:       revJeId,
+                  agencyId,
+                  accountCode:   l.accountCode,
+                  accountNameAr: l.accountNameAr ?? null,
+                  accountNameEn: l.accountNameEn ?? null,
+                  debitHalalas:  l.creditHalalas,
+                  creditHalalas: l.debitHalalas,
+                  description:   l.description ?? null,
+                  sortOrder:     i + 1,
+                });
+              }
+            }
+          }
+        }
+      });
+    } else {
+      await db
+        .update(bookings)
+        .set(patch as Partial<typeof bookings.$inferInsert>)
+        .where(and(eq(bookings.id, params.id), eq(bookings.agencyId, agencyId)));
+    }
 
     return NextResponse.json({ success: true });
   } catch (err) {
