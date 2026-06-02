@@ -168,6 +168,7 @@ CREATE TABLE IF NOT EXISTS invoices (
   type               TEXT NOT NULL DEFAULT '380',
   booking_id         TEXT REFERENCES bookings(id),
   customer_id        TEXT REFERENCES customers(id),
+  original_invoice_id TEXT REFERENCES invoices(id),
   seller_name_ar     TEXT,
   seller_name_en     TEXT,
   seller_vat_number  TEXT,
@@ -302,6 +303,7 @@ CREATE TABLE IF NOT EXISTS journal_entries (
   reference             TEXT,
   source                TEXT NOT NULL DEFAULT 'manual',
   source_id             TEXT,
+  service_type          TEXT,
   is_posted             BOOLEAN NOT NULL DEFAULT TRUE,
   total_debit_halalas   INTEGER NOT NULL DEFAULT 0,
   total_credit_halalas  INTEGER NOT NULL DEFAULT 0,
@@ -345,10 +347,12 @@ CREATE TABLE IF NOT EXISTS bank_accounts (
   iban                     TEXT,
   opening_balance_halalas  INTEGER NOT NULL DEFAULT 0,
   current_balance_halalas  INTEGER NOT NULL DEFAULT 0,
+  reconciled_balance_halalas INTEGER NOT NULL DEFAULT 0,
   currency                 TEXT NOT NULL DEFAULT 'SAR',
   gl_account_id            TEXT,
   is_active                BOOLEAN NOT NULL DEFAULT TRUE,
   is_reconciled            BOOLEAN NOT NULL DEFAULT FALSE,
+  reconciled_at            TIMESTAMPTZ,
   created_at               TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at               TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -928,6 +932,16 @@ CREATE INDEX IF NOT EXISTS idx_bookings_agency_status   ON bookings(agency_id, s
 CREATE INDEX IF NOT EXISTS idx_payments_booking         ON payments(booking_id);
 -- One invoice row per booking per agency (NULL booking_id rows stay unconstrained).
 CREATE UNIQUE INDEX IF NOT EXISTS uq_invoices_agency_booking ON invoices(agency_id, booking_id);
+
+-- ══ FIX-03: ensure columns referenced by later ALTERs exist on pre-existing tables
+-- CREATE TABLE IF NOT EXISTS will not add new columns to tables created by an
+-- earlier setup-db run, so backfill them explicitly here (idempotent). These must
+-- precede the BIGINT widening block below, which references reconciled_balance_halalas.
+ALTER TABLE journal_entries ADD COLUMN IF NOT EXISTS service_type TEXT;
+ALTER TABLE invoices        ADD COLUMN IF NOT EXISTS original_invoice_id TEXT REFERENCES invoices(id);
+ALTER TABLE bank_accounts   ADD COLUMN IF NOT EXISTS reconciled_balance_halalas INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE bank_accounts   ADD COLUMN IF NOT EXISTS reconciled_at TIMESTAMPTZ;
+ALTER TABLE bank_accounts   ADD COLUMN IF NOT EXISTS is_reconciled BOOLEAN NOT NULL DEFAULT FALSE;
 
 -- ══ WIDEN MONETARY COLUMNS TO BIGINT ═════════════════════════════════════════
 -- Hajj/Umrah group invoices and BSP remittances can exceed the 32-bit signed
