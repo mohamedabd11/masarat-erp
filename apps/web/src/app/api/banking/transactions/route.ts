@@ -2,13 +2,24 @@ import { NextResponse } from 'next/server';
 import { eq, and, sql } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { bankAccounts, bankTransactions, journalEntries, journalLines } from '@/lib/schema';
-import { verifyAuth, ApiAuthError } from '@/lib/api-auth';
+import { verifyAuth, assertRole, ApiAuthError, ROLES_ACCOUNTANT_UP } from '@/lib/api-auth';
+import { checkRateLimit, getClientIp, rateLimitHeaders } from '@/lib/rate-limit';
 import { getNextJournalNumber } from '@/lib/invoice-counter';
 import { assertPeriodOpen } from '@/lib/period-lock';
 
 export async function POST(request: Request) {
   try {
-    const { uid, agencyId } = await verifyAuth(request);
+    const { uid, agencyId, role } = await verifyAuth(request);
+    assertRole(role, [...ROLES_ACCOUNTANT_UP]);
+
+    const rl = await checkRateLimit(`${agencyId}:${getClientIp(request)}`, 'financial');
+    if (!rl.success) {
+      return NextResponse.json(
+        { error: 'تجاوزت الحد المسموح به من الطلبات. حاول مرة أخرى بعد دقيقة.' },
+        { status: 429, headers: rateLimitHeaders(rl) },
+      );
+    }
+
     const body = await request.json() as {
       bankAccountId:       string;
       type:                string;    // 'deposit' | 'withdrawal'
@@ -26,6 +37,14 @@ export async function POST(request: Request) {
     if (!body.bankAccountId || !body.type || !body.amountHalalas || !body.date) {
       return NextResponse.json({ error: 'بيانات ناقصة' }, { status: 400 });
     }
+    // Amount must be a positive integer in halalas. A negative/zero amount would
+    // otherwise flip a deposit into a withdrawal (and vice-versa) and corrupt the GL.
+    if (!Number.isInteger(body.amountHalalas) || body.amountHalalas <= 0) {
+      return NextResponse.json({ error: 'المبلغ غير صالح — يجب أن يكون رقماً موجباً' }, { status: 400 });
+    }
+    if (body.type !== 'deposit' && body.type !== 'withdrawal') {
+      return NextResponse.json({ error: 'نوع الحركة غير صالح' }, { status: 400 });
+    }
     await assertPeriodOpen(agencyId, body.date, db);
 
     const [account] = await db
@@ -34,9 +53,8 @@ export async function POST(request: Request) {
       .where(and(eq(bankAccounts.id, body.bankAccountId), eq(bankAccounts.agencyId, agencyId)));
     if (!account) return NextResponse.json({ error: 'حساب غير موجود' }, { status: 404 });
 
-    const delta      = body.type === 'withdrawal' ? -body.amountHalalas : body.amountHalalas;
-    const newBalance = account.currentBalanceHalalas + delta;
-    const isDeposit  = delta > 0;
+    const isDeposit = body.type === 'deposit';
+    const delta     = isDeposit ? body.amountHalalas : -body.amountHalalas;
 
     // GL codes — map account type to GL code
     const acType = account.type;
