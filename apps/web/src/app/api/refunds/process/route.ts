@@ -105,22 +105,20 @@ export async function POST(request: Request) {
           ? [{ ...revenueAc, dr: refundSubtotal, cr: 0 }, { ...GL.vatPayable, dr: refundVat, cr: 0 }, { ...GL.bank, dr: 0, cr: refundAmountHalalas }]
           : [{ ...revenueAc, dr: refundAmountHalalas, cr: 0 }, { ...GL.bank, dr: 0, cr: refundAmountHalalas }];
 
-        // Cancellation fee lines — explicitly journalized (BUG-02 fix).
-        // The fee was already received in the original payment and remains in bank;
-        // we reclassify it from service revenue to cancellation fee revenue.
-        // Dr/Cr balance: cancellationFeeHalalas = cancelFeeNet + cancelFeeVat ✓
+        // Cancellation fee lines — reclassify net revenue from service revenue to
+        // cancellation fee revenue. VAT was already recognised in VAT Payable when
+        // the original invoice was posted and stays there (the fee is still VAT-able).
+        // Debit the NET component only (cancelFeeNet) so we don't touch VAT Payable twice.
+        // Dr/Cr balance: cancelFeeNet = cancelFeeNet ✓
         if (cancellationFeeHalalas > 0) {
           jLines.push({
             code: revenueAc.code,
             ar:   'رسوم إلغاء — مقتطعة من الحجز',
             en:   'Cancellation Fee Withheld',
-            dr:   cancellationFeeHalalas,
+            dr:   cancelFeeNet,
             cr:   0,
           });
           jLines.push({ ...AC_CANCELLATION_FEE, dr: 0, cr: cancelFeeNet });
-          if (cancelFeeVat > 0) {
-            jLines.push({ ...GL.vatPayable, dr: 0, cr: cancelFeeVat });
-          }
         }
 
         // ── Reverse the original COGS + AP for the refunded portion ─────────

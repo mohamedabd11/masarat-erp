@@ -79,6 +79,7 @@ export async function POST(request: Request) {
         const [inv] = await tx.select().from(invoices)
           .where(and(eq(invoices.id, invoiceId), eq(invoices.agencyId, agencyId)));
         if (!inv) throw new BusinessError('الفاتورة غير موجودة', 404);
+        if (inv.type === '381') throw new BusinessError('لا يمكن تسجيل سند قبض على إشعار دائن — أصدر استرداداً بدلاً من ذلك', 400);
 
         // SM-01/DEP-02: Block receipt on terminal-status invoices
         const TERMINAL = new Set(['cancelled', 'void', 'credit_memo']);
