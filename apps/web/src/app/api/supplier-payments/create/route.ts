@@ -41,7 +41,10 @@ interface SupplierPaymentBody {
 // (no prior invoice posting) and keep debiting their expense account.
 const EXPENSE_ACCOUNT: Record<string, { code: string; ar: string; en: string }> = {
   supplier:    GL.payableSupplier,
-  salaries:    { code: '5100', ar: 'الرواتب والأجور',     en: 'Salaries' },
+  // Unified on 6100 Salary Expense (GL.salaryExpense) — the same account used by
+  // the primary payroll path (payslips). Previously this used a local 5100, which
+  // split salary costs across two accounts and fragmented the income statement.
+  salaries:    GL.salaryExpense,
   rent:        { code: '5200', ar: 'الإيجار',             en: 'Rent' },
   marketing:   { code: '5300', ar: 'التسويق والإعلان',    en: 'Marketing' },
   operational: { code: '5400', ar: 'المصاريف التشغيلية',  en: 'Operating Expenses' },
