@@ -3,6 +3,7 @@ import { eq, and, desc } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { payslips, employees, salaryAdvances, employeeContracts, journalEntries, journalLines } from '@/lib/schema';
 import { verifyAuth, assertRole, ApiAuthError, BusinessError, ROLES_ADMIN_ONLY } from '@/lib/api-auth';
+import { checkRateLimit, getClientIp, rateLimitHeaders } from '@/lib/rate-limit';
 import { requireFeature } from '@/lib/feature-access';
 import { logAudit } from '@/lib/audit';
 import { getNextJournalNumber } from '@/lib/invoice-counter';
@@ -36,6 +37,15 @@ export async function POST(request: Request) {
   try {
     const { uid, agencyId, role } = await verifyAuth(request);
     assertRole(role, [...ROLES_ADMIN_ONLY]);
+
+    const rl = await checkRateLimit(`${agencyId}:${getClientIp(request)}`, 'financial');
+    if (!rl.success) {
+      return NextResponse.json(
+        { error: 'تجاوزت الحد المسموح به من الطلبات. حاول مرة أخرى بعد دقيقة.' },
+        { status: 429, headers: rateLimitHeaders(rl) },
+      );
+    }
+
     await requireFeature(agencyId, 'payroll', db);
 
     const body = await request.json() as {
@@ -58,6 +68,15 @@ export async function POST(request: Request) {
     }
     if (!/^\d{4}-\d{2}$/.test(body.month)) {
       return NextResponse.json({ error: 'صيغة الشهر يجب أن تكون YYYY-MM' }, { status: 400 });
+    }
+    const gosiEmpInput = body.gosiEmployeeHalalas ?? 0;
+    if (!Number.isInteger(gosiEmpInput) || gosiEmpInput < 0) {
+      return NextResponse.json({ error: 'مبلغ اشتراك GOSI للموظف غير صالح' }, { status: 400 });
+    }
+    const grossEstimate = (body.baseSalaryHalalas ?? 0) + (body.housingAllowanceHalalas ?? 0) +
+      (body.transportAllowanceHalalas ?? 0) + (body.otherAllowancesHalalas ?? 0);
+    if (gosiEmpInput > grossEstimate) {
+      return NextResponse.json({ error: 'اشتراك GOSI للموظف لا يمكن أن يتجاوز الراتب الإجمالي' }, { status: 400 });
     }
 
     // Check no duplicate

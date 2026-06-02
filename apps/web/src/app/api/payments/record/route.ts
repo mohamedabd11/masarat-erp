@@ -3,6 +3,7 @@ import { eq, and, sql } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { invoices, bookings, payments, journalEntries, journalLines, idempotencyKeys } from '@/lib/schema';
 import { verifyAuth, assertRole, ApiAuthError, BusinessError, ROLES_ACCOUNTANT_UP } from '@/lib/api-auth';
+import { checkRateLimit, getClientIp, rateLimitHeaders } from '@/lib/rate-limit';
 import { withIdempotency, buildIdempotencyInsert } from '@/lib/idempotency';
 import { getNextReceiptNumber, getNextJournalNumber } from '@/lib/invoice-counter';
 import { assertPeriodOpen } from '@/lib/period-lock';
@@ -30,6 +31,15 @@ export async function POST(request: Request) {
   try {
     const { uid, agencyId, role } = await verifyAuth(request);
     assertRole(role, [...ROLES_ACCOUNTANT_UP]);
+
+    const rl = await checkRateLimit(`${agencyId}:${getClientIp(request)}`, 'financial');
+    if (!rl.success) {
+      return NextResponse.json(
+        { error: 'تجاوزت الحد المسموح به من الطلبات. حاول مرة أخرى بعد دقيقة.' },
+        { status: 429, headers: rateLimitHeaders(rl) },
+      );
+    }
+
     await requireFeature(agencyId, 'payments', db);
 
     const body = await request.json() as PaymentRecordBody;
@@ -52,6 +62,7 @@ export async function POST(request: Request) {
         );
         if (!invoice) throw new BusinessError(`الفاتورة ${invoiceId} غير موجودة`, 404);
         if (bookingId && invoice.bookingId && invoice.bookingId !== bookingId) throw new BusinessError('الفاتورة لا تنتمي لهذا الحجز', 400);
+        if (invoice.type === '381') throw new BusinessError('لا يمكن تسجيل دفعة على إشعار دائن — أصدر استرداداً بدلاً من ذلك', 400);
 
         // SM-01: Block payment on terminal-status invoices
         const TERMINAL = new Set(['cancelled', 'void', 'credit_memo']);
