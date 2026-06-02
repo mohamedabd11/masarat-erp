@@ -31,10 +31,25 @@ function monthsOfService(hireDateStr: string, asOfDateStr?: string): number {
 }
 
 /**
- * Total EOSB entitlement accrued for an employee as of a given date (halalas),
- * per Saudi Labor Law art. 84.
+ * Total EOSB entitlement accrued for an employee as of a given date (halalas).
+ *
+ * art. 84 — full entitlement on a non-resignation separation (termination, or
+ * resignation with ≥ 10 years of service).
+ *
+ * art. 85 — reduction when the employee resigns:
+ *   - < 2 years:  no entitlement
+ *   - 2 – 5 years: ⅓ of the art. 84 entitlement
+ *   - 5 – 10 years: ⅔ of the art. 84 entitlement
+ *   - ≥ 10 years: full art. 84 entitlement
+ *
+ * Pass `isResignation = true` to apply the art. 85 reduction.
  */
-export function calculateEosb(basicSalaryHalalas: number, hireDateStr: string, asOfDateStr?: string): number {
+export function calculateEosb(
+  basicSalaryHalalas: number,
+  hireDateStr: string,
+  asOfDateStr?: string,
+  isResignation?: boolean,
+): number {
   if (!hireDateStr || !basicSalaryHalalas) return 0;
   const years = yearsOfService(hireDateStr, asOfDateStr);
   if (!Number.isFinite(years) || years < 2) return 0;
@@ -45,10 +60,19 @@ export function calculateEosb(basicSalaryHalalas: number, hireDateStr: string, a
 
   // ⅓ of a month's wage per year for the first five years,
   // a full month's wage per year thereafter.
-  return Math.round(
+  let entitlement = Math.round(
     (basicSalaryHalalas / 3) * firstFive +
     basicSalaryHalalas * afterFive,
   );
+
+  // art. 85 — resignation reduction for service shorter than 10 years.
+  if (isResignation && years < 10) {
+    if (years < 2) return 0;
+    if (years < 5) entitlement = Math.round(entitlement / 3);
+    else           entitlement = Math.round((entitlement * 2) / 3); // 5–10 yrs: ⅔
+  }
+
+  return entitlement;
 }
 
 /**

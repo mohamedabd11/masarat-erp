@@ -17,6 +17,10 @@ export async function GET(request: Request) {
     assertRole(role, [...ROLES_MANAGER_UP]);
     await requireFeature(agencyId, 'payroll', db);
 
+    // When ?resignation=true is passed, the displayed entitlement applies the
+    // art. 85 resignation reduction.
+    const isResignation = new URL(request.url).searchParams.get('resignation') === 'true';
+
     const rows = await db.select({
       id:             employees.id,
       employeeNumber: employees.employeeNumber,
@@ -33,7 +37,7 @@ export async function GET(request: Request) {
       ...e,
       // `salaryHalalas` is treated as the basic salary used for EOSB (the schema
       // has no separate basic-salary column on employees).
-      eosbAmount:          e.hireDate ? calculateEosb(e.salaryHalalas, e.hireDate) : 0,
+      eosbAmount:          e.hireDate ? calculateEosb(e.salaryHalalas, e.hireDate, undefined, isResignation) : 0,
       monthlyAccrual:      e.hireDate ? monthlyEosbAccrual(e.salaryHalalas, e.hireDate) : 0,
     }));
 
