@@ -8,11 +8,12 @@
  *  - Append new entries to the end of the array; never reorder or remove.
  */
 export async function register() {
+  // Only run in Node.js (not Edge runtime) and only when a DB is configured.
+  if (process.env.NEXT_RUNTIME !== 'nodejs') return;
+
   const { validateEnv } = await import('@/lib/env-validate');
   validateEnv();
 
-  // Only run in Node.js (not Edge runtime) and only when a DB is configured.
-  if (process.env.NEXT_RUNTIME !== 'nodejs') return;
   if (!process.env.DATABASE_URL) return;
 
   const migrations: string[] = [

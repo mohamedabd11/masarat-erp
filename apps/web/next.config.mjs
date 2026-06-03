@@ -83,4 +83,5 @@ export default withSentryConfig(withNextIntl(nextConfig), {
   hideSourceMaps: true,
   disableLogger: true,
   automaticVercelMonitors: false,
+  autoInstrumentMiddleware: false,
 });
