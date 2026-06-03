@@ -51,7 +51,7 @@ export async function POST(request: Request) {
       customerName?: string;
       assignedTo?:  string;
       description?: string;
-      durationMin?: string;
+      durationMin?: number;
       location?:    string;
       notes?:       string;
     };
@@ -81,7 +81,7 @@ export async function POST(request: Request) {
       customerName: body.customerName ?? null,
       assignedTo:   body.assignedTo   ?? null,
       description:  body.description  ?? null,
-      durationMin:  body.durationMin  ?? '30',
+      durationMin:  body.durationMin  ?? 30,
       location:     body.location     ?? null,
       notes:        body.notes        ?? null,
       createdBy:    uid,

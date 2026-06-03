@@ -37,6 +37,26 @@ export async function register() {
     `CREATE UNIQUE INDEX IF NOT EXISTS accounting_periods_agency_ym_uq
       ON accounting_periods(agency_id, period_year, period_month)`,
 
+    // ── 2026-06 — Missing columns detected by schema-DB audit ────────────────
+    // customers: credit limit
+    `ALTER TABLE customers ADD COLUMN IF NOT EXISTS credit_limit_halalas BIGINT NOT NULL DEFAULT 0`,
+
+    // bank_accounts: reconciliation tracking
+    `ALTER TABLE bank_accounts ADD COLUMN IF NOT EXISTS reconciled_at TIMESTAMPTZ`,
+    `ALTER TABLE bank_accounts ADD COLUMN IF NOT EXISTS reconciled_balance_halalas BIGINT`,
+
+    // bank_transactions: reconciliation flags
+    `ALTER TABLE bank_transactions ADD COLUMN IF NOT EXISTS is_reconciled BOOLEAN NOT NULL DEFAULT FALSE`,
+    `ALTER TABLE bank_transactions ADD COLUMN IF NOT EXISTS reconciled_at TIMESTAMPTZ`,
+    `ALTER TABLE bank_transactions ADD COLUMN IF NOT EXISTS reconciled_by TEXT`,
+
+    // invoices: link credit/debit notes to original invoice
+    `ALTER TABLE invoices ADD COLUMN IF NOT EXISTS original_invoice_id TEXT REFERENCES invoices(id)`,
+
+    // quotes: conversion tracking
+    `ALTER TABLE quotes ADD COLUMN IF NOT EXISTS converted_to_booking_id TEXT`,
+    `ALTER TABLE quotes ADD COLUMN IF NOT EXISTS converted_at TIMESTAMPTZ`,
+
     // ── 2026-06 — ZATCA Phase 2 columns ──────────────────────────────────────
     `ALTER TABLE agencies ADD COLUMN IF NOT EXISTS zatca_environment TEXT NOT NULL DEFAULT 'simulation'`,
     `ALTER TABLE agencies ADD COLUMN IF NOT EXISTS zatca_onboarding_status TEXT NOT NULL DEFAULT 'not_started'`,
