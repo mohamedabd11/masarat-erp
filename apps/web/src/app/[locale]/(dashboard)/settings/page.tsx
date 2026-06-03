@@ -2218,8 +2218,8 @@ export default function SettingsPage() {
                   )}
                 </Card>
 
-                {/* ── Database setup ─────────────────────────────────────── */}
-                <Card>
+                {/* ── Database setup — super-admin only ──────────────────── */}
+                {user?.email === process.env.NEXT_PUBLIC_SUPER_ADMIN_EMAIL && <Card>
                   <CardHeader>
                     <CardTitle>{isAr ? 'تهيئة قاعدة البيانات' : 'Database Setup'}</CardTitle>
                   </CardHeader>
@@ -2256,7 +2256,7 @@ export default function SettingsPage() {
                       </div>
                     )}
                   </div>
-                </Card>
+                </Card>}
               </div>
             );
           })()}
