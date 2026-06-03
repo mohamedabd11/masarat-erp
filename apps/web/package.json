@@ -21,6 +21,7 @@
   },
   "dependencies": {
     "@hookform/resolvers": "^3.9.0",
+    "@sentry/nextjs": "^8.0.0",
     "@masarat/accounting": "workspace:*",
     "@masarat/firebase": "workspace:*",
     "@masarat/zatca": "workspace:*",

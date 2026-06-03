@@ -8,6 +8,9 @@
  *  - Append new entries to the end of the array; never reorder or remove.
  */
 export async function register() {
+  const { validateEnv } = await import('@/lib/env-validate');
+  validateEnv();
+
   // Only run in Node.js (not Edge runtime) and only when a DB is configured.
   if (process.env.NEXT_RUNTIME !== 'nodejs') return;
   if (!process.env.DATABASE_URL) return;
@@ -45,5 +48,10 @@ export async function register() {
     // Log but don't crash the server — a failed migration is investigated,
     // not a reason to take the whole app down.
     console.error(JSON.stringify({ event: 'db_migrations_failed', error: String(err) }));
+  }
+
+  if (process.env.SENTRY_DSN) {
+    const { init } = await import('@sentry/nextjs');
+    init({ dsn: process.env.SENTRY_DSN, tracesSampleRate: 0.1 });
   }
 }
