@@ -23,6 +23,9 @@ export const payments = pgTable('payments', {
 }, (t) => [
   index('idx_payments_agency').on(t.agencyId),
   index('idx_payments_booking').on(t.bookingId),
+  index('idx_payments_invoice').on(t.invoiceId),
+  index('idx_payments_customer').on(t.customerId),
+  index('idx_payments_agency_date').on(t.agencyId, t.date),
   uniqueIndex('payments_agency_voucher_uq').on(t.agencyId, t.voucherNumber),
 ]);
 
@@ -49,6 +52,11 @@ export const receiptVouchers = pgTable('receipt_vouchers', {
   createdBy:       text('created_by'),
   createdAt:       timestamp('created_at').notNull().defaultNow(),
 }, (t) => [
+  index('idx_receipt_vouchers_agency').on(t.agencyId),
+  index('idx_receipt_vouchers_customer').on(t.customerId),
+  index('idx_receipt_vouchers_booking').on(t.bookingId),
+  index('idx_receipt_vouchers_invoice').on(t.invoiceId),
+  index('idx_receipt_vouchers_agency_date').on(t.agencyId, t.date),
   uniqueIndex('receipt_vouchers_agency_voucher_uq').on(t.agencyId, t.voucherNumber),
 ]);
 
@@ -78,6 +86,11 @@ export const supplierPayments = pgTable('supplier_payments', {
   createdBy:       text('created_by'),
   createdAt:       timestamp('created_at').notNull().defaultNow(),
 }, (t) => [
+  index('idx_supplier_payments_agency').on(t.agencyId),
+  index('idx_supplier_payments_supplier').on(t.supplierId),
+  index('idx_supplier_payments_booking').on(t.bookingId),
+  index('idx_supplier_payments_agency_status').on(t.agencyId, t.status),
+  index('idx_supplier_payments_agency_date').on(t.agencyId, t.date),
   uniqueIndex('supplier_payments_agency_voucher_uq').on(t.agencyId, t.voucherNumber),
 ]);
 

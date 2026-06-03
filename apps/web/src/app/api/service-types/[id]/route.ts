@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { eq, and } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { serviceTypes, bookings } from '@/lib/schema';
-import { verifyAuth, ApiAuthError } from '@/lib/api-auth';
+import { verifyAuth, assertRole, ApiAuthError, ROLES_MANAGER_UP } from '@/lib/api-auth';
 
 export async function GET(request: Request, { params }: { params: { id: string } }) {
   try {
@@ -19,7 +19,8 @@ export async function GET(request: Request, { params }: { params: { id: string }
 
 export async function PATCH(request: Request, { params }: { params: { id: string } }) {
   try {
-    const { agencyId } = await verifyAuth(request);
+    const { agencyId, role } = await verifyAuth(request);
+    assertRole(role, [...ROLES_MANAGER_UP]);
     const body = await request.json() as Record<string, unknown>;
     await db.update(serviceTypes).set(body as Partial<typeof serviceTypes.$inferInsert>)
       .where(and(eq(serviceTypes.id, params.id), eq(serviceTypes.agencyId, agencyId)));
@@ -32,7 +33,8 @@ export async function PATCH(request: Request, { params }: { params: { id: string
 
 export async function DELETE(request: Request, { params }: { params: { id: string } }) {
   try {
-    const { agencyId } = await verifyAuth(request);
+    const { agencyId, role } = await verifyAuth(request);
+    assertRole(role, [...ROLES_MANAGER_UP]);
 
     // Prevent deletion if any booking references this custom service type
     const [usedByBooking] = await db

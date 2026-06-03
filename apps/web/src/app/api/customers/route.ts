@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { eq, and, desc, count, sum, ilike, or } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { customers, bookings } from '@/lib/schema';
-import { verifyAuth, ApiAuthError } from '@/lib/api-auth';
+import { verifyAuth, assertRole, ApiAuthError, ROLES_AGENT_UP } from '@/lib/api-auth';
 
 const DEFAULT_PAGE_SIZE = 50;
 const MAX_PAGE_SIZE     = 200;
@@ -75,13 +75,18 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
-    const { agencyId } = await verifyAuth(request);
+    const { agencyId, role } = await verifyAuth(request);
+    assertRole(role, [...ROLES_AGENT_UP]);
     const body = await request.json() as {
       nameAr: string; nameEn?: string; phone?: string; email?: string;
       nationality?: string; nationalId?: string; passportNumber?: string;
       dateOfBirth?: string; notes?: string; openingBalanceHalalas?: number;
     };
     if (!body.nameAr?.trim()) return NextResponse.json({ error: 'الاسم مطلوب' }, { status: 400 });
+    if (body.openingBalanceHalalas !== undefined &&
+        (!Number.isInteger(body.openingBalanceHalalas) || body.openingBalanceHalalas < 0)) {
+      return NextResponse.json({ error: 'الرصيد الافتتاحي غير صالح' }, { status: 400 });
+    }
     const id = crypto.randomUUID();
     const [row] = await db.insert(customers).values({
       id, agencyId,

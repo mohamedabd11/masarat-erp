@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { eq, and, desc } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { leaveRequests, employees } from '@/lib/schema';
-import { verifyAuth, ApiAuthError, BusinessError } from '@/lib/api-auth';
+import { verifyAuth, assertRole, ApiAuthError, BusinessError, ROLES_AGENT_UP } from '@/lib/api-auth';
 import { requireFeature } from '@/lib/feature-access';
 
 const VALID_TYPES   = new Set(['annual', 'sick', 'unpaid']);
@@ -34,7 +34,8 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
-    const { agencyId } = await verifyAuth(request);
+    const { agencyId, role } = await verifyAuth(request);
+    assertRole(role, [...ROLES_AGENT_UP]);
     const body = await request.json() as {
       employeeId: string;
       type:       string;
@@ -50,6 +51,9 @@ export async function POST(request: Request) {
     }
     if (!VALID_TYPES.has(type)) {
       return NextResponse.json({ error: 'نوع الإجازة غير صالح. القيم المقبولة: annual, sick, unpaid' }, { status: 400 });
+    }
+    if (Number.isNaN(Date.parse(startDate)) || Number.isNaN(Date.parse(endDate))) {
+      return NextResponse.json({ error: 'تاريخ غير صالح' }, { status: 400 });
     }
     if (endDate < startDate) {
       return NextResponse.json({ error: 'تاريخ الانتهاء يجب أن يكون بعد تاريخ البداية' }, { status: 400 });

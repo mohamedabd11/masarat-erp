@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { eq, desc } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { quotes } from '@/lib/schema';
-import { verifyAuth, ApiAuthError } from '@/lib/api-auth';
+import { verifyAuth, assertRole, ApiAuthError, ROLES_AGENT_UP } from '@/lib/api-auth';
 
 export async function GET(request: Request) {
   try {
@@ -17,7 +17,8 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
-    const { uid, agencyId } = await verifyAuth(request);
+    const { uid, agencyId, role } = await verifyAuth(request);
+    assertRole(role, [...ROLES_AGENT_UP]);
     const body = await request.json() as {
       quoteNumber:   string;
       customerId?:   string | null;
@@ -32,6 +33,10 @@ export async function POST(request: Request) {
 
     if (!body.quoteNumber) {
       return NextResponse.json({ error: 'quoteNumber مطلوب' }, { status: 400 });
+    }
+    if (body.totalHalalas !== undefined &&
+        (!Number.isInteger(body.totalHalalas) || body.totalHalalas < 0)) {
+      return NextResponse.json({ error: 'الإجمالي غير صالح' }, { status: 400 });
     }
 
     const id = crypto.randomUUID();

@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { eq, and } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { serviceTypes } from '@/lib/schema';
-import { verifyAuth, ApiAuthError } from '@/lib/api-auth';
+import { verifyAuth, assertRole, ApiAuthError, ROLES_MANAGER_UP } from '@/lib/api-auth';
 
 export async function GET(request: Request) {
   try {
@@ -20,7 +20,8 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
-    const { agencyId } = await verifyAuth(request);
+    const { agencyId, role } = await verifyAuth(request);
+    assertRole(role, [...ROLES_MANAGER_UP]);
     const body = await request.json() as { nameAr: string; nameEn?: string; icon?: string };
     if (!body.nameAr) return NextResponse.json({ error: 'الاسم مطلوب' }, { status: 400 });
     const id = crypto.randomUUID();

@@ -20,7 +20,10 @@ export const bankAccounts = pgTable('bank_accounts', {
   reconciledBalanceHalalas: bigint('reconciled_balance_halalas', { mode: 'number' }),
   createdAt:              timestamp('created_at').notNull().defaultNow(),
   updatedAt:              timestamp('updated_at').notNull().defaultNow(),
-});
+}, (t) => [
+  index('idx_bank_accounts_agency').on(t.agencyId),
+  index('idx_bank_accounts_agency_active').on(t.agencyId, t.isActive),
+]);
 
 export type BankAccount    = typeof bankAccounts.$inferSelect;
 export type NewBankAccount = typeof bankAccounts.$inferInsert;
@@ -44,6 +47,9 @@ export const bankTransactions = pgTable('bank_transactions', {
 }, (t) => [
   index('bank_txn_account_date_idx').on(t.bankAccountId, t.date),
   index('bank_txn_reconciled_idx').on(t.bankAccountId, t.isReconciled),
+  index('bank_txn_agency_idx').on(t.agencyId),
+  index('bank_txn_agency_date_idx').on(t.agencyId, t.date),
+  index('bank_txn_source_idx').on(t.sourceType, t.sourceId),
 ]);
 
 export type BankTransaction    = typeof bankTransactions.$inferSelect;
@@ -66,7 +72,12 @@ export const cheques = pgTable('cheques', {
   notes:           text('notes'),
   createdAt:       timestamp('created_at').notNull().defaultNow(),
   updatedAt:       timestamp('updated_at').notNull().defaultNow(),
-});
+}, (t) => [
+  index('idx_cheques_agency').on(t.agencyId),
+  index('idx_cheques_bank_account').on(t.bankAccountId),
+  index('idx_cheques_agency_status').on(t.agencyId, t.status),
+  index('idx_cheques_agency_due').on(t.agencyId, t.dueDate),
+]);
 
 export type Cheque    = typeof cheques.$inferSelect;
 export type NewCheque = typeof cheques.$inferInsert;

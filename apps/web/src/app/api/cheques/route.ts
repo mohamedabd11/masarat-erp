@@ -36,6 +36,9 @@ export async function POST(request: Request) {
     };
     if (!body.chequeNumber) return NextResponse.json({ error: 'رقم الشيك مطلوب' }, { status: 400 });
     if (!body.amountHalalas) return NextResponse.json({ error: 'المبلغ مطلوب' }, { status: 400 });
+    if (!Number.isInteger(body.amountHalalas) || body.amountHalalas <= 0) {
+      return NextResponse.json({ error: 'المبلغ غير صالح' }, { status: 400 });
+    }
 
     const chequeType = body.type ?? 'incoming';
     const id = crypto.randomUUID();
