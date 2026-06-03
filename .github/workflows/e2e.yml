@@ -1,0 +1,21 @@
+name: E2E Tests
+on:
+  workflow_dispatch:
+  pull_request:
+    branches: ['claude/masarat-travel-erp-design-NO1ST']
+jobs:
+  e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v3
+        with: { version: 9 }
+      - uses: actions/setup-node@v4
+        with: { node-version: '20', cache: 'pnpm' }
+      - run: pnpm install
+      - run: pnpm --filter @masarat/web exec playwright install --with-deps chromium
+      - name: Run E2E tests
+        run: pnpm --filter @masarat/web test:e2e
+        env:
+          PLAYWRIGHT_BASE_URL: ${{ secrets.E2E_BASE_URL }}
+          E2E_FIREBASE_TOKEN: ${{ secrets.E2E_FIREBASE_TOKEN }}
