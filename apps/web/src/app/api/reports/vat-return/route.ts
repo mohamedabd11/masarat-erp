@@ -9,7 +9,7 @@ import { requireFeature } from '@/lib/feature-access';
  * VAT Return Report (إقرار ضريبة القيمة المضافة)
  * Covers standard tax period (monthly or quarterly).
  *
- * Output VAT  = VAT charged on sales invoices (type 380)
+ * Output VAT  = VAT charged on sales invoices (type 388)
  * Input VAT   = VAT paid on purchases/expenses (supplier payments with VAT)
  * Net VAT due = Output VAT − Input VAT
  *
@@ -39,7 +39,7 @@ export async function GET(request: Request) {
     }
 
     // ── Output VAT (sales) ────────────────────────────────────────────────────
-    // Tax invoices (type=380) and debit notes (type=383) add VAT liability
+    // Tax invoices (type=388) and debit notes (type=383) add VAT liability
     // Credit notes (type=381) reduce it
     const salesRows = await db
       .select({
@@ -70,7 +70,7 @@ export async function GET(request: Request) {
       const vat = Number(r.vatAmount);
       const cnt = Number(r.count);
 
-      if (r.type === '380' || r.type === '383') {
+      if (r.type === '388' || r.type === '383') {
         outputVatBase += net;
         outputVat     += vat;
         salesCount    += cnt;
@@ -100,7 +100,7 @@ export async function GET(request: Request) {
         sql`${invoices.issueDate} >= ${from}`,
         sql`${invoices.issueDate} <= ${to}`,
         sql`${invoices.status} NOT IN ('cancelled')`,
-        sql`${invoices.type} IN ('380', '383')`,
+        sql`${invoices.type} IN ('388', '383')`,
         sql`${bookings.serviceType} IN ('flight', 'flights')`,
         sql`(${bookings.details} ->> 'isInternational') = 'true'`,
       ));

@@ -1,10 +1,11 @@
 import { NextResponse } from 'next/server';
 import { eq, and } from 'drizzle-orm';
 import { db } from '@/lib/db';
-import { invoices, journalEntries } from '@/lib/schema';
+import { invoices, journalEntries, journalLines } from '@/lib/schema';
 import { verifyAuth, ApiAuthError, assertRole, ROLES_MANAGER_UP } from '@/lib/api-auth';
 import { logAudit } from '@/lib/audit';
 import { assertPeriodOpen } from '@/lib/period-lock';
+import { getNextJournalNumber } from '@/lib/invoice-counter';
 
 export async function GET(request: Request, { params }: { params: { id: string } }) {
   try {
@@ -41,17 +42,43 @@ export async function PATCH(request: Request, { params }: { params: { id: string
     }
 
     await db.transaction(async (tx) => {
-      await assertPeriodOpen(agencyId, new Date().toISOString().split('T')[0]!, tx);
+      const now = new Date();
+      await assertPeriodOpen(agencyId, now.toISOString().split('T')[0]!, tx);
 
       await tx.update(invoices)
-        .set({ status: 'cancelled', updatedAt: new Date() } as never)
+        .set({ status: 'cancelled', updatedAt: now } as never)
         .where(and(eq(invoices.id, params.id), eq(invoices.agencyId, agencyId)));
 
-      // Unpost the linked journal entry so the trial balance stays clean
+      // Post a reversing journal entry instead of un-posting (preserves audit trail)
       if (invoice.journalEntryId) {
-        await tx.update(journalEntries)
-          .set({ isPosted: false } as never)
-          .where(and(eq(journalEntries.id, invoice.journalEntryId), eq(journalEntries.agencyId, agencyId)));
+        const origLines = await tx.select().from(journalLines)
+          .where(and(eq(journalLines.entryId, invoice.journalEntryId), eq(journalLines.agencyId, agencyId)));
+        if (origLines.length > 0) {
+          const revJeNumber = await getNextJournalNumber(agencyId, now.getFullYear(), tx);
+          const revJeId = crypto.randomUUID();
+          await tx.insert(journalEntries).values({
+            id: revJeId,
+            agencyId,
+            entryNumber: revJeNumber,
+            date: now.toISOString().split('T')[0]!,
+            descriptionAr: `عكس فاتورة رقم ${invoice.invoiceNumber} — إلغاء${body.reason ? ': ' + body.reason : ''}`,
+            source: 'invoice',
+            sourceId: params.id,
+            isPosted: true,
+            totalDebitHalalas: origLines.reduce((s, l) => s + l.creditHalalas, 0),
+            totalCreditHalalas: origLines.reduce((s, l) => s + l.debitHalalas, 0),
+            createdBy: uid,
+          } as never);
+          await tx.insert(journalLines).values(
+            origLines.map((l, idx) => ({
+              id: crypto.randomUUID(), entryId: revJeId, agencyId,
+              accountCode: l.accountCode, accountNameAr: l.accountNameAr, accountNameEn: l.accountNameEn,
+              debitHalalas: l.creditHalalas,
+              creditHalalas: l.debitHalalas,
+              sortOrder: idx + 1,
+            }))
+          );
+        }
       }
     });
 

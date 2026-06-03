@@ -209,15 +209,14 @@ export function PrintableInvoice({ invoice, onClose }: PrintableInvoiceProps) {
             {/* QR code (VAT) or contact summary (non-VAT) */}
             {isVatRegistered ? (
               <div className="flex flex-col items-center justify-center border-2 border-dashed border-slate-200 rounded-xl p-4 bg-slate-50">
-                <div className="w-24 h-24 bg-white rounded-lg border border-dashed border-slate-200 flex items-center justify-center">
-                  <span className="text-[9px] text-slate-300 text-center leading-tight">
-                    QR Code<br/>(قريباً)
-                  </span>
-                </div>
-                <p className="text-[10px] text-slate-400 mt-2 text-center">
-                  ZATCA المرحلة الثانية<br/>
-                  <span dir="ltr">Phase 2 — Coming Soon</span>
-                </p>
+                {invoice.qrCodeData ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={invoice.qrCodeData} width={120} height={120} alt="ZATCA QR" style={{ display: 'block' }} />
+                ) : (
+                  <div style={{ width: 120, height: 120, border: '1px dashed #d1d5db', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 9, color: '#9ca3af', textAlign: 'center' }}>
+                    QR غير متاح
+                  </div>
+                )}
               </div>
             ) : (
               <div className="rounded-xl border border-brand-100 bg-brand-50 p-4 space-y-2">

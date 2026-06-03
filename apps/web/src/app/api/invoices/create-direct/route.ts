@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { eq } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { agencies, invoices, journalEntries, journalLines } from '@/lib/schema';
+import { buildZatcaQr } from '@/lib/zatca-qr';
 import { verifyAuth, assertRole, ApiAuthError, BusinessError, ROLES_ACCOUNTANT_UP } from '@/lib/api-auth';
 import { checkRateLimit, getClientIp, rateLimitHeaders } from '@/lib/rate-limit';
 import { getNextInvoiceNumber, getNextJournalNumber } from '@/lib/invoice-counter';
@@ -116,11 +117,17 @@ export async function POST(request: Request) {
         };
       });
 
+      const totalHalalas2 = totalHalalas;
+      const vatHalalas2   = vatHalalas;
+      const zatcaQr = isVatRegistered && agency.vatNumber
+        ? buildZatcaQr({ sellerName: agency.nameAr, vatNumber: agency.vatNumber, invoiceDate: today, totalHalalas: totalHalalas2, vatHalalas: vatHalalas2 })
+        : null;
+
       await tx.insert(invoices).values({
         id:              invId,
         agencyId,
         invoiceNumber,
-        type:            '380',
+        type:            '388',
         customerId:      body.customerId      ?? null,
         sellerNameAr:    body.supplierName?.trim() || agency.nameAr,
         sellerNameEn:    body.supplierName?.trim() || (agency.nameEn ?? null),
@@ -142,6 +149,8 @@ export async function POST(request: Request) {
         notes:           body.notes?.trim()   ?? null,
         journalEntryId:  jeId,
         createdBy:       uid,
+        zatcaUuid:       crypto.randomUUID(),
+        zatcaHash:       zatcaQr,
       });
 
       // Journal entry — standard principal model

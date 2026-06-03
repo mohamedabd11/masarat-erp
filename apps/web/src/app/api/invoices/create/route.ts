@@ -136,7 +136,7 @@ export async function POST(request: Request) {
           // VAT = margin × rate / (100 + rate)   [tax-inclusive calculation]
           const margin    = Math.max(0, grandTotal - storedCost);
           totalVat        = Math.round(margin * vatRateDecimal / (1 + vatRateDecimal));
-          subtotalExclVat = grandTotal - totalVat;
+          subtotalExclVat = margin - totalVat;
           finalGrandTotal = grandTotal;
         } else {
           subtotalExclVat = Math.round(grandTotal / (1 + vatRateDecimal));
@@ -225,7 +225,7 @@ export async function POST(request: Request) {
           id:              invoiceId,
           agencyId,
           invoiceNumber,
-          type:            '380',
+          type:            '388',
           bookingId,
           customerId:      booking.customerId ?? null,
           sellerNameAr:    agency.nameAr,
