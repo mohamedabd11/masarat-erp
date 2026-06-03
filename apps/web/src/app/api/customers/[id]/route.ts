@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { eq, and, desc, sum, count } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { customers, invoices, bookings } from '@/lib/schema';
-import { verifyAuth, assertRole, ApiAuthError, ROLES_MANAGER_UP } from '@/lib/api-auth';
+import { verifyAuth, assertRole, ApiAuthError, ROLES_MANAGER_UP, ROLES_AGENT_UP } from '@/lib/api-auth';
 
 export async function GET(
   request: Request,
@@ -85,7 +85,8 @@ export async function PATCH(
   { params }: { params: { id: string } },
 ) {
   try {
-    const { agencyId } = await verifyAuth(request);
+    const { agencyId, role } = await verifyAuth(request);
+    assertRole(role, [...ROLES_AGENT_UP]);
     const { id } = params;
 
     const body = await request.json() as Partial<{
@@ -94,6 +95,10 @@ export async function PATCH(
       dateOfBirth: string; notes: string; isActive: boolean;
       openingBalanceHalalas: number;
     }>;
+    if (body.openingBalanceHalalas !== undefined &&
+        (!Number.isInteger(body.openingBalanceHalalas) || body.openingBalanceHalalas < 0)) {
+      return NextResponse.json({ error: 'الرصيد الافتتاحي غير صالح' }, { status: 400 });
+    }
 
     const [existing] = await db
       .select()

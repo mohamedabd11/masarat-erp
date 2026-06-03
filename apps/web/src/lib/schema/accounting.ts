@@ -19,7 +19,10 @@ export const chartOfAccounts = pgTable('chart_of_accounts', {
   openingBalanceHalalas: bigint('opening_balance_halalas', { mode: 'number' }).notNull().default(0),
   createdAt:           timestamp('created_at').notNull().defaultNow(),
   updatedAt:           timestamp('updated_at').notNull().defaultNow(),
-});
+}, (t) => [
+  index('idx_coa_agency').on(t.agencyId),
+  uniqueIndex('idx_coa_agency_code').on(t.agencyId, t.code),
+]);
 
 export type ChartAccount    = typeof chartOfAccounts.$inferSelect;
 export type NewChartAccount = typeof chartOfAccounts.$inferInsert;
@@ -46,6 +49,7 @@ export const journalEntries = pgTable('journal_entries', {
   index('idx_je_agency').on(t.agencyId),
   index('idx_je_agency_date').on(t.agencyId, t.date),
   index('idx_je_agency_source').on(t.agencyId, t.source),
+  index('idx_je_source_id').on(t.agencyId, t.sourceId),
   uniqueIndex('journal_entries_agency_number_uq').on(t.agencyId, t.entryNumber),
 ]);
 
@@ -84,7 +88,10 @@ export const exchangeRates = pgTable('exchange_rates', {
   rate:         integer('rate').notNull(),                   // stored as rate × 10000
   effectiveDate: text('effective_date').notNull(),
   createdAt:  timestamp('created_at').notNull().defaultNow(),
-});
+}, (t) => [
+  index('idx_exchange_rates_agency').on(t.agencyId),
+  index('idx_exchange_rates_lookup').on(t.agencyId, t.fromCurrency, t.toCurrency, t.effectiveDate),
+]);
 
 export type ExchangeRate    = typeof exchangeRates.$inferSelect;
 export type NewExchangeRate = typeof exchangeRates.$inferInsert;
@@ -103,7 +110,10 @@ export const costCenters = pgTable('cost_centers', {
   notes:       text('notes'),
   createdAt:   timestamp('created_at').notNull().defaultNow(),
   updatedAt:   timestamp('updated_at').notNull().defaultNow(),
-});
+}, (t) => [
+  index('idx_cost_centers_agency').on(t.agencyId),
+  uniqueIndex('cost_centers_agency_code_uq').on(t.agencyId, t.code),
+]);
 
 export type CostCenter    = typeof costCenters.$inferSelect;
 export type NewCostCenter = typeof costCenters.$inferInsert;

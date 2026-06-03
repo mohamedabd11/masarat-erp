@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { eq, and, desc } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { exchangeRates } from '@/lib/schema';
-import { verifyAuth, ApiAuthError } from '@/lib/api-auth';
+import { verifyAuth, assertRole, ApiAuthError, ROLES_ACCOUNTANT_UP } from '@/lib/api-auth';
 
 // GET /api/banking/rates?currency=USD&toCurrency=SAR
 // Returns all stored rates (latest first), optionally filtered by fromCurrency.
@@ -39,10 +39,17 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
-    const { agencyId } = await verifyAuth(request);
+    const { agencyId, role } = await verifyAuth(request);
+    assertRole(role, [...ROLES_ACCOUNTANT_UP]);
     const body = await request.json() as { fromCurrency: string; toCurrency?: string; rate: number; effectiveDate: string };
     if (!body.fromCurrency || !body.rate || !body.effectiveDate) {
       return NextResponse.json({ error: 'بيانات ناقصة' }, { status: 400 });
+    }
+    if (!Number.isFinite(body.rate) || body.rate <= 0) {
+      return NextResponse.json({ error: 'سعر الصرف غير صالح' }, { status: 400 });
+    }
+    if (Number.isNaN(Date.parse(body.effectiveDate))) {
+      return NextResponse.json({ error: 'تاريخ غير صالح' }, { status: 400 });
     }
     const id = crypto.randomUUID();
     await db.insert(exchangeRates).values({

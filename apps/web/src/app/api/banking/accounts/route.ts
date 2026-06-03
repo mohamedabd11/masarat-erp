@@ -26,7 +26,8 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
-    const { uid, agencyId } = await verifyAuth(request);
+    const { uid, agencyId, role } = await verifyAuth(request);
+    assertRole(role, [...ROLES_ACCOUNTANT_UP]);
     const body = await request.json() as {
       nameAr: string; nameEn?: string; type: string; accountNumber?: string;
       bankName?: string; iban?: string; openingBalanceHalalas?: number; currency?: string;
@@ -35,6 +36,9 @@ export async function POST(request: Request) {
 
     const id      = crypto.randomUUID();
     const opening = body.openingBalanceHalalas ?? 0;
+    if (!Number.isInteger(opening) || opening < 0) {
+      return NextResponse.json({ error: 'الرصيد الافتتاحي غير صالح' }, { status: 400 });
+    }
 
     await db.transaction(async (tx) => {
       await tx.insert(bankAccounts).values({

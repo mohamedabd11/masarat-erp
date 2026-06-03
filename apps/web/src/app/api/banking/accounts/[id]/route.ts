@@ -2,12 +2,13 @@ import { NextResponse } from 'next/server';
 import { eq, and, count } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { bankAccounts, bankTransactions, journalEntries, journalLines } from '@/lib/schema';
-import { verifyAuth, ApiAuthError } from '@/lib/api-auth';
+import { verifyAuth, assertRole, ApiAuthError, ROLES_ACCOUNTANT_UP } from '@/lib/api-auth';
 import { logAudit } from '@/lib/audit';
 
 export async function DELETE(request: Request, { params }: { params: { id: string } }) {
   try {
-    const { uid, agencyId } = await verifyAuth(request);
+    const { uid, agencyId, role } = await verifyAuth(request);
+    assertRole(role, [...ROLES_ACCOUNTANT_UP]);
 
     const [account] = await db.select().from(bankAccounts)
       .where(and(eq(bankAccounts.id, params.id), eq(bankAccounts.agencyId, agencyId)));
@@ -57,7 +58,8 @@ export async function DELETE(request: Request, { params }: { params: { id: strin
 
 export async function PATCH(request: Request, { params }: { params: { id: string } }) {
   try {
-    const { uid, agencyId } = await verifyAuth(request);
+    const { uid, agencyId, role } = await verifyAuth(request);
+    assertRole(role, [...ROLES_ACCOUNTANT_UP]);
     const body = await request.json() as { isActive: boolean };
 
     const [account] = await db.select().from(bankAccounts)

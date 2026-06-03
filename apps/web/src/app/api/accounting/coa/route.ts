@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { eq, asc, sum } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { chartOfAccounts, journalLines } from '@/lib/schema';
-import { verifyAuth, ApiAuthError, BusinessError } from '@/lib/api-auth';
+import { verifyAuth, assertRole, ApiAuthError, BusinessError, ROLES_ACCOUNTANT_UP } from '@/lib/api-auth';
 import { requireFeature } from '@/lib/feature-access';
 
 export async function GET(request: Request) {
@@ -37,7 +37,8 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
-    const { uid, agencyId } = await verifyAuth(request);
+    const { uid, agencyId, role } = await verifyAuth(request);
+    assertRole(role, [...ROLES_ACCOUNTANT_UP]);
     await requireFeature(agencyId, 'chart_of_accounts', db);
     const body = await request.json() as {
       code: string; nameAr: string; nameEn?: string; type: string;

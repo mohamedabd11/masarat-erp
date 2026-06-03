@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { eq, and, desc, or, ilike, isNull, sql } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { pnrRecords } from '@/lib/schema';
-import { verifyAuth, ApiAuthError } from '@/lib/api-auth';
+import { verifyAuth, assertRole, ApiAuthError, ROLES_AGENT_UP } from '@/lib/api-auth';
 import { logAudit } from '@/lib/audit';
 
 export async function GET(request: Request) {
@@ -48,7 +48,8 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
-    const { uid, agencyId } = await verifyAuth(request);
+    const { uid, agencyId, role } = await verifyAuth(request);
+    assertRole(role, [...ROLES_AGENT_UP]);
     const body = await request.json() as {
       pnrCode:        string;
       gds?:           string;
@@ -72,6 +73,12 @@ export async function POST(request: Request) {
 
     if (!body.pnrCode?.trim()) {
       return NextResponse.json({ error: 'رمز PNR مطلوب' }, { status: 400 });
+    }
+    for (const f of ['fareHalalas', 'taxHalalas', 'totalHalalas'] as const) {
+      const v = body[f];
+      if (v !== undefined && (!Number.isInteger(v) || v < 0)) {
+        return NextResponse.json({ error: 'مبلغ غير صالح' }, { status: 400 });
+      }
     }
 
     const id = crypto.randomUUID();

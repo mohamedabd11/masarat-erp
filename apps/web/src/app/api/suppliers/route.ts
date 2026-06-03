@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { eq, desc } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { suppliers } from '@/lib/schema';
-import { verifyAuth, ApiAuthError } from '@/lib/api-auth';
+import { verifyAuth, assertRole, ApiAuthError, ROLES_AGENT_UP } from '@/lib/api-auth';
 
 export async function GET(request: Request) {
   try {
@@ -17,7 +17,8 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
-    const { uid, agencyId } = await verifyAuth(request);
+    const { uid, agencyId, role } = await verifyAuth(request);
+    assertRole(role, [...ROLES_AGENT_UP]);
     const body = await request.json() as {
       nameAr: string; nameEn?: string; type?: string; phone?: string;
       email?: string; vatNumber?: string; notes?: string;
