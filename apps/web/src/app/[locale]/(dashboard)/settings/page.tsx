@@ -1784,163 +1784,338 @@ export default function SettingsPage() {
             </div>
           )}
 
-          {/* ── ZATCA ────────────────────────────────────────────────────── */}
+          {/* ── ZATCA Phase 2 ───────────────────────────────────────────── */}
           {activeTab === 'zatca' && (
             <div className="space-y-5">
 
-              {/* ── Development status banner ── */}
-              <div className="flex items-start gap-3 p-4 rounded-2xl bg-slate-900 text-white">
-                <div className="flex-shrink-0 mt-0.5 w-8 h-8 rounded-full bg-amber-400/20 flex items-center justify-center">
-                  <AlertTriangle size={16} className="text-amber-400" />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 mb-1">
-                    <p className="text-sm font-bold text-white">
-                      {isAr ? 'حالة تكامل ZATCA' : 'ZATCA Integration Status'}
-                    </p>
-                    <span className="text-[10px] font-bold bg-amber-400/20 text-amber-300 border border-amber-400/30 px-2 py-0.5 rounded-full">
-                      {isAr ? 'قيد التطوير' : 'In Development'}
-                    </span>
+              {/* ── Status card ── */}
+              <Card>
+                <CardHeader>
+                  <CardTitle>
+                    <Shield size={18} className="text-brand-600" />
+                    ZATCA {isAr ? 'المرحلة الثانية' : 'Phase 2'}
+                  </CardTitle>
+                  <div className="flex items-center gap-2">
+                    {loadingZatca ? (
+                      <Spinner size="sm" />
+                    ) : zatcaStatusData ? (
+                      <ZatcaStatusBadge s={zatcaStatusData.status} />
+                    ) : (
+                      <Badge variant="neutral">{isAr ? 'غير متصل' : 'Not Connected'}</Badge>
+                    )}
+                    <button
+                      onClick={() => void loadZatcaStatus()}
+                      disabled={loadingZatca}
+                      className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors disabled:opacity-50"
+                      title={isAr ? 'تحديث الحالة' : 'Refresh status'}
+                    >
+                      <RefreshCw size={14} className={loadingZatca ? 'animate-spin' : ''} />
+                    </button>
                   </div>
-                  <p className="text-xs text-slate-300 leading-relaxed">
-                    {isAr
-                      ? 'تكامل ZATCA المرحلة الثانية (الفوترة الإلكترونية) غير مفعّل حالياً. الفواتير الصادرة حالياً هي فواتير ضريبية ورقية (مرحلة أولى) فقط. سيتم إضافة الربط الكامل مع منصة ZATCA في إصدار قادم.'
-                      : 'ZATCA Phase 2 (e-invoicing) is not yet active. Invoices issued are paper-based tax invoices (Phase 1) only. Full ZATCA platform integration will be added in a future release.'}
+                </CardHeader>
+
+                {/* ── Connected info ── */}
+                {zatcaStatusData && (zatcaStatusData.status === 'compliance' || zatcaStatusData.status === 'production') && (
+                  <div className="space-y-4">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div className="p-4 rounded-xl bg-emerald-50 border border-emerald-200">
+                        <p className="text-xs font-medium text-emerald-700 mb-1">
+                          {isAr ? 'البيئة' : 'Environment'}
+                        </p>
+                        <p className="text-sm font-bold text-emerald-900">
+                          {zatcaStatusData.environment === 'production'
+                            ? (isAr ? 'إنتاج' : 'Production')
+                            : (isAr ? 'محاكاة / اختبار' : 'Simulation / Testing')}
+                        </p>
+                      </div>
+                      {zatcaStatusData.onboardedAt && (
+                        <div className="p-4 rounded-xl bg-slate-50 border border-slate-200">
+                          <p className="text-xs font-medium text-slate-600 mb-1">
+                            {isAr ? 'تاريخ الربط' : 'Connected On'}
+                          </p>
+                          <p className="text-sm font-semibold text-slate-900">
+                            {new Date(zatcaStatusData.onboardedAt).toLocaleDateString(isAr ? 'ar-SA' : 'en-US')}
+                          </p>
+                        </div>
+                      )}
+                      {zatcaStatusData.hasCertificate && zatcaStatusData.certificateExpiry && (
+                        <div className="p-4 rounded-xl bg-slate-50 border border-slate-200">
+                          <p className="text-xs font-medium text-slate-600 mb-1">
+                            {isAr ? 'انتهاء الشهادة' : 'Certificate Expiry'}
+                          </p>
+                          <p className="text-sm font-semibold text-slate-900">
+                            {new Date(zatcaStatusData.certificateExpiry).toLocaleDateString(isAr ? 'ar-SA' : 'en-US')}
+                          </p>
+                        </div>
+                      )}
+                      {zatcaStatusData.vatNumber && (
+                        <div className="p-4 rounded-xl bg-slate-50 border border-slate-200">
+                          <p className="text-xs font-medium text-slate-600 mb-1">
+                            {isAr ? 'الرقم الضريبي' : 'VAT Number'}
+                          </p>
+                          <p className="text-sm font-semibold text-slate-900 dir-ltr" dir="ltr">
+                            {zatcaStatusData.vatNumber}
+                          </p>
+                        </div>
+                      )}
+                    </div>
+
+                    {zatcaStatusData.status === 'compliance' && (
+                      <div className="flex items-start gap-3 p-4 rounded-xl bg-blue-50 border border-blue-200">
+                        <Shield size={16} className="text-blue-600 flex-shrink-0 mt-0.5" />
+                        <div>
+                          <p className="text-sm font-semibold text-blue-900">
+                            {isAr ? 'وضع الامتثال (Compliance Mode)' : 'Compliance Mode'}
+                          </p>
+                          <p className="text-xs text-blue-700 mt-1 leading-relaxed">
+                            {isAr
+                              ? 'النظام في مرحلة الاختبار مع ZATCA. بعد اجتياز اختبارات الامتثال، يمكن الانتقال إلى وضع الإنتاج.'
+                              : 'The system is in ZATCA compliance testing mode. After passing compliance tests, you can switch to Production mode.'}
+                          </p>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* ── Error state ── */}
+                {zatcaStatusData?.status === 'error' && zatcaStatusData.errorMessage && (
+                  <div className="flex items-start gap-3 p-4 rounded-xl bg-red-50 border border-red-200">
+                    <XCircle size={16} className="text-red-600 flex-shrink-0 mt-0.5" />
+                    <div>
+                      <p className="text-sm font-semibold text-red-900">
+                        {isAr ? 'خطأ في الاتصال بـ ZATCA' : 'ZATCA Connection Error'}
+                      </p>
+                      <p className="text-xs text-red-700 mt-1 font-mono">{zatcaStatusData.errorMessage}</p>
+                    </div>
+                  </div>
+                )}
+              </Card>
+
+              {/* ── Onboarding form — shown when not connected or error ── */}
+              {(!zatcaStatusData || zatcaStatusData.status === 'not_started' || zatcaStatusData.status === 'error') && (
+                <Card>
+                  <CardHeader>
+                    <CardTitle>{isAr ? 'ربط بـ ZATCA' : 'Connect to ZATCA'}</CardTitle>
+                  </CardHeader>
+
+                  <div className="space-y-5">
+                    {/* Help banner */}
+                    <div className="flex items-start gap-3 p-4 rounded-xl bg-brand-50 border border-brand-200">
+                      <div className="flex-shrink-0 w-7 h-7 rounded-full bg-brand-100 flex items-center justify-center mt-0.5">
+                        <span className="text-brand-700 text-sm font-bold">?</span>
+                      </div>
+                      <div className="text-xs text-brand-800 leading-relaxed">
+                        <p className="font-semibold mb-1">
+                          {isAr ? 'كيف تحصل على رمز OTP؟' : 'How to get the OTP code?'}
+                        </p>
+                        <p>
+                          {isAr
+                            ? 'سجّل دخول على بوابة فاتورة ← التهيئة ← إضافة حل فوترة جديد ← طلب رمز OTP'
+                            : 'Log in to Fatoora portal → Configuration → Add new solution unit → Request OTP code'}
+                        </p>
+                        <a
+                          href="https://fatoora.zatca.gov.sa"
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-1 mt-1.5 font-semibold text-brand-700 hover:text-brand-900"
+                        >
+                          fatoora.zatca.gov.sa
+                          <ChevronRight size={12} />
+                        </a>
+                      </div>
+                    </div>
+
+                    {/* VAT number */}
+                    <Input
+                      label={isAr ? 'الرقم الضريبي (VAT)' : 'VAT Number'}
+                      value={zatcaVatNumber}
+                      onChange={e => setZatcaVatNumber(e.target.value)}
+                      hint={isAr
+                        ? 'اتركه فارغاً إذا كان محدداً في بيانات الوكالة'
+                        : 'Leave empty if already set in agency profile'}
+                      placeholder="300000000000003"
+                      dir="ltr"
+                      maxLength={15}
+                    />
+
+                    {/* CR number */}
+                    <Input
+                      label={isAr ? 'رقم السجل التجاري' : 'CR Number'}
+                      value={zatcaCrNumber}
+                      onChange={e => setZatcaCrNumber(e.target.value)}
+                      hint={isAr
+                        ? 'اتركه فارغاً إذا كان محدداً في بيانات الوكالة'
+                        : 'Leave empty if already set in agency profile'}
+                      placeholder="4030000000"
+                      dir="ltr"
+                    />
+
+                    {/* Environment selector */}
+                    <div>
+                      <p className="text-sm font-medium text-slate-700 mb-1">
+                        {isAr ? 'البيئة' : 'Environment'}
+                      </p>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        {(
+                          [
+                            {
+                              value: 'simulation' as const,
+                              ar: 'اختبار (Simulation)',
+                              en: 'Testing (Simulation)',
+                              descAr: 'للتجربة والتطوير — يُنصح للبدء',
+                              descEn: 'For testing & development — recommended to start',
+                              safe: true,
+                            },
+                            {
+                              value: 'production' as const,
+                              ar: 'إنتاج (Production)',
+                              en: 'Production',
+                              descAr: 'للفواتير الحقيقية — قرار نهائي',
+                              descEn: 'For real invoices — final decision',
+                              safe: false,
+                            },
+                          ] as const
+                        ).map(env => (
+                          <label
+                            key={env.value}
+                            className={cn(
+                              'flex flex-col gap-2 p-4 rounded-xl border-2 cursor-pointer transition-colors',
+                              zatcaEnv === env.value
+                                ? env.safe
+                                  ? 'border-emerald-400 bg-emerald-50'
+                                  : 'border-red-400 bg-red-50'
+                                : 'border-slate-200 bg-white hover:border-slate-300',
+                            )}
+                          >
+                            <div className="flex items-center gap-2">
+                              <input
+                                type="radio"
+                                name="zatca-env"
+                                value={env.value}
+                                checked={zatcaEnv === env.value}
+                                onChange={() => setZatcaEnv(env.value)}
+                                className="accent-brand-600 w-4 h-4"
+                              />
+                              <span className="text-sm font-semibold text-slate-900">
+                                {isAr ? env.ar : env.en}
+                              </span>
+                              {!env.safe && (
+                                <Badge variant="danger" className="ms-auto">
+                                  {isAr ? 'تحذير' : 'Warning'}
+                                </Badge>
+                              )}
+                            </div>
+                            <p className="text-xs text-slate-500 ps-6">
+                              {isAr ? env.descAr : env.descEn}
+                            </p>
+                          </label>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* OTP input */}
+                    <div>
+                      <Input
+                        label={isAr ? 'رمز OTP من بوابة فاتورة' : 'OTP from Fatoora Portal'}
+                        value={zatcaOtp}
+                        onChange={e => setZatcaOtp(e.target.value)}
+                        required
+                        placeholder={isAr ? '123456 (للاختبار)' : '123456 (for testing)'}
+                        dir="ltr"
+                        maxLength={6}
+                      />
+                      <p className="text-xs text-slate-400 mt-1.5">
+                        {isAr
+                          ? 'للحصول على OTP: سجّل دخول على بوابة فاتورة ← التهيئة ← طلب رمز OTP'
+                          : 'To get OTP: Log in to Fatoora portal → Configuration → Request OTP'}
+                      </p>
+                    </div>
+
+                    {/* Feedback messages */}
+                    {zatcaSuccess && (
+                      <div className="flex items-start gap-3 p-4 rounded-xl bg-emerald-50 border border-emerald-200">
+                        <CheckCircle2 size={16} className="text-emerald-600 flex-shrink-0 mt-0.5" />
+                        <p className="text-sm text-emerald-800">{zatcaSuccess}</p>
+                      </div>
+                    )}
+                    {zatcaError && (
+                      <div className="flex items-start gap-3 p-4 rounded-xl bg-red-50 border border-red-200">
+                        <XCircle size={16} className="text-red-600 flex-shrink-0 mt-0.5" />
+                        <p className="text-sm text-red-800">{zatcaError}</p>
+                      </div>
+                    )}
+
+                    {/* Submit */}
+                    <div className="border-t border-surface-border pt-5 flex items-center justify-between gap-3">
+                      <p className="text-xs text-slate-400">
+                        {isAr
+                          ? 'تأكد من صحة جميع البيانات قبل الضغط على "ربط"'
+                          : 'Make sure all data is correct before clicking Connect'}
+                      </p>
+                      <Button
+                        onClick={() => void handleZatcaOnboard()}
+                        loading={zatcaSubmitting}
+                        disabled={zatcaSubmitting || !zatcaOtp.trim()}
+                      >
+                        <Shield size={15} />
+                        {zatcaSubmitting
+                          ? (isAr ? 'جارٍ الربط...' : 'Connecting...')
+                          : (isAr ? 'ربط بـ ZATCA' : 'Connect to ZATCA')}
+                      </Button>
+                    </div>
+                  </div>
+                </Card>
+              )}
+
+              {/* ── Pending OTP info ── */}
+              {zatcaStatusData?.status === 'pending_otp' && (
+                <Card padding="sm" className="border-amber-200 bg-amber-50">
+                  <div className="flex items-start gap-3 p-1">
+                    <AlertTriangle size={16} className="text-amber-600 flex-shrink-0 mt-0.5" />
+                    <div>
+                      <p className="text-sm font-semibold text-amber-900">
+                        {isAr ? 'في انتظار تأكيد OTP' : 'Waiting for OTP Confirmation'}
+                      </p>
+                      <p className="text-xs text-amber-700 mt-1">
+                        {isAr
+                          ? 'الطلب قيد المعالجة. يُرجى الانتظار أو المحاولة مجدداً.'
+                          : 'Request is being processed. Please wait or try again.'}
+                      </p>
+                    </div>
+                  </div>
+                </Card>
+              )}
+
+              {/* ── Phase 1 vs Phase 2 info box ── */}
+              <div className="flex items-start gap-3 p-4 rounded-2xl bg-slate-50 border border-slate-200">
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs font-semibold text-slate-700 mb-2">
+                    {isAr ? 'المرحلة الأولى مقابل المرحلة الثانية' : 'Phase 1 vs Phase 2'}
                   </p>
-                  <div className="mt-2 flex items-center gap-4 text-[11px]">
-                    <span className="flex items-center gap-1.5 text-emerald-400">
-                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+                  <div className="flex items-center gap-4 text-[11px] flex-wrap">
+                    <span className="flex items-center gap-1.5 text-emerald-700">
+                      <CheckCircle2 size={11} className="text-emerald-500" />
                       {isAr ? 'المرحلة الأولى (ورقية): مدعومة' : 'Phase 1 (paper): supported'}
                     </span>
-                    <span className="flex items-center gap-1.5 text-slate-400">
-                      <span className="w-1.5 h-1.5 rounded-full bg-slate-500" />
-                      {isAr ? 'المرحلة الثانية (إلكترونية): قريباً' : 'Phase 2 (electronic): coming soon'}
+                    <span className={cn(
+                      'flex items-center gap-1.5',
+                      zatcaStatusData?.isReady ? 'text-emerald-700' : 'text-slate-400',
+                    )}>
+                      {zatcaStatusData?.isReady
+                        ? <CheckCircle2 size={11} className="text-emerald-500" />
+                        : <span className="w-2.5 h-2.5 rounded-full bg-slate-300 inline-block" />}
+                      {isAr ? 'المرحلة الثانية (إلكترونية)' : 'Phase 2 (e-invoicing)'}
+                      {!zatcaStatusData?.isReady && (
+                        <span className="text-slate-400">
+                          {isAr ? ' — يتطلب الربط' : ' — requires connection'}
+                        </span>
+                      )}
                     </span>
                   </div>
                 </div>
               </div>
 
-              <Card>
-                <CardHeader>
-                  <CardTitle>ZATCA {isAr ? 'المرحلة الثانية' : 'Phase 2'}</CardTitle>
-                  <Badge variant="warning">{isAr ? 'غير مُهيأ' : 'Not Configured'}</Badge>
-                </CardHeader>
-
-                <div className="space-y-5">
-                  {/* Certificate status */}
-                  <div className="flex items-start gap-3 p-4 rounded-xl bg-amber-50 border border-amber-200">
-                    <AlertTriangle size={20} className="text-amber-600 flex-shrink-0 mt-0.5" />
-                    <div>
-                      <p className="text-sm font-semibold text-amber-900">
-                        {isAr ? 'الشهادة الرقمية غير مُهيأة' : 'Digital Certificate Not Configured'}
-                      </p>
-                      <p className="text-xs text-amber-700 mt-1 leading-relaxed">
-                        {isAr
-                          ? 'يلزم تحميل شهادة ZATCA وتهيئتها لتفعيل إصدار الفواتير الإلكترونية المتوافقة مع متطلبات هيئة الزكاة والضريبة والجمارك.'
-                          : 'A ZATCA digital certificate must be uploaded and configured to enable e-invoicing compliant with ZATCA requirements.'}
-                      </p>
-                    </div>
-                  </div>
-
-                  {/* Environment toggle */}
-                  <div>
-                    <p className="text-sm font-semibold text-slate-700 mb-1">
-                      {isAr ? 'بيئة العمل' : 'Environment'}
-                    </p>
-                    <p className="text-xs text-slate-500 mb-3">
-                      {isAr
-                        ? 'اختر بيئة الاختبار للتطوير وبيئة الإنتاج للفواتير الحقيقية فقط.'
-                        : 'Use Testing for development. Switch to Production only for real invoices.'}
-                    </p>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                      {(
-                        [
-                          {
-                            value: 'testing' as const,
-                            ar: 'بيئة الاختبار',
-                            en: 'Testing',
-                            descAr: 'للتطوير والتجربة — لا تُولَّد فواتير حقيقية',
-                            descEn: 'For development & testing — no real invoices',
-                            safe: true,
-                          },
-                          {
-                            value: 'production' as const,
-                            ar: 'بيئة الإنتاج',
-                            en: 'Production',
-                            descAr: 'للفواتير الحقيقية — قرار لا رجعة فيه',
-                            descEn: 'For real invoices — irreversible decision',
-                            safe: false,
-                          },
-                        ] as const
-                      ).map(env => (
-                        <label
-                          key={env.value}
-                          className={cn(
-                            'flex flex-col gap-2 p-4 rounded-xl border-2 cursor-pointer transition-colors',
-                            zatcaEnv === env.value
-                              ? env.safe
-                                ? 'border-emerald-400 bg-emerald-50'
-                                : 'border-red-400 bg-red-50'
-                              : 'border-slate-200 bg-white hover:border-slate-300',
-                          )}
-                        >
-                          <div className="flex items-center gap-2">
-                            <input
-                              type="radio"
-                              name="zatca-env"
-                              value={env.value}
-                              checked={zatcaEnv === env.value}
-                              onChange={() => setZatcaEnv(env.value)}
-                              className="accent-brand-600 w-4 h-4"
-                            />
-                            <span className="text-sm font-semibold text-slate-900">
-                              {isAr ? env.ar : env.en}
-                            </span>
-                            {!env.safe && (
-                              <Badge variant="danger" className="ms-auto">
-                                {isAr ? 'تحذير' : 'Warning'}
-                              </Badge>
-                            )}
-                          </div>
-                          <p className="text-xs text-slate-500 ps-6">
-                            {isAr ? env.descAr : env.descEn}
-                          </p>
-                        </label>
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* Certificate upload instructions */}
-                  <div className="border-t border-surface-border pt-5">
-                    <p className="text-sm font-semibold text-slate-700 mb-2">
-                      {isAr ? 'تحميل الشهادة الرقمية' : 'Upload Digital Certificate'}
-                    </p>
-                    <p className="text-xs text-slate-500 mb-4 leading-relaxed">
-                      {isAr
-                        ? 'لأسباب أمنية، يتم رفع شهادة ZATCA عبر Firebase Console ← Functions ← Environment Variables. لا تُرسل الشهادة عبر البريد الإلكتروني أو تحتفظ بها في الكود المصدري.'
-                        : 'For security reasons, upload the ZATCA certificate via Firebase Console → Functions → Environment Variables. Never send the certificate by email or store it in source code.'}
-                    </p>
-                    <div className="flex flex-col sm:flex-row gap-3">
-                      <a
-                        href="#"
-                        className="inline-flex items-center gap-1.5 text-sm text-brand-600 hover:text-brand-700 font-semibold"
-                      >
-                        {isAr ? 'دليل إعداد ZATCA' : 'ZATCA Setup Guide'}
-                        <ChevronRight size={14} />
-                      </a>
-                      <a
-                        href="https://console.firebase.google.com"
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="inline-flex items-center gap-1.5 text-sm text-slate-500 hover:text-slate-700 font-medium"
-                      >
-                        {isAr ? 'فتح Firebase Console' : 'Open Firebase Console'}
-                        <ChevronRight size={14} />
-                      </a>
-                    </div>
-                  </div>
-                </div>
-              </Card>
             </div>
           )}
 
