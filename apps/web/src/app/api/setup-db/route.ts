@@ -908,6 +908,9 @@ CREATE TABLE IF NOT EXISTS agency_features (
 );
 CREATE INDEX IF NOT EXISTS agency_features_agency_idx ON agency_features(agency_id);
 
+-- ══ JOURNAL ENTRIES: service_type for GL categorisation ═════════════════════
+ALTER TABLE journal_entries ADD COLUMN IF NOT EXISTS service_type TEXT;
+
 -- ══ BANK RECONCILIATION COLUMNS ══════════════════════════════════════════════
 ALTER TABLE bank_accounts ADD COLUMN IF NOT EXISTS reconciled_at               TIMESTAMPTZ;
 ALTER TABLE bank_accounts ADD COLUMN IF NOT EXISTS reconciled_balance_halalas  BIGINT;

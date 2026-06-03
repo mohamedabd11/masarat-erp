@@ -58,6 +58,8 @@ export async function register() {
     `ALTER TABLE quotes ADD COLUMN IF NOT EXISTS converted_at TIMESTAMPTZ`,
 
     // ── 2026-06 — ZATCA Phase 2 columns ──────────────────────────────────────
+    `ALTER TABLE journal_entries ADD COLUMN IF NOT EXISTS service_type TEXT`,
+
     `ALTER TABLE agencies ADD COLUMN IF NOT EXISTS zatca_environment TEXT NOT NULL DEFAULT 'simulation'`,
     `ALTER TABLE agencies ADD COLUMN IF NOT EXISTS zatca_onboarding_status TEXT NOT NULL DEFAULT 'not_started'`,
     `ALTER TABLE agencies ADD COLUMN IF NOT EXISTS zatca_compliance_request_id TEXT`,
@@ -76,13 +78,19 @@ export async function register() {
   try {
     const { neon } = await import('@neondatabase/serverless');
     const sql = neon(process.env.DATABASE_URL);
+    let failed = 0;
     for (const stmt of migrations) {
-      await sql.query(stmt);
+      try {
+        await sql.query(stmt);
+      } catch (stmtErr) {
+        failed++;
+        // Log individual failures but continue — a failed idempotent migration
+        // should not prevent subsequent migrations from running.
+        console.error(JSON.stringify({ event: 'db_migration_stmt_failed', error: String(stmtErr), stmt: stmt.slice(0, 80) }));
+      }
     }
-    console.log(JSON.stringify({ event: 'db_migrations_applied', count: migrations.length }));
+    console.log(JSON.stringify({ event: 'db_migrations_applied', total: migrations.length, failed }));
   } catch (err) {
-    // Log but don't crash the server — a failed migration is investigated,
-    // not a reason to take the whole app down.
     console.error(JSON.stringify({ event: 'db_migrations_failed', error: String(err) }));
   }
 
