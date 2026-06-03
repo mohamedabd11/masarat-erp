@@ -312,7 +312,28 @@ export default function SettingsPage() {
       setDbSetupRunning(false);
     }
   }
-  const [zatcaEnv, setZatcaEnv] = useState<'testing' | 'production'>('testing');
+  // ── ZATCA Phase 2 onboarding state ─────────────────────────────────────
+  type ZatcaStatus = {
+    status: 'not_started' | 'pending_otp' | 'compliance' | 'production' | 'error';
+    environment: 'simulation' | 'production';
+    onboardedAt: string | null;
+    errorMessage: string | null;
+    hasCertificate: boolean;
+    certificateExpiry: string | null;
+    vatNumber: string | null;
+    isVatRegistered: boolean;
+    isReady: boolean;
+    isComplianceMode: boolean;
+  };
+  const [zatcaStatusData,    setZatcaStatusData]    = useState<ZatcaStatus | null>(null);
+  const [loadingZatca,       setLoadingZatca]       = useState(false);
+  const [zatcaOtp,           setZatcaOtp]           = useState('');
+  const [zatcaVatNumber,     setZatcaVatNumber]     = useState('');
+  const [zatcaCrNumber,      setZatcaCrNumber]      = useState('');
+  const [zatcaEnv,           setZatcaEnv]           = useState<'simulation' | 'production'>('simulation');
+  const [zatcaSubmitting,    setZatcaSubmitting]    = useState(false);
+  const [zatcaSuccess,       setZatcaSuccess]       = useState('');
+  const [zatcaError,         setZatcaError]         = useState('');
 
   // ── Agency info (loaded from / saved to Firestore) ────────────────────
   const [nameAr, setNameAr] = useState('مسارات للسياحة والسفر');
@@ -492,6 +513,63 @@ export default function SettingsPage() {
     void loadMonitoring();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [agencyId, activeTab]);
+
+  // ── ZATCA: load status & submit onboarding ──────────────────────────────
+  async function loadZatcaStatus() {
+    if (!agencyId) return;
+    setLoadingZatca(true);
+    try {
+      const { apiFetch } = await import('@/lib/api-client');
+      const data = await apiFetch<ZatcaStatus>('/api/agencies/zatca/status');
+      setZatcaStatusData(data);
+      // Pre-fill form fields from agency data if available
+      if (data.vatNumber) setZatcaVatNumber(data.vatNumber);
+      setZatcaEnv(data.environment === 'production' ? 'production' : 'simulation');
+    } catch {
+      // Status load failure is non-fatal — show form anyway
+    } finally {
+      setLoadingZatca(false);
+    }
+  }
+
+  useEffect(() => {
+    if (!agencyId || activeTab !== 'zatca') return;
+    void loadZatcaStatus();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [agencyId, activeTab]);
+
+  async function handleZatcaOnboard() {
+    setZatcaSubmitting(true);
+    setZatcaError('');
+    setZatcaSuccess('');
+    try {
+      const { apiFetch } = await import('@/lib/api-client');
+      const body: Record<string, string> = { otp: zatcaOtp.trim(), environment: zatcaEnv };
+      if (zatcaVatNumber.trim()) body.vatNumber  = zatcaVatNumber.trim();
+      if (zatcaCrNumber.trim())  body.crNumber   = zatcaCrNumber.trim();
+      await apiFetch('/api/agencies/zatca/onboard', { method: 'POST', body: JSON.stringify(body) });
+      setZatcaSuccess(isAr ? 'تم الربط بـ ZATCA بنجاح! النظام الآن في وضع الامتثال.' : 'Connected to ZATCA successfully! System is now in compliance mode.');
+      setZatcaOtp('');
+      await loadZatcaStatus();
+    } catch (err) {
+      setZatcaError((err as Error).message ?? (isAr ? 'فشل الاتصال بـ ZATCA' : 'ZATCA connection failed'));
+    } finally {
+      setZatcaSubmitting(false);
+    }
+  }
+
+  // ── ZATCA status badge helper ───────────────────────────────────────────
+  function ZatcaStatusBadge({ s }: { s: ZatcaStatus['status'] }) {
+    const map: Record<ZatcaStatus['status'], { variant: 'neutral' | 'info' | 'success' | 'warning' | 'danger'; ar: string; en: string }> = {
+      not_started: { variant: 'neutral',  ar: 'غير متصل',       en: 'Not Connected' },
+      pending_otp: { variant: 'warning',  ar: 'جار الاتصال...', en: 'Connecting...' },
+      compliance:  { variant: 'info',     ar: 'وضع الاختبار',   en: 'Test Mode' },
+      production:  { variant: 'success',  ar: 'متصل ✓',         en: 'Connected ✓' },
+      error:       { variant: 'danger',   ar: 'خطأ في الاتصال', en: 'Connection Error' },
+    };
+    const item = map[s];
+    return <Badge variant={item.variant}>{isAr ? item.ar : item.en}</Badge>;
+  }
 
   async function handleTestProvider(id: string) {
     setTestingId(id);
