@@ -1,0 +1,40 @@
+name: Database Backup
+on:
+  schedule:
+    - cron: '0 2 * * *'  # 2 AM UTC (5 AM AST) daily
+  workflow_dispatch:
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check secrets
+        id: check
+        run: |
+          if [ -z "${{ secrets.DATABASE_URL }}" ]; then
+            echo "skip=true" >> $GITHUB_OUTPUT
+            echo "⚠️  DATABASE_URL not set — skipping backup"
+          else
+            echo "skip=false" >> $GITHUB_OUTPUT
+          fi
+      - name: Install pg_dump
+        if: steps.check.outputs.skip == 'false'
+        run: sudo apt-get install -y postgresql-client
+      - name: Run backup
+        if: steps.check.outputs.skip == 'false'
+        run: |
+          TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+          pg_dump "${{ secrets.DATABASE_URL }}" \
+            --format=custom \
+            --no-owner \
+            --no-acl \
+            --file="backup_${TIMESTAMP}.dump"
+          echo "Backup created: backup_${TIMESTAMP}.dump ($(du -sh backup_${TIMESTAMP}.dump | cut -f1))"
+        env:
+          PGPASSWORD: ''
+      - name: Upload backup artifact
+        if: steps.check.outputs.skip == 'false'
+        uses: actions/upload-artifact@v4
+        with:
+          name: db-backup-${{ github.run_id }}
+          path: backup_*.dump
+          retention-days: 30
