@@ -62,9 +62,23 @@ export async function PATCH(request: Request, { params }: { params: { id: string
       .where(and(eq(bookings.id, params.id), eq(bookings.agencyId, agencyId)));
     if (!existing) return NextResponse.json({ error: 'الحجز غير موجود' }, { status: 404 });
 
-    // Prevent reactivating a cancelled booking to completed
-    if (existing.status === 'cancelled' && body['status'] === 'confirmed') {
-      return NextResponse.json({ error: 'لا يمكن إعادة تفعيل حجز ملغي' }, { status: 422 });
+    // Enforce booking status state machine — cancelled and completed are terminal
+    if (body['status'] !== undefined && body['status'] !== existing.status) {
+      const prevStatus = existing.status;
+      const newStatus  = body['status'] as string;
+      const ALLOWED_TRANSITIONS: Record<string, string[]> = {
+        draft:     ['confirmed', 'cancelled'],
+        confirmed: ['completed', 'cancelled'],
+        completed: [],
+        cancelled: [],
+      };
+      const allowed = ALLOWED_TRANSITIONS[prevStatus] ?? [];
+      if (!allowed.includes(newStatus)) {
+        return NextResponse.json(
+          { error: `Cannot transition booking from '${prevStatus}' to '${newStatus}'` },
+          { status: 422 },
+        );
+      }
     }
 
     // If financial or structural fields are being modified, check no invoice exists

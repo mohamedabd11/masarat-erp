@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { eq, and, gte, lt, sql, sum } from 'drizzle-orm';
+import { eq, and, gte, lt, sql, sum, isNotNull } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { invoices, bookings } from '@/lib/schema';
 import { verifyAuth, ApiAuthError } from '@/lib/api-auth';
@@ -33,7 +33,9 @@ export async function GET(request: Request) {
     const monthRevenue = Number(monthAgg?.revenue ?? 0);
     const monthVat     = Number(monthAgg?.vat     ?? 0);
 
-    // Monthly profit: join bookings to get cost for invoices issued this month
+    // Monthly profit: only count cost for bookings that have been invoiced this month.
+    // Bookings without an invoice have not yet generated revenue, so including their
+    // cost would understate profit. invoices.bookingId links a booking to its invoice.
     const monthBookingRows = await db
       .select({
         totalPriceHalalas: bookings.totalPriceHalalas,
@@ -41,11 +43,17 @@ export async function GET(request: Request) {
         status:            bookings.status,
       })
       .from(bookings)
+      .innerJoin(invoices, and(
+        eq(invoices.bookingId, bookings.id),
+        eq(invoices.agencyId, agencyId),
+        sql`${invoices.status} NOT IN ('cancelled','refunded')`,
+      ))
       .where(and(
         eq(bookings.agencyId, agencyId),
         gte(bookings.createdAt, startOfMonth),
         lt(bookings.createdAt, startOfNext),
         sql`${bookings.status} NOT IN ('cancelled')`,
+        isNotNull(invoices.bookingId),
       ));
 
     let monthCost = 0;

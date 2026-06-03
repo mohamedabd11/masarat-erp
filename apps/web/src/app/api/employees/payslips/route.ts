@@ -91,9 +91,10 @@ export async function POST(request: Request) {
     const gross     = base + housing + transport + other;
     const deduct    = body.deductionsHalalas ?? 0;
     const gosiEmployee = body.gosiEmployeeHalalas ?? 0;
-    // GOSI Saudi employer contribution: 9.75% on basic + housing (GOSI-eligible base)
+    // GOSI employer: 9% pension + 2% annuities + 0.75% hazard = 11.75%
+    const GOSI_EMPLOYER_RATE = 0.1175;
     const gosiBase     = base + housing;
-    const gosiEmployer = Math.round(gosiBase * 0.0975);
+    const gosiEmployer = Math.round(gosiBase * GOSI_EMPLOYER_RATE);
     const net          = gross - deduct - advanceDeduction - gosiEmployee;
 
     const id    = crypto.randomUUID();
