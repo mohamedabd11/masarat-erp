@@ -21,6 +21,31 @@ export async function register() {
     // cheques was created without bank_account_id; add it to existing tables.
     `ALTER TABLE cheques ADD COLUMN IF NOT EXISTS bank_account_id TEXT REFERENCES bank_accounts(id)`,
 
+    // agencies: new columns added post-initial-DDL
+    `ALTER TABLE agencies ADD COLUMN IF NOT EXISTS default_quote_terms    TEXT`,
+    `ALTER TABLE agencies ADD COLUMN IF NOT EXISTS max_users              INTEGER NOT NULL DEFAULT 5`,
+    `ALTER TABLE agencies ADD COLUMN IF NOT EXISTS trial_starts_at        TIMESTAMPTZ`,
+    `ALTER TABLE agencies ADD COLUMN IF NOT EXISTS subscription_starts_at TIMESTAMPTZ`,
+
+    // pnr_records: columns added in migration 0011
+    `ALTER TABLE pnr_records ADD COLUMN IF NOT EXISTS sync_status  TEXT`,
+    `ALTER TABLE pnr_records ADD COLUMN IF NOT EXISTS segments     JSONB`,
+    `ALTER TABLE pnr_records ADD COLUMN IF NOT EXISTS passengers   JSONB`,
+    `ALTER TABLE pnr_records ADD COLUMN IF NOT EXISTS cancelled_at TIMESTAMPTZ`,
+    `ALTER TABLE pnr_records ADD COLUMN IF NOT EXISTS cancelled_by TEXT`,
+    `ALTER TABLE pnr_records ADD COLUMN IF NOT EXISTS deleted_at   TIMESTAMPTZ`,
+
+    // payslips: employer GOSI
+    `ALTER TABLE payslips ADD COLUMN IF NOT EXISTS gosi_employer_halalas INTEGER NOT NULL DEFAULT 0`,
+
+    // service_types: revenue mode and VAT config
+    `ALTER TABLE service_types ADD COLUMN IF NOT EXISTS revenue_mode TEXT NOT NULL DEFAULT 'principal'`,
+    `ALTER TABLE service_types ADD COLUMN IF NOT EXISTS vat_rate     INTEGER`,
+    `ALTER TABLE service_types ADD COLUMN IF NOT EXISTS is_taxable   BOOLEAN`,
+
+    // customers: opening balance
+    `ALTER TABLE customers ADD COLUMN IF NOT EXISTS opening_balance_halalas BIGINT NOT NULL DEFAULT 0`,
+
     // accounting_periods was missing from the original setup-db DDL.
     `CREATE TABLE IF NOT EXISTS accounting_periods (
       id            TEXT PRIMARY KEY,
@@ -52,6 +77,8 @@ export async function register() {
 
     // invoices: link credit/debit notes to original invoice
     `ALTER TABLE invoices ADD COLUMN IF NOT EXISTS original_invoice_id TEXT`,
+    `ALTER TABLE invoices ADD COLUMN IF NOT EXISTS deferred_until TEXT`,
+    `ALTER TABLE invoices ADD COLUMN IF NOT EXISTS revenue_recognized_at TEXT`,
 
     // quotes: conversion tracking
     `ALTER TABLE quotes ADD COLUMN IF NOT EXISTS converted_to_booking_id TEXT`,
