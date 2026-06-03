@@ -192,6 +192,6 @@ export async function POST(request: Request) {
     if (err instanceof BusinessError) return NextResponse.json({ error: err.message }, { status: err.status });
     const errMsg = err instanceof Error ? err.message : String(err);
     console.error(JSON.stringify({ event: 'direct_invoice_create_failed', error: errMsg, stack: err instanceof Error ? err.stack?.slice(0, 500) : undefined }));
-    return NextResponse.json({ error: 'خطأ في الخادم' }, { status: 500 });
+    return NextResponse.json({ error: errMsg || 'خطأ في الخادم' }, { status: 500 });
   }
 }
