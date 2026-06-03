@@ -117,11 +117,11 @@ function buildSubjectRdn(input: ZatcaCsrInput, softwareName: string, softwareVer
 function buildExtensionRequest(vatNumber: string): forge.asn1.Asn1 {
   // subjectAltName extension value: SEQUENCE of GeneralNames
   // otherName: [0] IMPLICIT { OID, [0] EXPLICIT UTF8String }
-  const otherNameValue = asn1.create(asn1.Class.CONTEXT, 0, true, [
+  const otherNameValue = asn1.create(asn1.Class.CONTEXT_SPECIFIC, 0, true, [
     asn1.create(asn1.Class.UNIVERSAL, asn1.Type.UTF8, false, vatNumber),
   ]);
 
-  const otherName = asn1.create(asn1.Class.CONTEXT, 0, true, [
+  const otherName = asn1.create(asn1.Class.CONTEXT_SPECIFIC, 0, true, [
     oidNode(OID_ZATCA_VAT),
     otherNameValue,
   ]);
@@ -216,7 +216,7 @@ export function generateZatcaKeyPair(input: ZatcaCsrInput): ZatcaKeyPair {
   const extensionRequest  = buildExtensionRequest(input.vatNumber);
 
   // Attributes [0] IMPLICIT SET containing extensionRequest
-  const attributesNode = asn1.create(asn1.Class.CONTEXT, 0, true, [extensionRequest]);
+  const attributesNode = asn1.create(asn1.Class.CONTEXT_SPECIFIC, 0, true, [extensionRequest]);
 
   // Signature algorithm for TBSCertificationRequest
   const sigAlgNode = asn1.create(asn1.Class.UNIVERSAL, asn1.Type.SEQUENCE, true, [
