@@ -51,7 +51,7 @@ export async function register() {
     `ALTER TABLE bank_transactions ADD COLUMN IF NOT EXISTS reconciled_by TEXT`,
 
     // invoices: link credit/debit notes to original invoice
-    `ALTER TABLE invoices ADD COLUMN IF NOT EXISTS original_invoice_id TEXT REFERENCES invoices(id)`,
+    `ALTER TABLE invoices ADD COLUMN IF NOT EXISTS original_invoice_id TEXT`,
 
     // quotes: conversion tracking
     `ALTER TABLE quotes ADD COLUMN IF NOT EXISTS converted_to_booking_id TEXT`,

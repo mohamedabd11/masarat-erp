@@ -191,7 +191,10 @@ export async function POST(request: Request) {
     if (err instanceof ApiAuthError)  return NextResponse.json({ error: err.message }, { status: err.status });
     if (err instanceof BusinessError) return NextResponse.json({ error: err.message }, { status: err.status });
     const errMsg = err instanceof Error ? err.message : String(err);
-    console.error(JSON.stringify({ event: 'direct_invoice_create_failed', error: errMsg, stack: err instanceof Error ? err.stack?.slice(0, 500) : undefined }));
-    return NextResponse.json({ error: errMsg || 'خطأ في الخادم' }, { status: 500 });
+    const causeMsg = err instanceof Error && (err as Error & { cause?: unknown }).cause instanceof Error
+      ? (err as Error & { cause?: Error }).cause!.message
+      : undefined;
+    console.error(JSON.stringify({ event: 'direct_invoice_create_failed', error: errMsg, cause: causeMsg, stack: err instanceof Error ? err.stack?.slice(0, 500) : undefined }));
+    return NextResponse.json({ error: causeMsg || errMsg || 'خطأ في الخادم' }, { status: 500 });
   }
 }

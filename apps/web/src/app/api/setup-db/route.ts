@@ -919,7 +919,7 @@ ALTER TABLE bank_transactions ADD COLUMN IF NOT EXISTS reconciled_at  TIMESTAMPT
 ALTER TABLE bank_transactions ADD COLUMN IF NOT EXISTS reconciled_by  TEXT;
 
 -- ══ INVOICES: credit/debit note link ══════════════════════════════════════════
-ALTER TABLE invoices ADD COLUMN IF NOT EXISTS original_invoice_id TEXT REFERENCES invoices(id);
+ALTER TABLE invoices ADD COLUMN IF NOT EXISTS original_invoice_id TEXT;
 
 -- ══ QUOTES: conversion tracking ══════════════════════════════════════════════
 ALTER TABLE quotes ADD COLUMN IF NOT EXISTS converted_to_booking_id TEXT;
