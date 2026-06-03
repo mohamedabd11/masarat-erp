@@ -36,6 +36,21 @@ export async function register() {
     )`,
     `CREATE UNIQUE INDEX IF NOT EXISTS accounting_periods_agency_ym_uq
       ON accounting_periods(agency_id, period_year, period_month)`,
+
+    // ── 2026-06 — ZATCA Phase 2 columns ──────────────────────────────────────
+    `ALTER TABLE agencies ADD COLUMN IF NOT EXISTS zatca_environment TEXT NOT NULL DEFAULT 'simulation'`,
+    `ALTER TABLE agencies ADD COLUMN IF NOT EXISTS zatca_onboarding_status TEXT NOT NULL DEFAULT 'not_started'`,
+    `ALTER TABLE agencies ADD COLUMN IF NOT EXISTS zatca_compliance_request_id TEXT`,
+    `ALTER TABLE agencies ADD COLUMN IF NOT EXISTS zatca_compliance_csid TEXT`,
+    `ALTER TABLE agencies ADD COLUMN IF NOT EXISTS zatca_compliance_secret TEXT`,
+    `ALTER TABLE agencies ADD COLUMN IF NOT EXISTS zatca_production_csid TEXT`,
+    `ALTER TABLE agencies ADD COLUMN IF NOT EXISTS zatca_production_secret TEXT`,
+    `ALTER TABLE agencies ADD COLUMN IF NOT EXISTS zatca_private_key TEXT`,
+    `ALTER TABLE agencies ADD COLUMN IF NOT EXISTS zatca_certificate_pem TEXT`,
+    `ALTER TABLE agencies ADD COLUMN IF NOT EXISTS zatca_certificate_expiry TIMESTAMPTZ`,
+    `ALTER TABLE agencies ADD COLUMN IF NOT EXISTS zatca_last_invoice_hash TEXT`,
+    `ALTER TABLE agencies ADD COLUMN IF NOT EXISTS zatca_onboarded_at TIMESTAMPTZ`,
+    `ALTER TABLE agencies ADD COLUMN IF NOT EXISTS zatca_error_message TEXT`,
   ];
 
   try {
