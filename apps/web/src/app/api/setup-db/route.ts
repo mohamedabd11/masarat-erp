@@ -908,6 +908,38 @@ CREATE TABLE IF NOT EXISTS agency_features (
 );
 CREATE INDEX IF NOT EXISTS agency_features_agency_idx ON agency_features(agency_id);
 
+-- ══ BANK RECONCILIATION COLUMNS ══════════════════════════════════════════════
+ALTER TABLE bank_accounts ADD COLUMN IF NOT EXISTS reconciled_at               TIMESTAMPTZ;
+ALTER TABLE bank_accounts ADD COLUMN IF NOT EXISTS reconciled_balance_halalas  BIGINT;
+ALTER TABLE bank_transactions ADD COLUMN IF NOT EXISTS is_reconciled  BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE bank_transactions ADD COLUMN IF NOT EXISTS reconciled_at  TIMESTAMPTZ;
+ALTER TABLE bank_transactions ADD COLUMN IF NOT EXISTS reconciled_by  TEXT;
+
+-- ══ INVOICES: credit/debit note link ══════════════════════════════════════════
+ALTER TABLE invoices ADD COLUMN IF NOT EXISTS original_invoice_id TEXT REFERENCES invoices(id);
+
+-- ══ QUOTES: conversion tracking ══════════════════════════════════════════════
+ALTER TABLE quotes ADD COLUMN IF NOT EXISTS converted_to_booking_id TEXT;
+ALTER TABLE quotes ADD COLUMN IF NOT EXISTS converted_at             TIMESTAMPTZ;
+
+-- ══ CUSTOMERS: credit limit ══════════════════════════════════════════════════
+ALTER TABLE customers ADD COLUMN IF NOT EXISTS credit_limit_halalas BIGINT NOT NULL DEFAULT 0;
+
+-- ══ ZATCA PHASE 2 ═════════════════════════════════════════════════════════════
+ALTER TABLE agencies ADD COLUMN IF NOT EXISTS zatca_environment          TEXT NOT NULL DEFAULT 'simulation';
+ALTER TABLE agencies ADD COLUMN IF NOT EXISTS zatca_onboarding_status    TEXT NOT NULL DEFAULT 'not_started';
+ALTER TABLE agencies ADD COLUMN IF NOT EXISTS zatca_compliance_request_id TEXT;
+ALTER TABLE agencies ADD COLUMN IF NOT EXISTS zatca_compliance_csid      TEXT;
+ALTER TABLE agencies ADD COLUMN IF NOT EXISTS zatca_compliance_secret    TEXT;
+ALTER TABLE agencies ADD COLUMN IF NOT EXISTS zatca_production_csid      TEXT;
+ALTER TABLE agencies ADD COLUMN IF NOT EXISTS zatca_production_secret    TEXT;
+ALTER TABLE agencies ADD COLUMN IF NOT EXISTS zatca_private_key          TEXT;
+ALTER TABLE agencies ADD COLUMN IF NOT EXISTS zatca_certificate_pem      TEXT;
+ALTER TABLE agencies ADD COLUMN IF NOT EXISTS zatca_certificate_expiry   TIMESTAMPTZ;
+ALTER TABLE agencies ADD COLUMN IF NOT EXISTS zatca_last_invoice_hash    TEXT;
+ALTER TABLE agencies ADD COLUMN IF NOT EXISTS zatca_onboarded_at         TIMESTAMPTZ;
+ALTER TABLE agencies ADD COLUMN IF NOT EXISTS zatca_error_message        TEXT;
+
 -- ══ PERFORMANCE INDEXES (financial query hot paths) ══════════════════════════
 -- Composite indexes that back the agency-scoped report/GL/list queries.
 CREATE INDEX IF NOT EXISTS idx_invoices_agency_status   ON invoices(agency_id, status);
@@ -929,12 +961,12 @@ ALTER TABLE bookings          ALTER COLUMN total_price_halalas TYPE BIGINT, ALTE
 ALTER TABLE payments          ALTER COLUMN amount_halalas TYPE BIGINT;
 ALTER TABLE receipt_vouchers  ALTER COLUMN amount_halalas TYPE BIGINT;
 ALTER TABLE supplier_payments ALTER COLUMN amount_halalas TYPE BIGINT;
-ALTER TABLE customers         ALTER COLUMN credit_limit_halalas TYPE BIGINT, ALTER COLUMN opening_balance_halalas TYPE BIGINT;
+ALTER TABLE customers         ALTER COLUMN opening_balance_halalas TYPE BIGINT;
 ALTER TABLE suppliers         ALTER COLUMN balance_halalas TYPE BIGINT;
 ALTER TABLE recurring_invoices ALTER COLUMN subtotal_halalas TYPE BIGINT, ALTER COLUMN vat_halalas TYPE BIGINT, ALTER COLUMN total_halalas TYPE BIGINT;
 ALTER TABLE bsp_billings      ALTER COLUMN total_sales_halalas TYPE BIGINT, ALTER COLUMN total_refunds_halalas TYPE BIGINT, ALTER COLUMN total_commission_halalas TYPE BIGINT, ALTER COLUMN net_remit_halalas TYPE BIGINT;
 ALTER TABLE bsp_adjustments   ALTER COLUMN amount_halalas TYPE BIGINT;
-ALTER TABLE bank_accounts     ALTER COLUMN opening_balance_halalas TYPE BIGINT, ALTER COLUMN current_balance_halalas TYPE BIGINT, ALTER COLUMN reconciled_balance_halalas TYPE BIGINT;
+ALTER TABLE bank_accounts     ALTER COLUMN opening_balance_halalas TYPE BIGINT, ALTER COLUMN current_balance_halalas TYPE BIGINT;
 ALTER TABLE bank_transactions ALTER COLUMN amount_halalas TYPE BIGINT, ALTER COLUMN balance_after_halalas TYPE BIGINT;
 ALTER TABLE cheques           ALTER COLUMN amount_halalas TYPE BIGINT;
 ALTER TABLE pnr_records       ALTER COLUMN fare_halalas TYPE BIGINT, ALTER COLUMN tax_halalas TYPE BIGINT, ALTER COLUMN total_halalas TYPE BIGINT;
