@@ -949,8 +949,6 @@ ALTER TABLE eosb_accruals     ALTER COLUMN amount_halalas TYPE BIGINT;
 
 `;
 
-const SUPER_ADMIN_EMAIL = process.env['SUPER_ADMIN_EMAIL'] ?? '';
-
 export async function POST(req: NextRequest) {
   // Accept either the setup secret header OR a Firebase auth token (admin/owner role)
   const secret     = req.headers.get('x-setup-secret');
@@ -967,11 +965,11 @@ export async function POST(req: NextRequest) {
       ensureAdminApp();
       const { getAuth } = await import('firebase-admin/auth');
       const decoded = await getAuth().verifyIdToken(bearerToken);
-      const role    = decoded['role'] as string | undefined;
-      const email   = decoded.email ?? '';
-      if (role === 'admin' || role === 'owner' || email === SUPER_ADMIN_EMAIL) {
-        authorized = true;
+      const SUPER_ADMIN_EMAIL = process.env.SUPER_ADMIN_EMAIL;
+      if (!SUPER_ADMIN_EMAIL || decoded.email !== SUPER_ADMIN_EMAIL) {
+        return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
       }
+      authorized = true;
     } catch {
       // invalid token — fall through to 401
     }

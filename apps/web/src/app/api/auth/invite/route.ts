@@ -3,6 +3,7 @@ import { ensureAdminApp } from '@/lib/firebase-admin';
 import { db } from '@/lib/db';
 import { agencies, users } from '@/lib/schema';
 import { eq, count } from 'drizzle-orm';
+import { checkRateLimit, getClientIp } from '@/lib/rate-limit';
 
 const EMAIL_RE  = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 const MAX_NAME  = 100;
@@ -18,6 +19,12 @@ interface InviteUserRequest {
 }
 
 export async function POST(request: Request) {
+  const ip = getClientIp(request);
+  const rl = await checkRateLimit(ip, 'invite');
+  if (!rl.success) {
+    return NextResponse.json({ error: 'Too many requests' }, { status: 429 });
+  }
+
   let firebaseUid: string | null = null;
 
   try {

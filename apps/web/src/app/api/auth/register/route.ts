@@ -3,6 +3,7 @@ import { ensureAdminApp } from '@/lib/firebase-admin';
 import { db } from '@/lib/db';
 import { agencies, users, chartOfAccounts } from '@/lib/schema';
 import { TRIAL_DAYS } from '@masarat/accounting';
+import { checkRateLimit, getClientIp } from '@/lib/rate-limit';
 
 const EMAIL_RE  = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 const PHONE_RE  = /^[+\d\s\-()]{7,20}$/;
@@ -38,6 +39,7 @@ const DEFAULT_COA = [
   { code: '2500', nameAr: 'مخصص مكافأة نهاية الخدمة',     nameEn: 'EOSB Provision',               type: 'liability', },
   { code: '3100', nameAr: 'رأس مال المالك',               nameEn: 'Owner Capital',                type: 'equity',    },
   { code: '3200', nameAr: 'الأرباح المحتجزة',             nameEn: 'Retained Earnings',            type: 'equity',    },
+  { code: '3202', nameAr: 'أرباح محتجزة - سنة سابقة',    nameEn: 'Retained Earnings - Prior Year', type: 'equity',   },
   { code: '3201', nameAr: 'إيراد مؤجل - خدمات سفر',       nameEn: 'Deferred Revenue - Travel',    type: 'liability', },
   { code: '4000', nameAr: 'إيراد رسوم الوكالة',          nameEn: 'Revenue - Agency Fees',        type: 'revenue',   },
   { code: '4100', nameAr: 'إيراد خدمات السفر',           nameEn: 'Revenue - Travel Services',    type: 'revenue',   },
@@ -60,9 +62,16 @@ const DEFAULT_COA = [
   { code: '6100', nameAr: 'مصروف الرواتب',               nameEn: 'Salary Expense',               type: 'expense',   },
   { code: '6200', nameAr: 'مصروف GOSI - صاحب العمل',     nameEn: 'GOSI Expense - Employer',      type: 'expense',   },
   { code: '6300', nameAr: 'مصروف مكافأة نهاية الخدمة',   nameEn: 'EOSB Expense',                 type: 'expense',   },
+  { code: '9001', nameAr: 'حساب التعليق - دخل',           nameEn: 'Suspense Income',               type: 'revenue',   },
 ] as const;
 
 export async function POST(request: Request) {
+  const ip = getClientIp(request);
+  const rl = await checkRateLimit(ip, 'register');
+  if (!rl.success) {
+    return NextResponse.json({ error: 'Too many requests' }, { status: 429 });
+  }
+
   let firebaseUid: string | null = null;
 
   try {

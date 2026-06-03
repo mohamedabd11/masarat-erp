@@ -58,7 +58,12 @@ async function importKey(): Promise<CryptoKey> {
  * If no encryption key is configured, returns the plaintext unchanged.
  */
 export async function encrypt(plaintext: string): Promise<string> {
-  if (!getKeyHex()) return plaintext;             // backward compatibility
+  if (!getKeyHex()) {
+    if (process.env.NODE_ENV === 'production') {
+      throw new Error('ENCRYPTION_KEY is required in production');
+    }
+    return plaintext; // dev only fallback
+  }
   if (plaintext.startsWith(ENVELOPE_PREFIX)) return plaintext; // already encrypted
 
   const key = await importKey();
@@ -76,7 +81,12 @@ export async function encrypt(plaintext: string): Promise<string> {
  */
 export async function decrypt(ciphertext: string): Promise<string> {
   if (!ciphertext.startsWith(ENVELOPE_PREFIX)) return ciphertext; // legacy plaintext
-  if (!getKeyHex()) return ciphertext;            // no key — cannot decrypt, pass through
+  if (!getKeyHex()) {
+    if (process.env.NODE_ENV === 'production') {
+      throw new Error('ENCRYPTION_KEY is required in production');
+    }
+    return ciphertext; // dev only fallback
+  }
 
   const body  = ciphertext.slice(ENVELOPE_PREFIX.length);
   const sep   = body.indexOf(':');
