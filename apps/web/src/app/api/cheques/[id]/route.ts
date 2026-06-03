@@ -4,6 +4,7 @@ import { db } from '@/lib/db';
 import { cheques, journalEntries, journalLines } from '@/lib/schema';
 import { verifyAuth, assertRole, ApiAuthError, BusinessError, ROLES_ACCOUNTANT_UP } from '@/lib/api-auth';
 import { getNextJournalNumber } from '@/lib/invoice-counter';
+import { assertPeriodOpen } from '@/lib/period-lock';
 
 const AC_RECEIVABLE  = { code: '1120', ar: 'ذمم مدينة - عملاء', en: 'Accounts Receivable' };
 const AC_CHEQUES_RCV = { code: '1125', ar: 'أوراق قبض - شيكات', en: 'Cheques Receivable'  };
@@ -32,6 +33,20 @@ export async function PATCH(request: Request, { params }: { params: { id: string
       const newStatus  = body['status'] as string | undefined;
       const prevStatus = existing.status;
 
+      // Only allow forward transitions; prevent e.g. cleared→bounced which would need extra GL reversal
+      const ALLOWED_CHEQUE_TRANSITIONS: Record<string, string[]> = {
+        pending:   ['cleared', 'bounced', 'cancelled'],
+        cleared:   [],
+        bounced:   [],
+        cancelled: [],
+      };
+      if (newStatus && prevStatus) {
+        const allowed = ALLOWED_CHEQUE_TRANSITIONS[prevStatus] ?? [];
+        if (!allowed.includes(newStatus)) {
+          throw new BusinessError(`انتقال حالة غير مسموح: ${prevStatus} → ${newStatus}`, 422);
+        }
+      }
+
       if (newStatus && newStatus !== prevStatus && existing.type === 'incoming') {
         const year  = now.getFullYear();
         const today = now.toISOString().split('T')[0]!;
@@ -41,6 +56,7 @@ export async function PATCH(request: Request, { params }: { params: { id: string
 
         // Cheque cleared → deposit to bank
         if (newStatus === 'cleared') {
+          await assertPeriodOpen(agencyId, today, tx);
           await tx.insert(journalEntries).values({
             id: jeId, agencyId, entryNumber: jeNum, date: today,
             descriptionAr:      `تحصيل شيك ${existing.chequeNumber}`,

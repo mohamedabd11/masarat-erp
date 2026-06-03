@@ -15,6 +15,7 @@ import { bspBillings, journalEntries, journalLines } from '@/lib/schema';
 import { verifyAuth, assertRole, ApiAuthError, ROLES_ADMIN_ONLY, ROLES_MANAGER_UP } from '@/lib/api-auth';
 import { getNextJournalNumber } from '@/lib/invoice-counter';
 import { GL } from '@/lib/gl-accounts';
+import { assertPeriodOpen } from '@/lib/period-lock';
 
 export async function GET(request: Request) {
   try {
@@ -71,6 +72,8 @@ export async function POST(request: Request) {
     const entryId     = crypto.randomUUID();
 
     await db.transaction(async tx => {
+      await assertPeriodOpen(agencyId, body.billingPeriod + '-01', tx);
+
       await tx.insert(journalEntries).values({
         id:              entryId,
         agencyId,

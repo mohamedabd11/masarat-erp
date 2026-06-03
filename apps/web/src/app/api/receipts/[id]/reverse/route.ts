@@ -4,6 +4,7 @@ import { db } from '@/lib/db';
 import { receiptVouchers, invoices, journalEntries, journalLines } from '@/lib/schema';
 import { verifyAuth, assertRole, ApiAuthError, BusinessError, ROLES_ADMIN_ONLY } from '@/lib/api-auth';
 import { getNextReceiptNumber, getNextJournalNumber } from '@/lib/invoice-counter';
+import { assertPeriodOpen } from '@/lib/period-lock';
 
 const METHOD_ACCOUNT: Record<string, { code: string; ar: string; en: string }> = {
   cash:          { code: '1100', ar: 'الصندوق النقدي', en: 'Cash' },
@@ -33,7 +34,13 @@ export async function POST(
       const year  = now.getFullYear();
       const today = now.toISOString().split('T')[0]!;
 
+      await assertPeriodOpen(agencyId, today, tx);
+
       const { amountHalalas, method, customerName, voucherNumber } = orig;
+      // Use AR (1120) if the receipt was invoice-linked; Customer Deposits (2300) if standalone
+      const originalCreditAc = orig.invoiceId
+        ? { code: '1120', ar: 'ذمم مدينة - عملاء', en: 'Accounts Receivable' }
+        : AC_DEPOSITS;
       const paymentAc  = METHOD_ACCOUNT[method] ?? METHOD_ACCOUNT['cash']!;
       const revNumber  = await getNextReceiptNumber(agencyId, year, tx);
       const jeNumber   = await getNextJournalNumber(agencyId, year, tx);
@@ -73,7 +80,7 @@ export async function POST(
       await tx.insert(journalLines).values([
         {
           id: crypto.randomUUID(), entryId: jeId, agencyId,
-          accountCode: AC_DEPOSITS.code, accountNameAr: AC_DEPOSITS.ar, accountNameEn: AC_DEPOSITS.en,
+          accountCode: originalCreditAc.code, accountNameAr: originalCreditAc.ar, accountNameEn: originalCreditAc.en,
           debitHalalas: amountHalalas, creditHalalas: 0, sortOrder: 1,
         },
         {

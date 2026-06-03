@@ -5,6 +5,7 @@ import { supplierPayments, suppliers, journalEntries, journalLines } from '@/lib
 import { verifyAuth, assertRole, ApiAuthError, BusinessError, ROLES_ADMIN_ONLY } from '@/lib/api-auth';
 import { getNextJournalNumber } from '@/lib/invoice-counter';
 import { GL } from '@/lib/gl-accounts';
+import { assertPeriodOpen } from '@/lib/period-lock';
 
 interface ReverseBody {
   supplierPaymentId: string;
@@ -65,8 +66,27 @@ export async function POST(request: Request) {
       const reversalVoucherNumber = `${originalVoucherNumber}-REV`;
       const today               = now.toISOString().split('T')[0]!;
 
+      await assertPeriodOpen(agencyId, today, tx);
+
       const expenseAc = EXPENSE_ACCOUNT[expenseCategory] ?? EXPENSE_ACCOUNT['other']!;
       const paymentAc = METHOD_ACCOUNT[paymentMethod]    ?? METHOD_ACCOUNT['cash']!;
+
+      const origJLines = orig.journalEntryId
+        ? await tx.select().from(journalLines)
+            .where(eq(journalLines.entryId, orig.journalEntryId))
+        : [];
+
+      const reversalJLines = origJLines.length > 0
+        ? origJLines.map((line, idx) => ({
+            id: crypto.randomUUID(), entryId: jeId, agencyId,
+            accountCode: line.accountCode,
+            accountNameAr: line.accountNameAr,
+            accountNameEn: line.accountNameEn,
+            debitHalalas: line.creditHalalas,   // flipped
+            creditHalalas: line.debitHalalas,   // flipped
+            sortOrder: idx + 1,
+          }))
+        : null; // will fall back to 2-line below
 
       await tx.insert(supplierPayments).values({
         id:              reversalId,
@@ -100,11 +120,14 @@ export async function POST(request: Request) {
         createdBy:          uid,
       });
 
-      // Reversal: credit the payment account, debit the expense account (opposite of original)
-      await tx.insert(journalLines).values([
-        { id: crypto.randomUUID(), entryId: jeId, agencyId, accountCode: paymentAc.code, accountNameAr: paymentAc.ar, accountNameEn: paymentAc.en, debitHalalas: amountHalalas, creditHalalas: 0, sortOrder: 1 },
-        { id: crypto.randomUUID(), entryId: jeId, agencyId, accountCode: expenseAc.code, accountNameAr: expenseAc.ar, accountNameEn: expenseAc.en, debitHalalas: 0, creditHalalas: amountHalalas, sortOrder: 2 },
-      ]);
+      // Reversal: reconstruct from original journal lines if available, else fall back to 2-line
+      await tx.insert(journalLines).values(
+        reversalJLines ?? [
+          // fallback 2-line if no original journal found
+          { id: crypto.randomUUID(), entryId: jeId, agencyId, accountCode: paymentAc.code, accountNameAr: paymentAc.ar, accountNameEn: paymentAc.en, debitHalalas: amountHalalas, creditHalalas: 0, sortOrder: 1 },
+          { id: crypto.randomUUID(), entryId: jeId, agencyId, accountCode: expenseAc.code, accountNameAr: expenseAc.ar, accountNameEn: expenseAc.en, debitHalalas: 0, creditHalalas: amountHalalas, sortOrder: 2 },
+        ]
+      );
 
       await tx.update(supplierPayments)
         .set({ status: 'reversed' })

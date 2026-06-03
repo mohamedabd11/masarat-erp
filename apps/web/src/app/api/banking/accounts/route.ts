@@ -5,6 +5,7 @@ import { bankAccounts, journalEntries, journalLines } from '@/lib/schema';
 import { verifyAuth, assertRole, ApiAuthError, ROLES_ACCOUNTANT_UP } from '@/lib/api-auth';
 import { getNextJournalNumber } from '@/lib/invoice-counter';
 import { GL } from '@/lib/gl-accounts';
+import { assertPeriodOpen } from '@/lib/period-lock';
 
 // Map bank account type to default GL code
 function glCodeForType(type: string): { code: string; ar: string; en: string } {
@@ -55,6 +56,7 @@ export async function POST(request: Request) {
         const now   = new Date();
         const year  = now.getFullYear();
         const today = now.toISOString().split('T')[0]!;
+        await assertPeriodOpen(agencyId, today, tx);
         const jeId  = crypto.randomUUID();
         const jeNum = await getNextJournalNumber(agencyId, year, tx);
         const glAc  = glCodeForType(body.type);

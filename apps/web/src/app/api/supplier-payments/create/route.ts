@@ -99,9 +99,9 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'مبلغ الدفعة غير صالح' }, { status: 400 });
     }
 
-    await assertPeriodOpen(agencyId, today0, db);
-
     const result = await db.transaction(async (tx: Tx) => {
+      await assertPeriodOpen(agencyId, today0, tx);
+
       const now   = new Date();
       const year  = now.getFullYear();
       const today = now.toISOString().split('T')[0]!;
