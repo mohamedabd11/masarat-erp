@@ -14,7 +14,19 @@ jobs:
         with: { node-version: '20', cache: 'pnpm' }
       - run: pnpm install
       - run: pnpm --filter @masarat/web exec playwright install --with-deps chromium
+      - name: Check E2E secrets
+        id: check
+        run: |
+          if [ -z "$E2E_URL" ]; then
+            echo "skip=true" >> $GITHUB_OUTPUT
+            echo "::warning::E2E_BASE_URL secret not configured — skipping E2E tests"
+          else
+            echo "skip=false" >> $GITHUB_OUTPUT
+          fi
+        env:
+          E2E_URL: ${{ secrets.E2E_BASE_URL }}
       - name: Run E2E tests
+        if: steps.check.outputs.skip == 'false'
         run: pnpm --filter @masarat/web test:e2e
         env:
           PLAYWRIGHT_BASE_URL: ${{ secrets.E2E_BASE_URL }}
