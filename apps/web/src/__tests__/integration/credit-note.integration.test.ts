@@ -20,7 +20,7 @@
  */
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import { eq, and } from 'drizzle-orm';
-import { getTestDb, closeTestDb, sql } from './test-db';
+import { getTestDb, closeTestDb, sql , SKIP_IF_NO_DB } from './test-db';
 import { agencies, invoices, journalEntries, journalLines } from '@/lib/schema';
 import { getNextJournalNumber } from '@/lib/invoice-counter';
 import { GL } from '@/lib/gl-accounts';
@@ -150,6 +150,7 @@ async function lines(jeId: string) {
 // ─── Setup / Teardown ─────────────────────────────────────────────────────────
 
 beforeAll(async () => {
+  if (SKIP_IF_NO_DB) return;
   const db = getTestDb();
   await db.insert(agencies).values({
     id: AGENCY_ID, nameAr: 'وكالة اختبار الإشعارات الدائنة',
@@ -158,12 +159,14 @@ beforeAll(async () => {
 });
 
 beforeEach(async () => {
+  if (SKIP_IF_NO_DB) return;
   await sql(`DELETE FROM journal_lines   WHERE agency_id = '${AGENCY_ID}'`);
   await sql(`DELETE FROM journal_entries WHERE agency_id = '${AGENCY_ID}'`);
   await sql(`DELETE FROM invoices        WHERE agency_id = '${AGENCY_ID}'`);
 });
 
 afterAll(async () => {
+  if (SKIP_IF_NO_DB) return;
   await sql(`DELETE FROM journal_lines   WHERE agency_id = '${AGENCY_ID}'`);
   await sql(`DELETE FROM journal_entries WHERE agency_id = '${AGENCY_ID}'`);
   await sql(`DELETE FROM invoices        WHERE agency_id = '${AGENCY_ID}'`);
@@ -174,7 +177,7 @@ afterAll(async () => {
 
 // ─── Tests ────────────────────────────────────────────────────────────────────
 
-describe('credit_note — القيد المحاسبي للإشعار الدائن (type 381)', () => {
+describe.skipIf(SKIP_IF_NO_DB)('credit_note — القيد المحاسبي للإشعار الدائن (type 381)', () => {
 
   it('قيد الإشعار الدائن متوازن (DR = CR)', async () => {
     const orig = await createIssuedInvoice({ subtotal: 10_000_00, vat: 1_500_00 });

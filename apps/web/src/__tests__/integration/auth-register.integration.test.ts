@@ -14,7 +14,7 @@
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { eq } from 'drizzle-orm';
-import { getTestDb, closeTestDb, sql } from './test-db';
+import { getTestDb, closeTestDb, sql , SKIP_IF_NO_DB } from './test-db';
 import { agencies, chartOfAccounts } from '@/lib/schema';
 
 const AGENCY_ID = 'integ-test-auth-register-01';
@@ -87,6 +87,7 @@ async function registerAgencyWithCoa() {
 // ─── Setup / Teardown ─────────────────────────────────────────────────────────
 
 beforeAll(async () => {
+  if (SKIP_IF_NO_DB) return;
   // Ensure a clean slate, then run the register/seed flow once.
   await sql(`DELETE FROM chart_of_accounts WHERE agency_id = '${AGENCY_ID}'`);
   await sql(`DELETE FROM agencies          WHERE id        = '${AGENCY_ID}'`);
@@ -94,6 +95,7 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
+  if (SKIP_IF_NO_DB) return;
   await sql(`DELETE FROM chart_of_accounts WHERE agency_id = '${AGENCY_ID}'`);
   await sql(`DELETE FROM agencies          WHERE id        = '${AGENCY_ID}'`);
   await closeTestDb();
@@ -101,7 +103,7 @@ afterAll(async () => {
 
 // ─── Tests ────────────────────────────────────────────────────────────────────
 
-describe('auth/register — بذر شجرة الحسابات (COA seeding)', () => {
+describe.skipIf(SKIP_IF_NO_DB)('auth/register — بذر شجرة الحسابات (COA seeding)', () => {
 
   it('يُنشئ 20+ حساباً للوكالة بعد التسجيل', async () => {
     const db = getTestDb();

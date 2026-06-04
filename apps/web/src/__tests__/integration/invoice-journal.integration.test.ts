@@ -9,7 +9,7 @@
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { eq } from 'drizzle-orm';
-import { getTestDb, closeTestDb, sql } from './test-db';
+import { getTestDb, closeTestDb, sql , SKIP_IF_NO_DB } from './test-db';
 import { agencies, agencyCounters, journalEntries, journalLines } from '@/lib/schema';
 import { getNextJournalNumber, getNextReceiptNumber } from '@/lib/invoice-counter';
 
@@ -20,6 +20,7 @@ const AGENCY_ID = 'integ-test-invoice-counter-01';
 // ─── Setup / Teardown ─────────────────────────────────────────────────────────
 
 beforeAll(async () => {
+  if (SKIP_IF_NO_DB) return;
   const db = getTestDb();
   await db.insert(agencies).values({
     id:                 AGENCY_ID,
@@ -31,6 +32,7 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
+  if (SKIP_IF_NO_DB) return;
   await sql(`DELETE FROM journal_lines   WHERE agency_id = '${AGENCY_ID}'`);
   await sql(`DELETE FROM journal_entries WHERE agency_id = '${AGENCY_ID}'`);
   await sql(`DELETE FROM agency_counters WHERE agency_id = '${AGENCY_ID}'`);
@@ -40,7 +42,7 @@ afterAll(async () => {
 
 // ─── Invoice Counter Tests ────────────────────────────────────────────────────
 
-describe('getNextJournalNumber — عداد القيود اليومية', () => {
+describe.skipIf(SKIP_IF_NO_DB)('getNextJournalNumber — عداد القيود اليومية', () => {
 
   it('يُنتج الرقم الأول JE-2024-000001', async () => {
     const db = getTestDb();
@@ -87,7 +89,7 @@ describe('getNextJournalNumber — عداد القيود اليومية', () => 
 
 });
 
-describe('getNextReceiptNumber — عداد الإيصالات', () => {
+describe.skipIf(SKIP_IF_NO_DB)('getNextReceiptNumber — عداد الإيصالات', () => {
 
   it('يُنتج الإيصال الأول RCT-2024-000001', async () => {
     const db = getTestDb();
@@ -105,7 +107,7 @@ describe('getNextReceiptNumber — عداد الإيصالات', () => {
 
 // ─── Journal Entry Balance Tests ──────────────────────────────────────────────
 
-describe('journal_entries — التحقق من توازن القيد (DR = CR)', () => {
+describe.skipIf(SKIP_IF_NO_DB)('journal_entries — التحقق من توازن القيد (DR = CR)', () => {
 
   it('قيد يدوي متوازن: يحتفظ بـ totalDebitHalalas = totalCreditHalalas', async () => {
     const db = getTestDb();

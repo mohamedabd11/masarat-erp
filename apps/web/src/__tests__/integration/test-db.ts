@@ -14,9 +14,11 @@ export const TEST_DB_URL =
   process.env['TEST_DATABASE_URL'] ??
   'postgresql://masarat_test:test123@127.0.0.1:5432/masarat_test';
 
-// Skip all integration tests when no local DB is available
-export const SKIP_IF_NO_DB = !TEST_DB_URL.includes('masarat_test') &&
-  !process.env['TEST_DATABASE_URL'];
+// Integration tests require a real PostgreSQL. They are opt-in: set
+// TEST_DATABASE_URL to the connection string (e.g. the local docker test DB or a
+// CI service) to run them. When it is unset, the suites skip cleanly instead of
+// failing on an unreachable default connection.
+export const SKIP_IF_NO_DB = !process.env['TEST_DATABASE_URL'];
 
 let _pool: Pool | null = null;
 let _db: ReturnType<typeof drizzle<typeof schema>> | null = null;

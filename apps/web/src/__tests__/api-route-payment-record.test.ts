@@ -48,6 +48,13 @@ vi.mock('@/lib/invoice-counter', () => ({
   getNextJournalNumber: vi.fn().mockResolvedValue('JE-2024-000001'),
 }));
 
+// Period-lock is a separate concern (covered by period-lock.test.ts). Mock it to
+// a no-op so it does not consume a queued tx.select() row — otherwise the period
+// check would swallow the invoice row and every transactional test would 404.
+vi.mock('@/lib/period-lock', () => ({
+  assertPeriodOpen: vi.fn().mockResolvedValue(undefined),
+}));
+
 vi.mock('drizzle-orm', () => ({
   eq:  vi.fn(() => ({})),
   and: vi.fn((...a: unknown[]) => ({ a })),
