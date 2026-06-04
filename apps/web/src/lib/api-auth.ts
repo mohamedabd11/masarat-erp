@@ -68,6 +68,30 @@ export async function verifyAuth(request: Request): Promise<AuthClaims> {
   const isSuperAdmin = !!superAdminEmail && decoded.email === superAdminEmail;
   if (!agencyId && !isSuperAdmin) throw new ApiAuthError('يجب تسجيل الدخول أولاً', 401);
 
+  // Block suspended / expired / deactivated agencies from all API access.
+  // Super-admin is exempt. This is deliberately FAIL-OPEN: only an explicit
+  // inactive/suspended/expired row throws; any other error (DB unreachable,
+  // missing row, import failure) is swallowed so a transient issue can never
+  // lock every tenant out of the system.
+  if (agencyId && !isSuperAdmin) {
+    try {
+      const { db } = await import('./db');
+      const { agencies } = await import('./schema');
+      const { eq } = await import('drizzle-orm');
+      const [ag] = await db
+        .select({ isActive: agencies.isActive, subscriptionStatus: agencies.subscriptionStatus })
+        .from(agencies)
+        .where(eq(agencies.id, agencyId))
+        .limit(1);
+      if (ag && (ag.isActive === false || ag.subscriptionStatus === 'suspended' || ag.subscriptionStatus === 'expired')) {
+        throw new ApiAuthError('حساب الوكالة موقوف أو انتهى اشتراكه — يرجى التواصل مع الدعم', 403);
+      }
+    } catch (err) {
+      if (err instanceof ApiAuthError) throw err; // genuine block — propagate
+      // otherwise fail open (do not block on infrastructure errors)
+    }
+  }
+
   return {
     uid:     decoded.uid,
     agencyId: agencyId ?? '',
