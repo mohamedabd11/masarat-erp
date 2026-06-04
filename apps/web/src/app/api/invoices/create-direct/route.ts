@@ -195,6 +195,6 @@ export async function POST(request: Request) {
       ? (err as Error & { cause?: Error }).cause!.message
       : undefined;
     console.error(JSON.stringify({ event: 'direct_invoice_create_failed', error: errMsg, cause: causeMsg, stack: err instanceof Error ? err.stack?.slice(0, 500) : undefined }));
-    return NextResponse.json({ error: causeMsg || errMsg || 'خطأ في الخادم' }, { status: 500 });
+    return NextResponse.json({ error: 'خطأ في الخادم' }, { status: 500 });
   }
 }
