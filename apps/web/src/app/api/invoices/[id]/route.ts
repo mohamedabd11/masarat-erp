@@ -43,42 +43,54 @@ export async function PATCH(request: Request, { params }: { params: { id: string
 
     await db.transaction(async (tx) => {
       const now = new Date();
-      await assertPeriodOpen(agencyId, now.toISOString().split('T')[0]!, tx);
+      const today = now.toISOString().split('T')[0]!;
+      await assertPeriodOpen(agencyId, today, tx);
 
       await tx.update(invoices)
         .set({ status: 'cancelled', updatedAt: now } as never)
         .where(and(eq(invoices.id, params.id), eq(invoices.agencyId, agencyId)));
 
-      // Post a reversing journal entry instead of un-posting (preserves audit trail)
-      if (invoice.journalEntryId) {
+      // Reverse ALL posted JEs linked to this invoice (original booking JE +
+      // any subsequent recognition JEs for deferred revenue — IAS 18 / IFRS 15).
+      // source='invoice_cancel' prevents re-reversal and distinguishes these entries
+      // from the original postings in queries (e.g. balance-sheet already excludes 'closing').
+      const allInvoiceJEs = await tx.select().from(journalEntries)
+        .where(and(
+          eq(journalEntries.agencyId, agencyId),
+          eq(journalEntries.sourceId, params.id),
+          eq(journalEntries.isPosted, true),
+          eq(journalEntries.source, 'invoice'),
+        ));
+
+      for (const je of allInvoiceJEs) {
         const origLines = await tx.select().from(journalLines)
-          .where(and(eq(journalLines.entryId, invoice.journalEntryId), eq(journalLines.agencyId, agencyId)));
-        if (origLines.length > 0) {
-          const revJeNumber = await getNextJournalNumber(agencyId, now.getFullYear(), tx);
-          const revJeId = crypto.randomUUID();
-          await tx.insert(journalEntries).values({
-            id: revJeId,
-            agencyId,
-            entryNumber: revJeNumber,
-            date: now.toISOString().split('T')[0]!,
-            descriptionAr: `عكس فاتورة رقم ${invoice.invoiceNumber} — إلغاء${body.reason ? ': ' + body.reason : ''}`,
-            source: 'invoice',
-            sourceId: params.id,
-            isPosted: true,
-            totalDebitHalalas: origLines.reduce((s, l) => s + l.creditHalalas, 0),
-            totalCreditHalalas: origLines.reduce((s, l) => s + l.debitHalalas, 0),
-            createdBy: uid,
-          } as never);
-          await tx.insert(journalLines).values(
-            origLines.map((l, idx) => ({
-              id: crypto.randomUUID(), entryId: revJeId, agencyId,
-              accountCode: l.accountCode, accountNameAr: l.accountNameAr, accountNameEn: l.accountNameEn,
-              debitHalalas: l.creditHalalas,
-              creditHalalas: l.debitHalalas,
-              sortOrder: idx + 1,
-            }))
-          );
-        }
+          .where(and(eq(journalLines.entryId, je.id), eq(journalLines.agencyId, agencyId)));
+        if (origLines.length === 0) continue;
+
+        const revJeNumber = await getNextJournalNumber(agencyId, now.getFullYear(), tx);
+        const revJeId = crypto.randomUUID();
+        await tx.insert(journalEntries).values({
+          id: revJeId,
+          agencyId,
+          entryNumber: revJeNumber,
+          date: today,
+          descriptionAr: `عكس: ${je.descriptionAr}${body.reason ? ' — ' + body.reason : ''}`,
+          source: 'invoice_cancel',
+          sourceId: params.id,
+          isPosted: true,
+          totalDebitHalalas:  origLines.reduce((s, l) => s + l.creditHalalas, 0),
+          totalCreditHalalas: origLines.reduce((s, l) => s + l.debitHalalas,  0),
+          createdBy: uid,
+        } as never);
+        await tx.insert(journalLines).values(
+          origLines.map((l, idx) => ({
+            id: crypto.randomUUID(), entryId: revJeId, agencyId,
+            accountCode: l.accountCode, accountNameAr: l.accountNameAr, accountNameEn: l.accountNameEn,
+            debitHalalas:  l.creditHalalas,
+            creditHalalas: l.debitHalalas,
+            sortOrder: idx + 1,
+          }))
+        );
       }
     });
 

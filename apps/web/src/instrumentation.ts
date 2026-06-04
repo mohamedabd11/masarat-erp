@@ -109,6 +109,13 @@ export async function register() {
     `ALTER TABLE agencies ADD COLUMN IF NOT EXISTS zatca_last_invoice_hash TEXT`,
     `ALTER TABLE agencies ADD COLUMN IF NOT EXISTS zatca_onboarded_at TIMESTAMPTZ`,
     `ALTER TABLE agencies ADD COLUMN IF NOT EXISTS zatca_error_message TEXT`,
+
+    // ── 2026-06 — Quote conversion idempotency ────────────────────────────────
+    // Prevents two concurrent POST /quotes/:id/convert requests from creating
+    // two bookings from the same quote (race condition guard).
+    `CREATE UNIQUE INDEX IF NOT EXISTS quotes_converted_booking_uq
+      ON quotes(converted_to_booking_id)
+      WHERE converted_to_booking_id IS NOT NULL`,
   ];
 
   try {

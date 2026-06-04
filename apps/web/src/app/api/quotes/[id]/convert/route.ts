@@ -34,6 +34,16 @@ export async function POST(request: Request, { params }: { params: { id: string 
     const year = new Date().getFullYear();
 
     const result = await db.transaction(async (tx) => {
+      // Re-read inside the transaction to guard against concurrent conversion.
+      // The unique index on quotes.converted_to_booking_id is the DB-level guard;
+      // this application-level check provides a clean 409 before hitting the constraint.
+      const [freshQuote] = await tx.select({ status: quotes.status })
+        .from(quotes)
+        .where(and(eq(quotes.id, params.id), eq(quotes.agencyId, agencyId)));
+      if (!freshQuote || !CONVERTIBLE_STATUSES.has(freshQuote.status)) {
+        throw Object.assign(new Error('ALREADY_CONVERTED'), { httpStatus: 409 });
+      }
+
       const bookingNumber = await getNextBookingNumber(agencyId, year, tx);
       const bookingId = crypto.randomUUID();
       const now = new Date();
@@ -89,7 +99,11 @@ export async function POST(request: Request, { params }: { params: { id: string 
     return NextResponse.json({ bookingId: result.bookingId });
   } catch (err) {
     if (err instanceof ApiAuthError) return NextResponse.json({ error: err.message }, { status: err.status });
-    console.error(JSON.stringify({ event: 'quote_convert_failed', error: (err as Error).message ?? String(err) }));
+    const e = err as Error & { httpStatus?: number };
+    if (e.message === 'ALREADY_CONVERTED' || e.httpStatus === 409) {
+      return NextResponse.json({ error: 'تم تحويل عرض السعر بالفعل' }, { status: 409 });
+    }
+    console.error(JSON.stringify({ event: 'quote_convert_failed', error: e.message ?? String(err) }));
     return NextResponse.json({ error: 'خطأ في الخادم' }, { status: 500 });
   }
 }
