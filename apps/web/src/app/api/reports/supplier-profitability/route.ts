@@ -43,10 +43,12 @@ export async function GET(request: Request) {
 
     // ── Revenue per supplier (via bookings linked through supplier payments) ──
     // For each supplier, find bookings where they were paid and sum up booking revenue
+    // Use a subquery to sum distinct booking revenue per supplier, avoiding
+    // multiplication when a booking has multiple supplier payments.
     const revenueRows = await db
       .select({
         supplierId:    supplierPayments.supplierId,
-        totalRevenue:  sql<number>`cast(coalesce(sum(${bookings.totalPriceHalalas}), 0) as int)`,
+        totalRevenue:  sql<number>`cast(coalesce(sum(distinct ${bookings.totalPriceHalalas}), 0) as int)`,
         bookingCount:  sql<number>`cast(count(distinct ${bookings.id}) as int)`,
       })
       .from(supplierPayments)

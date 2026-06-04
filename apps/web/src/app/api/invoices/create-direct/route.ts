@@ -85,11 +85,10 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'إجمالي الفاتورة يجب أن يكون أكبر من صفر' }, { status: 400 });
     }
 
-    await assertPeriodOpen(agencyId, today, db);
-
     const result = await db.transaction(async (tx: Tx) => {
       const now  = new Date();
       const year = now.getFullYear();
+      await assertPeriodOpen(agencyId, today, tx);
 
       const invoiceNumber = await getNextInvoiceNumber(
         agencyId, isVatRegistered ? 'taxInvoice' : 'commercialInvoice', year, tx,

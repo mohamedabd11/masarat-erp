@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { eq, and, sql } from 'drizzle-orm';
+import { eq, and, sql, ne } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { journalLines, journalEntries, chartOfAccounts } from '@/lib/schema';
 import { verifyAuth, assertRole, ApiAuthError, BusinessError, ROLES_ACCOUNTANT_UP } from '@/lib/api-auth';
@@ -57,6 +57,7 @@ export async function GET(request: Request) {
       .where(and(
         eq(journalLines.agencyId, agencyId),
         eq(journalEntries.isPosted, true),
+        ne(journalEntries.source, 'closing'),
         sql`${journalEntries.date} <= ${asOf}`,
       ))
       .groupBy(journalLines.accountCode, journalLines.accountNameAr, journalLines.accountNameEn)

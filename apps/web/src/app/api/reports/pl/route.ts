@@ -78,14 +78,14 @@ export async function GET(request: Request) {
       if (!byService.has(svc)) byService.set(svc, { revenue: 0, expenses: 0 });
       const bucket = byService.get(svc)!;
 
-      if (code.startsWith('4')) {
+      if (code.startsWith('4') && code !== '9001') {
         const balance = credit - debit;
         // Aggregate into unique account lines (sum across service types for the top-level P&L)
         const existing = revenue.find(l => l.code === code);
         if (existing) { existing.debit += debit; existing.credit += credit; existing.balance += balance; }
         else revenue.push({ code, nameAr: r.accountNameAr ?? '', nameEn: r.accountNameEn ?? null, debit, credit, balance });
         bucket.revenue += balance;
-      } else if (code.startsWith('5')) {
+      } else if (code.startsWith('5') || code.startsWith('6')) {
         const balance = debit - credit;
         const existing = expenses.find(l => l.code === code);
         if (existing) { existing.debit += debit; existing.credit += credit; existing.balance += balance; }

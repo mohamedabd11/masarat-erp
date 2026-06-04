@@ -56,6 +56,7 @@ export async function POST(request: Request) {
         );
         if (!invoice) throw new BusinessError(`الفاتورة ${originalInvoiceId} غير موجودة`, 404);
         if (invoice.status === 'cancelled') throw new BusinessError('الفاتورة ملغاة بالفعل', 400);
+        if (invoice.status === 'refunded')  throw new BusinessError('تم استرداد هذه الفاتورة بالفعل', 400);
 
         const [booking] = await tx.select().from(bookings).where(
           and(eq(bookings.id, bookingId), eq(bookings.agencyId, agencyId)),
@@ -73,7 +74,7 @@ export async function POST(request: Request) {
 
         // ── 3. Calculate ────────────────────────────────────────────────────
         const details      = (booking.details ?? {}) as Record<string, unknown>;
-        const revenueModel = (details['revenueModel'] as string | undefined) ?? 'agent';
+        const revenueModel = (details['revenueModel'] as string | undefined) ?? 'principal';
         const revenueAc    = revenueModel === 'agent' ? AC.revenueAgent : AC.revenuePrincipal;
 
         // Prorate the original invoice's VAT by ratio of each component to the
@@ -206,14 +207,22 @@ export async function POST(request: Request) {
           });
         }
 
-        // Update original invoice and booking
+        // Update original invoice: decrement paidHalalas and set correct status
+        const newPaidHalalas = invoice.paidHalalas - refundAmountHalalas;
+        const isFullyRefunded = newPaidHalalas <= 0;
+        const newInvoiceStatus = isFullyRefunded
+          ? 'refunded'
+          : (newPaidHalalas < invoice.totalHalalas ? 'partial' : 'issued');
         await tx.update(invoices)
-          .set({ status: 'refunded', updatedAt: now })
+          .set({ status: newInvoiceStatus, paidHalalas: newPaidHalalas, updatedAt: now } as never)
           .where(eq(invoices.id, originalInvoiceId));
 
-        await tx.update(bookings)
-          .set({ status: 'cancelled', updatedAt: now })
-          .where(eq(bookings.id, bookingId));
+        // Only cancel the booking on a full refund
+        if (isFullyRefunded) {
+          await tx.update(bookings)
+            .set({ status: 'cancelled', updatedAt: now })
+            .where(eq(bookings.id, bookingId));
+        }
 
         await tx.insert(idempotencyKeys)
           .values(buildIdempotencyInsert(agencyId, 'processRefund', idempKey, { refundPaymentId, creditNoteId, creditNoteNumber }))

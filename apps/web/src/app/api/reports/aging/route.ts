@@ -127,7 +127,7 @@ export async function GET(request: Request) {
       if (outstanding <= 0) continue;
 
       // Use dueDate if set, otherwise fall back to issueDate (invoice is overdue from day of issue)
-      const daysOverdue = r.dueDate ? Math.max(0, diffDays(asOf, r.dueDate)) : 0;
+      const daysOverdue = Math.max(0, diffDays(asOf, r.dueDate ?? r.issueDate));
       const bucket      = assignBucket(daysOverdue);
 
       const invLine: AgingInvoiceLine = {

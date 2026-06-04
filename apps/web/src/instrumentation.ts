@@ -62,6 +62,15 @@ export async function register() {
     `CREATE UNIQUE INDEX IF NOT EXISTS accounting_periods_agency_ym_uq
       ON accounting_periods(agency_id, period_year, period_month)`,
 
+    // ── 2026-06 — Add missing COA account 1230 (Input VAT Receivable) ─────────
+    `INSERT INTO chart_of_accounts (id, agency_id, code, name_ar, name_en, type, is_active, created_at, updated_at)
+      SELECT gen_random_uuid(), id, '1230', 'ضريبة المدخلات القابلة للاسترداد', 'Input VAT Receivable', 'asset', true, NOW(), NOW()
+      FROM agencies
+      WHERE NOT EXISTS (
+        SELECT 1 FROM chart_of_accounts coa
+        WHERE coa.agency_id = agencies.id AND coa.code = '1230'
+      )`,
+
     // ── 2026-06 — Missing columns detected by schema-DB audit ────────────────
     // customers: credit limit
     `ALTER TABLE customers ADD COLUMN IF NOT EXISTS credit_limit_halalas BIGINT NOT NULL DEFAULT 0`,
