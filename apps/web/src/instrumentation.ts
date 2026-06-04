@@ -137,6 +137,13 @@ export async function register() {
           EXECUTE format('ALTER TABLE %I ALTER COLUMN %I TYPE bigint', col.table_name, col.column_name);
         END LOOP;
       END $$`,
+
+    // ── 2026-06 — Prevent double-reversal of a receipt voucher ────────────────
+    // A reversal voucher stores originalVoucherId = the reversed voucher's id.
+    // At most one reversal may exist per original (race-safe guard).
+    `CREATE UNIQUE INDEX IF NOT EXISTS receipt_vouchers_reversal_uq
+      ON receipt_vouchers(original_voucher_id)
+      WHERE original_voucher_id IS NOT NULL`,
   ];
 
   try {

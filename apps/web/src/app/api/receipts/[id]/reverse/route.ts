@@ -30,6 +30,14 @@ export async function POST(
       if (!orig) throw new BusinessError('سند القبض غير موجود', 404);
       if (orig.isRefund === 'true') throw new BusinessError('لا يمكن عكس سند استرداد', 400);
 
+      // Guard against double-reversal: a reversal voucher carries
+      // originalVoucherId = this id. The friendly check below handles the common
+      // case; a unique index (receipt_vouchers_reversal_uq) blocks the rare race.
+      const [existingReversal] = await tx.select({ id: receiptVouchers.id }).from(receiptVouchers)
+        .where(and(eq(receiptVouchers.originalVoucherId, params.id), eq(receiptVouchers.agencyId, agencyId)))
+        .limit(1);
+      if (existingReversal) throw new BusinessError('تم عكس سند القبض هذا مسبقاً', 409);
+
       const now   = new Date();
       const year  = now.getFullYear();
       const today = now.toISOString().split('T')[0]!;

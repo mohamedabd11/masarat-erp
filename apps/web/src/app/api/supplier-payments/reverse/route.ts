@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { eq, and, sql } from 'drizzle-orm';
+import { eq, and, ne, sql } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { supplierPayments, suppliers, journalEntries, journalLines } from '@/lib/schema';
 import { verifyAuth, assertRole, ApiAuthError, BusinessError, ROLES_ADMIN_ONLY } from '@/lib/api-auth';
@@ -129,9 +129,16 @@ export async function POST(request: Request) {
         ]
       );
 
-      await tx.update(supplierPayments)
+      // Atomically claim the reversal. The row-level lock on UPDATE makes this
+      // race-safe: a concurrent reverse will re-evaluate against the committed
+      // 'reversed' row, match 0 rows, and roll back (no double reversal).
+      const claim = await tx.update(supplierPayments)
         .set({ status: 'reversed' })
-        .where(eq(supplierPayments.id, supplierPaymentId));
+        .where(and(eq(supplierPayments.id, supplierPaymentId), ne(supplierPayments.status, 'reversed')))
+        .returning({ id: supplierPayments.id });
+      if (claim.length === 0) {
+        throw new BusinessError('سند الصرف مُعكوس بالفعل', 409);
+      }
 
       // Restore supplier balance if the original payment was linked to a supplier
       if (orig.supplierId) {

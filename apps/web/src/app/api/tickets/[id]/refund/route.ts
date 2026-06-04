@@ -68,10 +68,16 @@ export async function POST(
       agencyId,
     );
 
-    // Phase 1: mark pending_refund
-    await db.update(tickets)
+    // Phase 1: atomically CLAIM the ticket (only if still active) before any
+    // provider call. The conditional UPDATE + row lock prevents two concurrent
+    // refunds from both calling the provider — the loser matches 0 rows.
+    const claim = await db.update(tickets)
       .set({ status: 'pending_refund', updatedAt: new Date() })
-      .where(eq(tickets.id, params.id));
+      .where(and(eq(tickets.id, params.id), eq(tickets.agencyId, agencyId), eq(tickets.status, 'active')))
+      .returning({ id: tickets.id });
+    if (claim.length === 0) {
+      return NextResponse.json({ error: 'التذكرة قيد المعالجة أو لم تعد نشطة' }, { status: 409 });
+    }
 
     // Phase 2: provider refund
     const t0 = Date.now();

@@ -1,8 +1,8 @@
 import { NextResponse } from 'next/server';
-import { eq, and } from 'drizzle-orm';
+import { eq, and, ne } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { invoices, journalEntries, journalLines } from '@/lib/schema';
-import { verifyAuth, ApiAuthError, assertRole, ROLES_MANAGER_UP } from '@/lib/api-auth';
+import { verifyAuth, ApiAuthError, BusinessError, assertRole, ROLES_MANAGER_UP } from '@/lib/api-auth';
 import { logAudit } from '@/lib/audit';
 import { assertPeriodOpen } from '@/lib/period-lock';
 import { getNextJournalNumber } from '@/lib/invoice-counter';
@@ -46,9 +46,21 @@ export async function PATCH(request: Request, { params }: { params: { id: string
       const today = now.toISOString().split('T')[0]!;
       await assertPeriodOpen(agencyId, today, tx);
 
-      await tx.update(invoices)
+      // Atomically claim the cancellation: only transition a not-yet-cancelled,
+      // unpaid invoice. If 0 rows update, a concurrent cancel already won → abort
+      // and roll back so we never post duplicate reversal entries.
+      const claim = await tx.update(invoices)
         .set({ status: 'cancelled', updatedAt: now } as never)
-        .where(and(eq(invoices.id, params.id), eq(invoices.agencyId, agencyId)));
+        .where(and(
+          eq(invoices.id, params.id),
+          eq(invoices.agencyId, agencyId),
+          ne(invoices.status, 'cancelled'),
+          eq(invoices.paidHalalas, 0),
+        ))
+        .returning({ id: invoices.id });
+      if (claim.length === 0) {
+        throw new BusinessError('الفاتورة ملغاة بالفعل أو لا يمكن إلغاؤها', 409);
+      }
 
       // Reverse ALL posted JEs linked to this invoice (original booking JE +
       // any subsequent recognition JEs for deferred revenue — IAS 18 / IFRS 15).
@@ -106,7 +118,7 @@ export async function PATCH(request: Request, { params }: { params: { id: string
       .where(and(eq(invoices.id, params.id), eq(invoices.agencyId, agencyId)));
     return NextResponse.json({ invoice: updated });
   } catch (err) {
-    if (err instanceof ApiAuthError) return NextResponse.json({ error: err.message }, { status: err.status });
+    if (err instanceof ApiAuthError || err instanceof BusinessError) return NextResponse.json({ error: err.message }, { status: err.status });
     console.error(JSON.stringify({ event: 'cancel_invoice_failed', invoiceId: params.id, error: String(err) }));
     return NextResponse.json({ error: 'خطأ في الخادم' }, { status: 500 });
   }

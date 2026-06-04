@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { eq, and } from 'drizzle-orm';
+import { eq, and, sql } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { invoices, bookings, payments, journalEntries, journalLines, idempotencyKeys } from '@/lib/schema';
 import { verifyAuth, assertRole, ApiAuthError, BusinessError, ROLES_ACCOUNTANT_UP } from '@/lib/api-auth';
@@ -207,15 +207,29 @@ export async function POST(request: Request) {
           });
         }
 
-        // Update original invoice: decrement paidHalalas and set correct status
-        const newPaidHalalas = invoice.paidHalalas - refundAmountHalalas;
-        const isFullyRefunded = newPaidHalalas <= 0;
-        const newInvoiceStatus = isFullyRefunded
-          ? 'refunded'
-          : (newPaidHalalas < invoice.totalHalalas ? 'partial' : 'issued');
-        await tx.update(invoices)
-          .set({ status: newInvoiceStatus, paidHalalas: newPaidHalalas, updatedAt: now } as never)
-          .where(eq(invoices.id, originalInvoiceId));
+        // Update original invoice atomically: decrement paidHalalas ONLY if the
+        // current DB balance still covers this refund + retained fee. This guards
+        // against a concurrent refund (different idempotency key) double-spending
+        // the same paid amount (lost update). 0 rows → another refund won the race
+        // → the whole transaction rolls back (no double credit note / cash-out).
+        const refundClaim = await tx.update(invoices)
+          .set({
+            paidHalalas: sql`${invoices.paidHalalas} - ${refundAmountHalalas}`,
+            status: sql`CASE
+              WHEN ${invoices.paidHalalas} - ${refundAmountHalalas} <= 0 THEN 'refunded'
+              WHEN ${invoices.paidHalalas} - ${refundAmountHalalas} < ${invoices.totalHalalas} THEN 'partial'
+              ELSE 'issued' END`,
+            updatedAt: now,
+          } as never)
+          .where(and(
+            eq(invoices.id, originalInvoiceId),
+            sql`${invoices.paidHalalas} >= ${refundAmountHalalas + cancellationFeeHalalas}`,
+          ))
+          .returning({ paidHalalas: invoices.paidHalalas });
+        if (refundClaim.length === 0) {
+          throw new BusinessError('تعذّر تنفيذ الاسترداد — قد يكون استرداد آخر نُفّذ في نفس الوقت، حاول مجدداً', 409);
+        }
+        const isFullyRefunded = (refundClaim[0]!.paidHalalas ?? 0) <= 0;
 
         // Only cancel the booking on a full refund
         if (isFullyRefunded) {
