@@ -90,12 +90,14 @@ export async function GET(request: Request) {
 
     // Working capital changes (operating assets/liabilities, excluding cash & bank)
     // AR (12xx): increase in AR = cash OUTFLOW (negative in operating)
-    const arChange          = sum('12');   // increase in AR = net debit increase
-    const inventoryChange   = sum('13');   // increase in inventory = outflow
-    const prepaidChange     = sum('14');   // increase in prepaid = outflow
-    const apChange          = sum('21');   // increase in AP = inflow (net credit = negative netDebit)
-    const vatPayableChange  = sum('215');  // increase in VAT payable = inflow
-    const accruedChange     = sum('216');  // increase in accrued liabilities = inflow
+    const arChange          = sum('12');          // increase in AR = net debit increase
+    const inventoryChange   = sum('13');          // increase in inventory = outflow
+    const prepaidChange     = sum('14');          // increase in prepaid = outflow
+    // AP: 2000 (supplier), 20xx, and 21xx (airlines/hotels/BSP)
+    const apChange          = sum('20') + sum('21');  // increase in AP = inflow
+    const vatPayableChange  = sum('220');              // 2200: VAT payable increase = inflow
+    // Accrued liabilities: 23xx deposits, 24xx GOSI, 25xx EOSB
+    const accruedChange     = sum('23') + sum('24') + sum('25');
 
     const workingCapitalAdj = -arChange - inventoryChange - prepaidChange - apChange - vatPayableChange - accruedChange;
     const operatingTotal    = netIncome + workingCapitalAdj;
@@ -106,8 +108,9 @@ export async function GET(request: Request) {
     const investingTotal   = -fixedAssetChange;
 
     // ── C. Financing Activities ───────────────────────────────────────────────
-    // Long-term debt (22xx): net credit = borrowing inflow; net debit = repayment
-    const ltDebtChange     = sum('22');
+    // Long-term debt (26xx+): net credit = borrowing inflow; net debit = repayment
+    // Note: 22xx (VAT Payable) is a current operating liability captured above.
+    const ltDebtChange     = sum('26') + sum('27') + sum('28') + sum('29');
     // Equity injections (31xx): net credit = capital contribution
     const equityChange     = sum('31');
     const financingTotal   = -ltDebtChange - equityChange;
