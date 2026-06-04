@@ -116,6 +116,27 @@ export async function register() {
     `CREATE UNIQUE INDEX IF NOT EXISTS quotes_converted_booking_uq
       ON quotes(converted_to_booking_id)
       WHERE converted_to_booking_id IS NOT NULL`,
+
+    // ── 2026-06 — Widen ALL monetary columns to BIGINT (overflow guard) ───────
+    // INTEGER caps at ~2.147e9 halalas ≈ 21.47M SAR; Hajj/Umrah group invoices
+    // and BSP remittances can exceed it. This block is self-discovering and
+    // truly idempotent: it widens only "*_halalas" columns that are still
+    // `integer`, so it does NO work (and takes no lock) once every column is
+    // already bigint. Earlier DDL (setup-db / drizzle 0012) only widened these
+    // on some provisioning paths — this guarantees it on every path.
+    `DO $$
+      DECLARE col record;
+      BEGIN
+        FOR col IN
+          SELECT table_name, column_name
+          FROM information_schema.columns
+          WHERE table_schema = 'public'
+            AND column_name ~ '_halalas$'
+            AND data_type = 'integer'
+        LOOP
+          EXECUTE format('ALTER TABLE %I ALTER COLUMN %I TYPE bigint', col.table_name, col.column_name);
+        END LOOP;
+      END $$`,
   ];
 
   try {

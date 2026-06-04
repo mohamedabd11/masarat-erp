@@ -54,6 +54,11 @@ export async function POST(request: Request) {
         );
         if (!invoice) throw new BusinessError(`الفاتورة ${invoiceId} غير موجودة`, 404);
         if (bookingId && invoice.bookingId && invoice.bookingId !== bookingId) throw new BusinessError('الفاتورة لا تنتمي لهذا الحجز', 400);
+        // A cancelled/refunded invoice has had its receivable reversed — recording a
+        // payment against it would credit AR that no longer exists (negative AR / unbalanced TB).
+        if (invoice.status === 'cancelled' || invoice.status === 'refunded') {
+          throw new BusinessError(`لا يمكن تسجيل دفعة على فاتورة ${invoice.status === 'cancelled' ? 'ملغاة' : 'مستردة'}`, 422);
+        }
 
         // ── 2. Validate (fast-fail before any writes) ──────────────────────
         const currentDue = invoice.totalHalalas - invoice.paidHalalas;

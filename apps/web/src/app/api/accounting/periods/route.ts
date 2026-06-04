@@ -65,7 +65,7 @@ async function createYearEndClosingEntry(
       ne(journalEntries.source, 'closing'),
       sql`${journalEntries.date} >= ${yearStart}`,
       sql`${journalEntries.date} <= ${yearEnd}`,
-      sql`(${journalLines.accountCode} LIKE '4%' OR ${journalLines.accountCode} LIKE '5%')`,
+      sql`(${journalLines.accountCode} LIKE '4%' OR ${journalLines.accountCode} LIKE '5%' OR ${journalLines.accountCode} LIKE '6%')`,
     ))
     .groupBy(
       journalLines.accountCode,
@@ -89,8 +89,8 @@ async function createYearEndClosingEntry(
       const netCredit = credit - debit;
       if (netCredit > 0) { jLines.push({ code, ar, en, dr: netCredit, cr: 0 }); netIncome += netCredit; }
       else if (netCredit < 0) { jLines.push({ code, ar, en, dr: 0, cr: -netCredit }); netIncome += netCredit; }
-    } else if (code.startsWith('5')) {
-      // Expense: normal debit balance → Cr to zero it out
+    } else if (code.startsWith('5') || code.startsWith('6')) {
+      // Expense (5xxx cost/opex, 6xxx payroll/GOSI/EOSB): normal debit balance → Cr to zero it out
       const netDebit = debit - credit;
       if (netDebit > 0) { jLines.push({ code, ar, en, dr: 0, cr: netDebit }); netIncome -= netDebit; }
       else if (netDebit < 0) { jLines.push({ code, ar, en, dr: -netDebit, cr: 0 }); netIncome -= netDebit; }

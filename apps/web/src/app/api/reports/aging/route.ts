@@ -83,7 +83,10 @@ export async function GET(request: Request) {
     // ── 1. Load outstanding invoices ──────────────────────────────────────────
     const conditions = [
       eq(invoices.agencyId, agencyId),
-      eq(invoices.type, '380'),
+      // Receivable-increasing documents only: tax invoice (388), commercial
+      // invoice (380), and debit note (383). Credit notes (381) reduce the
+      // receivable and must NOT be aged as positive outstanding.
+      inArray(invoices.type, ['388', '380', '383']),
       inArray(invoices.status, ['issued', 'partial']),
       sql`${invoices.totalHalalas} > ${invoices.paidHalalas}`,
     ];
