@@ -6,11 +6,11 @@
   "crons": [
     {
       "path": "/api/jobs/expire-pnrs",
-      "schedule": "0 * * * *"
+      "schedule": "0 2 * * *"
     },
     {
       "path": "/api/jobs/reconcile-pending-tickets",
-      "schedule": "30 * * * *"
+      "schedule": "0 3 * * *"
     }
   ]
 }
