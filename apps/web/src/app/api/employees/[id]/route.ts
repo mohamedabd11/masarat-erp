@@ -10,7 +10,13 @@ export async function PATCH(request: Request, { params }: { params: { id: string
     assertRole(role, [...ROLES_MANAGER_UP]);
     const body = await request.json() as Record<string, unknown>;
     const now = new Date();
-    await db.update(employees).set({ ...body as Partial<typeof employees.$inferInsert>, updatedAt: now })
+    // Strip immutable identity/system columns — never let the client move the
+    // record to another tenant (agencyId), change its id/employeeNumber, or
+    // rewrite the GL link / timestamps.
+    const STRIP = new Set(['id', 'agencyId', 'employeeNumber', 'glAccountId', 'createdAt', 'updatedAt']);
+    const patch: Record<string, unknown> = { updatedAt: now };
+    for (const [k, v] of Object.entries(body)) if (!STRIP.has(k)) patch[k] = v;
+    await db.update(employees).set(patch as Partial<typeof employees.$inferInsert>)
       .where(and(eq(employees.id, params.id), eq(employees.agencyId, agencyId)));
     return NextResponse.json({ success: true });
   } catch (err) {

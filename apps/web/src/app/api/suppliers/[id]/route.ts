@@ -6,14 +6,17 @@ import { verifyAuth, assertRole, ApiAuthError, ROLES_MANAGER_UP } from '@/lib/ap
 
 export async function PATCH(request: Request, { params }: { params: { id: string } }) {
   try {
-    const { agencyId } = await verifyAuth(request);
-    const body = await request.json() as Partial<{
-      nameAr: string; nameEn: string | null; type: string | null;
-      phone: string | null; email: string | null; vatNumber: string | null;
-      notes: string | null; isActive: boolean;
-    }>;
+    const { agencyId, role } = await verifyAuth(request);
+    assertRole(role, [...ROLES_MANAGER_UP]);
+    const body = await request.json() as Record<string, unknown>;
     const now = new Date();
-    await db.update(suppliers).set({ ...body, updatedAt: now })
+    // Allowlist editable fields — never spread the raw body. balanceHalalas
+    // (financial, AP-driving) and agencyId/id must not be client-writable.
+    const patch: Record<string, unknown> = { updatedAt: now };
+    for (const k of ['nameAr', 'nameEn', 'type', 'phone', 'email', 'vatNumber', 'notes', 'isActive'] as const) {
+      if (body[k] !== undefined) patch[k] = body[k];
+    }
+    await db.update(suppliers).set(patch as Partial<typeof suppliers.$inferInsert>)
       .where(and(eq(suppliers.id, params.id), eq(suppliers.agencyId, agencyId)));
     return NextResponse.json({ success: true });
   } catch (err) {
