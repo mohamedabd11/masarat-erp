@@ -43,6 +43,23 @@ export async function DELETE(request: Request, { params }: { params: { id: strin
       );
     }
 
+    // Prevent deletion when an open payable remains (cost booked but not yet
+    // settled) — deleting would orphan the accounts-payable balance.
+    const [supplier] = await db
+      .select({ balanceHalalas: suppliers.balanceHalalas })
+      .from(suppliers)
+      .where(and(eq(suppliers.id, params.id), eq(suppliers.agencyId, agencyId)))
+      .limit(1);
+    if (!supplier) {
+      return NextResponse.json({ error: 'المورد غير موجود' }, { status: 404 });
+    }
+    if ((supplier.balanceHalalas ?? 0) !== 0) {
+      return NextResponse.json(
+        { error: 'لا يمكن حذف مورد له رصيد مستحق. سوِّ الرصيد أو عطّله بدلاً من الحذف.' },
+        { status: 422 },
+      );
+    }
+
     await db.delete(suppliers).where(and(eq(suppliers.id, params.id), eq(suppliers.agencyId, agencyId)));
     return NextResponse.json({ success: true });
   } catch (err) {

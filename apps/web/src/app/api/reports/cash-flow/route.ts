@@ -13,7 +13,7 @@
  * All amounts returned in halalas.
  */
 import { NextResponse } from 'next/server';
-import { eq, and, sql } from 'drizzle-orm';
+import { eq, and, ne, sql } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { journalLines, journalEntries } from '@/lib/schema';
 import { verifyAuth, assertRole, ApiAuthError, ROLES_ACCOUNTANT_UP } from '@/lib/api-auth';
@@ -39,6 +39,10 @@ async function getMovements(agencyId: string, from: string, to: string): Promise
     .where(and(
       eq(journalLines.agencyId, agencyId),
       eq(journalEntries.isPosted, true),
+      // Exclude year-end closing entries (consistent with P&L and balance-sheet):
+      // they transfer P&L balances to retained earnings and would distort net
+      // income when the report window spans a close.
+      ne(journalEntries.source, 'closing'),
       sql`${journalEntries.date} >= ${from}`,
       sql`${journalEntries.date} <= ${to}`,
     ))
@@ -139,9 +143,13 @@ export async function GET(request: Request) {
         total: investingTotal,
       },
       financing: {
+        // Display lines must match financingTotal (= -ltDebtChange - equityChange).
+        // VAT (22xx) is an operating liability shown under operating, NOT here.
+        // For credit-normal debt/equity accounts, cash effect = -netDebit, which is
+        // exactly what lines() returns — no sign flip needed.
         lines: [
-          ...lines('22').map(l => ({ ...l, amount: -l.amount })),
-          ...lines('31').map(l => ({ ...l, amount: -l.amount })),
+          ...lines('26'), ...lines('27'), ...lines('28'), ...lines('29'),
+          ...lines('31'),
         ],
         total: financingTotal,
       },
