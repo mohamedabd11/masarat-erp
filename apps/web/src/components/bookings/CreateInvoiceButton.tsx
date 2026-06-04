@@ -45,7 +45,10 @@ export function CreateInvoiceButton({
     return () => { cancelled = true; };
   }, [agencyId]);
 
-  const canCreate = (bookingStatus === 'confirmed' || bookingStatus === 'ticketed') && !existingInvoiceId;
+  // Must match the server: POST /api/invoices/create accepts only 'confirmed'
+  // or 'completed' bookings ('ticketed' is not a booking status and the API
+  // rejects it — showing the button for it produced a guaranteed error).
+  const canCreate = (bookingStatus === 'confirmed' || bookingStatus === 'completed') && !existingInvoiceId;
   const isLoading = isVatRegistered === null;
 
   async function handleClick() {
@@ -69,12 +72,12 @@ export function CreateInvoiceButton({
     );
   }
 
-  if (bookingStatus !== 'confirmed' && bookingStatus !== 'ticketed') {
+  if (bookingStatus !== 'confirmed' && bookingStatus !== 'completed') {
     return (
       <p className="text-xs text-slate-400 italic">
         {isAr
-          ? 'الفاتورة تُصدر للحجوزات المؤكدة فقط'
-          : 'Invoices can only be issued for confirmed bookings'}
+          ? 'الفاتورة تُصدر للحجوزات المؤكدة أو المكتملة فقط'
+          : 'Invoices can only be issued for confirmed or completed bookings'}
       </p>
     );
   }
