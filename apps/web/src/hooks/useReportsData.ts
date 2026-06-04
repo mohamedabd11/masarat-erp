@@ -142,7 +142,7 @@ export function useReportsData(agencyId: string | null): ReportsData {
 
   const vatInvoices = useMemo<VatInvoice[]>(() =>
     allInvoices
-      .filter(inv => new Date(inv.createdAt as unknown as string).getFullYear() === year)
+      .filter(inv => inv.status !== 'cancelled' && new Date(inv.createdAt as unknown as string).getFullYear() === year)
       .map(inv => ({
         id:              inv.id,
         invoiceNumber:   inv.invoiceNumber,
