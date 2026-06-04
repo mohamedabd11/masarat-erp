@@ -29,8 +29,6 @@ interface CreateDirectInvoiceBody {
   buyerPhone?:   string;
   customerId?:   string;
   lines:         DirectInvoiceLine[];
-  supplierName?: string;
-  supplierId?:   string;
   dueDate?:      string;
   notes?:        string;
 }
@@ -129,8 +127,8 @@ export async function POST(request: Request) {
         invoiceNumber,
         type:            '388',
         customerId:      body.customerId      ?? null,
-        sellerNameAr:    body.supplierName?.trim() || agency.nameAr,
-        sellerNameEn:    body.supplierName?.trim() || (agency.nameEn ?? null),
+        sellerNameAr:    agency.nameAr,
+        sellerNameEn:    agency.nameEn ?? null,
         sellerVatNumber: agency.vatNumber     ?? null,
         sellerCrNumber:  agency.crNumber      ?? null,
         sellerAddress:   agency.addressAr     ?? null,
