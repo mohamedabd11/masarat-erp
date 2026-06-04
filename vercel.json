@@ -4,7 +4,7 @@
   "installCommand": "pnpm install --frozen-lockfile",
   "framework": "nextjs",
   "crons": [
-    { "path": "/api/jobs/expire-pnrs",               "schedule": "0 * * * *" },
-    { "path": "/api/jobs/reconcile-pending-tickets", "schedule": "30 * * * *" }
+    { "path": "/api/jobs/expire-pnrs",               "schedule": "0 2 * * *" },
+    { "path": "/api/jobs/reconcile-pending-tickets", "schedule": "0 3 * * *" }
   ]
 }
