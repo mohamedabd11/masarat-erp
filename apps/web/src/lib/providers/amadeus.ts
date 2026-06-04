@@ -38,6 +38,28 @@ function assertCredentials(raw: unknown): AmadeusCredentials {
   return { clientId: c.clientId, clientSecret: c.clientSecret, hostname: c.hostname };
 }
 
+// ─── Bounded fetch ────────────────────────────────────────────────────────────
+// Every outbound GDS call is wrapped with a timeout. Without it, a hung Amadeus
+// connection blocks the serverless function until the platform's hard limit,
+// leaving tickets stranded in pending_void / pending_refund. On timeout we abort
+// and throw a clear error the route maps to a 502 (and the reconcile cron heals).
+const PROVIDER_TIMEOUT_MS = 15_000;
+
+async function fetchWithTimeout(input: string, init?: RequestInit): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), PROVIDER_TIMEOUT_MS);
+  try {
+    return await fetch(input, { ...init, signal: controller.signal });
+  } catch (err) {
+    if ((err as Error)?.name === 'AbortError') {
+      throw new Error(`انتهت مهلة الاتصال بمزود الطيران (${PROVIDER_TIMEOUT_MS / 1000} ثانية)`);
+    }
+    throw err;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 // ─── Token cache (in-memory, resets on cold start — fine for serverless) ──────
 interface CachedToken { token: string; expiresAt: number }
 const tokenCache = new Map<string, CachedToken>();
@@ -47,7 +69,7 @@ async function getAccessToken(creds: AmadeusCredentials): Promise<string> {
   const cached = tokenCache.get(key);
   if (cached && cached.expiresAt > Date.now() + 60_000) return cached.token;  // 60s buffer
 
-  const res = await fetch(`https://${creds.hostname}/v1/security/oauth2/token`, {
+  const res = await fetchWithTimeout(`https://${creds.hostname}/v1/security/oauth2/token`, {
     method:  'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body:    new URLSearchParams({
@@ -105,7 +127,7 @@ export class AmadeusProvider implements FlightProvider {
     const creds = assertCredentials(rawCredentials);
     const token = await getAccessToken(creds);
 
-    const res = await fetch(
+    const res = await fetchWithTimeout(
       `https://${creds.hostname}/v2/booking/flight-orders/${encodeURIComponent(pnrCode)}`,
       { headers: { Authorization: `Bearer ${token}` } },
     );
@@ -154,7 +176,7 @@ export class AmadeusProvider implements FlightProvider {
     const creds = assertCredentials(rawCredentials);
     const token = await getAccessToken(creds);
 
-    const res = await fetch(
+    const res = await fetchWithTimeout(
       `https://${creds.hostname}/v2/ordering/flight-orders/${encodeURIComponent(pnrCode)}/issuance`,
       {
         method:  'POST',
@@ -242,7 +264,7 @@ export async function testAmadeusConnection(rawCredentials: unknown): Promise<nu
   const token = await getAccessToken(creds);
 
   // Lightweight endpoint: airline destinations (no PNR needed)
-  const res = await fetch(
+  const res = await fetchWithTimeout(
     `https://${creds.hostname}/v1/airline/destinations?airlineCode=SV&max=1`,
     { headers: { Authorization: `Bearer ${token}` } },
   );

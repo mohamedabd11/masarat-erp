@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { eq, and } from 'drizzle-orm';
+import { eq, and, ne } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { bookings, invoices } from '@/lib/schema';
 import { verifyAuth, assertRole, ApiAuthError, ROLES_AGENT_UP } from '@/lib/api-auth';
@@ -78,6 +78,29 @@ export async function PATCH(request: Request, { params }: { params: { id: string
           { error: `Cannot transition booking from '${prevStatus}' to '${newStatus}'` },
           { status: 422 },
         );
+      }
+
+      // Block cancelling a booking that still has a live (non-cancelled) invoice.
+      // Cancelling here would leave the invoice + its revenue journal posted while
+      // the booking reads 'cancelled' (operational/ledger divergence). The proper
+      // path is a refund (which unwinds COGS/AP/VAT and cancels the booking) or a
+      // credit note for a paid invoice.
+      if (newStatus === 'cancelled') {
+        const [liveInvoice] = await db
+          .select({ id: invoices.id })
+          .from(invoices)
+          .where(and(
+            eq(invoices.bookingId, params.id),
+            eq(invoices.agencyId, agencyId),
+            ne(invoices.status, 'cancelled'),
+          ))
+          .limit(1);
+        if (liveInvoice) {
+          return NextResponse.json(
+            { error: 'لا يمكن إلغاء حجز له فاتورة سارية — استخدم الاسترداد أو أصدر إشعاراً دائناً أولاً' },
+            { status: 422 },
+          );
+        }
       }
     }
 
