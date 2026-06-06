@@ -97,6 +97,7 @@ export async function POST(request: Request) {
     const adjustments: {
       accountId:    string;
       accountName:  string;
+      accountType:  string;
       currency:     string;
       balanceFx:    number;
       oldRateSar:   number;
@@ -105,28 +106,26 @@ export async function POST(request: Request) {
     }[] = [];
 
     for (const acct of fxAccounts) {
+      // Only revalue accounts whose foreign-currency balance is actually tracked
+      // (set when the account/its transactions are entered in their own currency).
+      if (acct.fxBalanceMinor == null) continue;
       const newRate = rateMap.get(acct.currency);
       if (!newRate) continue;
 
-      // The opening balance in SAR is stored in openingBalanceHalalas at the original rate
-      // Current balance in SAR = currentBalanceHalalas
-      // Revalued balance = currentBalanceFX × newRate
-      // For simplicity: currentBalanceHalalas already reflects SAR at booking-time rates
-      // Unrealised gain/loss = (newRate - impliedRate) × balance_fx
-      // We estimate balance_fx = currentBalanceHalalas / (last known rate or 1)
-      const lastRate  = rateMap.get(acct.currency) ?? 1;
-      const balanceFx = acct.currentBalanceHalalas / lastRate; // approximate FX units
-      const revaluedSar = Math.round(balanceFx * newRate);
+      // Remeasure the foreign-currency balance at the current rate and compare to
+      // the SAR carrying amount. fxBalanceMinor is in the currency's minor units;
+      // newRate is SAR per 1 unit, so (units × rate) already yields halalas.
+      const revaluedSar = Math.round(acct.fxBalanceMinor * newRate);
       const gainLoss    = revaluedSar - acct.currentBalanceHalalas;
-
-      if (Math.abs(gainLoss) < 1) continue; // skip trivial rounding
+      if (Math.abs(gainLoss) < 1) continue; // no material change
 
       adjustments.push({
         accountId:   acct.id,
         accountName: acct.nameAr,
+        accountType: acct.type,
         currency:    acct.currency,
-        balanceFx,
-        oldRateSar:  acct.currentBalanceHalalas / (balanceFx || 1),
+        balanceFx:   acct.fxBalanceMinor,
+        oldRateSar:  acct.fxBalanceMinor !== 0 ? acct.currentBalanceHalalas / acct.fxBalanceMinor : 0,
         newRateSar:  newRate,
         gainLossSar: gainLoss,
       });
@@ -136,19 +135,21 @@ export async function POST(request: Request) {
       return NextResponse.json({ dryRun, revaluationDate: revalDate, adjustments });
     }
 
-    // Block revaluation postings into a closed accounting period.
-    await assertPeriodOpen(agencyId, revalDate, db);
-
     // Create journal entries for each adjustment
     const createdEntries: string[] = [];
 
     for (const adj of adjustments) {
-      const entryId     = crypto.randomUUID();
-      const entryNumber = await getNextJournalNumber(agencyId, new Date(revalDate).getFullYear());
-      const isGain      = adj.gainLossSar > 0;
-      const absAmount   = Math.abs(adj.gainLossSar);
+      const isGain    = adj.gainLossSar > 0;
+      const absAmount = Math.abs(adj.gainLossSar);
+      const bankGl    = (adj.accountType === 'cash' || adj.accountType === 'petty_cash') ? GL.cash : GL.bank;
+      const entryId   = crypto.randomUUID();
 
       await db.transaction(async tx => {
+        // Period lock must be checked inside the transaction (with tx) so a
+        // concurrent lock can't slip a posting into a just-closed period.
+        await assertPeriodOpen(agencyId, revalDate, tx);
+        const entryNumber = await getNextJournalNumber(agencyId, new Date(revalDate).getFullYear(), tx);
+
         await tx.insert(journalEntries).values({
           id:              entryId,
           agencyId,
@@ -172,9 +173,9 @@ export async function POST(request: Request) {
             id:             crypto.randomUUID(),
             entryId,
             agencyId,
-            accountCode:    isGain ? '1100' : FX_LOSS_CODE,
-            accountNameAr:  isGain ? 'نقدية وبنوك' : 'خسائر فروق العملة',
-            accountNameEn:  isGain ? 'Cash & Banks'  : 'FX Exchange Loss',
+            accountCode:    isGain ? bankGl.code : FX_LOSS_CODE,
+            accountNameAr:  isGain ? bankGl.ar   : 'خسائر فروق العملة',
+            accountNameEn:  isGain ? bankGl.en   : 'FX Exchange Loss',
             debitHalalas:   absAmount,
             creditHalalas:  0,
             description:    `${adj.currency} revaluation ${revalDate}`,
@@ -184,9 +185,9 @@ export async function POST(request: Request) {
             id:             crypto.randomUUID(),
             entryId,
             agencyId,
-            accountCode:    isGain ? FX_GAIN_CODE : '1100',
-            accountNameAr:  isGain ? 'أرباح فروق العملة' : 'نقدية وبنوك',
-            accountNameEn:  isGain ? 'FX Exchange Gain'   : 'Cash & Banks',
+            accountCode:    isGain ? FX_GAIN_CODE : bankGl.code,
+            accountNameAr:  isGain ? 'أرباح فروق العملة' : bankGl.ar,
+            accountNameEn:  isGain ? 'FX Exchange Gain'   : bankGl.en,
             debitHalalas:   0,
             creditHalalas:  absAmount,
             description:    `${adj.currency} revaluation ${revalDate}`,

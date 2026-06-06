@@ -1,4 +1,4 @@
-import { pgTable, text, bigint, boolean, timestamp, index } from 'drizzle-orm/pg-core';
+import { pgTable, text, bigint, integer, boolean, timestamp, index } from 'drizzle-orm/pg-core';
 import { agencies } from './agencies';
 
 export const bankAccounts = pgTable('bank_accounts', {
@@ -13,6 +13,10 @@ export const bankAccounts = pgTable('bank_accounts', {
   openingBalanceHalalas: bigint('opening_balance_halalas', { mode: 'number' }).notNull().default(0),
   currentBalanceHalalas: bigint('current_balance_halalas', { mode: 'number' }).notNull().default(0),
   currency:            text('currency').notNull().default('SAR'),
+  // IAS 21 — for foreign-currency accounts, the balance in the account's own
+  // currency minor units (e.g. US cents). NULL = SAR / not FX-tracked. The SAR
+  // carrying amount stays in currentBalanceHalalas; revaluation compares the two.
+  fxBalanceMinor:      bigint('fx_balance_minor', { mode: 'number' }),
   glAccountId:         text('gl_account_id'),
   isActive:            boolean('is_active').notNull().default(true),
   isReconciled:           boolean('is_reconciled').notNull().default(false),
@@ -33,8 +37,12 @@ export const bankTransactions = pgTable('bank_transactions', {
   agencyId:        text('agency_id').notNull().references(() => agencies.id, { onDelete: 'cascade' }),
   bankAccountId:   text('bank_account_id').notNull().references(() => bankAccounts.id),
   type:            text('type').notNull(),                    // deposit|withdrawal|transfer
-  amountHalalas:   bigint('amount_halalas', { mode: 'number' }).notNull(),
+  amountHalalas:   bigint('amount_halalas', { mode: 'number' }).notNull(),  // always SAR equivalent
   balanceAfterHalalas: bigint('balance_after_halalas', { mode: 'number' }),
+  // IAS 21 — foreign-currency capture (NULL for SAR transactions):
+  currency:        text('currency'),                          // transaction currency (e.g. USD)
+  fxAmountMinor:   bigint('fx_amount_minor', { mode: 'number' }),  // amount in `currency` minor units
+  fxRate:          integer('fx_rate'),                        // exchange rate × 10000 at txn time
   description:     text('description'),
   reference:       text('reference'),
   sourceType:      text('source_type'),                      // payment|receipt|supplier_payment|manual

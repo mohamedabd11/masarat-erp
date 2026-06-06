@@ -6,6 +6,7 @@ import { verifyAuth, assertRole, ApiAuthError, ROLES_ACCOUNTANT_UP } from '@/lib
 import { getNextJournalNumber } from '@/lib/invoice-counter';
 import { GL } from '@/lib/gl-accounts';
 import { assertPeriodOpen } from '@/lib/period-lock';
+import { lookupFxRate, fxToHalalas } from '@/lib/fx';
 
 // Map bank account type to default GL code
 function glCodeForType(type: string): { code: string; ar: string; en: string } {
@@ -32,13 +33,41 @@ export async function POST(request: Request) {
     const body = await request.json() as {
       nameAr: string; nameEn?: string; type: string; accountNumber?: string;
       bankName?: string; iban?: string; openingBalanceHalalas?: number; currency?: string;
+      // Foreign-currency opening (opt-in): balance in the account currency's minor
+      // units + an optional rate (×10000). When omitted, the rate is looked up from
+      // exchange_rates as of today.
+      openingBalanceMinor?: number; fxRate?: number;
     };
     if (!body.nameAr || !body.type) return NextResponse.json({ error: 'بيانات ناقصة' }, { status: 400 });
 
-    const id      = crypto.randomUUID();
-    const opening = body.openingBalanceHalalas ?? 0;
-    if (!Number.isInteger(opening) || opening < 0) {
-      return NextResponse.json({ error: 'الرصيد الافتتاحي غير صالح' }, { status: 400 });
+    const id       = crypto.randomUUID();
+    const currency = (body.currency ?? 'SAR').toUpperCase();
+    const isFx     = currency !== 'SAR' && body.openingBalanceMinor != null;
+
+    let opening: number;                       // SAR halalas (drives the GL opening entry)
+    let fxBalanceMinor: number | null = null;  // foreign minor units (FX accounts only)
+
+    if (isFx) {
+      const fxMinor = body.openingBalanceMinor!;
+      if (!Number.isInteger(fxMinor) || fxMinor < 0) {
+        return NextResponse.json({ error: 'الرصيد الافتتاحي بالعملة الأجنبية غير صالح' }, { status: 400 });
+      }
+      let storedRate = body.fxRate ?? null;
+      if (storedRate == null) {
+        const today = new Date().toISOString().split('T')[0]!;
+        const r = await lookupFxRate(agencyId, currency, 'SAR', today, db);
+        storedRate = r?.storedRate ?? null;
+      }
+      if (storedRate == null || !Number.isInteger(storedRate) || storedRate <= 0) {
+        return NextResponse.json({ error: `سعر الصرف مطلوب لإنشاء حساب بعملة ${currency} — أضف سعر صرف للعملة أولاً أو مرّر fxRate` }, { status: 400 });
+      }
+      opening        = fxToHalalas(fxMinor, storedRate);
+      fxBalanceMinor = fxMinor;
+    } else {
+      opening = body.openingBalanceHalalas ?? 0;
+      if (!Number.isInteger(opening) || opening < 0) {
+        return NextResponse.json({ error: 'الرصيد الافتتاحي غير صالح' }, { status: 400 });
+      }
     }
 
     await db.transaction(async (tx) => {
@@ -48,7 +77,8 @@ export async function POST(request: Request) {
         type: body.type, accountNumber: body.accountNumber ?? null,
         bankName: body.bankName ?? null, iban: body.iban ?? null,
         openingBalanceHalalas: opening, currentBalanceHalalas: opening,
-        currency: body.currency ?? 'SAR',
+        currency,
+        fxBalanceMinor,
       });
 
       // Post opening balance to GL (Dr bank/cash account, Cr Owner Capital 3100)

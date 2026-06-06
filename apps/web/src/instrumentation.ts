@@ -144,6 +144,15 @@ export async function register() {
     `CREATE UNIQUE INDEX IF NOT EXISTS receipt_vouchers_reversal_uq
       ON receipt_vouchers(original_voucher_id)
       WHERE original_voucher_id IS NOT NULL`,
+
+    // ── 2026-06 — IAS 21 foreign-currency tracking ────────────────────────────
+    // Track foreign-currency balances so FX revaluation can compute real gains/
+    // losses. All columns are nullable and unused by SAR accounts (zero impact on
+    // the existing SAR flow).
+    `ALTER TABLE bank_accounts     ADD COLUMN IF NOT EXISTS fx_balance_minor BIGINT`,
+    `ALTER TABLE bank_transactions ADD COLUMN IF NOT EXISTS currency        TEXT`,
+    `ALTER TABLE bank_transactions ADD COLUMN IF NOT EXISTS fx_amount_minor BIGINT`,
+    `ALTER TABLE bank_transactions ADD COLUMN IF NOT EXISTS fx_rate         INTEGER`,
   ];
 
   try {
