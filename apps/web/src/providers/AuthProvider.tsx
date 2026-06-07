@@ -49,7 +49,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
       const locale = pathname?.split('/')[1] ?? 'ar';
       router.push(`/${locale}/dashboard`);
     }
-  }, [user, loading, isAuthPage, isStandalonePage, pathname, router]);
+  }, [user, loading, isAuthPage, isStandalonePage, isLandingPage, pathname, router]);
 
   // Block render while auth state is resolving — prevents dashboard flash
   if (loading) {

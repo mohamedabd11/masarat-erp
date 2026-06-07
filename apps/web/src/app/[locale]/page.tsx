@@ -1,6 +1,9 @@
 'use client';
 
+import { useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import { useLocale } from 'next-intl';
+import { useAuth } from '@masarat/firebase';
 import { MasaratLogo } from '@/components/ui/MasaratLogo';
 import {
   Calculator, ReceiptText, Plane, Coins, Users, Landmark,
@@ -9,6 +12,15 @@ import {
 
 export default function LandingPage() {
   const locale = useLocale();
+  const router = useRouter();
+  const { user, loading } = useAuth();
+
+  // Logged-in users skip the marketing page and go straight to their dashboard
+  // (preserves the behaviour of the old /[locale] redirect page that this replaced).
+  useEffect(() => {
+    if (!loading && user) router.replace(`/${locale}/dashboard`);
+  }, [loading, user, locale, router]);
+
   const isAr   = locale === 'ar';
   const other  = isAr ? 'en' : 'ar';
   const L = (ar: string, en: string) => (isAr ? ar : en);
