@@ -154,32 +154,20 @@ export async function register() {
     `ALTER TABLE bank_transactions ADD COLUMN IF NOT EXISTS fx_amount_minor BIGINT`,
     `ALTER TABLE bank_transactions ADD COLUMN IF NOT EXISTS fx_rate         INTEGER`,
 
-    // ── 2026-06 — Referential-integrity hardening (FK constraints) ────────────
-    // Add foreign keys to the previously-loose TEXT id links. Each is added as
-    // NOT VALID: it is ENFORCED for all new INSERT/UPDATE (no new orphans can be
-    // created and ON DELETE SET NULL applies), but existing legacy rows are NOT
-    // scanned/validated — so this is safe and fast even if old orphans exist and
-    // can never fail the boot. Each block is idempotent (checks pg_constraint and
-    // that the column exists first). A later `VALIDATE CONSTRAINT` can be run
-    // manually after any cleanup, if desired.
-    ...([
-      ['fk_invoices_original_invoice',     'invoices',          'original_invoice_id',     'invoices',        'id'],
-      ['fk_invoices_journal_entry',        'invoices',          'journal_entry_id',        'journal_entries', 'id'],
-      ['fk_payments_journal_entry',        'payments',          'journal_entry_id',        'journal_entries', 'id'],
-      ['fk_bookings_journal_entry',        'bookings',          'journal_entry_id',        'journal_entries', 'id'],
-      ['fk_supplier_payments_supplier',    'supplier_payments', 'supplier_id',             'suppliers',       'id'],
-      ['fk_supplier_payments_journal',     'supplier_payments', 'journal_entry_id',        'journal_entries', 'id'],
-      ['fk_receipt_vouchers_journal',      'receipt_vouchers',  'journal_entry_id',        'journal_entries', 'id'],
-      ['fk_quotes_converted_booking',      'quotes',            'converted_to_booking_id', 'bookings',        'id'],
-    ] as const).map(([name, child, col, parent, pcol]) => `
-      DO $$
-      BEGIN
-        IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='${child}' AND column_name='${col}')
-           AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='${name}') THEN
-          ALTER TABLE ${child}
-            ADD CONSTRAINT ${name} FOREIGN KEY (${col}) REFERENCES ${parent}(${pcol}) ON DELETE SET NULL NOT VALID;
-        END IF;
-      END $$`),
+    // ── 2026-06 — Remove NOT VALID FK constraints (rollback of c117da9) ─────────
+    // NOT VALID still enforces FKs on new INSERTs. Every route inserts the child
+    // row (invoices / payments / bookings) with journalEntryId set BEFORE the
+    // journal_entries parent row is inserted — causing FK violations on all
+    // invoice / payment creation. Dropping restores the working behaviour;
+    // application-level transactions preserve integrity without DB-level FKs.
+    `DO $$ BEGIN IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname='fk_invoices_original_invoice')  THEN ALTER TABLE invoices          DROP CONSTRAINT fk_invoices_original_invoice;  END IF; END $$`,
+    `DO $$ BEGIN IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname='fk_invoices_journal_entry')     THEN ALTER TABLE invoices          DROP CONSTRAINT fk_invoices_journal_entry;     END IF; END $$`,
+    `DO $$ BEGIN IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname='fk_payments_journal_entry')     THEN ALTER TABLE payments          DROP CONSTRAINT fk_payments_journal_entry;     END IF; END $$`,
+    `DO $$ BEGIN IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname='fk_bookings_journal_entry')     THEN ALTER TABLE bookings          DROP CONSTRAINT fk_bookings_journal_entry;     END IF; END $$`,
+    `DO $$ BEGIN IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname='fk_supplier_payments_supplier') THEN ALTER TABLE supplier_payments DROP CONSTRAINT fk_supplier_payments_supplier; END IF; END $$`,
+    `DO $$ BEGIN IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname='fk_supplier_payments_journal')  THEN ALTER TABLE supplier_payments DROP CONSTRAINT fk_supplier_payments_journal;  END IF; END $$`,
+    `DO $$ BEGIN IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname='fk_receipt_vouchers_journal')   THEN ALTER TABLE receipt_vouchers  DROP CONSTRAINT fk_receipt_vouchers_journal;   END IF; END $$`,
+    `DO $$ BEGIN IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname='fk_quotes_converted_booking')   THEN ALTER TABLE quotes            DROP CONSTRAINT fk_quotes_converted_booking;   END IF; END $$`,
   ];
 
   try {
