@@ -73,7 +73,12 @@ export default function LandingPage() {
       {/* ── Nav ─────────────────────────────────────────────────────────────── */}
       <header className="border-b border-slate-200 bg-white/80 backdrop-blur">
         <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-3 sm:px-6">
-          <MasaratLogo size={40} variant="full" />
+          <a href={`/${locale}`} className="flex items-center gap-2.5 group">
+            <MasaratLogo size={48} variant="full" />
+            <span className="text-lg font-bold text-slate-900 group-hover:text-brand-700 transition-colors hidden sm:block">
+              {L('مسارات', 'Masarat')}
+            </span>
+          </a>
           <nav className="flex items-center gap-2 sm:gap-3">
             <a href={`/${other}`} className="rounded-lg px-3 py-2 text-sm font-medium text-slate-500 hover:text-slate-800 transition-colors">
               {L('English', 'عربي')}
