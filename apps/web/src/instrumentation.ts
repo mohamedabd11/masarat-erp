@@ -168,6 +168,23 @@ export async function register() {
     `DO $$ BEGIN IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname='fk_supplier_payments_journal')  THEN ALTER TABLE supplier_payments DROP CONSTRAINT fk_supplier_payments_journal;  END IF; END $$`,
     `DO $$ BEGIN IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname='fk_receipt_vouchers_journal')   THEN ALTER TABLE receipt_vouchers  DROP CONSTRAINT fk_receipt_vouchers_journal;   END IF; END $$`,
     `DO $$ BEGIN IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname='fk_quotes_converted_booking')   THEN ALTER TABLE quotes            DROP CONSTRAINT fk_quotes_converted_booking;   END IF; END $$`,
+
+    // ── 2026-06 — Re-add FK constraints as DEFERRABLE INITIALLY DEFERRED ─────
+    // PostgreSQL deferred constraints are checked at COMMIT time rather than at
+    // each individual statement. This is compatible with the application's
+    // child-before-parent insert pattern (child row with journalEntryId is
+    // inserted first, parent journal_entries row is inserted second — both
+    // within the same transaction, so the FK check at COMMIT finds both rows).
+    // New names (_deferred suffix) avoid conflict with the non-deferred versions
+    // dropped above, making these ADD statements idempotent on repeat startups.
+    `DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='fk_invoices_original_invoice_deferred') THEN ALTER TABLE invoices ADD CONSTRAINT fk_invoices_original_invoice_deferred FOREIGN KEY (original_invoice_id) REFERENCES invoices(id) DEFERRABLE INITIALLY DEFERRED; END IF; END $$`,
+    `DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='fk_invoices_journal_entry_deferred')    THEN ALTER TABLE invoices ADD CONSTRAINT fk_invoices_journal_entry_deferred    FOREIGN KEY (journal_entry_id)    REFERENCES journal_entries(id) DEFERRABLE INITIALLY DEFERRED; END IF; END $$`,
+    `DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='fk_payments_journal_entry_deferred')    THEN ALTER TABLE payments ADD CONSTRAINT fk_payments_journal_entry_deferred    FOREIGN KEY (journal_entry_id)    REFERENCES journal_entries(id) DEFERRABLE INITIALLY DEFERRED; END IF; END $$`,
+    `DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='fk_bookings_journal_entry_deferred')    THEN ALTER TABLE bookings ADD CONSTRAINT fk_bookings_journal_entry_deferred    FOREIGN KEY (journal_entry_id)    REFERENCES journal_entries(id) DEFERRABLE INITIALLY DEFERRED; END IF; END $$`,
+    `DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='fk_supplier_payments_supplier_deferred') THEN ALTER TABLE supplier_payments ADD CONSTRAINT fk_supplier_payments_supplier_deferred FOREIGN KEY (supplier_id)       REFERENCES suppliers(id)       DEFERRABLE INITIALLY DEFERRED; END IF; END $$`,
+    `DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='fk_supplier_payments_journal_deferred') THEN ALTER TABLE supplier_payments ADD CONSTRAINT fk_supplier_payments_journal_deferred  FOREIGN KEY (journal_entry_id)    REFERENCES journal_entries(id) DEFERRABLE INITIALLY DEFERRED; END IF; END $$`,
+    `DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='fk_receipt_vouchers_journal_deferred')  THEN ALTER TABLE receipt_vouchers  ADD CONSTRAINT fk_receipt_vouchers_journal_deferred  FOREIGN KEY (journal_entry_id)    REFERENCES journal_entries(id) DEFERRABLE INITIALLY DEFERRED; END IF; END $$`,
+    `DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='fk_quotes_converted_booking_deferred')  THEN ALTER TABLE quotes            ADD CONSTRAINT fk_quotes_converted_booking_deferred  FOREIGN KEY (converted_to_booking_id) REFERENCES bookings(id)        DEFERRABLE INITIALLY DEFERRED; END IF; END $$`,
   ];
 
   try {
