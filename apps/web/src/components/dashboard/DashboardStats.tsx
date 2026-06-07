@@ -48,13 +48,13 @@ export function DashboardStats({ locale }: { locale: string }) {
   return (
     <div className="grid grid-cols-2 xl:grid-cols-4 gap-4">
       <StatsCard
-        title={isAr ? 'إيرادات هذا الشهر' : "This Month's Revenue"}
+        title={isAr ? 'مبيعات هذا الشهر' : "This Month's Sales"}
         value={formatCurrency(stats.monthRevenue, loc2)}
         icon={TrendingUp}
         iconBg="bg-brand-50"
         iconColor="text-brand-600"
         accentColor="border-brand-500"
-        subtitle={isAr ? 'صافي من الضريبة' : 'Excl. VAT'}
+        subtitle={isAr ? 'إجمالي فواتير العملاء قبل الضريبة' : 'Gross customer invoices excl. VAT'}
       />
       <StatsCard
         title={isAr ? 'ضريبة القيمة المضافة' : 'VAT Collected'}
