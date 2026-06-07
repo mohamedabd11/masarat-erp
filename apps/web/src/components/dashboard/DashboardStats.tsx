@@ -8,11 +8,12 @@ import { formatCurrency, formatCount } from '@/lib/utils';
 import { TrendingUp, CheckCircle2, Wallet, Receipt } from 'lucide-react';
 
 interface DashboardStatsData {
-  monthRevenue:    number;
-  monthVat:        number;
-  activeBookings:  number;
-  pendingBookings: number;
-  arOutstanding:   number;
+  monthRevenue:       number; // IFRS 15 commission revenue from journal entries
+  monthGrossBookings: number; // total customer billing (management KPI)
+  monthVat:           number;
+  activeBookings:     number;
+  pendingBookings:    number;
+  arOutstanding:      number;
 }
 
 export function DashboardStats({ locale }: { locale: string }) {
@@ -22,7 +23,8 @@ export function DashboardStats({ locale }: { locale: string }) {
 
   const [loading, setLoading] = useState(true);
   const [stats, setStats]     = useState<DashboardStatsData>({
-    monthRevenue: 0, monthVat: 0, activeBookings: 0, pendingBookings: 0, arOutstanding: 0,
+    monthRevenue: 0, monthGrossBookings: 0, monthVat: 0,
+    activeBookings: 0, pendingBookings: 0, arOutstanding: 0,
   });
 
   useEffect(() => {
@@ -47,14 +49,20 @@ export function DashboardStats({ locale }: { locale: string }) {
 
   return (
     <div className="grid grid-cols-2 xl:grid-cols-4 gap-4">
+      {/*
+       * Commission revenue (IFRS 15 agent model) — matches قائمة الدخل.
+       * Subtitle shows gross bookings (حجم الأعمال) as a management indicator.
+       */}
       <StatsCard
-        title={isAr ? 'مبيعات هذا الشهر' : "This Month's Sales"}
+        title={isAr ? 'إيرادات هذا الشهر' : "This Month's Revenue"}
         value={formatCurrency(stats.monthRevenue, loc2)}
         icon={TrendingUp}
         iconBg="bg-brand-50"
         iconColor="text-brand-600"
         accentColor="border-brand-500"
-        subtitle={isAr ? 'إجمالي فواتير العملاء قبل الضريبة' : 'Gross customer invoices excl. VAT'}
+        subtitle={isAr
+          ? `حجم الأعمال: ${formatCurrency(stats.monthGrossBookings, loc2)}`
+          : `Gross bookings: ${formatCurrency(stats.monthGrossBookings, loc2)}`}
       />
       <StatsCard
         title={isAr ? 'ضريبة القيمة المضافة' : 'VAT Collected'}

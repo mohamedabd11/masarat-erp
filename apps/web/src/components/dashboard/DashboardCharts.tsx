@@ -146,7 +146,7 @@ export function DashboardCharts({ locale }: { locale: string }) {
       {/* ── Revenue bar chart ───────────────────────────────────────────── */}
       <Card className="xl:col-span-2">
         <CardHeader>
-          <CardTitle>{isAr ? 'المبيعات (آخر 6 أشهر)' : 'Sales – Last 6 Months'}</CardTitle>
+          <CardTitle>{isAr ? 'حجم الأعمال (آخر 6 أشهر)' : 'Gross Bookings – Last 6 Months'}</CardTitle>
         </CardHeader>
 
         {hasRevenue ? (

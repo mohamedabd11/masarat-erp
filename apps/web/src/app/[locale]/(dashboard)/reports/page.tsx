@@ -160,7 +160,7 @@ function OverviewTab({ monthly, typeMix, loading, year, setYear, isAr, fmtLocale
       {/* KPIs */}
       <div className="grid grid-cols-2 xl:grid-cols-4 gap-4">
         <KpiCard icon={<TrendingUp size={20} />} iconBg="bg-brand-50" iconColor="text-brand-600"
-          label={isAr ? 'إجمالي المبيعات' : 'Total Sales'}
+          label={isAr ? 'حجم الأعمال' : 'Gross Bookings'}
           value={formatCurrency(totalRev, fmtLocale)}
           sub={isAr ? 'إجمالي فواتير العملاء قبل الضريبة' : 'Gross customer invoices excl. VAT'} />
         <KpiCard icon={<BarChart3 size={20} />} iconBg="bg-sky-50" iconColor="text-sky-600"
@@ -181,7 +181,7 @@ function OverviewTab({ monthly, typeMix, loading, year, setYear, isAr, fmtLocale
         {/* Monthly bar chart */}
         <Card>
           <div className="flex items-center justify-between mb-5">
-            <h2 className="text-base font-semibold text-slate-900">{isAr ? 'المبيعات الشهرية' : 'Monthly Sales'}</h2>
+            <h2 className="text-base font-semibold text-slate-900">{isAr ? 'حجم الأعمال الشهري' : 'Monthly Gross Bookings'}</h2>
             <YearNav year={year} setYear={setYear} isAr={isAr} />
           </div>
           {monthly.length === 0 ? (
@@ -268,7 +268,7 @@ function OverviewTab({ monthly, typeMix, loading, year, setYear, isAr, fmtLocale
                   {[
                     { label: isAr ? 'الشهر' : 'Month',                  align: 'start ps-6' },
                     { label: isAr ? 'الحجوزات' : 'Bookings',            align: 'end' },
-                    { label: isAr ? 'المبيعات (قبل VAT)' : 'Sales (excl. VAT)', align: 'end' },
+                    { label: isAr ? 'حجم الأعمال (قبل الضريبة)' : 'Gross Bookings (excl. VAT)', align: 'end' },
                     { label: isAr ? 'الإجمالي' : 'Grand Total',          align: 'end' },
                     { label: isAr ? 'ضريبة VAT' : 'VAT',                align: 'end pe-6' },
                   ].map((col, i) => (
@@ -910,7 +910,7 @@ function ProfitabilityTab({ monthly, typeMix, loading, isAr, fmtLocale }: {
       {/* KPIs */}
       <div className="grid grid-cols-2 xl:grid-cols-4 gap-4">
         <KpiCard icon={<TrendingUp size={20} />} iconBg="bg-brand-50" iconColor="text-brand-600"
-          label={isAr ? 'إجمالي المبيعات' : 'Total Sales'} value={formatCurrency(totalRev, fmtLocale)} />
+          label={isAr ? 'حجم الأعمال' : 'Gross Bookings'} value={formatCurrency(totalRev, fmtLocale)} />
         <KpiCard icon={<Receipt size={20} />} iconBg="bg-amber-50" iconColor="text-amber-600"
           label={isAr ? 'ضريبة محصّلة' : 'VAT Collected'} value={formatCurrency(totalVat, fmtLocale)} />
         <KpiCard icon={<Wallet size={20} />} iconBg="bg-emerald-50" iconColor="text-emerald-600"
