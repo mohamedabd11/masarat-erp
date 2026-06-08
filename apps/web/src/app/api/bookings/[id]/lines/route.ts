@@ -4,6 +4,7 @@ import { db } from '@/lib/db';
 import { bookings, bookingLines, VAT_RATE_BPS } from '@/lib/schema';
 import type { VatCategory } from '@/lib/schema';
 import { verifyAuth, assertRole, ApiAuthError, BusinessError, ROLES_MANAGER_UP } from '@/lib/api-auth';
+import { syncBookingTotalsFromLines } from '@/lib/booking-financials';
 
 const VALID_SERVICE_TYPES = new Set([
   'flight', 'hotel', 'package', 'umrah', 'hajj',
@@ -117,33 +118,37 @@ export async function POST(
     const vatHalalas  = Math.round(totalPrice * vatRateBps / 10000);
 
     const id = crypto.randomUUID();
-    await db.insert(bookingLines).values({
-      id,
-      bookingId:                 params.id,
-      agencyId,
-      serviceType:               body.serviceType,
-      description:               body.description.trim(),
-      supplierId:                body.supplierId   ?? null,
-      supplierName:              body.supplierName ?? null,
-      quantity,
-      unitCostHalalas:           unitCost,
-      totalCostHalalas:          totalCost,
-      unitPriceExclVatHalalas:   unitPrice,
-      totalPriceExclVatHalalas:  totalPrice,
-      vatCategory,
-      vatRateBps,
-      vatHalalas,
-      revenueModel,
-      revenueAccountCode:        body.revenueAccountCode ?? null,
-      costAccountCode:           body.costAccountCode    ?? null,
-      operationalStatus:         opStatus,
-      pnrReference:              body.pnrReference  ?? null,
-      voucherNumber:             body.voucherNumber  ?? null,
-      isLegacy:                  false,
-      status:                    'active',
-      refundHalalas:             0,
-      sortOrder:                 body.sortOrder ?? 0,
-      notes:                     body.notes ?? null,
+    await db.transaction(async (tx) => {
+      await tx.insert(bookingLines).values({
+        id,
+        bookingId:                 params.id,
+        agencyId,
+        serviceType:               body.serviceType,
+        description:               body.description.trim(),
+        supplierId:                body.supplierId   ?? null,
+        supplierName:              body.supplierName ?? null,
+        quantity,
+        unitCostHalalas:           unitCost,
+        totalCostHalalas:          totalCost,
+        unitPriceExclVatHalalas:   unitPrice,
+        totalPriceExclVatHalalas:  totalPrice,
+        vatCategory,
+        vatRateBps,
+        vatHalalas,
+        revenueModel,
+        revenueAccountCode:        body.revenueAccountCode ?? null,
+        costAccountCode:           body.costAccountCode    ?? null,
+        operationalStatus:         opStatus,
+        pnrReference:              body.pnrReference  ?? null,
+        voucherNumber:             body.voucherNumber  ?? null,
+        isLegacy:                  false,
+        status:                    'active',
+        refundHalalas:             0,
+        sortOrder:                 body.sortOrder ?? 0,
+        notes:                     body.notes ?? null,
+      });
+      // Keep booking aggregate totals in sync with lines (canonical layer)
+      await syncBookingTotalsFromLines(params.id, agencyId, tx);
     });
 
     return NextResponse.json({
