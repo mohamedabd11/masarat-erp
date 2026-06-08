@@ -35,6 +35,7 @@ interface Employee {
   email: string;
   nationalId: string;
   nationality: string;
+  nationalityType: 'saudi' | 'expat';
   joinDate: string;
   salary: number; // monthly SAR in halalas (x100)
   isActive: boolean;
@@ -212,13 +213,20 @@ interface EmployeeFormState {
   role: EmployeeRole; department: EmployeeDepartment;
   phone: string; email: string;
   nationalId: string; nationality: string;
+  nationalityType: 'saudi' | 'expat';
   joinDate: string; salary: string; // display value in SAR
 }
 
 const EMPTY_EMP_FORM: EmployeeFormState = {
   nameAr: '', nameEn: '', role: 'agent', department: 'bookings',
   phone: '', email: '', nationalId: '', nationality: '',
+  nationalityType: 'saudi',
   joinDate: '', salary: '',
+};
+
+const NATIONALITY_TYPE_LABELS: Record<'saudi' | 'expat', { ar: string; en: string }> = {
+  saudi: { ar: 'سعودي',  en: 'Saudi' },
+  expat: { ar: 'وافد',   en: 'Expat' },
 };
 
 function EmployeesTab({ isAr, agencyId, locale }: { isAr: boolean; agencyId: string; locale: string }) {
@@ -259,6 +267,7 @@ function EmployeesTab({ isAr, agencyId, locale }: { isAr: boolean; agencyId: str
       role: emp.role, department: emp.department,
       phone: emp.phone ?? '', email: emp.email ?? '',
       nationalId: emp.nationalId ?? '', nationality: emp.nationality ?? '',
+      nationalityType: emp.nationalityType ?? 'saudi',
       joinDate: emp.joinDate ?? '', salary: salaryDisplayValue(emp.salary ?? 0),
     });
     setShowForm(true);
@@ -273,6 +282,7 @@ function EmployeesTab({ isAr, agencyId, locale }: { isAr: boolean; agencyId: str
         department: form.department,
         phone: form.phone, email: form.email,
         nationalId: form.nationalId,
+        nationalityType: form.nationalityType,
         hireDate: form.joinDate,
         salaryHalalas: salaryToHalalas(form.salary),
       };
@@ -439,6 +449,21 @@ function EmployeesTab({ isAr, agencyId, locale }: { isAr: boolean; agencyId: str
                   <option key={c.code} value={isAr ? c.ar : c.en} />
                 ))}
               </datalist>
+            </div>
+            <div>
+              <label className={labelCls}>{isAr ? 'تصنيف التأمينات الاجتماعية (جوسي) *' : 'GOSI Classification *'}</label>
+              <select value={form.nationalityType}
+                onChange={e => setForm(p => ({ ...p, nationalityType: e.target.value as 'saudi' | 'expat' }))}
+                className={inputCls}>
+                {(Object.keys(NATIONALITY_TYPE_LABELS) as Array<'saudi' | 'expat'>).map(t => (
+                  <option key={t} value={t}>{isAr ? NATIONALITY_TYPE_LABELS[t].ar : NATIONALITY_TYPE_LABELS[t].en}</option>
+                ))}
+              </select>
+              <p className="mt-1 text-xs text-slate-400">
+                {isAr
+                  ? 'يحدد نسبة اشتراك صاحب العمل: سعودي 9.75% — وافد 2%'
+                  : 'Determines employer contribution rate: Saudi 9.75% — Expat 2%'}
+              </p>
             </div>
             <div>
               <label className={labelCls}>{isAr ? 'تاريخ الالتحاق' : 'Join Date'}</label>
