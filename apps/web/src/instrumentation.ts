@@ -196,6 +196,84 @@ export async function register() {
     // would silently overflow the VAT return amounts. BIGINT has no practical limit.
     // This is a safe widening migration — no data loss, no default changes.
     `DO $$ BEGIN IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='vat_returns' AND column_name='output_vat_halalas' AND data_type='integer') THEN ALTER TABLE vat_returns ALTER COLUMN output_vat_halalas TYPE bigint, ALTER COLUMN input_vat_halalas TYPE bigint, ALTER COLUMN net_vat_halalas TYPE bigint; END IF; END $$`,
+
+    // ── 2026-06-08 — Create booking_lines table ──────────────────────────────
+    // Source of Truth for per-service VAT, cost, revenue model, and GL mapping.
+    // Replaces the single aggregated VAT on bookings/invoices with per-line
+    // breakdown, enabling mixed-supply VAT (e.g. 0% flight + 15% hotel in one
+    // booking) and correct ZATCA line-item generation.
+    `DO $$ BEGIN
+       CREATE TABLE IF NOT EXISTS booking_lines (
+         id                           TEXT PRIMARY KEY,
+         booking_id                   TEXT NOT NULL REFERENCES bookings(id)  ON DELETE CASCADE,
+         agency_id                    TEXT NOT NULL REFERENCES agencies(id)  ON DELETE CASCADE,
+         service_type                 TEXT NOT NULL,
+         description                  TEXT NOT NULL,
+         supplier_id                  TEXT,
+         supplier_name                TEXT,
+         quantity                     INTEGER NOT NULL DEFAULT 1,
+         unit_cost_halalas            BIGINT  NOT NULL DEFAULT 0,
+         total_cost_halalas           BIGINT  NOT NULL DEFAULT 0,
+         unit_price_excl_vat_halalas  BIGINT  NOT NULL DEFAULT 0,
+         total_price_excl_vat_halalas BIGINT  NOT NULL DEFAULT 0,
+         vat_category                 TEXT    NOT NULL DEFAULT 'S',
+         vat_rate_bps                 INTEGER NOT NULL DEFAULT 1500,
+         vat_halalas                  BIGINT  NOT NULL DEFAULT 0,
+         revenue_model                TEXT    NOT NULL DEFAULT 'agent',
+         revenue_account_code         TEXT,
+         cost_account_code            TEXT,
+         operational_status           TEXT    NOT NULL DEFAULT 'pending',
+         pnr_reference                TEXT,
+         voucher_number               TEXT,
+         is_legacy                    BOOLEAN NOT NULL DEFAULT FALSE,
+         status                       TEXT    NOT NULL DEFAULT 'active',
+         cancelled_at                 TIMESTAMP,
+         refund_halalas               BIGINT  NOT NULL DEFAULT 0,
+         sort_order                   INTEGER NOT NULL DEFAULT 0,
+         notes                        TEXT,
+         created_at                   TIMESTAMP NOT NULL DEFAULT NOW(),
+         updated_at                   TIMESTAMP NOT NULL DEFAULT NOW()
+       );
+       CREATE INDEX IF NOT EXISTS idx_bl_booking        ON booking_lines(booking_id);
+       CREATE INDEX IF NOT EXISTS idx_bl_agency         ON booking_lines(agency_id);
+       CREATE INDEX IF NOT EXISTS idx_bl_agency_service ON booking_lines(agency_id, service_type);
+       CREATE INDEX IF NOT EXISTS idx_bl_status         ON booking_lines(agency_id, status);
+     END $$`,
+
+    // ── 2026-06-08 — Backfill legacy booking_lines for existing bookings ─────
+    // Each pre-existing booking receives one is_legacy=true line holding the
+    // aggregated totals. These lines are immutable and excluded from per-line
+    // VAT/GL reports via the is_legacy flag.
+    // unit_price_excl_vat_halalas stores total_price_halalas (VAT-inclusive) as
+    // an approximation — acceptable because is_legacy=true signals "don't trust
+    // per-line VAT breakdown for this historical record".
+    `INSERT INTO booking_lines (
+       id, booking_id, agency_id, service_type, description,
+       unit_cost_halalas, total_cost_halalas,
+       unit_price_excl_vat_halalas, total_price_excl_vat_halalas,
+       vat_category, vat_rate_bps, vat_halalas,
+       revenue_model, is_legacy, status, sort_order,
+       created_at, updated_at
+     )
+     SELECT
+       'legacy-' || b.id,
+       b.id,
+       b.agency_id,
+       COALESCE(b.service_type, 'custom'),
+       COALESCE(b.service_type, 'custom'),
+       COALESCE(b.cost_price_halalas, 0),
+       COALESCE(b.cost_price_halalas, 0),
+       COALESCE(b.total_price_halalas, 0),
+       COALESCE(b.total_price_halalas, 0),
+       'S', 0, 0,
+       COALESCE(b.details->>'revenueModel', 'agent'),
+       TRUE,
+       CASE WHEN b.status = 'cancelled' THEN 'cancelled' ELSE 'active' END,
+       1,
+       b.created_at,
+       b.updated_at
+     FROM bookings b
+     WHERE NOT EXISTS (SELECT 1 FROM booking_lines bl WHERE bl.booking_id = b.id)`,
   ];
 
   try {
