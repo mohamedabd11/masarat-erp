@@ -60,7 +60,7 @@ interface BookingsClientProps {
   initialQuery?: string;
 }
 
-type StatusFilter = 'all' | 'pending_approval' | 'confirmed' | 'ticketed' | 'completed' | 'cancelled';
+type StatusFilter = 'all' | 'draft' | 'confirmed' | 'completed' | 'cancelled';
 
 const TYPE_META: Record<string, { ar: string; en: string; bg: string; text: string }> = {
   flight:       { ar: 'طيران',        en: 'Flight',        bg: 'bg-sky-100',     text: 'text-sky-700' },
@@ -76,12 +76,11 @@ const TYPE_META: Record<string, { ar: string; en: string; bg: string; text: stri
 };
 
 const STATUS_TABS: { id: StatusFilter; ar: string; en: string }[] = [
-  { id: 'all',              ar: 'الكل',           en: 'All' },
-  { id: 'pending_approval', ar: 'انتظار موافقة',  en: 'Pending' },
-  { id: 'confirmed',        ar: 'مؤكد',           en: 'Confirmed' },
-  { id: 'ticketed',         ar: 'صدرت التذاكر',   en: 'Ticketed' },
-  { id: 'completed',        ar: 'مكتمل',          en: 'Completed' },
-  { id: 'cancelled',        ar: 'ملغي',           en: 'Cancelled' },
+  { id: 'all',       ar: 'الكل',    en: 'All' },
+  { id: 'draft',     ar: 'مسودة',   en: 'Draft' },
+  { id: 'confirmed', ar: 'مؤكد',    en: 'Confirmed' },
+  { id: 'completed', ar: 'مكتمل',   en: 'Completed' },
+  { id: 'cancelled', ar: 'ملغي',    en: 'Cancelled' },
 ];
 
 export function BookingsClient({ locale, bookingType, initialQuery = '' }: BookingsClientProps) {
@@ -96,8 +95,8 @@ export function BookingsClient({ locale, bookingType, initialQuery = '' }: Booki
   // ── KPIs ────────────────────────────────────────────────────────────────────
   const revenue   = bookings.reduce((s, b) => s + (b.totalPriceHalalas ?? 0), 0);
   const paid      = bookings.reduce((s, b) => s + (b.paidHalalas ?? 0), 0);
-  const pending   = bookings.filter(b => b.status === 'pending_approval').length;
-  const active    = bookings.filter(b => b.status === 'confirmed' || b.status === 'ticketed').length;
+  const pending   = bookings.filter(b => b.status === 'draft').length;
+  const active    = bookings.filter(b => b.status === 'confirmed').length;
   const completed = bookings.filter(b => b.status === 'completed').length;
 
   // ── Filtered list ─────────────────────────────────────────────────────────
@@ -125,7 +124,7 @@ export function BookingsClient({ locale, bookingType, initialQuery = '' }: Booki
         {[
           { icon: TrendingUp,   bg: 'bg-brand-50',   color: 'text-brand-600',   accent: 'border-brand-500',   label: isAr ? 'إجمالي الإيرادات' : 'Total Revenue',   value: formatCurrency(revenue, fmtLocale) },
           { icon: Wallet,       bg: 'bg-emerald-50', color: 'text-emerald-600', accent: 'border-emerald-500', label: isAr ? 'المحصّل' : 'Collected',                value: formatCurrency(paid, fmtLocale) },
-          { icon: Clock,        bg: 'bg-amber-50',   color: 'text-amber-600',   accent: 'border-amber-500',   label: isAr ? 'انتظار موافقة' : 'Pending Approval',   value: formatCount(pending, fmtLocale) },
+          { icon: Clock,        bg: 'bg-amber-50',   color: 'text-amber-600',   accent: 'border-amber-500',   label: isAr ? 'مسودة' : 'Draft',                      value: formatCount(pending, fmtLocale) },
           { icon: CheckCircle2, bg: 'bg-sky-50',     color: 'text-sky-600',     accent: 'border-sky-500',     label: isAr ? 'نشط' : 'Active',                       value: formatCount(active, fmtLocale) },
           { icon: BookOpen,     bg: 'bg-slate-50',   color: 'text-slate-600',   accent: 'border-slate-400',   label: isAr ? 'مكتملة' : 'Completed',                 value: formatCount(completed, fmtLocale) },
         ].map(k => (

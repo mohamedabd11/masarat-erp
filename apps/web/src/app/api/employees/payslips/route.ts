@@ -78,7 +78,7 @@ export async function POST(request: Request) {
     const advanceDeduction = pendingAdvances.reduce((s, a) => s + a.amountHalalas, 0);
 
     // Fetch employee for the journal-entry description (and to validate it exists)
-    const [employee] = await db.select({ id: employees.id, nameAr: employees.nameAr })
+    const [employee] = await db.select({ id: employees.id, nameAr: employees.nameAr, nationalityType: employees.nationalityType })
       .from(employees)
       .where(and(eq(employees.id, body.employeeId), eq(employees.agencyId, agencyId)))
       .limit(1);
@@ -91,8 +91,10 @@ export async function POST(request: Request) {
     const gross     = base + housing + transport + other;
     const deduct    = body.deductionsHalalas ?? 0;
     const gosiEmployee = body.gosiEmployeeHalalas ?? 0;
-    // GOSI employer: 9% pension + 2% annuities + 0.75% hazard = 11.75%
-    const GOSI_EMPLOYER_RATE = 0.1175;
+    // GOSI employer rates per Saudi social insurance regulations:
+    //   Saudi nationals: 9% pension + 0.75% occupational hazard = 9.75%
+    //   Expats: 2% occupational hazard only
+    const GOSI_EMPLOYER_RATE = (employee.nationalityType ?? 'saudi') === 'expat' ? 0.02 : 0.0975;
     const gosiBase     = base + housing;
     const gosiEmployer = Math.round(gosiBase * GOSI_EMPLOYER_RATE);
     const net          = gross - deduct - advanceDeduction - gosiEmployee;

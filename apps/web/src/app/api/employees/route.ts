@@ -29,6 +29,7 @@ export async function POST(request: Request) {
       nameAr: string; nameEn?: string; employeeNumber?: string; department?: string;
       position?: string; hireDate?: string; salaryHalalas?: number;
       phone?: string; email?: string; nationalId?: string; iqamaNumber?: string;
+      nationalityType?: 'saudi' | 'expat';
     };
     if (!body.nameAr) return NextResponse.json({ error: 'الاسم مطلوب' }, { status: 400 });
     const id = crypto.randomUUID();
@@ -40,6 +41,7 @@ export async function POST(request: Request) {
       hireDate: body.hireDate ?? null, salaryHalalas: body.salaryHalalas ?? 0,
       phone: body.phone ?? null, email: body.email ?? null,
       nationalId: body.nationalId ?? null, iqamaNumber: body.iqamaNumber ?? null,
+      nationalityType: body.nationalityType ?? 'saudi',
     });
     return NextResponse.json({ success: true, id });
   } catch (err) {

@@ -185,6 +185,17 @@ export async function register() {
     `DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='fk_supplier_payments_journal_deferred') THEN ALTER TABLE supplier_payments ADD CONSTRAINT fk_supplier_payments_journal_deferred  FOREIGN KEY (journal_entry_id)    REFERENCES journal_entries(id) DEFERRABLE INITIALLY DEFERRED; END IF; END $$`,
     `DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='fk_receipt_vouchers_journal_deferred')  THEN ALTER TABLE receipt_vouchers  ADD CONSTRAINT fk_receipt_vouchers_journal_deferred  FOREIGN KEY (journal_entry_id)    REFERENCES journal_entries(id) DEFERRABLE INITIALLY DEFERRED; END IF; END $$`,
     `DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='fk_quotes_converted_booking_deferred')  THEN ALTER TABLE quotes            ADD CONSTRAINT fk_quotes_converted_booking_deferred  FOREIGN KEY (converted_to_booking_id) REFERENCES bookings(id)        DEFERRABLE INITIALLY DEFERRED; END IF; END $$`,
+
+    // ── 2026-06-08 — Add nationality_type to employees (GOSI rate classification) ──
+    // Saudi employees: 9.75% employer GOSI. Expats: 2% employer GOSI.
+    // Default 'saudi' so existing rows are not affected.
+    `DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='employees' AND column_name='nationality_type') THEN ALTER TABLE employees ADD COLUMN nationality_type TEXT NOT NULL DEFAULT 'saudi'; END IF; END $$`,
+
+    // ── 2026-06-08 — Widen vat_returns monetary columns from INTEGER to BIGINT ──
+    // INTEGER caps at ~21.47M SAR per quarter. Agencies above that threshold
+    // would silently overflow the VAT return amounts. BIGINT has no practical limit.
+    // This is a safe widening migration — no data loss, no default changes.
+    `DO $$ BEGIN IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='vat_returns' AND column_name='output_vat_halalas' AND data_type='integer') THEN ALTER TABLE vat_returns ALTER COLUMN output_vat_halalas TYPE bigint, ALTER COLUMN input_vat_halalas TYPE bigint, ALTER COLUMN net_vat_halalas TYPE bigint; END IF; END $$`,
   ];
 
   try {
