@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { eq, and, sql } from 'drizzle-orm';
 import { db } from '@/lib/db';
-import { invoices, bookings, payments, journalEntries, journalLines, idempotencyKeys } from '@/lib/schema';
+import { invoices, bookings, payments, journalEntries, journalLines, idempotencyKeys, bookingLines } from '@/lib/schema';
 import { verifyAuth, assertRole, ApiAuthError, BusinessError, ROLES_ACCOUNTANT_UP } from '@/lib/api-auth';
 import { withIdempotency, buildIdempotencyInsert } from '@/lib/idempotency';
 import { getNextInvoiceNumber, getNextJournalNumber } from '@/lib/invoice-counter';
@@ -236,6 +236,17 @@ export async function POST(request: Request) {
           await tx.update(bookings)
             .set({ status: 'cancelled', updatedAt: now })
             .where(eq(bookings.id, bookingId));
+
+          // Cascade to booking_lines — keeps the financial source-of-truth
+          // consistent (no 'active' line items survive under a cancelled booking;
+          // see booking-financials.ts and invoices/create's status='active' filter).
+          await tx.update(bookingLines)
+            .set({ status: 'cancelled', cancelledAt: now, updatedAt: now })
+            .where(and(
+              eq(bookingLines.bookingId, bookingId),
+              eq(bookingLines.agencyId, agencyId),
+              eq(bookingLines.status, 'active'),
+            ));
         }
 
         await tx.insert(idempotencyKeys)
