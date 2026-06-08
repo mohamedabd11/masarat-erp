@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { eq, and } from 'drizzle-orm';
 import { db } from '@/lib/db';
-import { quotes, bookings } from '@/lib/schema';
+import { quotes, bookings, bookingLines } from '@/lib/schema';
 import { verifyAuth, assertRole, ApiAuthError, ROLES_AGENT_UP } from '@/lib/api-auth';
 import { getNextBookingNumber } from '@/lib/invoice-counter';
 import { logAudit } from '@/lib/audit';
@@ -76,6 +76,40 @@ export async function POST(request: Request, { params }: { params: { id: string 
         notes:            quote.notes ?? null,
         details:          { sourceQuoteId: quote.id, items },
         createdBy:        uid,
+      });
+
+      // Create a consolidating booking_line so this booking enters the canonical
+      // financial layer (booking_lines as source of truth).
+      // vatCategory='Z' (zero-rated, vatHalalas=0) because quote.totalHalalas is
+      // the agreed final amount — we don't back-calculate VAT from an opaque total.
+      // The caller can refine lines via POST /api/bookings/:id/lines after conversion.
+      await tx.insert(bookingLines).values({
+        id:                       crypto.randomUUID(),
+        bookingId,
+        agencyId,
+        serviceType:              'custom',
+        description:              `تحويل من عرض سعر رقم ${quote.quoteNumber}`,
+        supplierId:               null,
+        supplierName:             null,
+        quantity:                 1,
+        unitCostHalalas:          costPriceHalalas,
+        totalCostHalalas:         costPriceHalalas,
+        unitPriceExclVatHalalas:  totalPriceHalalas,
+        totalPriceExclVatHalalas: totalPriceHalalas,
+        vatCategory:              'Z',
+        vatRateBps:               0,
+        vatHalalas:               0,
+        revenueModel:             'agent',
+        revenueAccountCode:       null,
+        costAccountCode:          null,
+        operationalStatus:        'pending',
+        pnrReference:             null,
+        voucherNumber:            null,
+        isLegacy:                 false,
+        status:                   'active',
+        refundHalalas:            0,
+        sortOrder:                1,
+        notes:                    null,
       });
 
       await tx.update(quotes)
