@@ -22,7 +22,7 @@ const AC = {
   vatPayable:       { code: '2200', ar: 'ضريبة القيمة المضافة مستحقة',  en: 'VAT Payable' },
   revenueAgent:     { code: '4000', ar: 'إيراد رسوم الوكالة',            en: 'Revenue - Agency Fees' },
   revenuePrincipal: { code: '4100', ar: 'إيراد خدمات السفر',             en: 'Revenue - Travel Services' },
-  cancellationFee:  { code: '4000', ar: 'إيراد رسوم الإلغاء',            en: 'Cancellation Fee Revenue' },
+  cancellationFee:  GL.cancellationFee,   // 4200 — dedicated code (must not collide with revenueAgent 4000)
   // Reversing the original purchase posting (Dr 5000 / Cr 2000 booked at invoice time)
   payableSupplier:  GL.payableSupplier,   // 2000 — Dr to reverse the original AP credit
   costOfServices:   GL.costOfServices,    // 5000 — Cr to reverse the original COGS debit

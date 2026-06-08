@@ -49,6 +49,7 @@ const DEFAULT_COA = [
   { code: '4130', nameAr: 'إيرادات العمرة',              nameEn: 'Umrah Revenue',                type: 'revenue',   },
   { code: '4140', nameAr: 'إيرادات التأشيرات',           nameEn: 'Visa Revenue',                 type: 'revenue',   },
   { code: '4150', nameAr: 'إيرادات التأمين',             nameEn: 'Insurance Revenue',            type: 'revenue',   },
+  { code: '4200', nameAr: 'إيراد رسوم الإلغاء',          nameEn: 'Cancellation Fee Revenue',     type: 'revenue',   },
   { code: '4420', nameAr: 'إيراد استرداد ADM',           nameEn: 'ADM Recovery Income',          type: 'revenue',   },
   { code: '4510', nameAr: 'إيراد فروق المطابقة البنكية',  nameEn: 'Bank Reconciliation Income',   type: 'revenue',   },
   { code: '4900', nameAr: 'أرباح فروق أسعار الصرف',       nameEn: 'FX Exchange Gain',             type: 'revenue',   },
