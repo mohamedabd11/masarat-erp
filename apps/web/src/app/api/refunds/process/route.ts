@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { eq, and } from 'drizzle-orm';
+import { eq, and, sql } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { invoices, bookings, payments, journalEntries, journalLines, idempotencyKeys } from '@/lib/schema';
 import { verifyAuth, assertRole, ApiAuthError, BusinessError, ROLES_ACCOUNTANT_UP } from '@/lib/api-auth';
@@ -56,6 +56,7 @@ export async function POST(request: Request) {
         );
         if (!invoice) throw new BusinessError(`الفاتورة ${originalInvoiceId} غير موجودة`, 404);
         if (invoice.status === 'cancelled') throw new BusinessError('الفاتورة ملغاة بالفعل', 400);
+        if (invoice.status === 'refunded')  throw new BusinessError('تم استرداد هذه الفاتورة بالفعل', 400);
 
         const [booking] = await tx.select().from(bookings).where(
           and(eq(bookings.id, bookingId), eq(bookings.agencyId, agencyId)),
@@ -73,7 +74,7 @@ export async function POST(request: Request) {
 
         // ── 3. Calculate ────────────────────────────────────────────────────
         const details      = (booking.details ?? {}) as Record<string, unknown>;
-        const revenueModel = (details['revenueModel'] as string | undefined) ?? 'agent';
+        const revenueModel = (details['revenueModel'] as string | undefined) ?? 'principal';
         const revenueAc    = revenueModel === 'agent' ? AC.revenueAgent : AC.revenuePrincipal;
 
         // Prorate the original invoice's VAT by ratio of each component to the
@@ -108,22 +109,22 @@ export async function POST(request: Request) {
           ? [{ ...revenueAc, dr: refundSubtotal, cr: 0 }, { ...AC.vatPayable, dr: refundVat, cr: 0 }, { ...AC.bank, dr: 0, cr: refundAmountHalalas }]
           : [{ ...revenueAc, dr: refundAmountHalalas, cr: 0 }, { ...AC.bank, dr: 0, cr: refundAmountHalalas }];
 
-        // Cancellation fee lines — explicitly journalized (BUG-02 fix).
-        // The fee was already received in the original payment and remains in bank;
-        // we reclassify it from service revenue to cancellation fee revenue.
-        // Dr/Cr balance: cancellationFeeHalalas = cancelFeeNet + cancelFeeVat ✓
+        // Cancellation fee — reclassify ONLY the net (VAT-exclusive) amount from
+        // service revenue to cancellation-fee revenue. The fee money stays in the
+        // bank (it was received with the original payment and is not refunded), and
+        // the VAT on the retained fee remains in VAT Payable from the original
+        // invoice (the fee is still a taxable supply). Debiting service revenue by
+        // the GROSS fee and re-crediting VAT here would double-count output VAT and
+        // push service revenue negative. This pair is self-balancing (Dr = Cr = net).
         if (cancellationFeeHalalas > 0) {
           jLines.push({
             code: revenueAc.code,
             ar:   'رسوم إلغاء — مقتطعة من الحجز',
             en:   'Cancellation Fee Withheld',
-            dr:   cancellationFeeHalalas,
+            dr:   cancelFeeNet,
             cr:   0,
           });
           jLines.push({ ...AC.cancellationFee, dr: 0, cr: cancelFeeNet });
-          if (cancelFeeVat > 0) {
-            jLines.push({ ...AC.vatPayable, dr: 0, cr: cancelFeeVat });
-          }
         }
 
         // ── Reverse the original COGS + AP for the refunded portion ─────────
@@ -206,14 +207,36 @@ export async function POST(request: Request) {
           });
         }
 
-        // Update original invoice and booking
-        await tx.update(invoices)
-          .set({ status: 'refunded', updatedAt: now })
-          .where(eq(invoices.id, originalInvoiceId));
+        // Update original invoice atomically: decrement paidHalalas ONLY if the
+        // current DB balance still covers this refund + retained fee. This guards
+        // against a concurrent refund (different idempotency key) double-spending
+        // the same paid amount (lost update). 0 rows → another refund won the race
+        // → the whole transaction rolls back (no double credit note / cash-out).
+        const refundClaim = await tx.update(invoices)
+          .set({
+            paidHalalas: sql`${invoices.paidHalalas} - ${refundAmountHalalas}`,
+            status: sql`CASE
+              WHEN ${invoices.paidHalalas} - ${refundAmountHalalas} <= 0 THEN 'refunded'
+              WHEN ${invoices.paidHalalas} - ${refundAmountHalalas} < ${invoices.totalHalalas} THEN 'partial'
+              ELSE 'issued' END`,
+            updatedAt: now,
+          } as never)
+          .where(and(
+            eq(invoices.id, originalInvoiceId),
+            sql`${invoices.paidHalalas} >= ${refundAmountHalalas + cancellationFeeHalalas}`,
+          ))
+          .returning({ paidHalalas: invoices.paidHalalas });
+        if (refundClaim.length === 0) {
+          throw new BusinessError('تعذّر تنفيذ الاسترداد — قد يكون استرداد آخر نُفّذ في نفس الوقت، حاول مجدداً', 409);
+        }
+        const isFullyRefunded = (refundClaim[0]!.paidHalalas ?? 0) <= 0;
 
-        await tx.update(bookings)
-          .set({ status: 'cancelled', updatedAt: now })
-          .where(eq(bookings.id, bookingId));
+        // Only cancel the booking on a full refund
+        if (isFullyRefunded) {
+          await tx.update(bookings)
+            .set({ status: 'cancelled', updatedAt: now })
+            .where(eq(bookings.id, bookingId));
+        }
 
         await tx.insert(idempotencyKeys)
           .values(buildIdempotencyInsert(agencyId, 'processRefund', idempKey, { refundPaymentId, creditNoteId, creditNoteNumber }))

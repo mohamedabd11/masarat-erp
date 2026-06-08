@@ -4,6 +4,7 @@ import { db } from '@/lib/db';
 import { cheques, journalEntries, journalLines } from '@/lib/schema';
 import { verifyAuth, assertRole, ApiAuthError, BusinessError, ROLES_ACCOUNTANT_UP } from '@/lib/api-auth';
 import { getNextJournalNumber } from '@/lib/invoice-counter';
+import { assertPeriodOpen } from '@/lib/period-lock';
 
 const AC_RECEIVABLE  = { code: '1120', ar: 'ذمم مدينة - عملاء', en: 'Accounts Receivable' };
 const AC_CHEQUES_RCV = { code: '1125', ar: 'أوراق قبض - شيكات', en: 'Cheques Receivable'  };
@@ -24,13 +25,36 @@ export async function PATCH(request: Request, { params }: { params: { id: string
 
       if (!existing) throw new BusinessError('الشيك غير موجود', 404);
 
-      await tx
-        .update(cheques)
-        .set({ ...(body as Partial<typeof cheques.$inferInsert>), updatedAt: now })
-        .where(and(eq(cheques.id, params.id), eq(cheques.agencyId, agencyId)));
-
       const newStatus  = body['status'] as string | undefined;
       const prevStatus = existing.status;
+
+      // Validate the status transition BEFORE any write. Only forward transitions
+      // are allowed (e.g. cleared→bounced is rejected — it would need extra GL reversal).
+      const ALLOWED_CHEQUE_TRANSITIONS: Record<string, string[]> = {
+        pending:   ['cleared', 'bounced', 'cancelled'],
+        cleared:   [],
+        bounced:   [],
+        cancelled: [],
+      };
+      if (newStatus && prevStatus) {
+        const allowed = ALLOWED_CHEQUE_TRANSITIONS[prevStatus] ?? [];
+        if (!allowed.includes(newStatus)) {
+          throw new BusinessError(`انتقال حالة غير مسموح: ${prevStatus} → ${newStatus}`, 422);
+        }
+      }
+
+      // Allowlist updatable fields — NEVER spread the raw body. Financial/identity
+      // columns (amountHalalas, agencyId, id, type, chequeNumber) are immutable here;
+      // allowing them would let a status update silently rewrite the cheque amount
+      // (which drives the clearance/bounce journal) or move it to another tenant.
+      const patch: Record<string, unknown> = { updatedAt: now };
+      for (const k of ['status', 'dueDate', 'payerName', 'payeeName', 'notes', 'bankAccountId'] as const) {
+        if (body[k] !== undefined) patch[k] = body[k];
+      }
+      await tx
+        .update(cheques)
+        .set(patch as Partial<typeof cheques.$inferInsert>)
+        .where(and(eq(cheques.id, params.id), eq(cheques.agencyId, agencyId)));
 
       if (newStatus && newStatus !== prevStatus && existing.type === 'incoming') {
         const year  = now.getFullYear();
@@ -41,6 +65,7 @@ export async function PATCH(request: Request, { params }: { params: { id: string
 
         // Cheque cleared → deposit to bank
         if (newStatus === 'cleared') {
+          await assertPeriodOpen(agencyId, today, tx);
           await tx.insert(journalEntries).values({
             id: jeId, agencyId, entryNumber: jeNum, date: today,
             descriptionAr:      `تحصيل شيك ${existing.chequeNumber}`,
@@ -57,6 +82,7 @@ export async function PATCH(request: Request, { params }: { params: { id: string
 
         // Cheque bounced → reverse the receivable transfer
         if (newStatus === 'bounced') {
+          await assertPeriodOpen(agencyId, today, tx);
           await tx.insert(journalEntries).values({
             id: jeId, agencyId, entryNumber: jeNum, date: today,
             descriptionAr:      `شيك مرتجع ${existing.chequeNumber}`,

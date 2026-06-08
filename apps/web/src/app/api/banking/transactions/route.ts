@@ -6,6 +6,7 @@ import { verifyAuth, ApiAuthError, assertRole, ROLES_ACCOUNTANT_UP } from '@/lib
 import { getNextJournalNumber } from '@/lib/invoice-counter';
 import { assertPeriodOpen } from '@/lib/period-lock';
 import { GL } from '@/lib/gl-accounts';
+import { lookupFxRate, fxToHalalas } from '@/lib/fx';
 
 export async function POST(request: Request) {
   try {
@@ -14,7 +15,11 @@ export async function POST(request: Request) {
     const body = await request.json() as {
       bankAccountId:       string;
       type:                string;    // 'deposit' | 'withdrawal'
-      amountHalalas:       number;
+      amountHalalas?:      number;    // SAR amount (SAR accounts)
+      // Foreign-currency input (FX accounts): amount in the account currency's
+      // minor units + optional rate (×10000, else looked up as of `date`).
+      fxAmountMinor?:      number;
+      fxRate?:             number;
       description?:        string;
       reference?:          string;
       date:                string;
@@ -25,18 +30,53 @@ export async function POST(request: Request) {
       counterAccountAr?:   string;
       counterAccountEn?:   string;
     };
-    if (!body.bankAccountId || !body.type || !body.amountHalalas || !body.date) {
+    if (!body.bankAccountId || !body.type || !body.date || (!body.amountHalalas && !body.fxAmountMinor)) {
       return NextResponse.json({ error: 'بيانات ناقصة' }, { status: 400 });
     }
     await assertPeriodOpen(agencyId, body.date, db);
 
     const [account] = await db
-      .select({ id: bankAccounts.id, currentBalanceHalalas: bankAccounts.currentBalanceHalalas, type: bankAccounts.type, nameAr: bankAccounts.nameAr })
+      .select({ id: bankAccounts.id, currentBalanceHalalas: bankAccounts.currentBalanceHalalas, type: bankAccounts.type, nameAr: bankAccounts.nameAr, currency: bankAccounts.currency, fxBalanceMinor: bankAccounts.fxBalanceMinor })
       .from(bankAccounts)
       .where(and(eq(bankAccounts.id, body.bankAccountId), eq(bankAccounts.agencyId, agencyId)));
     if (!account) return NextResponse.json({ error: 'حساب غير موجود' }, { status: 404 });
 
-    const delta      = body.type === 'withdrawal' ? -body.amountHalalas : body.amountHalalas;
+    // Resolve the SAR amount that drives the GL + balance. For FX-tracked accounts
+    // the caller supplies the amount in the account currency; we convert at the
+    // transaction rate and also advance the foreign-currency balance.
+    const accountIsFx = !!account.currency && account.currency !== 'SAR' && account.fxBalanceMinor != null;
+    let amountHalalas:     number;          // SAR equivalent
+    let txCurrency:        string | null = null;
+    let txFxAmountMinor:   number | null = null;
+    let txFxRate:          number | null = null;
+    let newFxBalanceMinor: number | null = account.fxBalanceMinor;
+
+    if (accountIsFx && body.fxAmountMinor != null) {
+      const fxMinor = body.fxAmountMinor;
+      if (!Number.isInteger(fxMinor) || fxMinor <= 0) {
+        return NextResponse.json({ error: 'مبلغ العملة الأجنبية غير صالح' }, { status: 400 });
+      }
+      let rate = body.fxRate ?? null;
+      if (rate == null) {
+        const r = await lookupFxRate(agencyId, account.currency!, 'SAR', body.date, db);
+        rate = r?.storedRate ?? null;
+      }
+      if (rate == null || !Number.isInteger(rate) || rate <= 0) {
+        return NextResponse.json({ error: `سعر الصرف مطلوب لحركة بعملة ${account.currency} — أضف سعر صرف أو مرّر fxRate` }, { status: 400 });
+      }
+      amountHalalas     = fxToHalalas(fxMinor, rate);
+      txCurrency        = account.currency;
+      txFxAmountMinor   = fxMinor;
+      txFxRate          = rate;
+      newFxBalanceMinor = (account.fxBalanceMinor ?? 0) + (body.type === 'withdrawal' ? -fxMinor : fxMinor);
+    } else {
+      amountHalalas = body.amountHalalas ?? 0;
+      if (!Number.isInteger(amountHalalas) || amountHalalas <= 0) {
+        return NextResponse.json({ error: 'المبلغ غير صالح' }, { status: 400 });
+      }
+    }
+
+    const delta      = body.type === 'withdrawal' ? -amountHalalas : amountHalalas;
     const newBalance = account.currentBalanceHalalas + delta;
     const isDeposit  = delta > 0;
 
@@ -51,12 +91,17 @@ export async function POST(request: Request) {
       const txId  = crypto.randomUUID();
       await tx.insert(bankTransactions).values({
         id: txId, agencyId, bankAccountId: body.bankAccountId, type: body.type,
-        amountHalalas: body.amountHalalas, balanceAfterHalalas: newBalance,
+        amountHalalas, balanceAfterHalalas: newBalance,
+        currency: txCurrency, fxAmountMinor: txFxAmountMinor, fxRate: txFxRate,
         description: body.description ?? null, reference: body.reference ?? null,
         date: body.date,
       });
       await tx.update(bankAccounts)
-        .set({ currentBalanceHalalas: newBalance, updatedAt: new Date() })
+        .set({
+          currentBalanceHalalas: newBalance,
+          ...(accountIsFx ? { fxBalanceMinor: newFxBalanceMinor } : {}),
+          updatedAt: new Date(),
+        })
         .where(eq(bankAccounts.id, body.bankAccountId));
 
       // Post GL entry for manual deposit / withdrawal
@@ -74,8 +119,8 @@ export async function POST(request: Request) {
         source:              'manual',
         sourceId:            txId,
         isPosted:            true,
-        totalDebitHalalas:   body.amountHalalas,
-        totalCreditHalalas:  body.amountHalalas,
+        totalDebitHalalas:   amountHalalas,
+        totalCreditHalalas:  amountHalalas,
         createdBy:           uid,
       });
 
@@ -90,14 +135,14 @@ export async function POST(request: Request) {
       if (isDeposit) {
         // Deposit: Dr Bank/Cash, Cr counter account
         await tx.insert(journalLines).values([
-          { id: crypto.randomUUID(), entryId: jeId, agencyId, accountCode: bankGlCode,  accountNameAr: bankGlAr,   accountNameEn: bankGlEn,   debitHalalas: body.amountHalalas, creditHalalas: 0,                  sortOrder: 1 },
-          { id: crypto.randomUUID(), entryId: jeId, agencyId, accountCode: counterCode, accountNameAr: counterAr, accountNameEn: counterEn, debitHalalas: 0,                  creditHalalas: body.amountHalalas, sortOrder: 2 },
+          { id: crypto.randomUUID(), entryId: jeId, agencyId, accountCode: bankGlCode,  accountNameAr: bankGlAr,   accountNameEn: bankGlEn,   debitHalalas: amountHalalas, creditHalalas: 0,             sortOrder: 1 },
+          { id: crypto.randomUUID(), entryId: jeId, agencyId, accountCode: counterCode, accountNameAr: counterAr, accountNameEn: counterEn, debitHalalas: 0,             creditHalalas: amountHalalas, sortOrder: 2 },
         ]);
       } else {
         // Withdrawal: Dr counter account, Cr Bank/Cash
         await tx.insert(journalLines).values([
-          { id: crypto.randomUUID(), entryId: jeId, agencyId, accountCode: counterCode, accountNameAr: counterAr,   accountNameEn: counterEn,   debitHalalas: body.amountHalalas, creditHalalas: 0,                  sortOrder: 1 },
-          { id: crypto.randomUUID(), entryId: jeId, agencyId, accountCode: bankGlCode,  accountNameAr: bankGlAr,    accountNameEn: bankGlEn,    debitHalalas: 0,                  creditHalalas: body.amountHalalas, sortOrder: 2 },
+          { id: crypto.randomUUID(), entryId: jeId, agencyId, accountCode: counterCode, accountNameAr: counterAr,   accountNameEn: counterEn,   debitHalalas: amountHalalas, creditHalalas: 0,             sortOrder: 1 },
+          { id: crypto.randomUUID(), entryId: jeId, agencyId, accountCode: bankGlCode,  accountNameAr: bankGlAr,    accountNameEn: bankGlEn,    debitHalalas: 0,             creditHalalas: amountHalalas, sortOrder: 2 },
         ]);
       }
     });

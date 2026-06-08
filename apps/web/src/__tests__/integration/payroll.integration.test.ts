@@ -23,7 +23,7 @@
  */
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import { eq } from 'drizzle-orm';
-import { getTestDb, closeTestDb, sql } from './test-db';
+import { getTestDb, closeTestDb, sql , SKIP_IF_NO_DB } from './test-db';
 import {
   agencies, employees, payslips, eosbAccruals,
   journalEntries, journalLines,
@@ -139,6 +139,7 @@ async function lines(jeId: string) {
 // ─── Setup / Teardown ─────────────────────────────────────────────────────────
 
 beforeAll(async () => {
+  if (SKIP_IF_NO_DB) return;
   const db = getTestDb();
   await db.insert(agencies).values({
     id: AGENCY_ID, nameAr: 'وكالة اختبار الرواتب',
@@ -151,6 +152,7 @@ beforeAll(async () => {
 });
 
 beforeEach(async () => {
+  if (SKIP_IF_NO_DB) return;
   await sql(`DELETE FROM journal_lines   WHERE agency_id = '${AGENCY_ID}'`);
   await sql(`DELETE FROM journal_entries WHERE agency_id = '${AGENCY_ID}'`);
   await sql(`DELETE FROM eosb_accruals   WHERE agency_id = '${AGENCY_ID}'`);
@@ -158,6 +160,7 @@ beforeEach(async () => {
 });
 
 afterAll(async () => {
+  if (SKIP_IF_NO_DB) return;
   await sql(`DELETE FROM journal_lines   WHERE agency_id = '${AGENCY_ID}'`);
   await sql(`DELETE FROM journal_entries WHERE agency_id = '${AGENCY_ID}'`);
   await sql(`DELETE FROM eosb_accruals   WHERE agency_id = '${AGENCY_ID}'`);
@@ -170,7 +173,7 @@ afterAll(async () => {
 
 // ─── Tests ────────────────────────────────────────────────────────────────────
 
-describe('payroll — قيد الراتب (IAS 19)', () => {
+describe.skipIf(SKIP_IF_NO_DB)('payroll — قيد الراتب (IAS 19)', () => {
 
   it('قيد الراتب متوازن (DR = CR)', async () => {
     const r = await runPayroll({ month: '2025-01', baseSalaryHalalas: 8_000_00, housingAllowanceHalalas: 2_000_00, gosiEmployeeHalalas: 975_00 });
@@ -218,7 +221,7 @@ describe('payroll — قيد الراتب (IAS 19)', () => {
 
 });
 
-describe('payroll — مخصص مكافأة نهاية الخدمة (EOSB, IAS 19)', () => {
+describe.skipIf(SKIP_IF_NO_DB)('payroll — مخصص مكافأة نهاية الخدمة (EOSB, IAS 19)', () => {
 
   it('قيد مخصص EOSB متوازن: Dr 6300 / Cr 2500', async () => {
     const amount = 333_00;

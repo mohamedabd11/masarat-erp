@@ -19,7 +19,7 @@
  */
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import { eq, and, sql as dsql } from 'drizzle-orm';
-import { getTestDb, closeTestDb, sql } from './test-db';
+import { getTestDb, closeTestDb, sql , SKIP_IF_NO_DB } from './test-db';
 import {
   agencies, suppliers, supplierPayments,
   journalEntries, journalLines, idempotencyKeys,
@@ -223,6 +223,7 @@ function assertBalanced(ls: { debitHalalas: number; creditHalalas: number }[]) {
 // ─── Setup / Teardown ─────────────────────────────────────────────────────────
 
 beforeAll(async () => {
+  if (SKIP_IF_NO_DB) return;
   const db = getTestDb();
   await db.insert(agencies).values({
     id:                 AGENCY_ID,
@@ -234,6 +235,7 @@ beforeAll(async () => {
 });
 
 beforeEach(async () => {
+  if (SKIP_IF_NO_DB) return;
   // Clean transactional data between tests (keep the agency).
   await sql(`DELETE FROM journal_lines      WHERE agency_id = '${AGENCY_ID}'`);
   await sql(`DELETE FROM journal_entries    WHERE agency_id = '${AGENCY_ID}'`);
@@ -243,6 +245,7 @@ beforeEach(async () => {
 });
 
 afterAll(async () => {
+  if (SKIP_IF_NO_DB) return;
   await sql(`DELETE FROM journal_lines      WHERE agency_id = '${AGENCY_ID}'`);
   await sql(`DELETE FROM journal_entries    WHERE agency_id = '${AGENCY_ID}'`);
   await sql(`DELETE FROM supplier_payments  WHERE agency_id = '${AGENCY_ID}'`);
@@ -255,7 +258,7 @@ afterAll(async () => {
 
 // ─── Tests ────────────────────────────────────────────────────────────────────
 
-describe('supplier_payments — القيد المحاسبي لسند الصرف', () => {
+describe.skipIf(SKIP_IF_NO_DB)('supplier_payments — القيد المحاسبي لسند الصرف', () => {
 
   it('ينشئ قيداً متوازناً (DR = CR) عند إنشاء سند صرف', async () => {
     const { jeId } = await createSupplierPayment({
@@ -320,7 +323,7 @@ describe('supplier_payments — القيد المحاسبي لسند الصرف'
 
 });
 
-describe('supplier_payments — عكس سند الصرف (reversal)', () => {
+describe.skipIf(SKIP_IF_NO_DB)('supplier_payments — عكس سند الصرف (reversal)', () => {
 
   it('العكس يُنشئ قيداً جديداً بمدين/دائن معكوسين ومتوازناً', async () => {
     const { spId, jeId: origJe } = await createSupplierPayment({
@@ -370,7 +373,7 @@ describe('supplier_payments — عكس سند الصرف (reversal)', () => {
 
 });
 
-describe('supplier_payments — idempotency & VAT split', () => {
+describe.skipIf(SKIP_IF_NO_DB)('supplier_payments — idempotency & VAT split', () => {
 
   it('مفتاح idempotency ينتقل من pending إلى complete', async () => {
     const db = getTestDb();

@@ -5,6 +5,7 @@ import { tickets, ticketCoupons, pnrRecords } from '@/lib/schema';
 import { logTravelEvent } from '@/lib/travel-event-log';
 import { logProviderSync } from '@/lib/provider-sync-log';
 import { resolveFlightProviderByCode } from '@/lib/provider-factory';
+import { generateDueRecurringInvoices } from '@/lib/recurring';
 import type { ExchangeResult } from '@/lib/providers/types';
 
 // Invoked by Vercel Cron: "30 * * * *" (offset 30 min from expire-pnrs at :00)
@@ -46,6 +47,18 @@ export async function GET(request: Request) {
   }
 
   const now                = new Date();
+
+  // Daily recurring-invoice generation piggybacks on this cron to stay within the
+  // Vercel Hobby 2-cron limit. Fully isolated: a failure here can never affect
+  // ticket reconciliation below.
+  let recurring: Awaited<ReturnType<typeof generateDueRecurringInvoices>> = { generated: 0, skipped: 0, errors: 0, invoiceIds: [] };
+  try {
+    recurring = await generateDueRecurringInvoices(now);
+  } catch (err) {
+    console.error(JSON.stringify({ event: 'recurring_invoices_in_reconcile_failed', error: String(err) }));
+    recurring = { generated: 0, skipped: 0, errors: 1, invoiceIds: [] };
+  }
+
   const graceWindowMs      = 10 * 60 * 1000;   // 10 min — Phase 3 may still be in-flight
   const recentAttemptMs    = 5  * 60 * 1000;   // 5 min  — overlap protection between two cron runs
   const graceDeadline      = new Date(now.getTime() - graceWindowMs);
@@ -68,7 +81,7 @@ export async function GET(request: Request) {
     .limit(50);
 
   if (batch.length === 0) {
-    return NextResponse.json({ reconciled: 0, voided: 0, reset: 0 });
+    return NextResponse.json({ reconciled: 0, voided: 0, reset: 0, recurring });
   }
 
   let reconciled = 0;
@@ -156,7 +169,7 @@ export async function GET(request: Request) {
     }
   }
 
-  return NextResponse.json({ reconciled, voided, reset });
+  return NextResponse.json({ reconciled, voided, reset, recurring });
 }
 
 // ── Handlers ─────────────────────────────────────────────────────────────────

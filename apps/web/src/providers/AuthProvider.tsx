@@ -24,6 +24,9 @@ export function AuthProvider({ children }: AuthProviderProps) {
   // /admin handles its own auth + 403 logic — don't redirect away from it
   const isStandalonePage = pathname?.includes('/admin');
 
+  // The public marketing/landing page is the bare locale root (e.g. /ar, /en).
+  const isLandingPage = (pathname ?? '').split('/').filter(Boolean).length <= 1;
+
   // Sync Firebase Auth user to Postgres on first login (and on token refresh)
   useEffect(() => {
     if (!user || syncedUidRef.current === user.uid) return;
@@ -36,7 +39,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
   useEffect(() => {
     if (loading) return;
 
-    if (!user && !isAuthPage && !isStandalonePage) {
+    if (!user && !isAuthPage && !isStandalonePage && !isLandingPage) {
       // Extract locale from pathname (e.g., /ar/dashboard → ar)
       const locale = pathname?.split('/')[1] ?? 'ar';
       router.push(`/${locale}/login`);
@@ -46,7 +49,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
       const locale = pathname?.split('/')[1] ?? 'ar';
       router.push(`/${locale}/dashboard`);
     }
-  }, [user, loading, isAuthPage, isStandalonePage, pathname, router]);
+  }, [user, loading, isAuthPage, isStandalonePage, isLandingPage, pathname, router]);
 
   // Block render while auth state is resolving — prevents dashboard flash
   if (loading) {
@@ -61,7 +64,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
   }
 
   // Unauthenticated on protected route: render nothing while redirect fires
-  if (!user && !isAuthPage && !isStandalonePage) {
+  if (!user && !isAuthPage && !isStandalonePage && !isLandingPage) {
     return null;
   }
 

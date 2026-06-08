@@ -7,7 +7,7 @@
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { eq, and } from 'drizzle-orm';
-import { getTestDb, closeTestDb, sql } from './test-db';
+import { getTestDb, closeTestDb, sql , SKIP_IF_NO_DB } from './test-db';
 import { agencies, accountingPeriods } from '@/lib/schema';
 import { assertPeriodOpen } from '@/lib/period-lock';
 import { BusinessError } from '@/lib/api-auth';
@@ -20,6 +20,7 @@ const AGENCY_ID = 'integ-test-acctg-periods-01';
 // ─── Setup / Teardown ─────────────────────────────────────────────────────────
 
 beforeAll(async () => {
+  if (SKIP_IF_NO_DB) return;
   const db = getTestDb();
   await db.insert(agencies).values({
     id:                 AGENCY_ID,
@@ -31,6 +32,7 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
+  if (SKIP_IF_NO_DB) return;
   await sql(`DELETE FROM accounting_periods WHERE agency_id = '${AGENCY_ID}'`);
   await sql(`DELETE FROM agencies WHERE id = '${AGENCY_ID}'`);
   await closeTestDb();
@@ -51,7 +53,7 @@ async function insertPeriod(year: number, month: number, isLocked: boolean) {
 
 // ─── Tests ────────────────────────────────────────────────────────────────────
 
-describe('assertPeriodOpen — قاعدة بيانات حقيقية', () => {
+describe.skipIf(SKIP_IF_NO_DB)('assertPeriodOpen — قاعدة بيانات حقيقية', () => {
 
   it('يسمح بالنشر في فترة مفتوحة (isLocked = false)', async () => {
     const db = getTestDb();
@@ -126,7 +128,7 @@ describe('assertPeriodOpen — قاعدة بيانات حقيقية', () => {
 
 });
 
-describe('accounting_periods — عزل البيانات بين الوكالات', () => {
+describe.skipIf(SKIP_IF_NO_DB)('accounting_periods — عزل البيانات بين الوكالات', () => {
 
   it('قفل فترة في وكالة لا يؤثر على وكالة أخرى', async () => {
     const db = getTestDb();

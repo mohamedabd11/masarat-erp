@@ -99,9 +99,9 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'مبلغ الدفعة غير صالح' }, { status: 400 });
     }
 
-    await assertPeriodOpen(agencyId, today0, db);
-
     const result = await db.transaction(async (tx: Tx) => {
+      await assertPeriodOpen(agencyId, today0, tx);
+
       const now   = new Date();
       const year  = now.getFullYear();
       const today = now.toISOString().split('T')[0]!;
@@ -167,12 +167,13 @@ export async function POST(request: Request) {
       type JLine = { id: string; entryId: string; agencyId: string; accountCode: string; accountNameAr: string; accountNameEn: string; debitHalalas: number; creditHalalas: number; sortOrder: number };
       let lines: JLine[];
 
-      // Input VAT split (GL 1230): for supplier purchases where a VAT portion is
-      // supplied, the debit is split into net cost (expense/AP) + recoverable
-      // input VAT, with the full amount credited to cash/bank. This lets
-      // VAT-registered agencies reclaim input tax from ZATCA instead of burying
-      // it in the cost. Mutually exclusive with the FX-difference legs.
-      if (expenseCategory === 'supplier' && vatAmount > 0 && vatAmount < resolvedAmountHalalas) {
+      // Input VAT split (GL 1230): whenever a VAT portion is supplied — for ANY
+      // expense category (supplier cost, rent, marketing, utilities…) — the debit
+      // is split into net expense + recoverable input VAT, with the full amount
+      // credited to cash/bank. This lets VAT-registered agencies reclaim input tax
+      // from ZATCA on overheads instead of burying it in the expense. Mutually
+      // exclusive with the FX-difference legs (VAT is only supplied on SAR purchases).
+      if (vatAmount > 0 && vatAmount < resolvedAmountHalalas) {
         const netAmount = resolvedAmountHalalas - vatAmount;
         lines = [
           { id: crypto.randomUUID(), entryId: jeId, agencyId, accountCode: expenseAc.code, accountNameAr: expenseAc.ar, accountNameEn: expenseAc.en, debitHalalas: netAmount, creditHalalas: 0, sortOrder: 1 },

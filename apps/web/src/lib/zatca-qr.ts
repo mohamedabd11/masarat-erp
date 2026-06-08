@@ -33,7 +33,10 @@ export interface ZatcaQrInput {
 }
 
 export function buildZatcaQr(input: ZatcaQrInput): string {
-  const timestamp = `${input.invoiceDate}T00:00:00Z`;
+  const now = new Date();
+  const satTime = new Date(now.getTime() + 3 * 60 * 60 * 1000);
+  const timeStr = satTime.toISOString().slice(11, 19);
+  const timestamp = `${input.invoiceDate}T${timeStr}+03:00`;
   const tlv = concat(
     tlvField(1, input.sellerName),
     tlvField(2, input.vatNumber),

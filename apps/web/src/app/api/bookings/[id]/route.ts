@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { eq, and } from 'drizzle-orm';
+import { eq, and, ne } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { bookings, invoices } from '@/lib/schema';
 import { verifyAuth, assertRole, ApiAuthError, ROLES_AGENT_UP } from '@/lib/api-auth';
@@ -8,7 +8,6 @@ const VALID_STATUSES = new Set(['draft', 'confirmed', 'completed', 'cancelled'])
 
 // Fields that cannot be changed after an invoice is issued
 const LOCKED_AFTER_INVOICE = new Set([
-  'totalPriceHalalas', 'costPriceHalalas', 'profitHalalas',
   'serviceType', 'customerId', 'details',
 ]);
 
@@ -62,9 +61,46 @@ export async function PATCH(request: Request, { params }: { params: { id: string
       .where(and(eq(bookings.id, params.id), eq(bookings.agencyId, agencyId)));
     if (!existing) return NextResponse.json({ error: 'الحجز غير موجود' }, { status: 404 });
 
-    // Prevent reactivating a cancelled booking to completed
-    if (existing.status === 'cancelled' && body['status'] === 'confirmed') {
-      return NextResponse.json({ error: 'لا يمكن إعادة تفعيل حجز ملغي' }, { status: 422 });
+    // Enforce booking status state machine — cancelled and completed are terminal
+    if (body['status'] !== undefined && body['status'] !== existing.status) {
+      const prevStatus = existing.status;
+      const newStatus  = body['status'] as string;
+      const ALLOWED_TRANSITIONS: Record<string, string[]> = {
+        draft:     ['confirmed', 'cancelled'],
+        confirmed: ['completed', 'cancelled'],
+        completed: [],
+        cancelled: [],
+      };
+      const allowed = ALLOWED_TRANSITIONS[prevStatus] ?? [];
+      if (!allowed.includes(newStatus)) {
+        return NextResponse.json(
+          { error: `Cannot transition booking from '${prevStatus}' to '${newStatus}'` },
+          { status: 422 },
+        );
+      }
+
+      // Block cancelling a booking that still has a live (non-cancelled) invoice.
+      // Cancelling here would leave the invoice + its revenue journal posted while
+      // the booking reads 'cancelled' (operational/ledger divergence). The proper
+      // path is a refund (which unwinds COGS/AP/VAT and cancels the booking) or a
+      // credit note for a paid invoice.
+      if (newStatus === 'cancelled') {
+        const [liveInvoice] = await db
+          .select({ id: invoices.id })
+          .from(invoices)
+          .where(and(
+            eq(invoices.bookingId, params.id),
+            eq(invoices.agencyId, agencyId),
+            ne(invoices.status, 'cancelled'),
+          ))
+          .limit(1);
+        if (liveInvoice) {
+          return NextResponse.json(
+            { error: 'لا يمكن إلغاء حجز له فاتورة سارية — استخدم الاسترداد أو أصدر إشعاراً دائناً أولاً' },
+            { status: 422 },
+          );
+        }
+      }
     }
 
     // If financial or structural fields are being modified, check no invoice exists
@@ -83,8 +119,13 @@ export async function PATCH(request: Request, { params }: { params: { id: string
       }
     }
 
-    // Strip internal/auto-computed fields that callers should not set directly
-    const STRIP = new Set(['id', 'agencyId', 'bookingNumber', 'paidHalalas', 'createdBy', 'createdAt']);
+    // Strip internal/auto-computed fields that callers should not set directly.
+    // Financial totals (totalPriceHalalas, costPriceHalalas, profitHalalas) are
+    // derived from booking_lines — they must only be updated via syncBookingTotalsFromLines().
+    const STRIP = new Set([
+      'id', 'agencyId', 'bookingNumber', 'paidHalalas', 'createdBy', 'createdAt',
+      'totalPriceHalalas', 'costPriceHalalas', 'profitHalalas',
+    ]);
     const patch: Record<string, unknown> = { updatedAt: now };
     for (const [k, v] of Object.entries(body)) {
       if (!STRIP.has(k)) patch[k] = v;

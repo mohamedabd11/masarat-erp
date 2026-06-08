@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { eq, and, sql } from 'drizzle-orm';
+import { eq, and, sql, ne } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { journalLines, journalEntries, chartOfAccounts } from '@/lib/schema';
 import { verifyAuth, assertRole, ApiAuthError, BusinessError, ROLES_ACCOUNTANT_UP } from '@/lib/api-auth';
@@ -57,19 +57,52 @@ export async function GET(request: Request) {
       .where(and(
         eq(journalLines.agencyId, agencyId),
         eq(journalEntries.isPosted, true),
+        ne(journalEntries.source, 'closing'),
         sql`${journalEntries.date} <= ${asOf}`,
       ))
       .groupBy(journalLines.accountCode, journalLines.accountNameAr, journalLines.accountNameEn)
       .orderBy(journalLines.accountCode);
 
-    // Authoritative account types from the chart of accounts.
+    // Authoritative account types + opening balances from the chart of accounts.
     const coaRows = await db
-      .select({ code: chartOfAccounts.code, type: chartOfAccounts.type })
+      .select({
+        code:                  chartOfAccounts.code,
+        type:                  chartOfAccounts.type,
+        nameAr:                chartOfAccounts.nameAr,
+        nameEn:                chartOfAccounts.nameEn,
+        openingBalanceHalalas: chartOfAccounts.openingBalanceHalalas,
+      })
       .from(chartOfAccounts)
       .where(eq(chartOfAccounts.agencyId, agencyId));
     const typeByCode = new Map<string, AccountType>(
       coaRows.map((r) => [r.code, r.type as AccountType]),
     );
+
+    // Merge posted journal-line movements with COA opening balances so the balance
+    // sheet reflects migrated opening positions (consistent with the trial balance,
+    // which already includes them — otherwise the two reports disagree and the
+    // sheet can fail to balance). Opening sign follows the account's normal balance:
+    // asset/expense → debit, liability/equity/revenue → credit.
+    type Merged = { code: string; nameAr: string; nameEn: string | null; debit: number; credit: number };
+    const merged = new Map<string, Merged>();
+    for (const r of rows) {
+      const code = r.accountCode ?? '';
+      merged.set(code, {
+        code,
+        nameAr: r.accountNameAr ?? '',
+        nameEn: r.accountNameEn ?? null,
+        debit:  Number(r.debitTotal)  || 0,
+        credit: Number(r.creditTotal) || 0,
+      });
+    }
+    for (const c of coaRows) {
+      const open = Number(c.openingBalanceHalalas) || 0;
+      if (open === 0) continue;
+      const isDebitNormal = (() => { const t = classify(c.code, c.type as AccountType | undefined); return t === 'asset' || t === 'expense'; })();
+      const entry = merged.get(c.code) ?? { code: c.code, nameAr: c.nameAr ?? '', nameEn: c.nameEn ?? null, debit: 0, credit: 0 };
+      if (isDebitNormal) entry.debit += open; else entry.credit += open;
+      merged.set(c.code, entry);
+    }
 
     const assets:      AccountLine[] = [];
     const liabilities: AccountLine[] = [];
@@ -81,12 +114,10 @@ export async function GET(request: Request) {
     let totalRevenue  = 0;
     let totalExpenses = 0;
 
-    for (const r of rows) {
-      const debit  = Number(r.debitTotal)  || 0;
-      const credit = Number(r.creditTotal) || 0;
-      const code   = r.accountCode ?? '';
+    for (const r of merged.values()) {
+      const { code, debit, credit } = r;
 
-      const line: AccountLine = { code, nameAr: r.accountNameAr ?? '', nameEn: r.accountNameEn ?? null, debit, credit, balance: 0 };
+      const line: AccountLine = { code, nameAr: r.nameAr, nameEn: r.nameEn, debit, credit, balance: 0 };
 
       switch (classify(code, typeByCode.get(code))) {
         case 'asset':

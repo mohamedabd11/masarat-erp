@@ -6,14 +6,17 @@ import { verifyAuth, assertRole, ApiAuthError, ROLES_MANAGER_UP } from '@/lib/ap
 
 export async function PATCH(request: Request, { params }: { params: { id: string } }) {
   try {
-    const { agencyId } = await verifyAuth(request);
-    const body = await request.json() as Partial<{
-      nameAr: string; nameEn: string | null; type: string | null;
-      phone: string | null; email: string | null; vatNumber: string | null;
-      notes: string | null; isActive: boolean;
-    }>;
+    const { agencyId, role } = await verifyAuth(request);
+    assertRole(role, [...ROLES_MANAGER_UP]);
+    const body = await request.json() as Record<string, unknown>;
     const now = new Date();
-    await db.update(suppliers).set({ ...body, updatedAt: now })
+    // Allowlist editable fields — never spread the raw body. balanceHalalas
+    // (financial, AP-driving) and agencyId/id must not be client-writable.
+    const patch: Record<string, unknown> = { updatedAt: now };
+    for (const k of ['nameAr', 'nameEn', 'type', 'phone', 'email', 'vatNumber', 'notes', 'isActive'] as const) {
+      if (body[k] !== undefined) patch[k] = body[k];
+    }
+    await db.update(suppliers).set(patch as Partial<typeof suppliers.$inferInsert>)
       .where(and(eq(suppliers.id, params.id), eq(suppliers.agencyId, agencyId)));
     return NextResponse.json({ success: true });
   } catch (err) {
@@ -36,6 +39,23 @@ export async function DELETE(request: Request, { params }: { params: { id: strin
     if (usedByPayment) {
       return NextResponse.json(
         { error: 'لا يمكن حذف المورد لوجود مدفوعات مرتبطة به. قم بتعطيله بدلاً من الحذف.' },
+        { status: 422 },
+      );
+    }
+
+    // Prevent deletion when an open payable remains (cost booked but not yet
+    // settled) — deleting would orphan the accounts-payable balance.
+    const [supplier] = await db
+      .select({ balanceHalalas: suppliers.balanceHalalas })
+      .from(suppliers)
+      .where(and(eq(suppliers.id, params.id), eq(suppliers.agencyId, agencyId)))
+      .limit(1);
+    if (!supplier) {
+      return NextResponse.json({ error: 'المورد غير موجود' }, { status: 404 });
+    }
+    if ((supplier.balanceHalalas ?? 0) !== 0) {
+      return NextResponse.json(
+        { error: 'لا يمكن حذف مورد له رصيد مستحق. سوِّ الرصيد أو عطّله بدلاً من الحذف.' },
         { status: 422 },
       );
     }

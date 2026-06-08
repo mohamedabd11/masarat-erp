@@ -41,6 +41,20 @@ export const agencies = pgTable('agencies', {
   defaultQuoteTerms:    text('default_quote_terms'),
   createdAt:            timestamp('created_at').notNull().defaultNow(),
   updatedAt:            timestamp('updated_at').notNull().defaultNow(),
+  // ZATCA Phase 2
+  zatcaEnvironment:           text('zatca_environment').notNull().default('simulation'),
+  zatcaOnboardingStatus:      text('zatca_onboarding_status').notNull().default('not_started'),
+  zatcaComplianceRequestId:   text('zatca_compliance_request_id'),
+  zatcaComplianceCsid:        text('zatca_compliance_csid'),         // encrypted
+  zatcaComplianceSecret:      text('zatca_compliance_secret'),       // encrypted
+  zatcaProductionCsid:        text('zatca_production_csid'),         // encrypted
+  zatcaProductionSecret:      text('zatca_production_secret'),       // encrypted
+  zatcaPrivateKey:             text('zatca_private_key'),             // encrypted
+  zatcaCertificatePem:        text('zatca_certificate_pem'),
+  zatcaCertificateExpiry:     timestamp('zatca_certificate_expiry', { withTimezone: true }),
+  zatcaLastInvoiceHash:       text('zatca_last_invoice_hash'),
+  zatcaOnboardedAt:           timestamp('zatca_onboarded_at', { withTimezone: true }),
+  zatcaErrorMessage:          text('zatca_error_message'),
 });
 
 export type Agency    = typeof agencies.$inferSelect;

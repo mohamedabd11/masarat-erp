@@ -50,25 +50,28 @@ export async function POST(request: Request) {
       );
     }
 
-    // Delete in dependency order (journal_lines first since they ref journal_entries)
-    // Most tables cascade from agencyId, but let's be explicit
-    await db.delete(journalLines).where(eq(journalLines.agencyId, agencyId));
-    await db.delete(journalEntries).where(eq(journalEntries.agencyId, agencyId));
-    await db.delete(payments).where(eq(payments.agencyId, agencyId));
-    await db.delete(receiptVouchers).where(eq(receiptVouchers.agencyId, agencyId));
-    await db.delete(supplierPayments).where(eq(supplierPayments.agencyId, agencyId));
-    await db.delete(invoices).where(eq(invoices.agencyId, agencyId));
-    await db.delete(bookings).where(eq(bookings.agencyId, agencyId));
-    await db.delete(customers).where(eq(customers.agencyId, agencyId));
-    await db.delete(suppliers).where(eq(suppliers.agencyId, agencyId));
-    await db.delete(employees).where(eq(employees.agencyId, agencyId));
-    await db.delete(bankTransactions).where(eq(bankTransactions.agencyId, agencyId));
-    await db.delete(cheques).where(eq(cheques.agencyId, agencyId));
-    await db.delete(bankAccounts).where(eq(bankAccounts.agencyId, agencyId));
-    await db.delete(exchangeRates).where(eq(exchangeRates.agencyId, agencyId));
-    await db.delete(chartOfAccounts).where(eq(chartOfAccounts.agencyId, agencyId));
-    await db.delete(agencyCounters).where(eq(agencyCounters.agencyId, agencyId));
-    await db.delete(idempotencyKeys).where(eq(idempotencyKeys.agencyId, agencyId));
+    // Wrap all deletes in a single transaction so DEFERRABLE INITIALLY DEFERRED
+    // FK constraints are checked at COMMIT time (after everything is deleted),
+    // not after each individual statement.
+    await db.transaction(async (tx) => {
+      await tx.delete(journalLines).where(eq(journalLines.agencyId, agencyId));
+      await tx.delete(journalEntries).where(eq(journalEntries.agencyId, agencyId));
+      await tx.delete(payments).where(eq(payments.agencyId, agencyId));
+      await tx.delete(receiptVouchers).where(eq(receiptVouchers.agencyId, agencyId));
+      await tx.delete(supplierPayments).where(eq(supplierPayments.agencyId, agencyId));
+      await tx.delete(invoices).where(eq(invoices.agencyId, agencyId));
+      await tx.delete(bookings).where(eq(bookings.agencyId, agencyId));
+      await tx.delete(customers).where(eq(customers.agencyId, agencyId));
+      await tx.delete(suppliers).where(eq(suppliers.agencyId, agencyId));
+      await tx.delete(employees).where(eq(employees.agencyId, agencyId));
+      await tx.delete(bankTransactions).where(eq(bankTransactions.agencyId, agencyId));
+      await tx.delete(cheques).where(eq(cheques.agencyId, agencyId));
+      await tx.delete(bankAccounts).where(eq(bankAccounts.agencyId, agencyId));
+      await tx.delete(exchangeRates).where(eq(exchangeRates.agencyId, agencyId));
+      await tx.delete(chartOfAccounts).where(eq(chartOfAccounts.agencyId, agencyId));
+      await tx.delete(agencyCounters).where(eq(agencyCounters.agencyId, agencyId));
+      await tx.delete(idempotencyKeys).where(eq(idempotencyKeys.agencyId, agencyId));
+    });
 
     // Re-seed default chart of accounts
     const DEFAULT_COA = [

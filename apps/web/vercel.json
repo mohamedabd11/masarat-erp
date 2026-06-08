@@ -5,12 +5,12 @@
   "framework": "nextjs",
   "crons": [
     {
-      "path": "/api/cron/check-subscriptions",
-      "schedule": "0 8 * * *"
+      "path": "/api/jobs/expire-pnrs",
+      "schedule": "0 2 * * *"
     },
     {
-      "path": "/api/zatca/process-queue",
-      "schedule": "0 6 * * *"
+      "path": "/api/jobs/reconcile-pending-tickets",
+      "schedule": "0 3 * * *"
     }
   ]
 }

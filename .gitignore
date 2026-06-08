@@ -14,8 +14,7 @@ firestore-debug.log
 .next/
 next-env.d.ts
 
-# pnpm lockfile (generated, not committed)
-pnpm-lock.yaml
+
 
 /test-results/
 /playwright-report/

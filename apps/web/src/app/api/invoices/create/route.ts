@@ -1,7 +1,8 @@
 import { NextResponse } from 'next/server';
-import { eq, and, sql, ne } from 'drizzle-orm';
+import { eq, and, sql, ne, asc } from 'drizzle-orm';
 import { db } from '@/lib/db';
-import { bookings, agencies, invoices, journalEntries, journalLines, customers } from '@/lib/schema';
+import { bookings, bookingLines, agencies, invoices, journalEntries, journalLines, customers } from '@/lib/schema';
+import type { BookingLine } from '@/lib/schema';
 import { verifyAuth, assertRole, ApiAuthError, BusinessError, ROLES_ACCOUNTANT_UP } from '@/lib/api-auth';
 import { logAudit } from '@/lib/audit';
 import { checkRateLimit, getClientIp, rateLimitHeaders } from '@/lib/rate-limit';
@@ -88,6 +89,16 @@ export async function POST(request: Request) {
         const [agency] = await tx.select().from(agencies).where(eq(agencies.id, agencyId));
         if (!agency) throw new BusinessError(`الوكالة ${agencyId} غير موجودة`, 404);
 
+        // ── 1b. Query booking lines (new source of truth for amounts) ─────
+        // Active non-legacy lines drive VAT, items, and journal entries.
+        // Bookings without any non-legacy lines fall back to the aggregated
+        // amounts stored on the booking itself (backward-compatible path).
+        const allBookingLines = await tx.select().from(bookingLines)
+          .where(and(eq(bookingLines.bookingId, bookingId), eq(bookingLines.agencyId, agencyId)))
+          .orderBy(asc(bookingLines.sortOrder), asc(bookingLines.createdAt));
+        const activeLines = allBookingLines.filter(l => !l.isLegacy && l.status === 'active');
+        const hasActiveLines = activeLines.length > 0;
+
         // ── 2. Validate ────────────────────────────────────────────────────
         if (booking.status !== 'confirmed' && booking.status !== 'completed') {
           throw new BusinessError(`لا يمكن إصدار فاتورة للحجز بحالة: ${booking.status}`, 400);
@@ -108,40 +119,49 @@ export async function POST(request: Request) {
         const isVatRegistered = agency.isVatRegistered === true;
         const vatRateDecimal  = (agency.vatRate ?? 15) / 100;
 
-        const grandTotal  = booking.totalPriceHalalas;
-        const storedCost  = booking.costPriceHalalas;
-        const details     = (booking.details ?? {}) as Record<string, unknown>;
+        const details      = (booking.details ?? {}) as Record<string, unknown>;
         const revenueModel = (details['revenueModel'] as string | undefined) ?? 'principal';
-        // vatScheme: 'standard' (default) | 'margin' (ZATCA margin scheme for tour operators)
-        // Margin scheme: VAT is calculated only on the profit margin (selling - cost).
-        const vatScheme    = (details['vatScheme'] as string | undefined) ?? 'standard';
+        const vatScheme    = (details['vatScheme']    as string | undefined) ?? 'standard';
 
         let subtotalExclVat: number;
         let totalVat: number;
         let finalGrandTotal: number;
 
-        if (!isVatRegistered) {
-          subtotalExclVat = grandTotal;
-          totalVat = 0;
-          finalGrandTotal = grandTotal;
-        } else if (revenueModel === 'agent') {
-          const storedFee = (details['serviceFee'] as number | undefined) ?? 0;
-          const storedVat = (details['vatAmount']  as number | undefined) ?? 0;
-          subtotalExclVat = storedCost + storedFee;
-          totalVat        = storedVat;
-          finalGrandTotal = grandTotal;
-        } else if (vatScheme === 'margin' && storedCost > 0) {
-          // ZATCA Margin Scheme (Special Scheme for Tour Operators):
-          // VAT base = profit margin = selling price - supplier cost (both VAT-inclusive)
-          // VAT = margin × rate / (100 + rate)   [tax-inclusive calculation]
-          const margin    = Math.max(0, grandTotal - storedCost);
-          totalVat        = Math.round(margin * vatRateDecimal / (1 + vatRateDecimal));
-          subtotalExclVat = grandTotal - totalVat;
-          finalGrandTotal = grandTotal;
+        if (hasActiveLines) {
+          // ── NEW PATH: amounts sourced from booking_lines ─────────────────
+          // Each line carries its own vatCategory and vatRateBps, enabling
+          // correct mixed-supply VAT (e.g. 0% flight + 15% hotel).
+          subtotalExclVat = activeLines.reduce((s, l) => s + l.totalPriceExclVatHalalas, 0);
+          totalVat        = isVatRegistered
+            ? activeLines.reduce((s, l) => s + l.vatHalalas, 0)
+            : 0;
+          finalGrandTotal = subtotalExclVat + totalVat;
         } else {
-          subtotalExclVat = Math.round(grandTotal / (1 + vatRateDecimal));
-          totalVat        = grandTotal - subtotalExclVat;
-          finalGrandTotal = grandTotal;
+          // ── LEGACY PATH: amounts sourced from booking aggregated totals ──
+          const grandTotal = booking.totalPriceHalalas;
+          const storedCost = booking.costPriceHalalas;
+
+          if (!isVatRegistered) {
+            subtotalExclVat = grandTotal;
+            totalVat        = 0;
+            finalGrandTotal = grandTotal;
+          } else if (revenueModel === 'agent') {
+            const storedFee = (details['serviceFee'] as number | undefined) ?? 0;
+            const storedVat = (details['vatAmount']  as number | undefined) ?? 0;
+            subtotalExclVat = storedCost + storedFee;
+            totalVat        = storedVat;
+            finalGrandTotal = grandTotal;
+          } else if (vatScheme === 'margin' && storedCost > 0) {
+            // ZATCA Margin Scheme: VAT base = profit margin only
+            const margin    = Math.max(0, grandTotal - storedCost);
+            totalVat        = Math.round(margin * vatRateDecimal / (1 + vatRateDecimal));
+            subtotalExclVat = margin - totalVat;
+            finalGrandTotal = grandTotal;
+          } else {
+            subtotalExclVat = Math.round(grandTotal / (1 + vatRateDecimal));
+            totalVat        = grandTotal - subtotalExclVat;
+            finalGrandTotal = grandTotal;
+          }
         }
 
         // ── 4. Zero-amount guard ────────────────────────────────────────────
@@ -194,20 +214,28 @@ export async function POST(request: Request) {
         const isFutureTravel = travelDate != null && travelDate > today;
         const deferRevenue   = isDeferrable && isFutureTravel;
 
-        // ── 6. Build journal lines ──────────────────────────────────────────
-        const jLines = buildInvoiceJournalLines(
-          revenueModel, isVatRegistered, finalGrandTotal, storedCost,
-          (details['serviceFee'] as number | undefined) ?? 0, totalVat, subtotalExclVat,
-          deferRevenue,
-        );
-
+        // ── 6. Build journal lines & invoice items ──────────────────────────
         const typeLabel = BOOKING_TYPE_LABELS[booking.serviceType ?? ''] ?? { ar: 'خدمة سفر', en: 'Travel Service' };
 
-        // Build invoice line items — multi-line if booking.details.lineItems is set
-        const rawLineItems = details['lineItems'];
-        const invoiceItems = buildInvoiceItems(
-          rawLineItems, finalGrandTotal, subtotalExclVat, totalVat, typeLabel,
-        );
+        let jLines: Array<{ code: string; ar: string; en: string; dr: number; cr: number }>;
+        let invoiceItems: InvoiceItem[];
+
+        if (hasActiveLines) {
+          // New path: per-line VAT, per-line revenue model
+          jLines       = buildJournalLinesFromBookingLines(activeLines, isVatRegistered, deferRevenue);
+          invoiceItems = buildInvoiceItemsFromLines(activeLines, isVatRegistered);
+        } else {
+          // Legacy path: aggregated amounts
+          const storedCost = booking.costPriceHalalas;
+          jLines = buildInvoiceJournalLines(
+            revenueModel, isVatRegistered, finalGrandTotal, storedCost,
+            (details['serviceFee'] as number | undefined) ?? 0, totalVat, subtotalExclVat,
+            deferRevenue,
+          );
+          invoiceItems = buildInvoiceItems(
+            details['lineItems'], finalGrandTotal, subtotalExclVat, totalVat, typeLabel,
+          );
+        }
 
         // ── ZATCA QR — only for VAT-registered agencies with a vatNumber ─────
         const zatcaQr = isVatRegistered && agency.vatNumber
@@ -225,7 +253,7 @@ export async function POST(request: Request) {
           id:              invoiceId,
           agencyId,
           invoiceNumber,
-          type:            '380',
+          type:            '388',
           bookingId,
           customerId:      booking.customerId ?? null,
           sellerNameAr:    agency.nameAr,
@@ -390,6 +418,95 @@ function buildInvoiceItems(
       totalHalalas:     item.totalHalalas,
     };
   });
+}
+
+// ─── buildInvoiceItemsFromLines ───────────────────────────────────────────────
+// Maps active non-legacy booking_lines to ZATCA invoice line items.
+// Each line carries its own vatCategory and vatRateBps — no proportional
+// distribution needed (each line already has the exact vatHalalas).
+function buildInvoiceItemsFromLines(
+  lines: BookingLine[],
+  isVatRegistered: boolean,
+): InvoiceItem[] {
+  return lines.map(line => {
+    const lineVat = isVatRegistered ? line.vatHalalas : 0;
+    return {
+      description:      line.description,
+      descriptionEn:    null,
+      quantity:         line.quantity,
+      unitPriceHalalas: line.unitPriceExclVatHalalas,
+      vatHalalas:       lineVat,
+      totalHalalas:     line.totalPriceExclVatHalalas + lineVat,
+    };
+  });
+}
+
+// ─── buildJournalLinesFromBookingLines ────────────────────────────────────────
+// Produces a balanced double-entry journal from booking_lines.
+// Lines are split by revenueModel (agent vs principal); each group gets its
+// own GL treatment. A single Dr Receivables covers all lines combined.
+//
+// Agent lines:
+//   Dr AR (cost + fee + VAT)
+//   Cr AP Supplier (cost)
+//   Cr Revenue Agent (fee = price_excl_vat − cost)
+//   Cr VAT Payable (if VAT registered)
+//
+// Principal lines:
+//   Dr AR (revenue + VAT)
+//   Cr Revenue Principal (price_excl_vat)
+//   Cr VAT Payable (if VAT registered)
+//   Dr COGS / Cr AP Supplier (if cost > 0)
+function buildJournalLinesFromBookingLines(
+  lines: BookingLine[],
+  isVatRegistered: boolean,
+  deferRevenue: boolean,
+): Array<{ code: string; ar: string; en: string; dr: number; cr: number }> {
+  const ln = (ac: { code: string; ar: string; en: string }, dr: number, cr: number) =>
+    ({ code: ac.code, ar: ac.ar, en: ac.en, dr, cr });
+
+  const revenueAccount = deferRevenue ? AC.deferredRevenue : AC.revenuePrincipal;
+  const agentLines     = lines.filter(l => l.revenueModel === 'agent');
+  const principalLines = lines.filter(l => l.revenueModel !== 'agent');
+
+  const totalReceivable = lines.reduce((s, l) => {
+    return s + l.totalPriceExclVatHalalas + (isVatRegistered ? l.vatHalalas : 0);
+  }, 0);
+
+  const result: Array<{ code: string; ar: string; en: string; dr: number; cr: number }> = [];
+  result.push(ln(AC.receivable, totalReceivable, 0));
+
+  if (agentLines.length > 0) {
+    const totalCost    = agentLines.reduce((s, l) => s + l.totalCostHalalas, 0);
+    // Agency fee = customer price excl VAT minus what we pay the supplier
+    const totalFee     = agentLines.reduce((s, l) => s + Math.max(0, l.totalPriceExclVatHalalas - l.totalCostHalalas), 0);
+    const totalLineVat = isVatRegistered ? agentLines.reduce((s, l) => s + l.vatHalalas, 0) : 0;
+    if (totalCost    > 0) result.push(ln(AC.payableSupplier, 0, totalCost));
+    if (totalFee     > 0) result.push(ln(AC.revenueAgent, 0, totalFee));
+    if (totalLineVat > 0) result.push(ln(AC.vatPayable, 0, totalLineVat));
+  }
+
+  if (principalLines.length > 0) {
+    const totalRevenue = principalLines.reduce((s, l) => s + l.totalPriceExclVatHalalas, 0);
+    const totalLineVat = isVatRegistered ? principalLines.reduce((s, l) => s + l.vatHalalas, 0) : 0;
+    const totalCost    = principalLines.reduce((s, l) => s + l.totalCostHalalas, 0);
+    if (totalRevenue > 0) result.push(ln(revenueAccount, 0, totalRevenue));
+    if (totalLineVat > 0) result.push(ln(AC.vatPayable, 0, totalLineVat));
+    if (totalCost    > 0) {
+      result.push(ln(AC.costOfServices, totalCost, 0));
+      result.push(ln(AC.payableSupplier, 0, totalCost));
+    }
+  }
+
+  // Rounding residual: ensure Dr = Cr by adjusting the last credit line
+  const totalDr = result.reduce((s, l) => s + l.dr, 0);
+  const totalCr = result.reduce((s, l) => s + l.cr, 0);
+  if (totalDr !== totalCr) {
+    const lastCr = [...result].reverse().find(l => l.cr > 0);
+    if (lastCr) lastCr.cr += totalDr - totalCr;
+  }
+
+  return result;
 }
 
 function buildInvoiceJournalLines(

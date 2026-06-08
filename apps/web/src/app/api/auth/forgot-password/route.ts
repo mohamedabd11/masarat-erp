@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { ensureAdminApp } from '@/lib/firebase-admin';
 import { Resend } from 'resend';
+import { checkRateLimit, getClientIp } from '@/lib/rate-limit';
 
 interface Body {
   email:   string;
@@ -109,6 +110,12 @@ function htmlEn(resetUrl: string) {
 }
 
 export async function POST(request: Request) {
+  const ip = getClientIp(request);
+  const rl = await checkRateLimit(ip, 'auth');
+  if (!rl.success) {
+    return NextResponse.json({ error: 'Too many requests' }, { status: 429 });
+  }
+
   try {
     const body = await request.json() as Body;
     const email  = (body.email ?? '').trim().toLowerCase();

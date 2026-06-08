@@ -5,22 +5,6 @@ import { recurringInvoices } from '@/lib/schema';
 import { verifyAuth, assertRole, ApiAuthError, ROLES_MANAGER_UP } from '@/lib/api-auth';
 import { logAudit } from '@/lib/audit';
 
-function calcNextIssueDate(frequency: string, dayOfMonth: number, from: Date): string {
-  const d = new Date(from);
-  if (frequency === 'weekly') {
-    d.setDate(d.getDate() + 7);
-  } else if (frequency === 'monthly') {
-    d.setMonth(d.getMonth() + 1);
-    d.setDate(Math.min(dayOfMonth, new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate()));
-  } else if (frequency === 'quarterly') {
-    d.setMonth(d.getMonth() + 3);
-    d.setDate(Math.min(dayOfMonth, new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate()));
-  } else if (frequency === 'yearly') {
-    d.setFullYear(d.getFullYear() + 1);
-  }
-  return d.toISOString().split('T')[0]!;
-}
-
 export async function GET(request: Request) {
   try {
     const { agencyId } = await verifyAuth(request);

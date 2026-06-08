@@ -9,7 +9,7 @@ import { requireFeature } from '@/lib/feature-access';
  * VAT Return Report (إقرار ضريبة القيمة المضافة)
  * Covers standard tax period (monthly or quarterly).
  *
- * Output VAT  = VAT charged on sales invoices (type 380)
+ * Output VAT  = VAT charged on sales invoices (type 388)
  * Input VAT   = VAT paid on purchases/expenses (supplier payments with VAT)
  * Net VAT due = Output VAT − Input VAT
  *
@@ -39,7 +39,7 @@ export async function GET(request: Request) {
     }
 
     // ── Output VAT (sales) ────────────────────────────────────────────────────
-    // Tax invoices (type=380) and debit notes (type=383) add VAT liability
+    // Tax invoices (type=388) and debit notes (type=383) add VAT liability
     // Credit notes (type=381) reduce it
     const salesRows = await db
       .select({
@@ -70,7 +70,7 @@ export async function GET(request: Request) {
       const vat = Number(r.vatAmount);
       const cnt = Number(r.count);
 
-      if (r.type === '380' || r.type === '383') {
+      if (r.type === '388' || r.type === '383') {
         outputVatBase += net;
         outputVat     += vat;
         salesCount    += cnt;
@@ -100,7 +100,7 @@ export async function GET(request: Request) {
         sql`${invoices.issueDate} >= ${from}`,
         sql`${invoices.issueDate} <= ${to}`,
         sql`${invoices.status} NOT IN ('cancelled')`,
-        sql`${invoices.type} IN ('380', '383')`,
+        sql`${invoices.type} IN ('388', '383')`,
         sql`${bookings.serviceType} IN ('flight', 'flights')`,
         sql`(${bookings.details} ->> 'isInternational') = 'true'`,
       ));
@@ -128,9 +128,10 @@ export async function GET(request: Request) {
     const totalPurchases    = Number(purchaseRows[0]?.count ?? 0) > 0 ? Number(purchaseRows[0]?.netAmount ?? 0) : 0;
     const purchaseCount     = Number(purchaseRows[0]?.count ?? 0);
 
-    // Real Input VAT: sum of debits posted to the VAT accounts within the period.
-    // Output VAT is credited to 2200 (VAT Payable); input/reclaimable VAT is
-    // debited to either a dedicated input-VAT receivable (1230) or to 2200 itself.
+    // Real Input VAT: sum of debits posted ONLY to account 1230 (Input VAT Receivable).
+    // This account is exclusively used when a supplier payment includes a reclaimable
+    // VAT portion (supplier-payments/create split). We no longer scrape 2200 debits
+    // because those include cancellation reversals which are NOT reclaimable input VAT.
     const inputVatRows = await db
       .select({
         inputVat: sql<number>`cast(coalesce(sum(${journalLines.debitHalalas}), 0) as int)`,
@@ -140,16 +141,13 @@ export async function GET(request: Request) {
       .where(and(
         eq(journalLines.agencyId, agencyId),
         eq(journalEntries.isPosted, true),
-        sql`${journalLines.accountCode} IN ('1230', '2200')`,
+        sql`${journalLines.accountCode} = '1230'`,
         sql`${journalLines.debitHalalas} > 0`,
         sql`${journalEntries.date} >= ${from}`,
         sql`${journalEntries.date} <= ${to}`,
       ));
 
-    // Subtract VAT debits that originate from credit notes (already netted into
-    // output VAT above) so we don't double-count them as reclaimable input VAT.
-    const grossVatDebits = Number(inputVatRows[0]?.inputVat ?? 0);
-    const inputVat       = Math.max(0, grossVatDebits - creditNoteVat);
+    const inputVat = Number(inputVatRows[0]?.inputVat ?? 0);
 
     // ── Summary ───────────────────────────────────────────────────────────────
     const netVatPayable = netOutputVat - inputVat;

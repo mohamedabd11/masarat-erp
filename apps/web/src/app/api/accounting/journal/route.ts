@@ -79,11 +79,34 @@ export async function POST(request: Request) {
       }
     }
 
-    await assertPeriodOpen(agencyId, body.date, db);
     const id   = crypto.randomUUID();
     const year = new Date(body.date).getFullYear();
 
+    // Force exact balance before persisting. validateJournalLines tolerates a
+    // ±1 halala rounding gap, but a *posted* entry must have ΣDr == ΣCr or the
+    // trial balance / balance sheet permanently report "not balanced". Push the
+    // 1-halala remainder into the largest line on the deficient side.
+    const lines = (body.lines ?? []).map((l) => ({ ...l }));
+    const diff  = computedDebit - computedCredit;
+    if (diff !== 0 && lines.length > 0) {
+      if (diff > 0) {
+        let bi = 0;
+        for (let i = 1; i < lines.length; i++) if (lines[i]!.creditHalalas > lines[bi]!.creditHalalas) bi = i;
+        lines[bi]!.creditHalalas += diff;
+        computedCredit += diff;
+      } else {
+        let bi = 0;
+        for (let i = 1; i < lines.length; i++) if (lines[i]!.debitHalalas > lines[bi]!.debitHalalas) bi = i;
+        lines[bi]!.debitHalalas += -diff;
+        computedDebit += -diff;
+      }
+    }
+
     await db.transaction(async (tx) => {
+      // Period lock must be checked inside the transaction (with tx) so a
+      // concurrent lock cannot slip a posting into a just-closed period.
+      await assertPeriodOpen(agencyId, body.date, tx);
+
       const entryNumber = await getNextJournalNumber(agencyId, year, tx);
 
       await tx.insert(journalEntries).values({
@@ -102,9 +125,9 @@ export async function POST(request: Request) {
         createdBy:          uid,
       });
 
-      if (body.lines?.length) {
+      if (lines.length) {
         await tx.insert(journalLines).values(
-          body.lines.map((l, idx) => ({
+          lines.map((l, idx) => ({
             id:            crypto.randomUUID(),
             entryId:       id,
             agencyId,

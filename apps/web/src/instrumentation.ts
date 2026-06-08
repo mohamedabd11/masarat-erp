@@ -10,12 +10,41 @@
 export async function register() {
   // Only run in Node.js (not Edge runtime) and only when a DB is configured.
   if (process.env.NEXT_RUNTIME !== 'nodejs') return;
+
+  const { validateEnv } = await import('@/lib/env-validate');
+  validateEnv();
+
   if (!process.env.DATABASE_URL) return;
 
   const migrations: string[] = [
     // ── 2025-05 ────────────────────────────────────────────────────────────
     // cheques was created without bank_account_id; add it to existing tables.
     `ALTER TABLE cheques ADD COLUMN IF NOT EXISTS bank_account_id TEXT REFERENCES bank_accounts(id)`,
+
+    // agencies: new columns added post-initial-DDL
+    `ALTER TABLE agencies ADD COLUMN IF NOT EXISTS default_quote_terms    TEXT`,
+    `ALTER TABLE agencies ADD COLUMN IF NOT EXISTS max_users              INTEGER NOT NULL DEFAULT 5`,
+    `ALTER TABLE agencies ADD COLUMN IF NOT EXISTS trial_starts_at        TIMESTAMPTZ`,
+    `ALTER TABLE agencies ADD COLUMN IF NOT EXISTS subscription_starts_at TIMESTAMPTZ`,
+
+    // pnr_records: columns added in migration 0011
+    `ALTER TABLE pnr_records ADD COLUMN IF NOT EXISTS sync_status  TEXT`,
+    `ALTER TABLE pnr_records ADD COLUMN IF NOT EXISTS segments     JSONB`,
+    `ALTER TABLE pnr_records ADD COLUMN IF NOT EXISTS passengers   JSONB`,
+    `ALTER TABLE pnr_records ADD COLUMN IF NOT EXISTS cancelled_at TIMESTAMPTZ`,
+    `ALTER TABLE pnr_records ADD COLUMN IF NOT EXISTS cancelled_by TEXT`,
+    `ALTER TABLE pnr_records ADD COLUMN IF NOT EXISTS deleted_at   TIMESTAMPTZ`,
+
+    // payslips: employer GOSI
+    `ALTER TABLE payslips ADD COLUMN IF NOT EXISTS gosi_employer_halalas INTEGER NOT NULL DEFAULT 0`,
+
+    // service_types: revenue mode and VAT config
+    `ALTER TABLE service_types ADD COLUMN IF NOT EXISTS revenue_mode TEXT NOT NULL DEFAULT 'principal'`,
+    `ALTER TABLE service_types ADD COLUMN IF NOT EXISTS vat_rate     INTEGER`,
+    `ALTER TABLE service_types ADD COLUMN IF NOT EXISTS is_taxable   BOOLEAN`,
+
+    // customers: opening balance
+    `ALTER TABLE customers ADD COLUMN IF NOT EXISTS opening_balance_halalas BIGINT NOT NULL DEFAULT 0`,
 
     // accounting_periods was missing from the original setup-db DDL.
     `CREATE TABLE IF NOT EXISTS accounting_periods (
@@ -32,18 +61,242 @@ export async function register() {
     )`,
     `CREATE UNIQUE INDEX IF NOT EXISTS accounting_periods_agency_ym_uq
       ON accounting_periods(agency_id, period_year, period_month)`,
+
+    // ── 2026-06 — Add missing COA account 1230 (Input VAT Receivable) ─────────
+    `INSERT INTO chart_of_accounts (id, agency_id, code, name_ar, name_en, type, is_active, created_at, updated_at)
+      SELECT gen_random_uuid(), id, '1230', 'ضريبة المدخلات القابلة للاسترداد', 'Input VAT Receivable', 'asset', true, NOW(), NOW()
+      FROM agencies
+      WHERE NOT EXISTS (
+        SELECT 1 FROM chart_of_accounts coa
+        WHERE coa.agency_id = agencies.id AND coa.code = '1230'
+      )`,
+
+    // ── 2026-06 — Missing columns detected by schema-DB audit ────────────────
+    // customers: credit limit
+    `ALTER TABLE customers ADD COLUMN IF NOT EXISTS credit_limit_halalas BIGINT NOT NULL DEFAULT 0`,
+
+    // bank_accounts: reconciliation tracking
+    `ALTER TABLE bank_accounts ADD COLUMN IF NOT EXISTS reconciled_at TIMESTAMPTZ`,
+    `ALTER TABLE bank_accounts ADD COLUMN IF NOT EXISTS reconciled_balance_halalas BIGINT`,
+
+    // bank_transactions: reconciliation flags
+    `ALTER TABLE bank_transactions ADD COLUMN IF NOT EXISTS is_reconciled BOOLEAN NOT NULL DEFAULT FALSE`,
+    `ALTER TABLE bank_transactions ADD COLUMN IF NOT EXISTS reconciled_at TIMESTAMPTZ`,
+    `ALTER TABLE bank_transactions ADD COLUMN IF NOT EXISTS reconciled_by TEXT`,
+
+    // invoices: link credit/debit notes to original invoice
+    `ALTER TABLE invoices ADD COLUMN IF NOT EXISTS original_invoice_id TEXT`,
+    `ALTER TABLE invoices ADD COLUMN IF NOT EXISTS deferred_until TEXT`,
+    `ALTER TABLE invoices ADD COLUMN IF NOT EXISTS revenue_recognized_at TEXT`,
+
+    // quotes: conversion tracking
+    `ALTER TABLE quotes ADD COLUMN IF NOT EXISTS converted_to_booking_id TEXT`,
+    `ALTER TABLE quotes ADD COLUMN IF NOT EXISTS converted_at TIMESTAMPTZ`,
+
+    // ── 2026-06 — ZATCA Phase 2 columns ──────────────────────────────────────
+    `ALTER TABLE journal_entries ADD COLUMN IF NOT EXISTS service_type TEXT`,
+
+    `ALTER TABLE agencies ADD COLUMN IF NOT EXISTS zatca_environment TEXT NOT NULL DEFAULT 'simulation'`,
+    `ALTER TABLE agencies ADD COLUMN IF NOT EXISTS zatca_onboarding_status TEXT NOT NULL DEFAULT 'not_started'`,
+    `ALTER TABLE agencies ADD COLUMN IF NOT EXISTS zatca_compliance_request_id TEXT`,
+    `ALTER TABLE agencies ADD COLUMN IF NOT EXISTS zatca_compliance_csid TEXT`,
+    `ALTER TABLE agencies ADD COLUMN IF NOT EXISTS zatca_compliance_secret TEXT`,
+    `ALTER TABLE agencies ADD COLUMN IF NOT EXISTS zatca_production_csid TEXT`,
+    `ALTER TABLE agencies ADD COLUMN IF NOT EXISTS zatca_production_secret TEXT`,
+    `ALTER TABLE agencies ADD COLUMN IF NOT EXISTS zatca_private_key TEXT`,
+    `ALTER TABLE agencies ADD COLUMN IF NOT EXISTS zatca_certificate_pem TEXT`,
+    `ALTER TABLE agencies ADD COLUMN IF NOT EXISTS zatca_certificate_expiry TIMESTAMPTZ`,
+    `ALTER TABLE agencies ADD COLUMN IF NOT EXISTS zatca_last_invoice_hash TEXT`,
+    `ALTER TABLE agencies ADD COLUMN IF NOT EXISTS zatca_onboarded_at TIMESTAMPTZ`,
+    `ALTER TABLE agencies ADD COLUMN IF NOT EXISTS zatca_error_message TEXT`,
+
+    // ── 2026-06 — Quote conversion idempotency ────────────────────────────────
+    // Prevents two concurrent POST /quotes/:id/convert requests from creating
+    // two bookings from the same quote (race condition guard).
+    `CREATE UNIQUE INDEX IF NOT EXISTS quotes_converted_booking_uq
+      ON quotes(converted_to_booking_id)
+      WHERE converted_to_booking_id IS NOT NULL`,
+
+    // ── 2026-06 — Widen ALL monetary columns to BIGINT (overflow guard) ───────
+    // INTEGER caps at ~2.147e9 halalas ≈ 21.47M SAR; Hajj/Umrah group invoices
+    // and BSP remittances can exceed it. This block is self-discovering and
+    // truly idempotent: it widens only "*_halalas" columns that are still
+    // `integer`, so it does NO work (and takes no lock) once every column is
+    // already bigint. Earlier DDL (setup-db / drizzle 0012) only widened these
+    // on some provisioning paths — this guarantees it on every path.
+    `DO $$
+      DECLARE col record;
+      BEGIN
+        FOR col IN
+          SELECT table_name, column_name
+          FROM information_schema.columns
+          WHERE table_schema = 'public'
+            AND column_name ~ '_halalas$'
+            AND data_type = 'integer'
+        LOOP
+          EXECUTE format('ALTER TABLE %I ALTER COLUMN %I TYPE bigint', col.table_name, col.column_name);
+        END LOOP;
+      END $$`,
+
+    // ── 2026-06 — Prevent double-reversal of a receipt voucher ────────────────
+    // A reversal voucher stores originalVoucherId = the reversed voucher's id.
+    // At most one reversal may exist per original (race-safe guard).
+    `CREATE UNIQUE INDEX IF NOT EXISTS receipt_vouchers_reversal_uq
+      ON receipt_vouchers(original_voucher_id)
+      WHERE original_voucher_id IS NOT NULL`,
+
+    // ── 2026-06 — IAS 21 foreign-currency tracking ────────────────────────────
+    // Track foreign-currency balances so FX revaluation can compute real gains/
+    // losses. All columns are nullable and unused by SAR accounts (zero impact on
+    // the existing SAR flow).
+    `ALTER TABLE bank_accounts     ADD COLUMN IF NOT EXISTS fx_balance_minor BIGINT`,
+    `ALTER TABLE bank_transactions ADD COLUMN IF NOT EXISTS currency        TEXT`,
+    `ALTER TABLE bank_transactions ADD COLUMN IF NOT EXISTS fx_amount_minor BIGINT`,
+    `ALTER TABLE bank_transactions ADD COLUMN IF NOT EXISTS fx_rate         INTEGER`,
+
+    // ── 2026-06 — Remove NOT VALID FK constraints (rollback of c117da9) ─────────
+    // NOT VALID still enforces FKs on new INSERTs. Every route inserts the child
+    // row (invoices / payments / bookings) with journalEntryId set BEFORE the
+    // journal_entries parent row is inserted — causing FK violations on all
+    // invoice / payment creation. Dropping restores the working behaviour;
+    // application-level transactions preserve integrity without DB-level FKs.
+    `DO $$ BEGIN IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname='fk_invoices_original_invoice')  THEN ALTER TABLE invoices          DROP CONSTRAINT fk_invoices_original_invoice;  END IF; END $$`,
+    `DO $$ BEGIN IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname='fk_invoices_journal_entry')     THEN ALTER TABLE invoices          DROP CONSTRAINT fk_invoices_journal_entry;     END IF; END $$`,
+    `DO $$ BEGIN IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname='fk_payments_journal_entry')     THEN ALTER TABLE payments          DROP CONSTRAINT fk_payments_journal_entry;     END IF; END $$`,
+    `DO $$ BEGIN IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname='fk_bookings_journal_entry')     THEN ALTER TABLE bookings          DROP CONSTRAINT fk_bookings_journal_entry;     END IF; END $$`,
+    `DO $$ BEGIN IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname='fk_supplier_payments_supplier') THEN ALTER TABLE supplier_payments DROP CONSTRAINT fk_supplier_payments_supplier; END IF; END $$`,
+    `DO $$ BEGIN IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname='fk_supplier_payments_journal')  THEN ALTER TABLE supplier_payments DROP CONSTRAINT fk_supplier_payments_journal;  END IF; END $$`,
+    `DO $$ BEGIN IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname='fk_receipt_vouchers_journal')   THEN ALTER TABLE receipt_vouchers  DROP CONSTRAINT fk_receipt_vouchers_journal;   END IF; END $$`,
+    `DO $$ BEGIN IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname='fk_quotes_converted_booking')   THEN ALTER TABLE quotes            DROP CONSTRAINT fk_quotes_converted_booking;   END IF; END $$`,
+
+    // ── 2026-06 — Re-add FK constraints as DEFERRABLE INITIALLY DEFERRED ─────
+    // PostgreSQL deferred constraints are checked at COMMIT time rather than at
+    // each individual statement. This is compatible with the application's
+    // child-before-parent insert pattern (child row with journalEntryId is
+    // inserted first, parent journal_entries row is inserted second — both
+    // within the same transaction, so the FK check at COMMIT finds both rows).
+    // New names (_deferred suffix) avoid conflict with the non-deferred versions
+    // dropped above, making these ADD statements idempotent on repeat startups.
+    `DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='fk_invoices_original_invoice_deferred') THEN ALTER TABLE invoices ADD CONSTRAINT fk_invoices_original_invoice_deferred FOREIGN KEY (original_invoice_id) REFERENCES invoices(id) DEFERRABLE INITIALLY DEFERRED; END IF; END $$`,
+    `DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='fk_invoices_journal_entry_deferred')    THEN ALTER TABLE invoices ADD CONSTRAINT fk_invoices_journal_entry_deferred    FOREIGN KEY (journal_entry_id)    REFERENCES journal_entries(id) DEFERRABLE INITIALLY DEFERRED; END IF; END $$`,
+    `DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='fk_payments_journal_entry_deferred')    THEN ALTER TABLE payments ADD CONSTRAINT fk_payments_journal_entry_deferred    FOREIGN KEY (journal_entry_id)    REFERENCES journal_entries(id) DEFERRABLE INITIALLY DEFERRED; END IF; END $$`,
+    `DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='fk_bookings_journal_entry_deferred')    THEN ALTER TABLE bookings ADD CONSTRAINT fk_bookings_journal_entry_deferred    FOREIGN KEY (journal_entry_id)    REFERENCES journal_entries(id) DEFERRABLE INITIALLY DEFERRED; END IF; END $$`,
+    `DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='fk_supplier_payments_supplier_deferred') THEN ALTER TABLE supplier_payments ADD CONSTRAINT fk_supplier_payments_supplier_deferred FOREIGN KEY (supplier_id)       REFERENCES suppliers(id)       DEFERRABLE INITIALLY DEFERRED; END IF; END $$`,
+    `DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='fk_supplier_payments_journal_deferred') THEN ALTER TABLE supplier_payments ADD CONSTRAINT fk_supplier_payments_journal_deferred  FOREIGN KEY (journal_entry_id)    REFERENCES journal_entries(id) DEFERRABLE INITIALLY DEFERRED; END IF; END $$`,
+    `DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='fk_receipt_vouchers_journal_deferred')  THEN ALTER TABLE receipt_vouchers  ADD CONSTRAINT fk_receipt_vouchers_journal_deferred  FOREIGN KEY (journal_entry_id)    REFERENCES journal_entries(id) DEFERRABLE INITIALLY DEFERRED; END IF; END $$`,
+    `DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='fk_quotes_converted_booking_deferred')  THEN ALTER TABLE quotes            ADD CONSTRAINT fk_quotes_converted_booking_deferred  FOREIGN KEY (converted_to_booking_id) REFERENCES bookings(id)        DEFERRABLE INITIALLY DEFERRED; END IF; END $$`,
+
+    // ── 2026-06-08 — Add nationality_type to employees (GOSI rate classification) ──
+    // Saudi employees: 9.75% employer GOSI. Expats: 2% employer GOSI.
+    // Default 'saudi' so existing rows are not affected.
+    `DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='employees' AND column_name='nationality_type') THEN ALTER TABLE employees ADD COLUMN nationality_type TEXT NOT NULL DEFAULT 'saudi'; END IF; END $$`,
+
+    // ── 2026-06-08 — Widen vat_returns monetary columns from INTEGER to BIGINT ──
+    // INTEGER caps at ~21.47M SAR per quarter. Agencies above that threshold
+    // would silently overflow the VAT return amounts. BIGINT has no practical limit.
+    // This is a safe widening migration — no data loss, no default changes.
+    `DO $$ BEGIN IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='vat_returns' AND column_name='output_vat_halalas' AND data_type='integer') THEN ALTER TABLE vat_returns ALTER COLUMN output_vat_halalas TYPE bigint, ALTER COLUMN input_vat_halalas TYPE bigint, ALTER COLUMN net_vat_halalas TYPE bigint; END IF; END $$`,
+
+    // ── 2026-06-08 — Create booking_lines table ──────────────────────────────
+    // Source of Truth for per-service VAT, cost, revenue model, and GL mapping.
+    // Replaces the single aggregated VAT on bookings/invoices with per-line
+    // breakdown, enabling mixed-supply VAT (e.g. 0% flight + 15% hotel in one
+    // booking) and correct ZATCA line-item generation.
+    `DO $$ BEGIN
+       CREATE TABLE IF NOT EXISTS booking_lines (
+         id                           TEXT PRIMARY KEY,
+         booking_id                   TEXT NOT NULL REFERENCES bookings(id)  ON DELETE CASCADE,
+         agency_id                    TEXT NOT NULL REFERENCES agencies(id)  ON DELETE CASCADE,
+         service_type                 TEXT NOT NULL,
+         description                  TEXT NOT NULL,
+         supplier_id                  TEXT,
+         supplier_name                TEXT,
+         quantity                     INTEGER NOT NULL DEFAULT 1,
+         unit_cost_halalas            BIGINT  NOT NULL DEFAULT 0,
+         total_cost_halalas           BIGINT  NOT NULL DEFAULT 0,
+         unit_price_excl_vat_halalas  BIGINT  NOT NULL DEFAULT 0,
+         total_price_excl_vat_halalas BIGINT  NOT NULL DEFAULT 0,
+         vat_category                 TEXT    NOT NULL DEFAULT 'S',
+         vat_rate_bps                 INTEGER NOT NULL DEFAULT 1500,
+         vat_halalas                  BIGINT  NOT NULL DEFAULT 0,
+         revenue_model                TEXT    NOT NULL DEFAULT 'agent',
+         revenue_account_code         TEXT,
+         cost_account_code            TEXT,
+         operational_status           TEXT    NOT NULL DEFAULT 'pending',
+         pnr_reference                TEXT,
+         voucher_number               TEXT,
+         is_legacy                    BOOLEAN NOT NULL DEFAULT FALSE,
+         status                       TEXT    NOT NULL DEFAULT 'active',
+         cancelled_at                 TIMESTAMP,
+         refund_halalas               BIGINT  NOT NULL DEFAULT 0,
+         sort_order                   INTEGER NOT NULL DEFAULT 0,
+         notes                        TEXT,
+         created_at                   TIMESTAMP NOT NULL DEFAULT NOW(),
+         updated_at                   TIMESTAMP NOT NULL DEFAULT NOW()
+       );
+       CREATE INDEX IF NOT EXISTS idx_bl_booking        ON booking_lines(booking_id);
+       CREATE INDEX IF NOT EXISTS idx_bl_agency         ON booking_lines(agency_id);
+       CREATE INDEX IF NOT EXISTS idx_bl_agency_service ON booking_lines(agency_id, service_type);
+       CREATE INDEX IF NOT EXISTS idx_bl_status         ON booking_lines(agency_id, status);
+     END $$`,
+
+    // ── 2026-06-08 — Backfill legacy booking_lines for existing bookings ─────
+    // Each pre-existing booking receives one is_legacy=true line holding the
+    // aggregated totals. These lines are immutable and excluded from per-line
+    // VAT/GL reports via the is_legacy flag.
+    // unit_price_excl_vat_halalas stores total_price_halalas (VAT-inclusive) as
+    // an approximation — acceptable because is_legacy=true signals "don't trust
+    // per-line VAT breakdown for this historical record".
+    `INSERT INTO booking_lines (
+       id, booking_id, agency_id, service_type, description,
+       unit_cost_halalas, total_cost_halalas,
+       unit_price_excl_vat_halalas, total_price_excl_vat_halalas,
+       vat_category, vat_rate_bps, vat_halalas,
+       revenue_model, is_legacy, status, sort_order,
+       created_at, updated_at
+     )
+     SELECT
+       'legacy-' || b.id,
+       b.id,
+       b.agency_id,
+       COALESCE(b.service_type, 'custom'),
+       COALESCE(b.service_type, 'custom'),
+       COALESCE(b.cost_price_halalas, 0),
+       COALESCE(b.cost_price_halalas, 0),
+       COALESCE(b.total_price_halalas, 0),
+       COALESCE(b.total_price_halalas, 0),
+       'S', 0, 0,
+       COALESCE(b.details->>'revenueModel', 'agent'),
+       TRUE,
+       CASE WHEN b.status = 'cancelled' THEN 'cancelled' ELSE 'active' END,
+       1,
+       b.created_at,
+       b.updated_at
+     FROM bookings b
+     WHERE NOT EXISTS (SELECT 1 FROM booking_lines bl WHERE bl.booking_id = b.id)`,
   ];
 
   try {
     const { neon } = await import('@neondatabase/serverless');
     const sql = neon(process.env.DATABASE_URL);
+    let failed = 0;
     for (const stmt of migrations) {
-      await sql.query(stmt);
+      try {
+        await sql.query(stmt);
+      } catch (stmtErr) {
+        failed++;
+        // Log individual failures but continue — a failed idempotent migration
+        // should not prevent subsequent migrations from running.
+        console.error(JSON.stringify({ event: 'db_migration_stmt_failed', error: String(stmtErr), stmt: stmt.slice(0, 80) }));
+      }
     }
-    console.log(JSON.stringify({ event: 'db_migrations_applied', count: migrations.length }));
+    console.log(JSON.stringify({ event: 'db_migrations_applied', total: migrations.length, failed }));
   } catch (err) {
-    // Log but don't crash the server — a failed migration is investigated,
-    // not a reason to take the whole app down.
     console.error(JSON.stringify({ event: 'db_migrations_failed', error: String(err) }));
+  }
+
+  if (process.env.SENTRY_DSN) {
+    const { init } = await import('@sentry/nextjs');
+    init({ dsn: process.env.SENTRY_DSN, tracesSampleRate: 0.1 });
   }
 }

@@ -18,6 +18,7 @@ export const employees = pgTable('employees', {
   iqamaNumber:      text('iqama_number'),
   bankAccountNumber: text('bank_account_number'),
   bankName:         text('bank_name'),
+  nationalityType:  text('nationality_type').notNull().default('saudi'), // 'saudi' | 'expat'
   isActive:         boolean('is_active').notNull().default(true),
   glAccountId:      text('gl_account_id'),
   createdAt:        timestamp('created_at').notNull().defaultNow(),

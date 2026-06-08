@@ -76,6 +76,15 @@ export default function PrintInvoicePage({
               totalInclVatHalalas: grandTotal,
             }];
 
+        let zatcaQrDataUrl: string | undefined;
+        const invRecord = inv as Record<string, unknown>;
+        if (invRecord['zatcaHash']) {
+          try {
+            const qrRes = await apiFetch<{ dataUrl: string }>(`/api/invoices/${params.id}/qr`);
+            zatcaQrDataUrl = qrRes.dataUrl;
+          } catch { /* QR fetch failure is non-critical */ }
+        }
+
         const mapped: PrintableInvoiceData = {
           invoiceNumber:   inv.invoiceNumber,
           uuid:            inv.zatcaUuid ?? '',
@@ -112,7 +121,7 @@ export default function PrintInvoicePage({
             totalVatHalalas:        totalVat,
             grandTotalHalalas:      grandTotal,
           },
-          qrCodeData:  undefined,
+          qrCodeData:  zatcaQrDataUrl,
           zatcaStatus: 'not_submitted',
         };
 

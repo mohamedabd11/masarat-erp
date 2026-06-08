@@ -5,6 +5,7 @@ import { salaryAdvances, employees, journalEntries, journalLines } from '@/lib/s
 import { verifyAuth, assertRole, ApiAuthError, ROLES_ADMIN_ONLY, ROLES_MANAGER_UP } from '@/lib/api-auth';
 import { logAudit } from '@/lib/audit';
 import { getNextJournalNumber } from '@/lib/invoice-counter';
+import { assertPeriodOpen } from '@/lib/period-lock';
 
 const AC_ADVANCE   = { code: '1130', ar: 'سلف الموظفين',      en: 'Employee Advances' };
 const AC_CASH      = { code: '1100', ar: 'الصندوق النقدي',     en: 'Cash' };
@@ -64,6 +65,7 @@ export async function POST(request: Request) {
 
     const result = await db.transaction(async (tx) => {
       const today  = new Date().toISOString().split('T')[0]!;
+      await assertPeriodOpen(agencyId, today, tx);
       const year   = new Date().getFullYear();
       const jeNum  = await getNextJournalNumber(agencyId, year, tx);
       const id     = crypto.randomUUID();

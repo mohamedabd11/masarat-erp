@@ -13,7 +13,7 @@
  * All amounts returned in halalas.
  */
 import { NextResponse } from 'next/server';
-import { eq, and, sql } from 'drizzle-orm';
+import { eq, and, ne, sql } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { journalLines, journalEntries } from '@/lib/schema';
 import { verifyAuth, assertRole, ApiAuthError, ROLES_ACCOUNTANT_UP } from '@/lib/api-auth';
@@ -39,6 +39,10 @@ async function getMovements(agencyId: string, from: string, to: string): Promise
     .where(and(
       eq(journalLines.agencyId, agencyId),
       eq(journalEntries.isPosted, true),
+      // Exclude year-end closing entries (consistent with P&L and balance-sheet):
+      // they transfer P&L balances to retained earnings and would distort net
+      // income when the report window spans a close.
+      ne(journalEntries.source, 'closing'),
       sql`${journalEntries.date} >= ${from}`,
       sql`${journalEntries.date} <= ${to}`,
     ))
@@ -90,12 +94,14 @@ export async function GET(request: Request) {
 
     // Working capital changes (operating assets/liabilities, excluding cash & bank)
     // AR (12xx): increase in AR = cash OUTFLOW (negative in operating)
-    const arChange          = sum('12');   // increase in AR = net debit increase
-    const inventoryChange   = sum('13');   // increase in inventory = outflow
-    const prepaidChange     = sum('14');   // increase in prepaid = outflow
-    const apChange          = sum('21');   // increase in AP = inflow (net credit = negative netDebit)
-    const vatPayableChange  = sum('215');  // increase in VAT payable = inflow
-    const accruedChange     = sum('216');  // increase in accrued liabilities = inflow
+    const arChange          = sum('12');          // increase in AR = net debit increase
+    const inventoryChange   = sum('13');          // increase in inventory = outflow
+    const prepaidChange     = sum('14');          // increase in prepaid = outflow
+    // AP: 2000 (supplier), 20xx, and 21xx (airlines/hotels/BSP)
+    const apChange          = sum('20') + sum('21');  // increase in AP = inflow
+    const vatPayableChange  = sum('220');              // 2200: VAT payable increase = inflow
+    // Accrued liabilities: 23xx deposits, 24xx GOSI, 25xx EOSB
+    const accruedChange     = sum('23') + sum('24') + sum('25');
 
     const workingCapitalAdj = -arChange - inventoryChange - prepaidChange - apChange - vatPayableChange - accruedChange;
     const operatingTotal    = netIncome + workingCapitalAdj;
@@ -106,8 +112,9 @@ export async function GET(request: Request) {
     const investingTotal   = -fixedAssetChange;
 
     // ── C. Financing Activities ───────────────────────────────────────────────
-    // Long-term debt (22xx): net credit = borrowing inflow; net debit = repayment
-    const ltDebtChange     = sum('22');
+    // Long-term debt (26xx+): net credit = borrowing inflow; net debit = repayment
+    // Note: 22xx (VAT Payable) is a current operating liability captured above.
+    const ltDebtChange     = sum('26') + sum('27') + sum('28') + sum('29');
     // Equity injections (31xx): net credit = capital contribution
     const equityChange     = sum('31');
     const financingTotal   = -ltDebtChange - equityChange;
@@ -136,9 +143,13 @@ export async function GET(request: Request) {
         total: investingTotal,
       },
       financing: {
+        // Display lines must match financingTotal (= -ltDebtChange - equityChange).
+        // VAT (22xx) is an operating liability shown under operating, NOT here.
+        // For credit-normal debt/equity accounts, cash effect = -netDebit, which is
+        // exactly what lines() returns — no sign flip needed.
         lines: [
-          ...lines('22').map(l => ({ ...l, amount: -l.amount })),
-          ...lines('31').map(l => ({ ...l, amount: -l.amount })),
+          ...lines('26'), ...lines('27'), ...lines('28'), ...lines('29'),
+          ...lines('31'),
         ],
         total: financingTotal,
       },

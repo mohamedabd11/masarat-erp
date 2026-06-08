@@ -9,6 +9,7 @@ import {
   boolean,
   timestamp,
   integer,
+  bigint,
   jsonb,
   index,
   unique,
@@ -178,10 +179,10 @@ export const vatReturns = pgTable(
     year: integer('year').notNull(),
     quarter: integer('quarter').notNull(), // 1-4
 
-    // المبالغ (بالهللات)
-    outputVatHalalas: integer('output_vat_halalas').notNull().default(0),
-    inputVatHalalas: integer('input_vat_halalas').notNull().default(0),
-    netVatHalalas: integer('net_vat_halalas').notNull().default(0),
+    // المبالغ (بالهللات) — bigint لتجنب overflow عند مبالغ > 21.47 مليون ريال
+    outputVatHalalas: bigint('output_vat_halalas', { mode: 'number' }).notNull().default(0),
+    inputVatHalalas: bigint('input_vat_halalas', { mode: 'number' }).notNull().default(0),
+    netVatHalalas: bigint('net_vat_halalas', { mode: 'number' }).notNull().default(0),
 
     // الحالة
     status: varchar('status', { length: 20 }).notNull().default('draft'),

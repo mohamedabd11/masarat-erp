@@ -109,9 +109,17 @@ export async function PATCH(
       return NextResponse.json({ error: 'العميل غير موجود' }, { status: 404 });
     }
 
+    // Allowlist editable fields — never spread the raw body. creditLimitHalalas
+    // is intentionally excluded so a low-privilege agent cannot raise their own
+    // customer's credit limit (which would bypass the invoices/create gate);
+    // agencyId/id are immutable.
+    const patch: Record<string, unknown> = { updatedAt: new Date() };
+    for (const k of ['nameAr', 'nameEn', 'phone', 'email', 'nationality', 'nationalId', 'passportNumber', 'dateOfBirth', 'notes', 'isActive', 'openingBalanceHalalas'] as const) {
+      if (body[k] !== undefined) patch[k] = body[k];
+    }
     const [updated] = await db
       .update(customers)
-      .set({ ...body, updatedAt: new Date() })
+      .set(patch as Partial<typeof customers.$inferInsert>)
       .where(and(eq(customers.id, id), eq(customers.agencyId, agencyId)))
       .returning();
 

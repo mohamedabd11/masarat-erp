@@ -1,3 +1,28 @@
 {
-  "extends": ["next/core-web-vitals"]
+  "extends": ["next/core-web-vitals"],
+  "rules": {
+    "no-restricted-syntax": [
+      "error",
+      {
+        "selector": "CallExpression[callee.property.name='set'] > ObjectExpression > Property[key.name='totalPriceHalalas']",
+        "message": "تحديث totalPriceHalalas مباشرةً ممنوع. استخدم syncBookingTotalsFromLines() من '@/lib/booking-financials'."
+      },
+      {
+        "selector": "CallExpression[callee.property.name='set'] > ObjectExpression > Property[key.name='costPriceHalalas']",
+        "message": "تحديث costPriceHalalas مباشرةً ممنوع. استخدم syncBookingTotalsFromLines() من '@/lib/booking-financials'."
+      },
+      {
+        "selector": "CallExpression[callee.property.name='set'] > ObjectExpression > Property[key.name='profitHalalas']",
+        "message": "تحديث profitHalalas مباشرةً ممنوع. استخدم syncBookingTotalsFromLines() من '@/lib/booking-financials'."
+      }
+    ]
+  },
+  "overrides": [
+    {
+      "files": ["src/lib/booking-financials.ts"],
+      "rules": {
+        "no-restricted-syntax": "off"
+      }
+    }
+  ]
 }

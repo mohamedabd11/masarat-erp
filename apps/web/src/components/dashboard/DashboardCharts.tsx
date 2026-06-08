@@ -47,7 +47,7 @@ function RevenueTooltip({ active, payload, label, isAr }: {
   return (
     <div className="bg-white border border-slate-200 rounded-xl shadow-lg px-4 py-2.5 text-sm">
       <p className="font-semibold text-slate-700 mb-0.5">{label}</p>
-      <p className="text-brand-600 font-bold">{formatCurrency(payload[0]?.value ?? 0, loc)}</p>
+      <p className="text-brand-600 font-bold">{formatCurrency((payload[0]?.value ?? 0) * 100, loc)}</p>
     </div>
   );
 }
@@ -146,7 +146,7 @@ export function DashboardCharts({ locale }: { locale: string }) {
       {/* ── Revenue bar chart ───────────────────────────────────────────── */}
       <Card className="xl:col-span-2">
         <CardHeader>
-          <CardTitle>{isAr ? 'الإيرادات (آخر 6 أشهر)' : 'Revenue – Last 6 Months'}</CardTitle>
+          <CardTitle>{isAr ? 'حجم الأعمال (آخر 6 أشهر)' : 'Gross Bookings – Last 6 Months'}</CardTitle>
         </CardHeader>
 
         {hasRevenue ? (
@@ -180,7 +180,7 @@ export function DashboardCharts({ locale }: { locale: string }) {
           </div>
         )}
         <p className="text-[11px] text-slate-400 mt-2">
-          {isAr ? '* بالريال السعودي شامل الضريبة' : '* SAR incl. VAT'}
+          {isAr ? '* إجمالي فواتير العملاء بالريال السعودي شامل الضريبة' : '* Gross customer invoices, SAR incl. VAT'}
         </p>
       </Card>
 

@@ -2,7 +2,8 @@ import { NextResponse } from 'next/server';
 import { neon } from '@neondatabase/serverless';
 
 // Public health-check endpoint — safe to call from browser with no auth.
-// Returns DB connectivity status and which tables exist.
+// Returns DB connectivity + whether the required app tables exist. It does NOT
+// enumerate the full schema (avoids leaking internal table names to anonymous callers).
 export async function GET() {
   const url = process.env.DATABASE_URL;
 
@@ -30,7 +31,6 @@ export async function GET() {
     return NextResponse.json({
       ok: missing.length === 0,
       db: 'connected',
-      tables,
       missing,
       fix: missing.length > 0
         ? 'Some tables are missing. Open Settings → تهيئة قاعدة البيانات and click the setup button.'
