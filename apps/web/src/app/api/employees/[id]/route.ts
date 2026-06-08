@@ -9,6 +9,9 @@ export async function PATCH(request: Request, { params }: { params: { id: string
     const { agencyId, role } = await verifyAuth(request);
     assertRole(role, [...ROLES_MANAGER_UP]);
     const body = await request.json() as Record<string, unknown>;
+    if ('nationalityType' in body && !['saudi', 'expat'].includes(body.nationalityType as string)) {
+      return NextResponse.json({ error: 'nationality_type يجب أن يكون saudi أو expat' }, { status: 400 });
+    }
     const now = new Date();
     // Strip immutable identity/system columns — never let the client move the
     // record to another tenant (agencyId), change its id/employeeNumber, or
