@@ -8,7 +8,6 @@ const VALID_STATUSES = new Set(['draft', 'confirmed', 'completed', 'cancelled'])
 
 // Fields that cannot be changed after an invoice is issued
 const LOCKED_AFTER_INVOICE = new Set([
-  'totalPriceHalalas', 'costPriceHalalas', 'profitHalalas',
   'serviceType', 'customerId', 'details',
 ]);
 
@@ -120,8 +119,13 @@ export async function PATCH(request: Request, { params }: { params: { id: string
       }
     }
 
-    // Strip internal/auto-computed fields that callers should not set directly
-    const STRIP = new Set(['id', 'agencyId', 'bookingNumber', 'paidHalalas', 'createdBy', 'createdAt']);
+    // Strip internal/auto-computed fields that callers should not set directly.
+    // Financial totals (totalPriceHalalas, costPriceHalalas, profitHalalas) are
+    // derived from booking_lines — they must only be updated via syncBookingTotalsFromLines().
+    const STRIP = new Set([
+      'id', 'agencyId', 'bookingNumber', 'paidHalalas', 'createdBy', 'createdAt',
+      'totalPriceHalalas', 'costPriceHalalas', 'profitHalalas',
+    ]);
     const patch: Record<string, unknown> = { updatedAt: now };
     for (const [k, v] of Object.entries(body)) {
       if (!STRIP.has(k)) patch[k] = v;
