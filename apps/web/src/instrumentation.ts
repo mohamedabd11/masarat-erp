@@ -268,6 +268,13 @@ export async function register() {
        CREATE INDEX IF NOT EXISTS idx_bl_status         ON booking_lines(agency_id, status);
      END $$`,
 
+    // ── 2026-06-09 — Configurable GOSI rates per agency ─────────────────────
+    // Saudi 2024 social insurance reform: employer 12% (9%+2%+1%), employee 10% (9%+1%), expat 2%.
+    // Stored as basis points × 100 (1200 = 12.00%) so integer arithmetic can represent fractions.
+    `ALTER TABLE agencies ADD COLUMN IF NOT EXISTS gosi_employer_rate_saudi INTEGER NOT NULL DEFAULT 1200`,
+    `ALTER TABLE agencies ADD COLUMN IF NOT EXISTS gosi_employee_rate_saudi INTEGER NOT NULL DEFAULT 1000`,
+    `ALTER TABLE agencies ADD COLUMN IF NOT EXISTS gosi_employer_rate_expat  INTEGER NOT NULL DEFAULT 200`,
+
     // ── 2026-06-08 — Backfill legacy booking_lines for existing bookings ─────
     // Each pre-existing booking receives one is_legacy=true line holding the
     // aggregated totals. These lines are immutable and excluded from per-line

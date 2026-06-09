@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { eq, and, desc } from 'drizzle-orm';
 import { db } from '@/lib/db';
-import { payslips, employees, salaryAdvances, employeeContracts, journalEntries, journalLines } from '@/lib/schema';
+import { payslips, employees, salaryAdvances, employeeContracts, journalEntries, journalLines, agencies } from '@/lib/schema';
 import { verifyAuth, assertRole, ApiAuthError, BusinessError, ROLES_ADMIN_ONLY } from '@/lib/api-auth';
 import { requireFeature } from '@/lib/feature-access';
 import { logAudit } from '@/lib/audit';
@@ -47,7 +47,6 @@ export async function POST(request: Request) {
       transportAllowanceHalalas?: number;
       otherAllowancesHalalas?:  number;
       deductionsHalalas?:       number;
-      gosiEmployeeHalalas?:     number;
       components?:              unknown;
       paymentDate?:             string;
       paymentMethod?:           string;
@@ -77,11 +76,21 @@ export async function POST(request: Request) {
       ));
     const advanceDeduction = pendingAdvances.reduce((s, a) => s + a.amountHalalas, 0);
 
-    // Fetch employee for the journal-entry description (and to validate it exists)
-    const [employee] = await db.select({ id: employees.id, nameAr: employees.nameAr, nationalityType: employees.nationalityType })
-      .from(employees)
-      .where(and(eq(employees.id, body.employeeId), eq(employees.agencyId, agencyId)))
-      .limit(1);
+    // Fetch employee (validates it exists) and agency GOSI rates in parallel
+    const [[employee], [agency]] = await Promise.all([
+      db.select({ id: employees.id, nameAr: employees.nameAr, nationalityType: employees.nationalityType })
+        .from(employees)
+        .where(and(eq(employees.id, body.employeeId), eq(employees.agencyId, agencyId)))
+        .limit(1),
+      db.select({
+          gosiEmployerRateSaudi: agencies.gosiEmployerRateSaudi,
+          gosiEmployeeRateSaudi: agencies.gosiEmployeeRateSaudi,
+          gosiEmployerRateExpat: agencies.gosiEmployerRateExpat,
+        })
+        .from(agencies)
+        .where(eq(agencies.id, agencyId))
+        .limit(1),
+    ]);
     if (!employee) return NextResponse.json({ error: 'الموظف غير موجود' }, { status: 404 });
 
     const base      = body.baseSalaryHalalas;
@@ -90,14 +99,15 @@ export async function POST(request: Request) {
     const other     = body.otherAllowancesHalalas    ?? 0;
     const gross     = base + housing + transport + other;
     const deduct    = body.deductionsHalalas ?? 0;
-    const gosiEmployee = body.gosiEmployeeHalalas ?? 0;
-    // GOSI employer rates per Saudi social insurance regulations:
-    //   Saudi nationals: 9% pension + 0.75% occupational hazard = 9.75%
-    //   Expats: 2% occupational hazard only
-    const GOSI_EMPLOYER_RATE = (employee.nationalityType ?? 'saudi') === 'expat' ? 0.02 : 0.0975;
-    const gosiBase     = base + housing;
-    const gosiEmployer = Math.round(gosiBase * GOSI_EMPLOYER_RATE);
-    const net          = gross - deduct - advanceDeduction - gosiEmployee;
+
+    // Compute GOSI server-side from agency-configured rates (basis points × 100)
+    const gosiBase         = base + housing;
+    const isExpat          = (employee.nationalityType ?? 'saudi') === 'expat';
+    const empRateBps       = isExpat ? 0 : (agency?.gosiEmployeeRateSaudi ?? 1000);
+    const emplrRateBps     = isExpat ? (agency?.gosiEmployerRateExpat ?? 200) : (agency?.gosiEmployerRateSaudi ?? 1200);
+    const gosiEmployee     = Math.round(gosiBase * empRateBps   / 10000);
+    const gosiEmployer     = Math.round(gosiBase * emplrRateBps / 10000);
+    const net              = gross - deduct - advanceDeduction - gosiEmployee;
 
     const id    = crypto.randomUUID();
     const jeId  = crypto.randomUUID();

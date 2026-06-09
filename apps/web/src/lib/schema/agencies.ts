@@ -39,6 +39,11 @@ export const agencies = pgTable('agencies', {
   smtpFromEmail:        text('smtp_from_email'),
   smtpEncryption:       text('smtp_encryption').default('tls'),
   defaultQuoteTerms:    text('default_quote_terms'),
+  // GOSI rates stored as basis points × 100 (e.g. 1200 = 12.00%).
+  // Saudi 2024 reform: employer Saudi 12% (9%+2%+1%), employee Saudi 10% (9%+1%), employer expat 2%.
+  gosiEmployerRateSaudi: integer('gosi_employer_rate_saudi').notNull().default(1200),
+  gosiEmployeeRateSaudi: integer('gosi_employee_rate_saudi').notNull().default(1000),
+  gosiEmployerRateExpat:  integer('gosi_employer_rate_expat').notNull().default(200),
   createdAt:            timestamp('created_at').notNull().defaultNow(),
   updatedAt:            timestamp('updated_at').notNull().defaultNow(),
   // ZATCA Phase 2
