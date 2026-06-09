@@ -10,6 +10,7 @@ import { Spinner } from '@/components/ui/Spinner';
 import { formatCurrency, formatDate } from '@/lib/utils';
 import { BookingActions } from './BookingActions';
 import { BookingPassengersSection } from './BookingPassengersSection';
+import { BookingMessagesSection } from './BookingMessagesSection';
 import {
   ArrowRight, ArrowLeft, FileText, User, MapPin, Receipt,
   TrendingDown, Banknote, CreditCard, Building2, Globe, FileCheck2, ArrowUpRight,
@@ -392,6 +393,18 @@ export function BookingDetailClient({ locale, bookingId }: BookingDetailClientPr
           {/* Passengers — structured, editable records */}
           <BookingPassengersSection
             bookingId={bookingId}
+            locale={locale}
+            isCancelled={booking.status === 'cancelled'}
+          />
+
+          {/* Customer Messages — outbound communication log */}
+          <BookingMessagesSection
+            bookingId={bookingId}
+            bookingNumber={booking.bookingNumber ?? ''}
+            customerNameAr={booking.customerName?.ar ?? booking.customerName ?? ''}
+            customerPhone={booking.customerPhone ?? null}
+            totalHalalas={grandTotalHalalas}
+            paidHalalas={paidHalalas}
             locale={locale}
             isCancelled={booking.status === 'cancelled'}
           />

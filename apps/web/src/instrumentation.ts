@@ -302,6 +302,26 @@ export async function register() {
        b.updated_at
      FROM bookings b
      WHERE NOT EXISTS (SELECT 1 FROM booking_lines bl WHERE bl.booking_id = b.id)`,
+
+    // ── 2026-06-09 — Customer messages outbound communication log ───────────
+    `DO $$ BEGIN
+       CREATE TABLE IF NOT EXISTS customer_messages (
+         id               TEXT PRIMARY KEY,
+         agency_id        TEXT NOT NULL,
+         booking_id       TEXT,
+         recipient_name   TEXT NOT NULL,
+         recipient_phone  TEXT,
+         channel          TEXT NOT NULL,
+         template_key     TEXT,
+         message_ar       TEXT NOT NULL,
+         message_en       TEXT,
+         sent_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+         sent_by          TEXT,
+         created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
+       );
+       CREATE INDEX IF NOT EXISTS idx_cm_agency_booking ON customer_messages(agency_id, booking_id);
+       CREATE INDEX IF NOT EXISTS idx_cm_agency_time    ON customer_messages(agency_id, sent_at DESC);
+     END $$`,
   ];
 
   try {
