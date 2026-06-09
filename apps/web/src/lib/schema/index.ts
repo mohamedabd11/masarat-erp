@@ -20,3 +20,4 @@ export * from './audit';
 export * from './recurring-invoices';
 export * from './agency-features';
 export * from './bsp';
+export * from './booking-passengers';

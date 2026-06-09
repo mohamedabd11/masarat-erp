@@ -982,6 +982,33 @@ ALTER TABLE salary_advances   ALTER COLUMN amount_halalas TYPE BIGINT;
 ALTER TABLE salary_payments   ALTER COLUMN amount_halalas TYPE BIGINT;
 ALTER TABLE eosb_accruals     ALTER COLUMN amount_halalas TYPE BIGINT;
 
+-- ══ BOOKING PASSENGERS ═══════════════════════════════════════════════════════
+-- Structured per-passenger travel documents for each booking.
+-- Normalises the ad-hoc passengers array that was previously buried in
+-- bookings.details (JSONB), making passenger records properly queryable and
+-- indexed (e.g. lookup by passport number, filter by nationality).
+CREATE TABLE IF NOT EXISTS booking_passengers (
+  id               TEXT PRIMARY KEY,
+  agency_id        TEXT NOT NULL REFERENCES agencies(id) ON DELETE CASCADE,
+  booking_id       TEXT NOT NULL REFERENCES bookings(id)  ON DELETE CASCADE,
+  name_ar          TEXT NOT NULL,
+  name_en          TEXT,
+  type             TEXT NOT NULL DEFAULT 'ADT',
+  gender           TEXT,
+  passport_number  TEXT,
+  passport_expiry  TEXT,
+  nationality      TEXT,
+  date_of_birth    TEXT,
+  national_id      TEXT,
+  notes            TEXT,
+  created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  created_by       TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_bp_agency_booking ON booking_passengers(agency_id, booking_id);
+CREATE INDEX IF NOT EXISTS idx_bp_passport        ON booking_passengers(agency_id, passport_number)
+  WHERE passport_number IS NOT NULL;
+
 `;
 
 export async function POST(req: NextRequest) {

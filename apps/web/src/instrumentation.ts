@@ -197,6 +197,34 @@ export async function register() {
     // This is a safe widening migration — no data loss, no default changes.
     `DO $$ BEGIN IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='vat_returns' AND column_name='output_vat_halalas' AND data_type='integer') THEN ALTER TABLE vat_returns ALTER COLUMN output_vat_halalas TYPE bigint, ALTER COLUMN input_vat_halalas TYPE bigint, ALTER COLUMN net_vat_halalas TYPE bigint; END IF; END $$`,
 
+    // ── 2026-06-09 — Structured per-passenger table ───────────────────────────
+    // Normalises the ad-hoc passengers array from bookings.details (JSONB) into
+    // queryable, indexed rows — enabling passenger manifests, passport-expiry
+    // warnings, and repeat-customer document lookup without JSON extraction.
+    `DO $$ BEGIN
+       CREATE TABLE IF NOT EXISTS booking_passengers (
+         id               TEXT PRIMARY KEY,
+         agency_id        TEXT NOT NULL REFERENCES agencies(id)  ON DELETE CASCADE,
+         booking_id       TEXT NOT NULL REFERENCES bookings(id)  ON DELETE CASCADE,
+         name_ar          TEXT NOT NULL,
+         name_en          TEXT,
+         type             TEXT NOT NULL DEFAULT 'ADT',
+         gender           TEXT,
+         passport_number  TEXT,
+         passport_expiry  TEXT,
+         nationality      TEXT,
+         date_of_birth    TEXT,
+         national_id      TEXT,
+         notes            TEXT,
+         created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+         updated_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+         created_by       TEXT
+       );
+       CREATE INDEX IF NOT EXISTS idx_bp_agency_booking ON booking_passengers(agency_id, booking_id);
+       CREATE INDEX IF NOT EXISTS idx_bp_passport ON booking_passengers(agency_id, passport_number)
+         WHERE passport_number IS NOT NULL;
+     END $$`,
+
     // ── 2026-06-08 — Create booking_lines table ──────────────────────────────
     // Source of Truth for per-service VAT, cost, revenue model, and GL mapping.
     // Replaces the single aggregated VAT on bookings/invoices with per-line
