@@ -1109,6 +1109,23 @@ CREATE TABLE IF NOT EXISTS customer_messages (
 CREATE INDEX IF NOT EXISTS idx_cm_agency_booking ON customer_messages(agency_id, booking_id);
 CREATE INDEX IF NOT EXISTS idx_cm_agency_time    ON customer_messages(agency_id, sent_at DESC);
 
+-- ══ DOCUMENTS ════════════════════════════════════════════════════════════════
+-- File attachments (Vercel Blob) linked to any entity (booking, group_trip, etc).
+CREATE TABLE IF NOT EXISTS documents (
+  id           TEXT PRIMARY KEY,
+  agency_id    TEXT NOT NULL REFERENCES agencies(id) ON DELETE CASCADE,
+  entity_type  TEXT NOT NULL,
+  entity_id    TEXT NOT NULL,
+  file_name    TEXT NOT NULL,
+  file_url     TEXT NOT NULL,
+  file_size    INTEGER,
+  mime_type    TEXT,
+  uploaded_by  TEXT,
+  created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_docs_entity      ON documents(agency_id, entity_type, entity_id);
+CREATE INDEX IF NOT EXISTS idx_docs_agency_time ON documents(agency_id, created_at DESC);
+
 `;
 
 export async function POST(req: NextRequest) {

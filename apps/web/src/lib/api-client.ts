@@ -19,6 +19,36 @@ function buildHeaders(token: string | undefined, extra?: HeadersInit): HeadersIn
   };
 }
 
+export async function apiUpload<T>(path: string, formData: FormData): Promise<T> {
+  const token = await getToken();
+  const headers: Record<string, string> = {};
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+
+  const res = await fetch(path, { method: 'POST', body: formData, headers });
+
+  if (res.status === 401) {
+    const fresh = await getToken(true);
+    if (fresh && fresh !== token) {
+      const retry = await fetch(path, {
+        method: 'POST',
+        body:   formData,
+        headers: { Authorization: `Bearer ${fresh}` },
+      });
+      if (!retry.ok) {
+        const body = await retry.json().catch(() => ({})) as { error?: string };
+        throw new Error(body.error ?? retry.statusText);
+      }
+      return retry.json() as Promise<T>;
+    }
+  }
+
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({})) as { error?: string };
+    throw new Error(body.error ?? res.statusText);
+  }
+  return res.json() as Promise<T>;
+}
+
 export async function apiFetch<T>(path: string, options: RequestInit = {}): Promise<T> {
   const token = await getToken();
   const res = await fetch(path, {

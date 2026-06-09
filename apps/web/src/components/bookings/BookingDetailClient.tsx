@@ -13,6 +13,7 @@ import { BookingPassengersSection } from './BookingPassengersSection';
 import { BookingMessagesSection } from './BookingMessagesSection';
 import { BookingLinesSection } from './BookingLinesSection';
 import { BookingPaymentPlanSection } from './BookingPaymentPlanSection';
+import { DocumentsSection } from '@/components/ui/DocumentsSection';
 import {
   ArrowRight, ArrowLeft, FileText, User, MapPin, Receipt,
   TrendingDown, Banknote, CreditCard, Building2, Globe, FileCheck2, ArrowUpRight,
@@ -428,6 +429,14 @@ export function BookingDetailClient({ locale, bookingId }: BookingDetailClientPr
             paidHalalas={paidHalalas}
             locale={locale}
             isCancelled={booking.status === 'cancelled'}
+          />
+
+          {/* Documents & Attachments */}
+          <DocumentsSection
+            entityType="booking"
+            entityId={bookingId}
+            locale={locale}
+            readOnly={booking.status === 'cancelled'}
           />
 
           {booking.notes && (

@@ -4,14 +4,15 @@ import { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import {
   Users, Moon, Package, Plus, ArrowRight, ArrowLeft, Pencil, Trash2,
-  CheckCircle2, Clock, AlertTriangle, XCircle, CalendarDays, Phone,
-  FileText, Printer,
+  CheckCircle2, Clock, XCircle, CalendarDays, Phone,
+  FileText, Printer, CheckSquare, Square, ListChecks,
 } from 'lucide-react';
 import { Card, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import { Spinner } from '@/components/ui/Spinner';
+import { DocumentsSection } from '@/components/ui/DocumentsSection';
 import { apiFetch } from '@/lib/api-client';
 import { formatDate, formatCurrency } from '@/lib/utils';
 
@@ -229,6 +230,14 @@ export function GroupTripDetailClient({ locale, tripId }: { locale: string; trip
   const [editSaving, setEditSaving]           = useState(false);
   const [deletingMemberId, setDeletingMemberId] = useState<string | null>(null);
 
+  // Bulk selection
+  const [selectedIds,     setSelectedIds]     = useState<Set<string>>(new Set());
+  const [showBulkModal,   setShowBulkModal]   = useState(false);
+  const [bulkVisaStatus,  setBulkVisaStatus]  = useState('');
+  const [bulkMemberStatus,setBulkMemberStatus]= useState('');
+  const [bulkSaving,      setBulkSaving]      = useState(false);
+  const [bulkError,       setBulkError]       = useState<string | null>(null);
+
   const load = useCallback(async () => {
     setLoading(true);
     try {
@@ -279,6 +288,49 @@ export function GroupTripDetailClient({ locale, tripId }: { locale: string; trip
       void load();
     } catch { /* ignore */ }
     finally { setDeletingMemberId(null); }
+  }
+
+  function toggleSelect(id: string) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }
+
+  function toggleSelectAll(activeMembers: Member[]) {
+    if (selectedIds.size === activeMembers.length) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(activeMembers.map((m) => m.id)));
+    }
+  }
+
+  async function applyBulkUpdate() {
+    if (!bulkVisaStatus && !bulkMemberStatus) {
+      setBulkError(isAr ? 'اختر حقلاً واحداً على الأقل' : 'Select at least one field');
+      return;
+    }
+    setBulkSaving(true);
+    setBulkError(null);
+    try {
+      const body: Record<string, unknown> = { memberIds: [...selectedIds] };
+      if (bulkVisaStatus)   body['visaStatus'] = bulkVisaStatus;
+      if (bulkMemberStatus) body['status']     = bulkMemberStatus;
+      await apiFetch(`/api/group-trips/${tripId}/members/bulk-update`, {
+        method: 'POST',
+        body:   JSON.stringify(body),
+      });
+      setShowBulkModal(false);
+      setSelectedIds(new Set());
+      setBulkVisaStatus('');
+      setBulkMemberStatus('');
+      void load();
+    } catch (err) {
+      setBulkError(err instanceof Error ? err.message : (isAr ? 'حدث خطأ' : 'Error'));
+    } finally {
+      setBulkSaving(false);
+    }
   }
 
   if (loading) return <div className="flex justify-center py-24"><Spinner size="lg" /></div>;
@@ -404,12 +456,23 @@ export function GroupTripDetailClient({ locale, tripId }: { locale: string; trip
       <Card>
         <CardHeader>
           <CardTitle>
-            <div className="flex items-center justify-between">
+            <div className="flex items-center justify-between flex-wrap gap-2">
               <div className="flex items-center gap-2">
                 <Users size={16} className="text-brand-600" />
                 {isAr ? `الأعضاء (${members.filter(m => m.status !== 'cancelled').length})` : `Members (${members.filter(m => m.status !== 'cancelled').length})`}
               </div>
               <div className="flex items-center gap-2">
+                {selectedIds.size > 0 && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => { setBulkError(null); setShowBulkModal(true); }}
+                    className="flex items-center gap-1.5 text-brand-600 border-brand-200 hover:bg-brand-50"
+                  >
+                    <ListChecks size={13} />
+                    {isAr ? `تحديث ${selectedIds.size} عضو` : `Update ${selectedIds.size} selected`}
+                  </Button>
+                )}
                 <Button
                   variant="outline"
                   size="sm"
@@ -433,112 +496,140 @@ export function GroupTripDetailClient({ locale, tripId }: { locale: string; trip
           <div className="py-8 text-center text-slate-400 text-sm">
             {isAr ? 'لا يوجد أعضاء بعد' : 'No members yet'}
           </div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-slate-100 text-xs text-slate-500">
-                  <th className="py-2 px-2 text-start font-medium">#</th>
-                  <th className="py-2 px-2 text-start font-medium">{isAr ? 'الاسم' : 'Name'}</th>
-                  <th className="py-2 px-2 text-start font-medium hidden sm:table-cell">{isAr ? 'الجواز' : 'Passport'}</th>
-                  <th className="py-2 px-2 text-start font-medium">{isAr ? 'التأشيرة' : 'Visa'}</th>
-                  <th className="py-2 px-2 text-start font-medium hidden md:table-cell">{isAr ? 'الغرفة' : 'Room'}</th>
-                  <th className="py-2 px-2 text-start font-medium">{isAr ? 'الحالة' : 'Status'}</th>
-                  <th className="py-2 px-2 text-start font-medium"></th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-50">
-                {members.map((m, idx) => {
-                  const isEditing = editingMemberId === m.id;
-                  return (
-                    <tr key={m.id} className={`hover:bg-slate-50 ${m.status === 'cancelled' ? 'opacity-50' : ''}`}>
-                      <td className="py-2.5 px-2 text-slate-400 font-mono text-xs">{idx + 1}</td>
-                      <td className="py-2.5 px-2">
-                        <p className="font-medium text-slate-900">{m.nameAr}</p>
-                        {m.nameEn && <p className="text-xs text-slate-400">{m.nameEn}</p>}
-                        {m.phone && (
-                          <p className="text-xs text-slate-400 flex items-center gap-1 mt-0.5">
-                            <Phone size={9} />{m.phone}
-                          </p>
-                        )}
-                      </td>
-                      <td className="py-2.5 px-2 hidden sm:table-cell">
-                        {m.passportNumber
-                          ? <span className="font-mono text-xs text-slate-700">{m.passportNumber}</span>
-                          : <span className="text-slate-300 text-xs">—</span>}
-                        {m.passportExpiry && (
-                          <p className="text-xs text-slate-400">{formatDate(m.passportExpiry, isAr ? 'ar-SA' : 'en-SA')}</p>
-                        )}
-                      </td>
-                      <td className="py-2.5 px-2">
-                        {isEditing ? (
-                          <Select
-                            value={editVisaStatus}
-                            onChange={(e) => setEditVisaStatus(e.target.value)}
-                            options={Object.entries(VISA_STATUS).map(([k, v]) => ({ value: k, label: isAr ? v.ar : v.en }))}
-                            className="text-xs py-1"
-                          />
-                        ) : (
-                          <VisaBadge status={m.visaStatus} isAr={isAr} />
-                        )}
-                      </td>
-                      <td className="py-2.5 px-2 hidden md:table-cell">
-                        {m.roomType
-                          ? <span className="text-xs text-slate-600">{m.roomType}</span>
-                          : <span className="text-slate-300 text-xs">—</span>}
-                      </td>
-                      <td className="py-2.5 px-2">
-                        {isEditing ? (
-                          <Select
-                            value={editMemberStatus}
-                            onChange={(e) => setEditMemberStatus(e.target.value)}
-                            options={Object.entries(MEMBER_STATUS).map(([k, v]) => ({ value: k, label: isAr ? v.ar : v.en }))}
-                            className="text-xs py-1"
-                          />
-                        ) : (
-                          (() => {
-                            const ms = MEMBER_STATUS[m.status] ?? MEMBER_STATUS['registered']!;
-                            return <span className={`inline-flex items-center px-1.5 py-0.5 rounded-full text-xs font-medium ${ms.cls}`}>{isAr ? ms.ar : ms.en}</span>;
-                          })()
-                        )}
-                      </td>
-                      <td className="py-2.5 px-2">
-                        {isEditing ? (
-                          <div className="flex items-center gap-1">
-                            <Button size="sm" onClick={() => saveEditMember(m.id)} disabled={editSaving}>
-                              {editSaving ? <Spinner size="sm" /> : '✓'}
-                            </Button>
-                            <Button size="sm" variant="outline" onClick={() => setEditingMemberId(null)}>✕</Button>
-                          </div>
-                        ) : (
-                          <div className="flex items-center gap-1">
-                            {m.status !== 'cancelled' && (
-                              <>
-                                <button
-                                  className="p-1 text-slate-400 hover:text-brand-600 transition-colors"
-                                  onClick={() => { setEditingMemberId(m.id); setEditVisaStatus(m.visaStatus); setEditMemberStatus(m.status); }}
-                                >
-                                  <Pencil size={13} />
-                                </button>
-                                <button
-                                  className="p-1 text-slate-400 hover:text-red-600 transition-colors"
-                                  onClick={() => deleteMember(m.id)}
-                                  disabled={deletingMemberId === m.id}
-                                >
-                                  {deletingMemberId === m.id ? <Spinner size="sm" /> : <Trash2 size={13} />}
-                                </button>
-                              </>
-                            )}
-                          </div>
-                        )}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        )}
+        ) : (() => {
+          const activeMembers = members.filter(m => m.status !== 'cancelled');
+          const allSelected   = activeMembers.length > 0 && selectedIds.size === activeMembers.length;
+          return (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-slate-100 text-xs text-slate-500">
+                    <th className="py-2 px-2 text-start font-medium">
+                      <button
+                        onClick={() => toggleSelectAll(activeMembers)}
+                        className="text-slate-400 hover:text-brand-600 transition-colors"
+                        title={isAr ? (allSelected ? 'إلغاء تحديد الكل' : 'تحديد الكل') : (allSelected ? 'Deselect all' : 'Select all')}
+                      >
+                        {allSelected
+                          ? <CheckSquare size={14} className="text-brand-600" />
+                          : <Square size={14} />}
+                      </button>
+                    </th>
+                    <th className="py-2 px-2 text-start font-medium">#</th>
+                    <th className="py-2 px-2 text-start font-medium">{isAr ? 'الاسم' : 'Name'}</th>
+                    <th className="py-2 px-2 text-start font-medium hidden sm:table-cell">{isAr ? 'الجواز' : 'Passport'}</th>
+                    <th className="py-2 px-2 text-start font-medium">{isAr ? 'التأشيرة' : 'Visa'}</th>
+                    <th className="py-2 px-2 text-start font-medium hidden md:table-cell">{isAr ? 'الغرفة' : 'Room'}</th>
+                    <th className="py-2 px-2 text-start font-medium">{isAr ? 'الحالة' : 'Status'}</th>
+                    <th className="py-2 px-2 text-start font-medium"></th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-50">
+                  {members.map((m, idx) => {
+                    const isEditing  = editingMemberId === m.id;
+                    const isSelected = selectedIds.has(m.id);
+                    return (
+                      <tr key={m.id} className={`hover:bg-slate-50 ${m.status === 'cancelled' ? 'opacity-50' : ''} ${isSelected ? 'bg-brand-50/40' : ''}`}>
+                        <td className="py-2.5 px-2">
+                          {m.status !== 'cancelled' && (
+                            <button
+                              onClick={() => toggleSelect(m.id)}
+                              className="text-slate-400 hover:text-brand-600 transition-colors"
+                            >
+                              {isSelected
+                                ? <CheckSquare size={14} className="text-brand-600" />
+                                : <Square size={14} />}
+                            </button>
+                          )}
+                        </td>
+                        <td className="py-2.5 px-2 text-slate-400 font-mono text-xs">{idx + 1}</td>
+                        <td className="py-2.5 px-2">
+                          <p className="font-medium text-slate-900">{m.nameAr}</p>
+                          {m.nameEn && <p className="text-xs text-slate-400">{m.nameEn}</p>}
+                          {m.phone && (
+                            <p className="text-xs text-slate-400 flex items-center gap-1 mt-0.5">
+                              <Phone size={9} />{m.phone}
+                            </p>
+                          )}
+                        </td>
+                        <td className="py-2.5 px-2 hidden sm:table-cell">
+                          {m.passportNumber
+                            ? <span className="font-mono text-xs text-slate-700">{m.passportNumber}</span>
+                            : <span className="text-slate-300 text-xs">—</span>}
+                          {m.passportExpiry && (
+                            <p className="text-xs text-slate-400">{formatDate(m.passportExpiry, isAr ? 'ar-SA' : 'en-SA')}</p>
+                          )}
+                        </td>
+                        <td className="py-2.5 px-2">
+                          {isEditing ? (
+                            <Select
+                              value={editVisaStatus}
+                              onChange={(e) => setEditVisaStatus(e.target.value)}
+                              options={Object.entries(VISA_STATUS).map(([k, v]) => ({ value: k, label: isAr ? v.ar : v.en }))}
+                              className="text-xs py-1"
+                            />
+                          ) : (
+                            <VisaBadge status={m.visaStatus} isAr={isAr} />
+                          )}
+                        </td>
+                        <td className="py-2.5 px-2 hidden md:table-cell">
+                          {m.roomType
+                            ? <span className="text-xs text-slate-600">{m.roomType}</span>
+                            : <span className="text-slate-300 text-xs">—</span>}
+                        </td>
+                        <td className="py-2.5 px-2">
+                          {isEditing ? (
+                            <Select
+                              value={editMemberStatus}
+                              onChange={(e) => setEditMemberStatus(e.target.value)}
+                              options={Object.entries(MEMBER_STATUS).map(([k, v]) => ({ value: k, label: isAr ? v.ar : v.en }))}
+                              className="text-xs py-1"
+                            />
+                          ) : (
+                            (() => {
+                              const ms = MEMBER_STATUS[m.status] ?? MEMBER_STATUS['registered']!;
+                              return <span className={`inline-flex items-center px-1.5 py-0.5 rounded-full text-xs font-medium ${ms.cls}`}>{isAr ? ms.ar : ms.en}</span>;
+                            })()
+                          )}
+                        </td>
+                        <td className="py-2.5 px-2">
+                          {isEditing ? (
+                            <div className="flex items-center gap-1">
+                              <Button size="sm" onClick={() => saveEditMember(m.id)} disabled={editSaving}>
+                                {editSaving ? <Spinner size="sm" /> : '✓'}
+                              </Button>
+                              <Button size="sm" variant="outline" onClick={() => setEditingMemberId(null)}>✕</Button>
+                            </div>
+                          ) : (
+                            <div className="flex items-center gap-1">
+                              {m.status !== 'cancelled' && (
+                                <>
+                                  <button
+                                    className="p-1 text-slate-400 hover:text-brand-600 transition-colors"
+                                    onClick={() => { setEditingMemberId(m.id); setEditVisaStatus(m.visaStatus); setEditMemberStatus(m.status); }}
+                                  >
+                                    <Pencil size={13} />
+                                  </button>
+                                  <button
+                                    className="p-1 text-slate-400 hover:text-red-600 transition-colors"
+                                    onClick={() => deleteMember(m.id)}
+                                    disabled={deletingMemberId === m.id}
+                                  >
+                                    {deletingMemberId === m.id ? <Spinner size="sm" /> : <Trash2 size={13} />}
+                                  </button>
+                                </>
+                              )}
+                            </div>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          );
+        })()}
       </Card>
 
       {/* Visa breakdown */}
@@ -572,6 +663,14 @@ export function GroupTripDetailClient({ locale, tripId }: { locale: string; trip
         </Card>
       )}
 
+      {/* Documents & Attachments */}
+      <DocumentsSection
+        entityType="group_trip"
+        entityId={tripId}
+        locale={locale}
+        readOnly={trip.status === 'cancelled' || trip.status === 'completed'}
+      />
+
       {showAdd && (
         <AddMemberModal
           tripId={tripId}
@@ -579,6 +678,71 @@ export function GroupTripDetailClient({ locale, tripId }: { locale: string; trip
           onClose={() => setShowAdd(false)}
           onAdded={() => { setShowAdd(false); void load(); }}
         />
+      )}
+
+      {/* Bulk Update Modal */}
+      {showBulkModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/40" onClick={() => setShowBulkModal(false)} />
+          <Card className="relative w-full max-w-sm z-10">
+            <CardHeader>
+              <CardTitle>
+                <div className="flex items-center gap-2">
+                  <ListChecks size={16} className="text-brand-600" />
+                  {isAr ? `تحديث جماعي (${selectedIds.size} عضو)` : `Bulk Update (${selectedIds.size} members)`}
+                </div>
+              </CardTitle>
+            </CardHeader>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-xs font-medium text-slate-700 mb-1">
+                  {isAr ? 'حالة التأشيرة (اختياري)' : 'Visa Status (optional)'}
+                </label>
+                <Select
+                  value={bulkVisaStatus}
+                  onChange={(e) => setBulkVisaStatus(e.target.value)}
+                  options={[
+                    { value: '', label: isAr ? 'بدون تغيير' : 'No change' },
+                    ...Object.entries(VISA_STATUS).map(([k, v]) => ({ value: k, label: isAr ? v.ar : v.en })),
+                  ]}
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-slate-700 mb-1">
+                  {isAr ? 'حالة العضو (اختياري)' : 'Member Status (optional)'}
+                </label>
+                <Select
+                  value={bulkMemberStatus}
+                  onChange={(e) => setBulkMemberStatus(e.target.value)}
+                  options={[
+                    { value: '', label: isAr ? 'بدون تغيير' : 'No change' },
+                    ...Object.entries(MEMBER_STATUS).map(([k, v]) => ({ value: k, label: isAr ? v.ar : v.en })),
+                  ]}
+                />
+              </div>
+              {bulkError && <p className="text-sm text-red-600 bg-red-50 rounded-lg px-3 py-2">{bulkError}</p>}
+              <div className="flex gap-2 justify-end pt-1">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setShowBulkModal(false)}
+                  disabled={bulkSaving}
+                >
+                  {isAr ? 'إلغاء' : 'Cancel'}
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  disabled={bulkSaving}
+                  onClick={applyBulkUpdate}
+                >
+                  {bulkSaving ? <Spinner size="sm" /> : (isAr ? 'تطبيق' : 'Apply')}
+                </Button>
+              </div>
+            </div>
+          </Card>
+        </div>
       )}
     </div>
   );

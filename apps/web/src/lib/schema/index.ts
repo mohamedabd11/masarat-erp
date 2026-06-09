@@ -24,3 +24,4 @@ export * from './booking-passengers';
 export * from './customer-messages';
 export * from './payment-plans';
 export * from './group-trips';
+export * from './documents';
