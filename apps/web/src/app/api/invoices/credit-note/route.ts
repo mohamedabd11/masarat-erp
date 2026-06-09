@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { eq, and } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { invoices, journalEntries, journalLines } from '@/lib/schema';
-import { verifyAuth, assertRole, ApiAuthError, ROLES_MANAGER_UP } from '@/lib/api-auth';
+import { verifyAuth, assertRole, ApiAuthError, BusinessError, ROLES_MANAGER_UP } from '@/lib/api-auth';
 import { logAudit } from '@/lib/audit';
 import { getNextInvoiceNumber, getNextJournalNumber, type InvoiceType } from '@/lib/invoice-counter';
 import { assertPeriodOpen } from '@/lib/period-lock';
@@ -152,6 +152,12 @@ export async function POST(request: Request) {
       const totalDr = jLines.reduce((s, l) => s + l.debitHalalas,  0);
       const totalCr = jLines.reduce((s, l) => s + l.creditHalalas, 0);
 
+      // Defense-in-depth: never post an unbalanced journal entry. For a credit note
+      // this catches a client-supplied totalHalalas that ≠ subtotal + vat.
+      if (totalDr !== totalCr) {
+        throw new BusinessError('القيد المحاسبي للإشعار الدائن غير متوازن — يجب أن يساوي الإجمالي المبلغ الخاضع للضريبة مضافاً إليه الضريبة', 422);
+      }
+
       await tx.insert(journalEntries).values({
         id:                 jeId,
         agencyId,
@@ -177,7 +183,7 @@ export async function POST(request: Request) {
     });
     return NextResponse.json({ success: true, ...result });
   } catch (err) {
-    if (err instanceof ApiAuthError) return NextResponse.json({ error: err.message }, { status: err.status });
+    if (err instanceof ApiAuthError || err instanceof BusinessError) return NextResponse.json({ error: err.message }, { status: err.status });
     console.error(JSON.stringify({ event: 'credit_note_create_failed', error: (err as Error).message }));
     return NextResponse.json({ error: 'خطأ في الخادم' }, { status: 500 });
   }
