@@ -81,6 +81,7 @@ vi.mock('drizzle-orm', () => ({
   ne:      vi.fn(() => ({})),
   sql:     Object.assign(vi.fn(), { raw: vi.fn() }),
   inArray: vi.fn(),
+  asc:     vi.fn(() => ({})),
 }));
 
 vi.mock('@/lib/schema', () => ({
@@ -88,6 +89,10 @@ vi.mock('@/lib/schema', () => ({
   agencies:        { id: 'id' },
   invoices:        { id: 'id', agencyId: 'agencyId', bookingId: 'bookingId',
                      status: 'status', paidHalalas: 'paidHalalas', totalHalalas: 'totalHalalas' },
+  bookingLines:    { id: 'id', agencyId: 'agencyId', bookingId: 'bookingId',
+                     sortOrder: 'sortOrder', createdAt: 'createdAt', status: 'status',
+                     isLegacy: 'isLegacy', totalPriceExclVatHalalas: 'totalPriceExclVatHalalas',
+                     vatHalalas: 'vatHalalas' },
   journalEntries:  {},
   journalLines:    {},
   customers:       { id: 'id', agencyId: 'agencyId', creditLimitHalalas: 'creditLimitHalalas' },
@@ -273,7 +278,8 @@ describe('POST /api/invoices/create', () => {
     mockCheckRateLimit.mockResolvedValue({ success: true });
     mockTxSelect.next([BOOKING]);
     mockTxSelect.next([AGENCY]);
-    mockTxSelect.next([{ id: 'existing-invoice' }]);
+    mockTxSelect.next([]);                            // booking_lines (no active lines)
+    mockTxSelect.next([{ id: 'existing-invoice' }]); // existing invoice → 409
     const res = await POST(makeRequest({ bookingId: 'b1' }));
     expect(res.status).toBe(409);
   });

@@ -14,7 +14,7 @@ import {
   Moon, Shield, Stamp, FileText, Receipt, BarChart3, Truck, UserCog,
   Settings, HelpCircle, ChevronLeft, ChevronRight, Calculator,
   Anchor, Car, Train, Camera, Mountain, Plus, Layers, Landmark, Send, Wallet,
-  TrendingDown, TrendingUp, FileSearch, Ticket, ClipboardCheck,
+  TrendingDown, TrendingUp, FileSearch, Ticket, ClipboardCheck, UsersRound,
 } from 'lucide-react';
 
 // ─── Icon map for custom service types ────────────────────────────────────────
@@ -70,7 +70,8 @@ const SERVICES_GROUP: NavGroup = {
     { key: 'tickets',    href: '/tickets',   icon: <Ticket size={18} />,        labelAr: 'التذاكر',       labelEn: 'Tickets',       feature: 'tickets' },
     { key: 'hotels',     href: '/hotels',    icon: <Building2 size={18} />,     labelAr: 'فنادق',         labelEn: 'Hotels',        feature: 'bookings' },
     { key: 'packages',   href: '/packages',  icon: <Package size={18} />,       labelAr: 'باقات سياحية',  labelEn: 'Packages',      feature: 'bookings' },
-    { key: 'umrah',      href: '/umrah',     icon: <Moon size={18} />,          labelAr: 'عمرة وحج',      labelEn: 'Umrah & Hajj',  feature: 'bookings' },
+    { key: 'umrah',      href: '/umrah',        icon: <Moon size={18} />,        labelAr: 'عمرة وحج',         labelEn: 'Umrah & Hajj',   feature: 'bookings' },
+    { key: 'group_trips', href: '/group-trips', icon: <UsersRound size={18} />, labelAr: 'رحلات المجموعات',  labelEn: 'Group Trips',    feature: 'bookings' },
     { key: 'insurance',  href: '/insurance', icon: <Shield size={18} />,        labelAr: 'تأمين',         labelEn: 'Insurance',     feature: 'bookings' },
     { key: 'visas',      href: '/visas',     icon: <Stamp size={18} />,         labelAr: 'تأشيرات',       labelEn: 'Visas',         feature: 'bookings' },
   ],

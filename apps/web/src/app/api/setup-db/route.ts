@@ -1047,6 +1047,49 @@ CREATE INDEX IF NOT EXISTS idx_ppi_plan   ON payment_plan_installments(plan_id);
 CREATE INDEX IF NOT EXISTS idx_ppi_agency ON payment_plan_installments(agency_id, status);
 CREATE INDEX IF NOT EXISTS idx_ppi_due    ON payment_plan_installments(agency_id, due_date);
 
+-- ══ GROUP TRIPS ══════════════════════════════════════════════════════════════
+-- Umrah / Hajj / package group trip management.
+CREATE TABLE IF NOT EXISTS group_trips (
+  id                       TEXT PRIMARY KEY,
+  agency_id                TEXT NOT NULL REFERENCES agencies(id) ON DELETE CASCADE,
+  name                     TEXT NOT NULL,
+  service_type             TEXT NOT NULL DEFAULT 'umrah',
+  departure_date           TEXT,
+  return_date              TEXT,
+  capacity                 INTEGER,
+  price_per_person_halalas BIGINT NOT NULL DEFAULT 0,
+  status                   TEXT NOT NULL DEFAULT 'planning',
+  notes                    TEXT,
+  created_by               TEXT,
+  created_at               TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at               TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_gt_agency        ON group_trips(agency_id);
+CREATE INDEX IF NOT EXISTS idx_gt_agency_status ON group_trips(agency_id, status);
+
+CREATE TABLE IF NOT EXISTS group_trip_members (
+  id               TEXT PRIMARY KEY,
+  agency_id        TEXT NOT NULL REFERENCES agencies(id) ON DELETE CASCADE,
+  group_trip_id    TEXT NOT NULL REFERENCES group_trips(id) ON DELETE CASCADE,
+  name_ar          TEXT NOT NULL,
+  name_en          TEXT,
+  phone            TEXT,
+  passport_number  TEXT,
+  passport_expiry  TEXT,
+  nationality      TEXT,
+  visa_status      TEXT NOT NULL DEFAULT 'pending',
+  visa_number      TEXT,
+  visa_expiry      TEXT,
+  room_type        TEXT,
+  notes            TEXT,
+  status           TEXT NOT NULL DEFAULT 'registered',
+  created_by       TEXT,
+  created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_gtm_group  ON group_trip_members(group_trip_id);
+CREATE INDEX IF NOT EXISTS idx_gtm_agency ON group_trip_members(agency_id, group_trip_id);
+
 -- ══ CUSTOMER MESSAGES ════════════════════════════════════════════════════════
 -- Outbound communication log (WhatsApp, copy-to-clipboard, etc.) per booking.
 CREATE TABLE IF NOT EXISTS customer_messages (
