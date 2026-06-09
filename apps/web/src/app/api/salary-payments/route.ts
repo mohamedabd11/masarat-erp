@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { eq, and, desc } from 'drizzle-orm';
 import { db } from '@/lib/db';
-import { salaryPayments, employees, journalEntries, journalLines } from '@/lib/schema';
+import { salaryPayments, employees, journalEntries, journalLines, payslips } from '@/lib/schema';
 import { verifyAuth, assertRole, ApiAuthError, BusinessError, ROLES_ADMIN_ONLY } from '@/lib/api-auth';
 import { requireFeature } from '@/lib/feature-access';
 import { getNextJournalNumber } from '@/lib/invoice-counter';
@@ -88,6 +88,21 @@ export async function POST(request: Request) {
         .where(and(eq(salaryPayments.employeeId, employeeId), eq(salaryPayments.month, month), eq(salaryPayments.agencyId, agencyId)))
         .limit(1);
       if (existing) throw new BusinessError(`تم صرف راتب ${month} للموظف "${employee.nameAr}" مسبقاً`, 409);
+
+      // Reconcile against the payslip: a disbursement settles the net accrued by the
+      // payslip (Cr 2310). If a payslip exists for this employee+month, the paid
+      // amount MUST equal its net — otherwise Salaries Payable would not clear.
+      const [slip] = await tx
+        .select({ netHalalas: payslips.netHalalas })
+        .from(payslips)
+        .where(and(eq(payslips.employeeId, employeeId), eq(payslips.month, month), eq(payslips.agencyId, agencyId)))
+        .limit(1);
+      if (slip && slip.netHalalas !== amountHalalas) {
+        throw new BusinessError(
+          `مبلغ الصرف (${(amountHalalas / 100).toFixed(2)}) لا يطابق صافي قسيمة الراتب (${(slip.netHalalas / 100).toFixed(2)}) لشهر ${month}`,
+          422,
+        );
+      }
 
       const now    = new Date();
       const year   = now.getFullYear();

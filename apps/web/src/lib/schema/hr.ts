@@ -38,7 +38,10 @@ export const salaryPayments = pgTable('salary_payments', {
   notes:          text('notes'),
   journalEntryId: text('journal_entry_id'),
   createdAt:      timestamp('created_at').notNull().defaultNow(),
-});
+}, (t) => ({
+  // One salary disbursement per employee per month (prevents double-payment race).
+  agencyEmpMonthUq: unique('salary_payments_agency_emp_month_uq').on(t.agencyId, t.employeeId, t.month),
+}));
 
 export type SalaryPayment    = typeof salaryPayments.$inferSelect;
 export type NewSalaryPayment = typeof salaryPayments.$inferInsert;
@@ -102,14 +105,17 @@ export const payslips = pgTable('payslips', {
   grossHalalas:             bigint('gross_halalas', { mode: 'number' }).notNull().default(0),
   deductionsHalalas:        bigint('deductions_halalas', { mode: 'number' }).notNull().default(0),
   advanceDeductionHalalas:  bigint('advance_deduction_halalas', { mode: 'number' }).notNull().default(0),
-  gosi_employee_halalas:    bigint('gosi_employee_halalas', { mode: 'number' }).notNull().default(0),
+  gosiEmployeeHalalas:      bigint('gosi_employee_halalas', { mode: 'number' }).notNull().default(0),
   gosiEmployerHalalas:      bigint('gosi_employer_halalas', { mode: 'number' }).notNull().default(0),
   netHalalas:               bigint('net_halalas', { mode: 'number' }).notNull().default(0),
   components:               jsonb('components'),                  // [{label, amountHalalas, type: addition|deduction}]
   paymentDate:              text('payment_date'),
   paymentMethod:            text('payment_method'),
   createdAt:                timestamp('created_at').notNull().defaultNow(),
-});
+}, (t) => ({
+  // One payslip per employee per month (prevents double-expense / double-accrual race).
+  agencyEmpMonthUq: unique('payslips_agency_emp_month_uq').on(t.agencyId, t.employeeId, t.month),
+}));
 
 export type Payslip    = typeof payslips.$inferSelect;
 export type NewPayslip = typeof payslips.$inferInsert;

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { useAuth } from '@masarat/firebase';
 import { apiFetch } from '@/lib/api-client';
 import { Card } from '@/components/ui/Card';
@@ -461,8 +461,8 @@ function EmployeesTab({ isAr, agencyId, locale }: { isAr: boolean; agencyId: str
               </select>
               <p className="mt-1 text-xs text-slate-400">
                 {isAr
-                  ? 'يحدد نسبة اشتراك صاحب العمل: سعودي 9.75% — وافد 2%'
-                  : 'Determines employer contribution rate: Saudi 9.75% — Expat 2%'}
+                  ? 'يحدد نسبة اشتراك التأمينات؛ تُضبط النسب من الإعدادات (الافتراضي: سعودي 12% لصاحب العمل و10% للموظف — وافد 2%)'
+                  : 'Determines GOSI rates; configurable in Settings (default: Saudi 12% employer / 10% employee — Expat 2%)'}
               </p>
             </div>
             <div>
@@ -711,7 +711,7 @@ function SalariesTab({ isAr, agencyId, locale }: { isAr: boolean; agencyId: stri
     if (!agencyId) { setLoading(false); return; }
     setLoading(true);
     Promise.all([
-      apiFetch<{ payslips: Array<{ id: string; employeeId: string; baseSalaryHalalas: number; otherAllowancesHalalas: number; deductionsHalalas: number; netHalalas: number }> }>(`/api/employees/payslips?month=${month}`),
+      apiFetch<{ payslips: Array<{ id: string; employeeId: string; baseSalaryHalalas: number; otherAllowancesHalalas: number; deductionsHalalas: number; advanceDeductionHalalas: number; gosiEmployeeHalalas: number; netHalalas: number }> }>(`/api/employees/payslips?month=${month}`),
       apiFetch<{ salaryPayments: Array<{ employeeId: string; month: string }> }>('/api/salary-payments'),
     ]).then(([psData, spData]) => {
       const paidEmpIds = new Set(spData.salaryPayments.filter(p => p.month === month).map(p => p.employeeId));
@@ -722,7 +722,9 @@ function SalariesTab({ isAr, agencyId, locale }: { isAr: boolean; agencyId: stri
         month,
         baseSalary:   ps.baseSalaryHalalas,
         bonus:        ps.otherAllowancesHalalas,
-        deductions:   ps.deductionsHalalas,
+        // Show GOSI + advance repayments alongside manual deductions so the
+        // displayed Net reconciles with the server-computed net (which subtracts them).
+        deductions:   ps.deductionsHalalas + (ps.gosiEmployeeHalalas ?? 0) + (ps.advanceDeductionHalalas ?? 0),
         netSalary:    ps.netHalalas,
         status:       (paidEmpIds.has(ps.employeeId) ? 'paid' : 'unpaid') as PaymentStatus,
         agencyId,
@@ -765,7 +767,10 @@ function SalariesTab({ isAr, agencyId, locale }: { isAr: boolean; agencyId: stri
         });
         payslipId  = result.id;
         netHalalas = result.netHalalas;
-        setPayments(prev => [...prev, { ...pay, id: payslipId!, status: 'unpaid' }]);
+        // Carry the SERVER-computed net (GOSI-deducted), not the stale virtual gross —
+        // otherwise a retry after a failed disbursement would re-enter the existing-
+        // payslip branch and pay out gross instead of net.
+        setPayments(prev => [...prev, { ...pay, id: payslipId!, netSalary: netHalalas, status: 'unpaid' }]);
       }
 
       // Record the cash disbursement
@@ -899,7 +904,11 @@ function SalariesTab({ isAr, agencyId, locale }: { isAr: boolean; agencyId: stri
               {rows.map(({ emp, pay }) => {
                 const name    = isAr ? emp.nameAr : (emp.nameEn || emp.nameAr);
                 const editing = showEditId === emp.id;
-                const net     = (emp.salaryHalalas ?? 0) + (pay.bonus ?? 0) - (pay.deductions ?? 0);
+                // For a committed payslip use the server-authoritative net (GOSI-deducted);
+                // for a virtual/unsaved row estimate it from base + bonus − deductions.
+                const net     = pay.id
+                  ? (pay.netSalary ?? 0)
+                  : ((emp.salaryHalalas ?? 0) + (pay.bonus ?? 0) - (pay.deductions ?? 0));
                 return (
                   <tr key={emp.id} className="hover:bg-slate-50 transition-colors">
                     <td className="px-4 py-3">
@@ -1004,31 +1013,35 @@ function LeavesTab({ isAr, agencyId, locale }: { isAr: boolean; agencyId: string
       .catch(() => {});
   }, [agencyId]);
 
+  // Resolve employee display names at render time from a memoized map. Keeping this
+  // out of the leave-fetch effect avoids a refetch loop on the (new-reference-every-load)
+  // `employees` array and the UUID-name flash before employees resolve.
+  const empNameMap = useMemo(
+    () => new Map(employees.map(e => [e.id, isAr ? e.nameAr : (e.nameEn || e.nameAr)])),
+    [employees, isAr],
+  );
+
   useEffect(() => {
     if (!agencyId) { setLoading(false); return; }
     setLoading(true);
     apiFetch<{ leaveRequests: Array<{ id: string; agencyId: string; employeeId: string; type: string; startDate: string; endDate: string; status: string; notes: string | null; createdAt: string }> }>('/api/leave-requests')
       .then(data => {
-        const empMap = new Map(employees.map(e => [e.id, e]));
-        setLeaves(data.leaveRequests.map(r => {
-          const emp = empMap.get(r.employeeId);
-          return {
-            id:           r.id,
-            employeeId:   r.employeeId,
-            employeeName: emp ? (isAr ? emp.nameAr : (emp.nameEn || emp.nameAr)) : r.employeeId,
-            type:         r.type as LeaveType,
-            fromDate:     r.startDate,
-            toDate:       r.endDate,
-            reason:       r.notes ?? '',
-            status:       r.status as LeaveStatus,
-            agencyId:     r.agencyId,
-            createdAt:    new Date(r.createdAt).getTime(),
-          };
-        }));
+        setLeaves(data.leaveRequests.map(r => ({
+          id:           r.id,
+          employeeId:   r.employeeId,
+          employeeName: '',                       // resolved at render via empNameMap
+          type:         r.type as LeaveType,
+          fromDate:     r.startDate,
+          toDate:       r.endDate,
+          reason:       r.notes ?? '',
+          status:       r.status as LeaveStatus,
+          agencyId:     r.agencyId,
+          createdAt:    new Date(r.createdAt).getTime(),
+        })));
       })
       .catch(() => {})
       .finally(() => setLoading(false));
-  }, [agencyId, employees]);
+  }, [agencyId]);
 
   async function handleAdd() {
     if (!form.employeeId || !form.fromDate || !form.toDate || !agencyId) return;
@@ -1212,7 +1225,7 @@ function LeavesTab({ isAr, agencyId, locale }: { isAr: boolean; agencyId: string
                   : '—';
                 return (
                   <tr key={leave.id} className="hover:bg-slate-50 transition-colors">
-                    <td className="px-4 py-3 font-medium text-slate-900 whitespace-nowrap">{leave.employeeName}</td>
+                    <td className="px-4 py-3 font-medium text-slate-900 whitespace-nowrap">{empNameMap.get(leave.employeeId) || leave.employeeName || leave.employeeId}</td>
                     <td className="px-4 py-3 whitespace-nowrap">
                       <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-slate-100 text-slate-700">
                         {isAr ? LEAVE_TYPE_LABELS[leave.type].ar : LEAVE_TYPE_LABELS[leave.type].en}

@@ -58,6 +58,23 @@ export async function POST(request: Request) {
     if (!/^\d{4}-\d{2}$/.test(body.month)) {
       return NextResponse.json({ error: 'صيغة الشهر يجب أن تكون YYYY-MM' }, { status: 400 });
     }
+    // Guard every monetary input: must be a non-negative integer (halalas).
+    // baseSalaryHalalas must additionally be strictly positive.
+    const moneyInputs: Array<[string, number | undefined]> = [
+      ['baseSalaryHalalas',        body.baseSalaryHalalas],
+      ['housingAllowanceHalalas',  body.housingAllowanceHalalas],
+      ['transportAllowanceHalalas', body.transportAllowanceHalalas],
+      ['otherAllowancesHalalas',   body.otherAllowancesHalalas],
+      ['deductionsHalalas',        body.deductionsHalalas],
+    ];
+    for (const [name, val] of moneyInputs) {
+      if (val !== undefined && (!Number.isInteger(val) || val < 0)) {
+        return NextResponse.json({ error: `${name}: يجب أن يكون رقماً صحيحاً غير سالب` }, { status: 400 });
+      }
+    }
+    if (!Number.isInteger(body.baseSalaryHalalas) || body.baseSalaryHalalas <= 0) {
+      return NextResponse.json({ error: 'الراتب الأساسي يجب أن يكون رقماً صحيحاً موجباً' }, { status: 400 });
+    }
 
     // Check no duplicate
     const [existing] = await db.select({ id: payslips.id }).from(payslips)
@@ -109,6 +126,17 @@ export async function POST(request: Request) {
     const gosiEmployer     = Math.round(gosiBase * emplrRateBps / 10000);
     const net              = gross - deduct - advanceDeduction - gosiEmployee;
 
+    // Negative net is rejected outright. Allowing it would force netPayable to be
+    // clamped to 0 while the residual-balancing block below still credits the full
+    // shortfall to Salaries Payable (2310) — producing a phantom liability that no
+    // disbursement can ever clear. Deductions + GOSI must never exceed gross.
+    if (net < 0) {
+      return NextResponse.json(
+        { error: 'صافي الراتب سالب — مجموع الخصومات والتأمينات يتجاوز إجمالي الراتب' },
+        { status: 422 },
+      );
+    }
+
     const id    = crypto.randomUUID();
     const jeId  = crypto.randomUUID();
     const year  = Number(body.month.slice(0, 4));
@@ -143,6 +171,14 @@ export async function POST(request: Request) {
       const payableLine = jLines.find((l) => l.code === GL.salariesPayable.code)!;
       payableLine.cr += (totalDr - totalCr);
     }
+    // Defensive invariant: the entry must balance and never carry a negative credit.
+    // With net >= 0 enforced above this always holds; the guard catches future regressions.
+    const balancedDr = jLines.reduce((s, l) => s + l.dr, 0);
+    const balancedCr = jLines.reduce((s, l) => s + l.cr, 0);
+    const payableLine = jLines.find((l) => l.code === GL.salariesPayable.code)!;
+    if (balancedDr !== balancedCr || payableLine.cr < 0) {
+      return NextResponse.json({ error: 'تعذّر توليد قيد رواتب متوازن' }, { status: 500 });
+    }
 
     await db.transaction(async (tx) => {
       // Block posting the payroll journal into a closed accounting period.
@@ -161,7 +197,7 @@ export async function POST(request: Request) {
         grossHalalas:             gross,
         deductionsHalalas:        deduct,
         advanceDeductionHalalas:  advanceDeduction,
-        gosi_employee_halalas:    gosiEmployee,
+        gosiEmployeeHalalas:      gosiEmployee,
         gosiEmployerHalalas:      gosiEmployer,
         netHalalas:               netPayable,
         components:               (body.components ?? null) as never,
@@ -207,7 +243,7 @@ export async function POST(request: Request) {
       }
     });
 
-    await logAudit({ agencyId, userId: uid, action: 'create', resource: 'payslip', resourceId: id, after: { employeeId: body.employeeId, month: body.month, netHalalas: net, gosiEmployer, journalEntryId: jeId } });
+    await logAudit({ agencyId, userId: uid, action: 'create', resource: 'payslip', resourceId: id, after: { employeeId: body.employeeId, month: body.month, netHalalas: netPayable, gosiEmployee, gosiEmployer, journalEntryId: jeId } });
     return NextResponse.json({ success: true, id, journalEntryId: jeId, netHalalas: netPayable, advanceDeduction, gosiEmployer });
   } catch (err) {
     if (err instanceof ApiAuthError || err instanceof BusinessError) return NextResponse.json({ error: err.message }, { status: err.status });

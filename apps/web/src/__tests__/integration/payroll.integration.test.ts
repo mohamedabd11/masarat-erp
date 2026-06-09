@@ -80,7 +80,7 @@ async function runPayroll(opts: {
       id, agencyId: AGENCY_ID, employeeId: EMPLOYEE_ID, month: opts.month,
       baseSalaryHalalas: base, housingAllowanceHalalas: housing,
       grossHalalas: gross, deductionsHalalas: deduct,
-      gosi_employee_halalas: gosiEmployee, gosiEmployerHalalas: gosiEmployer,
+      gosiEmployeeHalalas: gosiEmployee, gosiEmployerHalalas: gosiEmployer,
       netHalalas: netPayable,
     });
 

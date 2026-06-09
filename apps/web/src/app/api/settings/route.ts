@@ -51,6 +51,12 @@ export async function PATCH(request: Request) {
     const wantsSmtp  = smtpFields.some(k => body[k] !== undefined);
     if (wantsSmtp) assertRole(role, [...ROLES_ADMIN_ONLY]);
 
+    // GOSI rate changes require admin — they alter statutory liability booked on
+    // every subsequent payslip, so they are gated like SMTP credentials.
+    const gosiFields = ['gosiEmployerRateSaudi','gosiEmployeeRateSaudi','gosiEmployerRateExpat'] as const;
+    const wantsGosi  = gosiFields.some(k => body[k] !== undefined);
+    if (wantsGosi) assertRole(role, [...ROLES_ADMIN_ONLY]);
+
     if (body.isVatRegistered && body.vatNumber !== undefined) {
       const vat = body.vatNumber.trim();
       if (vat && !/^300\d{12}$/.test(vat)) {
@@ -62,7 +68,6 @@ export async function PATCH(request: Request) {
         return NextResponse.json({ error: 'معدل الضريبة غير مدعوم' }, { status: 400 });
       }
     }
-    const gosiFields = ['gosiEmployerRateSaudi','gosiEmployeeRateSaudi','gosiEmployerRateExpat'] as const;
     for (const gf of gosiFields) {
       if (body[gf] !== undefined) {
         const v = body[gf]!;

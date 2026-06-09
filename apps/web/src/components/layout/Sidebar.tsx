@@ -63,7 +63,7 @@ const SERVICES_GROUP: NavGroup = {
   labelAr: 'الخدمات',
   labelEn: 'Services',
   items: [
-    { key: 'all_orders', href: '/bookings',  icon: <ClipboardList size={18} />, labelAr: 'كل الطلبات',    labelEn: 'All Orders',    feature: 'bookings' },
+    { key: 'all_orders', href: '/bookings',  icon: <ClipboardList size={18} />, labelAr: 'كل الحجوزات',   labelEn: 'All Bookings',  feature: 'bookings' },
     { key: 'quotes',     href: '/quotes',    icon: <Send size={18} />,          labelAr: 'عروض الأسعار',  labelEn: 'Quotations',    feature: 'quotes' },
     { key: 'flights',    href: '/flights',   icon: <Plane size={18} />,         labelAr: 'طيران',         labelEn: 'Flights',       feature: 'tickets' },
     { key: 'pnr',        href: '/pnr',       icon: <FileSearch size={18} />,    labelAr: 'سجلات PNR',     labelEn: 'PNR Records',   feature: 'pnr' },
