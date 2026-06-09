@@ -18,10 +18,24 @@ export async function GET(request: Request, { params }: { params: { id: string }
       .where(and(eq(bookings.id, params.id), eq(bookings.agencyId, agencyId)));
     if (!booking) return NextResponse.json({ error: 'الحجز غير موجود' }, { status: 404 });
 
+    // Fetch the booking's live (non-cancelled) invoice ID so the detail page
+    // can show payment / refund actions without a separate request.
+    const [liveInvoice] = await db
+      .select({ id: invoices.id, invoiceNumber: invoices.invoiceNumber })
+      .from(invoices)
+      .where(and(
+        eq(invoices.bookingId, params.id),
+        eq(invoices.agencyId, agencyId),
+        ne(invoices.status, 'cancelled'),
+      ))
+      .limit(1);
+
     // Reconstruct pricing object from stored details + numeric columns
     const det = (booking.details ?? {}) as Record<string, unknown>;
     const enriched = {
       ...booking,
+      invoiceIds:    liveInvoice ? [liveInvoice.id] : [],
+      invoiceNumber: liveInvoice?.invoiceNumber ?? null,
       pricing: {
         revenueModel: String(det['revenueModel'] ?? 'principal'),
         currency:     String(det['currency']     ?? 'SAR'),

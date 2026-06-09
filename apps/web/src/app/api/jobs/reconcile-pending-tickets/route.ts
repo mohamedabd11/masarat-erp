@@ -7,6 +7,7 @@ import { logProviderSync } from '@/lib/provider-sync-log';
 import { resolveFlightProviderByCode } from '@/lib/provider-factory';
 import { generateDueRecurringInvoices } from '@/lib/recurring';
 import { recognizeDueRevenue } from '@/lib/revenue-recognition';
+import { markOverdueInstallments } from '@/lib/payment-plans';
 import type { ExchangeResult } from '@/lib/providers/types';
 
 // Invoked by Vercel Cron: "30 * * * *" (offset 30 min from expire-pnrs at :00)
@@ -68,6 +69,14 @@ export async function GET(request: Request) {
     revenueRecognition = { recognized: 0, skipped: 0, errors: 1, invoiceIds: [] };
   }
 
+  let overdueInstallments: { marked: number; errors: number } = { marked: 0, errors: 0 };
+  try {
+    overdueInstallments = await markOverdueInstallments(now);
+  } catch (err) {
+    console.error(JSON.stringify({ event: 'mark_overdue_installments_in_reconcile_failed', error: String(err) }));
+    overdueInstallments = { marked: 0, errors: 1 };
+  }
+
   const graceWindowMs      = 10 * 60 * 1000;   // 10 min — Phase 3 may still be in-flight
   const recentAttemptMs    = 5  * 60 * 1000;   // 5 min  — overlap protection between two cron runs
   const graceDeadline      = new Date(now.getTime() - graceWindowMs);
@@ -90,7 +99,7 @@ export async function GET(request: Request) {
     .limit(50);
 
   if (batch.length === 0) {
-    return NextResponse.json({ reconciled: 0, voided: 0, reset: 0, recurring, revenueRecognition });
+    return NextResponse.json({ reconciled: 0, voided: 0, reset: 0, recurring, revenueRecognition, overdueInstallments });
   }
 
   let reconciled = 0;
@@ -178,7 +187,7 @@ export async function GET(request: Request) {
     }
   }
 
-  return NextResponse.json({ reconciled, voided, reset, recurring, revenueRecognition });
+  return NextResponse.json({ reconciled, voided, reset, recurring, revenueRecognition, overdueInstallments });
 }
 
 // ── Handlers ─────────────────────────────────────────────────────────────────

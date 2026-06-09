@@ -303,6 +303,45 @@ export async function register() {
      FROM bookings b
      WHERE NOT EXISTS (SELECT 1 FROM booking_lines bl WHERE bl.booking_id = b.id)`,
 
+    // ── 2026-06-09 — Payment plan & installments tables ──────────────────────
+    `DO $$ BEGIN
+       CREATE TABLE IF NOT EXISTS payment_plans (
+         id                   TEXT PRIMARY KEY,
+         agency_id            TEXT NOT NULL,
+         booking_id           TEXT NOT NULL,
+         invoice_id           TEXT NOT NULL,
+         total_amount_halalas BIGINT NOT NULL,
+         num_installments     INTEGER NOT NULL,
+         notes                TEXT,
+         status               TEXT NOT NULL DEFAULT 'active',
+         created_by           TEXT,
+         created_at           TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+         updated_at           TIMESTAMPTZ NOT NULL DEFAULT NOW()
+       );
+       CREATE INDEX IF NOT EXISTS idx_pp_agency  ON payment_plans(agency_id);
+       CREATE INDEX IF NOT EXISTS idx_pp_booking ON payment_plans(agency_id, booking_id);
+
+       CREATE TABLE IF NOT EXISTS payment_plan_installments (
+         id                   TEXT PRIMARY KEY,
+         agency_id            TEXT NOT NULL,
+         plan_id              TEXT NOT NULL,
+         booking_id           TEXT NOT NULL,
+         invoice_id           TEXT NOT NULL,
+         installment_number   INTEGER NOT NULL,
+         due_date             TEXT NOT NULL,
+         amount_halalas       BIGINT NOT NULL,
+         status               TEXT NOT NULL DEFAULT 'pending',
+         paid_at              TIMESTAMPTZ,
+         payment_id           TEXT,
+         notes                TEXT,
+         created_at           TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+         updated_at           TIMESTAMPTZ NOT NULL DEFAULT NOW()
+       );
+       CREATE INDEX IF NOT EXISTS idx_ppi_plan   ON payment_plan_installments(plan_id);
+       CREATE INDEX IF NOT EXISTS idx_ppi_agency ON payment_plan_installments(agency_id, status);
+       CREATE INDEX IF NOT EXISTS idx_ppi_due    ON payment_plan_installments(agency_id, due_date);
+     END $$`,
+
     // ── 2026-06-09 — Customer messages outbound communication log ───────────
     `DO $$ BEGIN
        CREATE TABLE IF NOT EXISTS customer_messages (

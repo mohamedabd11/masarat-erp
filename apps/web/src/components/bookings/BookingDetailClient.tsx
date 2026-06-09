@@ -12,6 +12,7 @@ import { BookingActions } from './BookingActions';
 import { BookingPassengersSection } from './BookingPassengersSection';
 import { BookingMessagesSection } from './BookingMessagesSection';
 import { BookingLinesSection } from './BookingLinesSection';
+import { BookingPaymentPlanSection } from './BookingPaymentPlanSection';
 import {
   ArrowRight, ArrowLeft, FileText, User, MapPin, Receipt,
   TrendingDown, Banknote, CreditCard, Building2, Globe, FileCheck2, ArrowUpRight,
@@ -404,6 +405,17 @@ export function BookingDetailClient({ locale, bookingId }: BookingDetailClientPr
             bookingId={bookingId}
             locale={locale}
             isCancelled={booking.status === 'cancelled'}
+          />
+
+          {/* Payment Plan — installment schedule */}
+          <BookingPaymentPlanSection
+            bookingId={bookingId}
+            bookingNumber={booking.bookingNumber ?? ''}
+            hasInvoice={!!existingInvoiceId}
+            locale={locale}
+            isCancelled={booking.status === 'cancelled'}
+            totalHalalas={grandTotalHalalas}
+            paidHalalas={paidHalalas}
           />
 
           {/* Customer Messages — outbound communication log */}

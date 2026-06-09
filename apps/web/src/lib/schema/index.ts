@@ -22,3 +22,4 @@ export * from './agency-features';
 export * from './bsp';
 export * from './booking-passengers';
 export * from './customer-messages';
+export * from './payment-plans';

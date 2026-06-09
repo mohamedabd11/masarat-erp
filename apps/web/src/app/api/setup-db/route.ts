@@ -1009,6 +1009,44 @@ CREATE INDEX IF NOT EXISTS idx_bp_agency_booking ON booking_passengers(agency_id
 CREATE INDEX IF NOT EXISTS idx_bp_passport        ON booking_passengers(agency_id, passport_number)
   WHERE passport_number IS NOT NULL;
 
+-- ══ PAYMENT PLANS ════════════════════════════════════════════════════════════
+-- Installment payment schedules: one plan per booking, N installment records.
+CREATE TABLE IF NOT EXISTS payment_plans (
+  id                   TEXT PRIMARY KEY,
+  agency_id            TEXT NOT NULL REFERENCES agencies(id) ON DELETE CASCADE,
+  booking_id           TEXT NOT NULL REFERENCES bookings(id)  ON DELETE CASCADE,
+  invoice_id           TEXT NOT NULL REFERENCES invoices(id)  ON DELETE CASCADE,
+  total_amount_halalas BIGINT NOT NULL,
+  num_installments     INTEGER NOT NULL,
+  notes                TEXT,
+  status               TEXT NOT NULL DEFAULT 'active',
+  created_by           TEXT,
+  created_at           TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at           TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_pp_agency  ON payment_plans(agency_id);
+CREATE INDEX IF NOT EXISTS idx_pp_booking ON payment_plans(agency_id, booking_id);
+
+CREATE TABLE IF NOT EXISTS payment_plan_installments (
+  id                   TEXT PRIMARY KEY,
+  agency_id            TEXT NOT NULL,
+  plan_id              TEXT NOT NULL REFERENCES payment_plans(id) ON DELETE CASCADE,
+  booking_id           TEXT NOT NULL,
+  invoice_id           TEXT NOT NULL,
+  installment_number   INTEGER NOT NULL,
+  due_date             TEXT NOT NULL,
+  amount_halalas       BIGINT NOT NULL,
+  status               TEXT NOT NULL DEFAULT 'pending',
+  paid_at              TIMESTAMPTZ,
+  payment_id           TEXT,
+  notes                TEXT,
+  created_at           TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at           TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_ppi_plan   ON payment_plan_installments(plan_id);
+CREATE INDEX IF NOT EXISTS idx_ppi_agency ON payment_plan_installments(agency_id, status);
+CREATE INDEX IF NOT EXISTS idx_ppi_due    ON payment_plan_installments(agency_id, due_date);
+
 -- ══ CUSTOMER MESSAGES ════════════════════════════════════════════════════════
 -- Outbound communication log (WhatsApp, copy-to-clipboard, etc.) per booking.
 CREATE TABLE IF NOT EXISTS customer_messages (
