@@ -11,6 +11,7 @@ import { formatCurrency, formatDate } from '@/lib/utils';
 import { BookingActions } from './BookingActions';
 import { BookingPassengersSection } from './BookingPassengersSection';
 import { BookingMessagesSection } from './BookingMessagesSection';
+import { BookingLinesSection } from './BookingLinesSection';
 import {
   ArrowRight, ArrowLeft, FileText, User, MapPin, Receipt,
   TrendingDown, Banknote, CreditCard, Building2, Globe, FileCheck2, ArrowUpRight,
@@ -389,6 +390,14 @@ export function BookingDetailClient({ locale, bookingId }: BookingDetailClientPr
               )}
             </div>
           </Card>
+
+          {/* Service Lines — per-line breakdown with operational statuses */}
+          <BookingLinesSection
+            bookingId={bookingId}
+            locale={locale}
+            isCancelled={booking.status === 'cancelled'}
+            hasInvoice={!!existingInvoiceId}
+          />
 
           {/* Passengers — structured, editable records */}
           <BookingPassengersSection

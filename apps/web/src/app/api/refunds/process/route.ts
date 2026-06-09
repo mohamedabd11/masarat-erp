@@ -231,11 +231,12 @@ export async function POST(request: Request) {
         }
         const isFullyRefunded = (refundClaim[0]!.paidHalalas ?? 0) <= 0;
 
-        // Only cancel the booking on a full refund
+        // Sync booking.paidHalalas to reflect the refund
         if (isFullyRefunded) {
+          // Full refund → cancel booking + zero out paid amount
           await tx.update(bookings)
-            .set({ status: 'cancelled', updatedAt: now })
-            .where(eq(bookings.id, bookingId));
+            .set({ status: 'cancelled', paidHalalas: 0, updatedAt: now })
+            .where(and(eq(bookings.id, bookingId), eq(bookings.agencyId, agencyId)));
 
           // Cascade to booking_lines — keeps the financial source-of-truth
           // consistent (no 'active' line items survive under a cancelled booking;
@@ -247,6 +248,14 @@ export async function POST(request: Request) {
               eq(bookingLines.agencyId, agencyId),
               eq(bookingLines.status, 'active'),
             ));
+        } else {
+          // Partial refund → decrement paidHalalas, booking stays active
+          await tx.update(bookings)
+            .set({
+              paidHalalas: sql`GREATEST(0, ${bookings.paidHalalas} - ${refundAmountHalalas})`,
+              updatedAt: now,
+            })
+            .where(and(eq(bookings.id, bookingId), eq(bookings.agencyId, agencyId)));
         }
 
         await tx.insert(idempotencyKeys)
