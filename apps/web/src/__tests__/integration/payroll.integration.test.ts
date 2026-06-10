@@ -44,7 +44,6 @@ async function runPayroll(opts: {
   month: string;                  // YYYY-MM
   baseSalaryHalalas: number;
   housingAllowanceHalalas?: number;
-  gosiEmployeeHalalas?: number;
   deductionsHalalas?: number;
 }) {
   const db = getTestDb();
@@ -52,9 +51,9 @@ async function runPayroll(opts: {
   const housing   = opts.housingAllowanceHalalas ?? 0;
   const gross     = base + housing;
   const deduct    = opts.deductionsHalalas ?? 0;
-  const gosiEmployee = opts.gosiEmployeeHalalas ?? 0;
   const gosiBase     = base + housing;
-  const gosiEmployer = Math.round(gosiBase * 0.0975);   // 9.75% employer share
+  const gosiEmployee = Math.round(gosiBase * 0.10);     // 10% Saudi employee share
+  const gosiEmployer = Math.round(gosiBase * 0.12);     // 12% Saudi employer share
   const net          = gross - deduct - gosiEmployee;
   const netPayable   = Math.max(0, net);
   const totalGosi    = gosiEmployer + gosiEmployee;
@@ -176,7 +175,7 @@ afterAll(async () => {
 describe.skipIf(SKIP_IF_NO_DB)('payroll — قيد الراتب (IAS 19)', () => {
 
   it('قيد الراتب متوازن (DR = CR)', async () => {
-    const r = await runPayroll({ month: '2025-01', baseSalaryHalalas: 8_000_00, housingAllowanceHalalas: 2_000_00, gosiEmployeeHalalas: 975_00 });
+    const r = await runPayroll({ month: '2025-01', baseSalaryHalalas: 8_000_00, housingAllowanceHalalas: 2_000_00 });
     const db = getTestDb();
     const [entry] = await db.select().from(journalEntries).where(eq(journalEntries.id, r.jeId));
     expect(entry!.totalDebitHalalas).toBe(entry!.totalCreditHalalas);
@@ -188,7 +187,7 @@ describe.skipIf(SKIP_IF_NO_DB)('payroll — قيد الراتب (IAS 19)', () =>
   });
 
   it('مصروف الرواتب (6100) يُحمَّل مديناً بإجمالي الراتب', async () => {
-    const r = await runPayroll({ month: '2025-02', baseSalaryHalalas: 8_000_00, housingAllowanceHalalas: 2_000_00, gosiEmployeeHalalas: 975_00 });
+    const r = await runPayroll({ month: '2025-02', baseSalaryHalalas: 8_000_00, housingAllowanceHalalas: 2_000_00 });
     const ls = await lines(r.jeId);
     const salaryExp = ls.find(l => l.accountCode === '6100')!;
     expect(salaryExp.debitHalalas).toBe(r.gross);         // 10,000.00
@@ -196,27 +195,27 @@ describe.skipIf(SKIP_IF_NO_DB)('payroll — قيد الراتب (IAS 19)', () =>
   });
 
   it('الرواتب المستحقة (2310) تُجعل دائنة بالصافي', async () => {
-    const r = await runPayroll({ month: '2025-03', baseSalaryHalalas: 8_000_00, housingAllowanceHalalas: 2_000_00, gosiEmployeeHalalas: 975_00 });
+    const r = await runPayroll({ month: '2025-03', baseSalaryHalalas: 8_000_00, housingAllowanceHalalas: 2_000_00 });
     const ls = await lines(r.jeId);
     const payable = ls.find(l => l.accountCode === '2310')!;
-    expect(payable.creditHalalas).toBe(r.netPayable);     // gross - employeeGosi = 9,025.00
+    expect(payable.creditHalalas).toBe(r.netPayable);     // gross - employeeGosi = 9,000.00
     expect(r.netPayable).toBe(r.gross - r.gosiEmployee);
   });
 
   it('GOSI المستحقة (2400) تُجعل دائنة بحصة الموظف + حصة صاحب العمل', async () => {
-    const r = await runPayroll({ month: '2025-04', baseSalaryHalalas: 8_000_00, housingAllowanceHalalas: 2_000_00, gosiEmployeeHalalas: 975_00 });
+    const r = await runPayroll({ month: '2025-04', baseSalaryHalalas: 8_000_00, housingAllowanceHalalas: 2_000_00 });
     const ls = await lines(r.jeId);
     const gosiPayable = ls.find(l => l.accountCode === '2400')!;
     expect(gosiPayable.creditHalalas).toBe(r.totalGosi);
     expect(r.totalGosi).toBe(r.gosiEmployee + r.gosiEmployer);
   });
 
-  it('مصروف GOSI لصاحب العمل (6200) يُحمَّل مديناً بحصة صاحب العمل (9.75%)', async () => {
-    const r = await runPayroll({ month: '2025-05', baseSalaryHalalas: 8_000_00, housingAllowanceHalalas: 2_000_00, gosiEmployeeHalalas: 975_00 });
+  it('مصروف GOSI لصاحب العمل (6200) يُحمَّل مديناً بحصة صاحب العمل (12%)', async () => {
+    const r = await runPayroll({ month: '2025-05', baseSalaryHalalas: 8_000_00, housingAllowanceHalalas: 2_000_00 });
     const ls = await lines(r.jeId);
     const gosiExp = ls.find(l => l.accountCode === '6200')!;
     expect(gosiExp.debitHalalas).toBe(r.gosiEmployer);
-    expect(r.gosiEmployer).toBe(Math.round(10_000_00 * 0.0975));  // 975.00
+    expect(r.gosiEmployer).toBe(Math.round(10_000_00 * 0.12));  // 1,200.00
   });
 
 });

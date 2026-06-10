@@ -22,9 +22,9 @@ function parsePeriod(dateStr: string): { year: number; month: number } {
   };
 }
 
-/** GOSI employer contribution = 9.75% on (baseSalary + housingAllowance) */
+/** GOSI employer contribution = 12% on (baseSalary + housingAllowance), Saudi 2024 reform */
 function calculateGosiEmployer(baseSalaryHalalas: number, housingAllowanceHalalas: number): number {
-  return Math.round((baseSalaryHalalas + housingAllowanceHalalas) * 0.0975);
+  return Math.round((baseSalaryHalalas + housingAllowanceHalalas) * 0.12);
 }
 
 /** Compute invoice totals */
@@ -93,23 +93,23 @@ describe('parsePeriod — date to year/month', () => {
   });
 });
 
-// ─── 2. GOSI employer contribution (9.75%) ───────────────────────────────────
+// ─── 2. GOSI employer contribution (12%) ─────────────────────────────────────
 
 describe('calculateGosiEmployer — حساب اشتراك GOSI صاحب العمل', () => {
 
-  it('قاعدة 100000 + سكن 50000 → GOSI = 14625', () => {
-    // Math.round(150000 × 0.0975) = Math.round(14625) = 14625
-    expect(calculateGosiEmployer(100000, 50000)).toBe(14625);
+  it('قاعدة 100000 + سكن 50000 → GOSI = 18000', () => {
+    // Math.round(150000 × 0.12) = 18000
+    expect(calculateGosiEmployer(100000, 50000)).toBe(18000);
   });
 
-  it('راتب 200000 بدون سكن → GOSI = 19500', () => {
-    // Math.round(200000 × 0.0975) = 19500
-    expect(calculateGosiEmployer(200000, 0)).toBe(19500);
+  it('راتب 200000 بدون سكن → GOSI = 24000', () => {
+    // Math.round(200000 × 0.12) = 24000
+    expect(calculateGosiEmployer(200000, 0)).toBe(24000);
   });
 
-  it('معدل 9.75% صحيح على 1000 هللة', () => {
-    // Math.round(1000 × 0.0975) = Math.round(97.5) = 98
-    expect(calculateGosiEmployer(1000, 0)).toBe(98);
+  it('معدل 12% مع تقريب: 1005 هللة → 121', () => {
+    // Math.round(1005 × 0.12) = Math.round(120.6) = 121
+    expect(calculateGosiEmployer(1005, 0)).toBe(121);
   });
 
   it('راتب صفر → GOSI = 0', () => {
