@@ -68,6 +68,9 @@ export interface ZatcaInvoiceRecordInput {
   vatHalalas:       number;
   totalHalalas:     number;                 // incl. VAT
   items?:           ZatcaRecordItem[];
+  /** For credit/debit notes (381/383): the original invoice's ZATCA UUID + number */
+  originalInvoiceUuid?:   string | null;
+  originalInvoiceNumber?: string | null;
 }
 
 export interface ZatcaInvoiceRecord {
@@ -144,6 +147,8 @@ export function buildZatcaInvoiceRecord(input: ZatcaInvoiceRecordInput): ZatcaIn
       grandTotal:      input.totalHalalas,
       vatBreakdown,
     },
+    originalInvoiceUUID:   input.originalInvoiceUuid ?? undefined,
+    originalInvoiceNumber: input.originalInvoiceNumber ?? undefined,
   };
 
   const qr = buildZatcaQr({
@@ -229,6 +234,11 @@ export async function submitInvoiceToZatca(agencyId: string, invoiceId: string):
     if (!inv.isEInvoice || !inv.zatcaUuid || !inv.sellerVatNumber) {
       return { submitted: false, status: 'skipped', reason: 'not an e-invoice' };
     }
+    if (inv.type !== '388') {
+      // Credit/debit notes need the original invoice's hash linkage at
+      // submission time — deferred until that path is sandbox-validated.
+      return { submitted: false, status: 'skipped', reason: 'credit/debit note auto-submission not yet supported' };
+    }
     if (inv.zatcaStatus === 'cleared' || inv.zatcaStatus === 'reported' || inv.zatcaStatus === 'warning') {
       return { submitted: false, status: 'skipped', reason: 'already submitted' };
     }
@@ -263,11 +273,11 @@ export async function submitInvoiceToZatca(agencyId: string, invoiceId: string):
       buyerName:       inv.buyerNameAr || inv.buyerNameEn || 'عميل نقدي',
       buyerVatNumber:  null,   // buyer VAT is not snapshotted yet → simplified path
       vatRatePercent:  agency.vatRate ?? 15,
-      invoiceTypeCode: (inv.type === '381' || inv.type === '383') ? inv.type : '388',
+      invoiceTypeCode: '388',   // the type guard above lets only tax invoices through
       subtotalHalalas: inv.subtotalHalalas,
       vatHalalas:      inv.vatHalalas,
       totalHalalas:    inv.totalHalalas,
-      items:           mapStoredItems(inv.items),
+      items:           parseStoredInvoiceItems(inv.items),
     });
 
     // ── Advance the chain atomically: lock the agency row, take PIH + next ICV,
@@ -352,8 +362,12 @@ export async function submitInvoiceToZatca(agencyId: string, invoiceId: string):
   }
 }
 
-/** Parses the invoices.items JSONB column back into ZATCA record items. */
-function mapStoredItems(raw: unknown): ZatcaRecordItem[] | undefined {
+/**
+ * Parses an invoices.items-shaped JSONB value into ZATCA record items.
+ * Returns undefined when the shape is invalid — callers fall back to the
+ * single aggregate line inside buildZatcaInvoiceRecord().
+ */
+export function parseStoredInvoiceItems(raw: unknown): ZatcaRecordItem[] | undefined {
   if (!Array.isArray(raw) || raw.length === 0) return undefined;
   const items: ZatcaRecordItem[] = [];
   for (const entry of raw) {

@@ -2,14 +2,22 @@
  * @masarat/zatca — XML Signing for ZATCA Phase 2
  *
  * Signs UBL 2.1 invoice XML with ECDSA-SHA256 per ZATCA Phase 2 spec.
- * The invoice hash is computed over the canonical XML (UBLExtensions block removed),
- * then the ECDSA signature and certificate are embedded back into the XML.
+ * The invoice hash is computed over the canonical XML (UBLExtensions and
+ * cac:Signature blocks removed), then the hash, ECDSA signature, certificate
+ * and XAdES signed properties are embedded back into the XML via the
+ * {{...}} placeholders emitted by buildInvoiceXml().
  *
- * This module runs server-side (Cloud Functions) only — the private key
+ * NOTE: the ZATCA SDK canonicalizes with C14N11 before hashing; this
+ * implementation hashes the literal stripped bytes. The structure follows the
+ * published spec, but final acceptance MUST be validated against the ZATCA
+ * simulation gateway during onboarding before any production reliance.
+ *
+ * This module runs server-side (Node.js) only — the private key
  * must never be sent to the browser.
  */
 
-import { createHash, createSign } from 'crypto';
+import { createHash, createSign, X509Certificate } from 'crypto';
+import * as forge from 'node-forge';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -26,25 +34,94 @@ export interface SignedInvoiceResult {
   /** Complete signed invoice XML with embedded signature and certificate */
   signedXml: string;
   /**
-   * SHA-256 of the canonical invoice XML (UBLExtensions stripped), base64.
-   * This is the value submitted as `invoiceHash` to ZATCA API.
+   * SHA-256 of the canonical invoice XML (UBLExtensions + cac:Signature
+   * stripped), base64. This is the value submitted as `invoiceHash` to ZATCA.
    */
   invoiceHash: string;
-  /** ECDSA-SHA256 DER signature over the invoiceHash bytes, base64 */
+  /** ECDSA-SHA256 DER signature over the canonical XML, base64 */
   digitalSignature: string;
   /**
    * Phase 2 QR code TLV data (base64).
    * Contains: seller name, VAT, timestamp, total, VAT amount,
-   * invoice hash, digital signature, and certificate hash.
+   * invoice hash, digital signature, public key and certificate signature.
    * See ZATCA e-invoicing Implementation Standards §6.
    */
   qrCodeData: string;
+}
+
+// ─── Certificate parsing helpers ──────────────────────────────────────────────
+
+/** Strips PEM headers/footers and whitespace, returning bare base64. */
+function certPemToBase64(certPem: string): string {
+  return certPem
+    .replace(/-----BEGIN CERTIFICATE-----/g, '')
+    .replace(/-----END CERTIFICATE-----/g, '')
+    .replace(/\s/g, '');
+}
+
+interface ParsedCertificate {
+  /** RFC 2253-style issuer name: "CN=..., O=..., C=SA" */
+  issuerName: string;
+  /** Serial number as a decimal integer string (XAdES X509SerialNumber) */
+  serialDecimal: string;
+  /** SPKI DER public key bytes (QR tag 8) */
+  publicKeyDer: Buffer;
+  /** ECDSA signature bytes of the certificate by its CA (QR tag 9) */
+  certSignature?: Buffer;
+}
+
+/**
+ * Extracts the certificate's own signature bytes (the CA's ECDSA signature)
+ * via a generic ASN.1 walk: Certificate ::= SEQUENCE { tbs, sigAlg, BIT STRING }.
+ * node-forge's generic ASN.1 parser handles EC certificates fine (its X.509
+ * helpers do not, which is why we don't use forge.pki here).
+ */
+function extractCertSignatureBytes(certDer: Buffer): Buffer | undefined {
+  try {
+    const asn1 = forge.asn1.fromDer(forge.util.createBuffer(certDer.toString('binary')));
+    const top = asn1.value as forge.asn1.Asn1[];
+    const bitString = top[2] as (forge.asn1.Asn1 & { bitStringContents?: string }) | undefined;
+    // forge auto-parses the BIT STRING payload (an ECDSA signature is itself a
+    // DER SEQUENCE), but keeps the original raw bytes in bitStringContents.
+    const raw = bitString?.bitStringContents;
+    if (typeof raw !== 'string' || raw.length === 0) return undefined;
+    // BIT STRING payload starts with the unused-bits count (always 0 here)
+    const bytes = raw.charCodeAt(0) === 0 ? raw.slice(1) : raw;
+    return Buffer.from(bytes, 'binary');
+  } catch {
+    return undefined;
+  }
+}
+
+function parseCertificate(certificatePem: string): ParsedCertificate {
+  const cert = new X509Certificate(certificatePem);
+  // X509Certificate.issuer is newline-separated in DN storage order;
+  // XAdES expects the RFC 2253 comma-separated form (most-specific first).
+  const issuerName = cert.issuer.split('\n').reverse().join(', ');
+  const serialDecimal = BigInt(`0x${cert.serialNumber}`).toString();
+  const publicKeyDer = cert.publicKey.export({ type: 'spki', format: 'der' }) as Buffer;
+  const certSignature = extractCertSignatureBytes(cert.raw);
+  return { issuerName, serialDecimal, publicKeyDer, certSignature };
+}
+
+/**
+ * ZATCA SDK quirk: certificate digest and signed-properties digest are the
+ * base64 of the HEX STRING of the SHA-256 (not of the raw digest bytes).
+ */
+function sha256HexBase64(input: string): string {
+  const hex = createHash('sha256').update(input, 'utf8').digest('hex');
+  return Buffer.from(hex, 'utf8').toString('base64');
 }
 
 // ─── QR TLV encoding ─────────────────────────────────────────────────────────
 
 /** Encodes a single TLV tag (1 byte tag, 1 byte length, n bytes value) */
 function tlvEntry(tag: number, value: Buffer): Buffer {
+  if (value.length > 255) {
+    // A 1-byte length cannot represent this — silently truncating would
+    // corrupt the whole TLV stream, so fail loudly instead.
+    throw new Error(`ZATCA QR TLV tag ${tag} value exceeds 255 bytes (${value.length})`);
+  }
   const tagBuf    = Buffer.alloc(1);
   tagBuf[0]       = tag;
   const lenBuf    = Buffer.alloc(1);
@@ -61,10 +138,10 @@ function tlvEntry(tag: number, value: Buffer): Buffer {
  *   3 = Timestamp (ISO 8601)
  *   4 = Invoice total (with VAT)
  *   5 = VAT amount
- *   6 = Invoice hash (base64)
- *   7 = ECDSA signature (base64)
- *   8 = ECDSA public key (SPKI, base64)
- *   9 = Stamp certificate (base64)
+ *   6 = Invoice hash (base64 string)
+ *   7 = ECDSA signature (base64 string)
+ *   8 = ECDSA public key (raw SPKI DER bytes)
+ *   9 = ECDSA signature of the certificate by its CA (raw bytes — simplified invoices)
  */
 export function buildQrCodeData(params: {
   sellerName: string;
@@ -76,12 +153,19 @@ export function buildQrCodeData(params: {
   digitalSignature: string; // base64
   certificatePem: string;
 }): string {
-  const certBase64 = params.certificatePem
-    .replace(/-----BEGIN CERTIFICATE-----/g, '')
-    .replace(/-----END CERTIFICATE-----/g, '')
-    .replace(/\s/g, '');
+  // The full certificate never fits a 1-byte TLV length; per spec tags 8/9
+  // carry the public key and the CA's signature over the certificate instead.
+  let publicKeyDer: Buffer | undefined;
+  let certSignature: Buffer | undefined;
+  try {
+    const parsed = parseCertificate(params.certificatePem);
+    publicKeyDer = parsed.publicKeyDer;
+    certSignature = parsed.certSignature;
+  } catch {
+    // Certificate unparsable — emit tags 1-7 only (still scannable).
+  }
 
-  const tlv = Buffer.concat([
+  const entries = [
     tlvEntry(1, Buffer.from(params.sellerName, 'utf8')),
     tlvEntry(2, Buffer.from(params.vatNumber, 'utf8')),
     tlvEntry(3, Buffer.from(params.timestamp, 'utf8')),
@@ -89,31 +173,26 @@ export function buildQrCodeData(params: {
     tlvEntry(5, Buffer.from(params.vatAmount, 'utf8')),
     tlvEntry(6, Buffer.from(params.invoiceHash, 'utf8')),
     tlvEntry(7, Buffer.from(params.digitalSignature, 'utf8')),
-    tlvEntry(9, Buffer.from(certBase64, 'utf8')),
-  ]);
+  ];
+  if (publicKeyDer)  entries.push(tlvEntry(8, publicKeyDer));
+  if (certSignature) entries.push(tlvEntry(9, certSignature));
 
-  return tlv.toString('base64');
+  return Buffer.concat(entries).toString('base64');
 }
 
-// ─── Signature placeholder handling ──────────────────────────────────────────
+// ─── Canonical form for hashing ───────────────────────────────────────────────
 
 /**
- * Strips the UBLExtensions block from the invoice XML for hashing purposes.
- * Per ZATCA spec, the hash is computed over the invoice XML with the
- * UBLExtensions block (which contains the signature) removed.
+ * Strips the UBLExtensions and cac:Signature blocks from the invoice XML for
+ * hashing purposes. Per ZATCA spec, the invoice hash is computed over the XML
+ * with the signature envelope (UBLExtensions), the cac:Signature reference and
+ * the QR AdditionalDocumentReference removed. Our XML never embeds the QR
+ * reference (the QR lives in the DB), so only the first two apply.
  */
 export function removeSignatureBlock(xml: string): string {
-  return xml.replace(/<ext:UBLExtensions>[\s\S]*?<\/ext:UBLExtensions>\s*/m, '');
-}
-
-/**
- * Strips PEM headers/footers and whitespace, returning bare base64.
- */
-function certPemToBase64(certPem: string): string {
-  return certPem
-    .replace(/-----BEGIN CERTIFICATE-----/g, '')
-    .replace(/-----END CERTIFICATE-----/g, '')
-    .replace(/\s/g, '');
+  return xml
+    .replace(/<ext:UBLExtensions>[\s\S]*?<\/ext:UBLExtensions>\s*/m, '')
+    .replace(/<cac:Signature>[\s\S]*?<\/cac:Signature>\s*/m, '');
 }
 
 // ─── Main signing function ────────────────────────────────────────────────────
@@ -122,42 +201,44 @@ function certPemToBase64(certPem: string): string {
  * Signs a ZATCA invoice XML with the agency's EC private key and ZATCA certificate.
  *
  * Process:
- *  1. Remove UBLExtensions block and compute SHA-256 hash (the "invoice hash").
- *  2. Sign the invoice hash bytes with ECDSA-SHA256.
- *  3. Replace placeholders in the XML with the hash, signature and certificate.
- *  4. Build the Phase 2 TLV QR code data.
- *
- * The XML produced by buildInvoiceXml() uses these placeholder strings that are
- * replaced here:
- *   {{INVOICE_HASH}}     — SHA-256 base64 of stripped XML
- *   {{DIGITAL_SIGNATURE}} — ECDSA base64 signature
- *   {{CERTIFICATE}}      — bare base64 ZATCA certificate
- *
- * If your XML template does not use these placeholders, use the returned
- * `invoiceHash`, `digitalSignature` and the stripped `certBase64` to embed
- * the values yourself.
+ *  1. Remove UBLExtensions + cac:Signature and compute SHA-256 ("invoice hash").
+ *  2. Sign the canonical XML with ECDSA-SHA256.
+ *  3. Fill every {{...}} placeholder emitted by buildInvoiceXml(): invoice
+ *     hash, signature, certificate, signing time, certificate digest,
+ *     issuer/serial — then hash the filled XAdES SignedProperties block and
+ *     fill {{SIGNED_PROPERTIES_HASH}} last (so the hash matches the bytes
+ *     actually embedded in the document).
  */
 export function signInvoiceXml(input: SigningInput): SignedInvoiceResult {
-  // 1. Compute invoice hash over canonical XML (no UBLExtensions)
+  // 1. Invoice hash over canonical XML
   const xmlForHashing  = removeSignatureBlock(input.invoiceXml);
   const invoiceHash    = createHash('sha256').update(xmlForHashing, 'utf8').digest('base64');
 
-  // 2. ECDSA-SHA256 sign the invoice hash (sign the raw hash bytes decoded from base64)
+  // 2. ECDSA-SHA256 signature over the same canonical XML
   const signer = createSign('SHA256');
   signer.update(xmlForHashing, 'utf8');
   const digitalSignature = signer.sign(input.privateKeyPem, 'base64');
 
   // 3. Embed into XML via placeholders
   const certBase64 = certPemToBase64(input.certificatePem);
-  const signedXml  = input.invoiceXml
-    .replace('{{INVOICE_HASH}}',      invoiceHash)
-    .replace('{{DIGITAL_SIGNATURE}}', digitalSignature)
-    .replace('{{CERTIFICATE}}',       certBase64);
+  const cert       = parseCertificate(input.certificatePem);
+  const signingTime = `${new Date().toISOString().split('.')[0]}Z`;
 
-  // 4. Build Phase 2 QR TLV — caller must supply seller metadata separately;
-  //    for now derive what we can from the invoice XML via simple regex.
-  //    Full QR generation should use buildQrCodeData() with proper invoice data.
-  //    Here we provide a minimal safe fallback (hash-only) that callers can replace.
+  let signedXml = input.invoiceXml
+    .replaceAll('{{INVOICE_HASH}}',      invoiceHash)
+    .replaceAll('{{DIGITAL_SIGNATURE}}', digitalSignature)
+    .replaceAll('{{CERTIFICATE}}',       certBase64)
+    .replaceAll('{{SIGNING_TIME}}',      signingTime)
+    .replaceAll('{{CERT_DIGEST}}',       sha256HexBase64(certBase64))
+    .replaceAll('{{CERT_ISSUER}}',       cert.issuerName)
+    .replaceAll('{{CERT_SERIAL}}',       cert.serialDecimal);
+
+  // SignedProperties hash is computed over the block exactly as embedded
+  // (every other placeholder inside it is already filled at this point).
+  const spMatch = signedXml.match(/<xades:SignedProperties[\s\S]*?<\/xades:SignedProperties>/);
+  signedXml = signedXml.replaceAll('{{SIGNED_PROPERTIES_HASH}}', spMatch ? sha256HexBase64(spMatch[0]) : '');
+
+  // 4. Minimal QR fallback (hash only) — signInvoiceXmlWithQr builds the full TLV.
   const qrCodeData = invoiceHash;
 
   return { signedXml, invoiceHash, digitalSignature, qrCodeData };

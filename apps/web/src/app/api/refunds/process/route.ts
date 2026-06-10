@@ -7,6 +7,7 @@ import { withIdempotency, buildIdempotencyInsert } from '@/lib/idempotency';
 import { getNextInvoiceNumber, getNextJournalNumber } from '@/lib/invoice-counter';
 import { assertPeriodOpen } from '@/lib/period-lock';
 import { GL } from '@/lib/gl-accounts';
+import { buildZatcaInvoiceRecord } from '@/lib/zatca-einvoice';
 
 interface RefundBody {
   bookingId:              string;
@@ -140,6 +141,34 @@ export async function POST(request: Request) {
           jLines.push({ ...AC.costOfServices,  dr: 0, cr: refundCost });
         }
 
+        // ── ZATCA e-invoice record for the refund credit note (type 381) ────
+        // refundSubtotal + refundVat = refundAmountHalalas by construction;
+        // never block the refund over the QR.
+        let zatcaRecord: ReturnType<typeof buildZatcaInvoiceRecord> | null = null;
+        if (invoice.isEInvoice && invoice.sellerVatNumber && invoice.sellerNameAr) {
+          try {
+            zatcaRecord = buildZatcaInvoiceRecord({
+              uuid:                  crypto.randomUUID(),
+              invoiceNumber:         creditNoteNumber,
+              issueDateTime:         now,
+              sellerNameAr:          invoice.sellerNameAr,
+              sellerNameEn:          invoice.sellerNameEn,
+              vatNumber:             invoice.sellerVatNumber,
+              crNumber:              invoice.sellerCrNumber,
+              buyerName:             invoice.buyerNameAr || invoice.buyerNameEn || 'عميل',
+              vatRatePercent:        15,
+              invoiceTypeCode:       '381',
+              subtotalHalalas:       refundSubtotal,
+              vatHalalas:            refundVat,
+              totalHalalas:          refundAmountHalalas,
+              originalInvoiceUuid:   invoice.zatcaUuid,
+              originalInvoiceNumber: invoice.invoiceNumber,
+            });
+          } catch (zErr) {
+            console.error(JSON.stringify({ event: 'refund_zatca_record_failed', invoiceId: creditNoteId, error: String(zErr) }));
+          }
+        }
+
         // ── 6. Write ────────────────────────────────────────────────────────
         // Credit note (stored as invoice with type='381')
         await tx.insert(invoices).values({
@@ -161,7 +190,8 @@ export async function POST(request: Request) {
           status:          'issued',
           isEInvoice:      invoice.isEInvoice,
           journalEntryId:  jeId,
-          zatcaUuid:       crypto.randomUUID(),
+          zatcaUuid:       zatcaRecord?.uuid ?? crypto.randomUUID(),
+          zatcaQr:         zatcaRecord?.qr ?? null,
           createdBy:       uid,
           notes:           reason,
         });

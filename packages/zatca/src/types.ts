@@ -102,6 +102,8 @@ export interface ZatcaInvoice {
   totals: ZatcaTotals;
   /** للإشعارات: UUID الفاتورة الأصل */
   originalInvoiceUUID?: string;
+  /** للإشعارات: رقم الفاتورة الأصل (يظهر في BillingReference) */
+  originalInvoiceNumber?: string;
   /** للإشعارات: hash الفاتورة الأصل */
   originalInvoiceHash?: string;
   /** Hash الفاتورة السابقة في السلسلة (للتسلسل) */
