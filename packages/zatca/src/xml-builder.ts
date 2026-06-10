@@ -72,20 +72,71 @@ export function buildInvoiceXml(invoice: ZatcaInvoice, previousHash: string, icv
          xmlns:cbc="urn:oasis:names:specification:ubl:schema:xsd:CommonBasicComponents-2"
          xmlns:ext="urn:oasis:names:specification:ubl:schema:xsd:CommonExtensionComponents-2">
 
-  <!-- ── Extensions للتوقيع الرقمي (تُملأ بعد الحساب) ── -->
+  <!-- ── Extensions للتوقيع الرقمي XAdES B-B ──
+       تُستبدل القيم المولّدة (hash/توقيع/شهادة/وقت) محل العناصر النائبة
+       في signInvoiceXml() — لا تذكر أسماءها هنا حرفياً لئلا تُستبدل في التعليق -->
   <ext:UBLExtensions>
     <ext:UBLExtension>
-      <ext:ExtensionURI>urn:oasis:names:specification:ubl:dsig:ext:CSIG</ext:ExtensionURI>
+      <ext:ExtensionURI>urn:oasis:names:specification:ubl:dsig:enveloped:xades</ext:ExtensionURI>
       <ext:ExtensionContent>
         <sig:UBLDocumentSignatures xmlns:sig="urn:oasis:names:specification:ubl:schema:xsd:CommonSignatureComponents-2"
                                    xmlns:sac="urn:oasis:names:specification:ubl:schema:xsd:SignatureAggregateComponents-2"
                                    xmlns:sbc="urn:oasis:names:specification:ubl:schema:xsd:SignatureBasicComponents-2">
           <sac:SignatureInformation>
-            <cbc:ID>urn:oasis:names:specification:ubl:signature:Invoice</cbc:ID>
+            <cbc:ID>urn:oasis:names:specification:ubl:signature:1</cbc:ID>
             <sbc:ReferencedSignatureID>urn:oasis:names:specification:ubl:signature:Invoice</sbc:ReferencedSignatureID>
             <ds:Signature xmlns:ds="http://www.w3.org/2000/09/xmldsig#" Id="signature">
-              <!-- placeholder: يُملأ بالتوقيع الرقمي ECDSA -->
-              <ds:SignatureValue>SIGNATURE_PLACEHOLDER</ds:SignatureValue>
+              <ds:SignedInfo>
+                <ds:CanonicalizationMethod Algorithm="http://www.w3.org/2006/12/xml-c14n11"/>
+                <ds:SignatureMethod Algorithm="http://www.w3.org/2001/04/xmldsig-more#ecdsa-sha256"/>
+                <ds:Reference Id="invoiceSignedData" URI="">
+                  <ds:Transforms>
+                    <ds:Transform Algorithm="http://www.w3.org/TR/1999/REC-xpath-19991116">
+                      <ds:XPath>not(//ancestor-or-self::ext:UBLExtensions)</ds:XPath>
+                    </ds:Transform>
+                    <ds:Transform Algorithm="http://www.w3.org/TR/1999/REC-xpath-19991116">
+                      <ds:XPath>not(//ancestor-or-self::cac:Signature)</ds:XPath>
+                    </ds:Transform>
+                    <ds:Transform Algorithm="http://www.w3.org/TR/1999/REC-xpath-19991116">
+                      <ds:XPath>not(//ancestor-or-self::cac:AdditionalDocumentReference[cbc:ID='QR'])</ds:XPath>
+                    </ds:Transform>
+                    <ds:Transform Algorithm="http://www.w3.org/2006/12/xml-c14n11"/>
+                  </ds:Transforms>
+                  <ds:DigestMethod Algorithm="http://www.w3.org/2001/04/xmlenc#sha256"/>
+                  <ds:DigestValue>{{INVOICE_HASH}}</ds:DigestValue>
+                </ds:Reference>
+                <ds:Reference Type="http://www.w3.org/2000/09/xmldsig#SignatureProperties" URI="#xadesSignedProperties">
+                  <ds:DigestMethod Algorithm="http://www.w3.org/2001/04/xmlenc#sha256"/>
+                  <ds:DigestValue>{{SIGNED_PROPERTIES_HASH}}</ds:DigestValue>
+                </ds:Reference>
+              </ds:SignedInfo>
+              <ds:SignatureValue>{{DIGITAL_SIGNATURE}}</ds:SignatureValue>
+              <ds:KeyInfo>
+                <ds:X509Data>
+                  <ds:X509Certificate>{{CERTIFICATE}}</ds:X509Certificate>
+                </ds:X509Data>
+              </ds:KeyInfo>
+              <ds:Object>
+                <xades:QualifyingProperties xmlns:xades="http://uri.etsi.org/01903/v1.3.2#" Target="signature">
+                  <xades:SignedProperties Id="xadesSignedProperties">
+                    <xades:SignedSignatureProperties>
+                      <xades:SigningTime>{{SIGNING_TIME}}</xades:SigningTime>
+                      <xades:SigningCertificate>
+                        <xades:Cert>
+                          <xades:CertDigest>
+                            <ds:DigestMethod Algorithm="http://www.w3.org/2001/04/xmlenc#sha256"/>
+                            <ds:DigestValue>{{CERT_DIGEST}}</ds:DigestValue>
+                          </xades:CertDigest>
+                          <xades:IssuerSerial>
+                            <ds:X509IssuerName>{{CERT_ISSUER}}</ds:X509IssuerName>
+                            <ds:X509SerialNumber>{{CERT_SERIAL}}</ds:X509SerialNumber>
+                          </xades:IssuerSerial>
+                        </xades:Cert>
+                      </xades:SigningCertificate>
+                    </xades:SignedSignatureProperties>
+                  </xades:SignedProperties>
+                </xades:QualifyingProperties>
+              </ds:Object>
             </ds:Signature>
           </sac:SignatureInformation>
         </sig:UBLDocumentSignatures>
@@ -104,7 +155,14 @@ export function buildInvoiceXml(invoice: ZatcaInvoice, previousHash: string, icv
   <cbc:DocumentCurrencyCode>${invoice.currency}</cbc:DocumentCurrencyCode>
   <cbc:TaxCurrencyCode>${invoice.currency}</cbc:TaxCurrencyCode>
 
-  <!-- ── Hash الفاتورة السابقة (للتسلسل) ── -->
+  ${invoice.originalInvoiceUUID ? `<!-- ── مرجع الفاتورة الأصلية (إلزامي للإشعارات 381/383 — BR-KSA-56) ── -->
+  <cac:BillingReference>
+    <cac:InvoiceDocumentReference>
+      <cbc:ID>${escapeXml(invoice.originalInvoiceNumber ?? invoice.originalInvoiceUUID)}</cbc:ID>
+      <cbc:UUID>${invoice.originalInvoiceUUID}</cbc:UUID>
+    </cac:InvoiceDocumentReference>
+  </cac:BillingReference>
+  ` : ''}<!-- ── Hash الفاتورة السابقة (للتسلسل) ── -->
   <cac:AdditionalDocumentReference>
     <cbc:ID>ICV</cbc:ID>
     <cbc:UUID>${icv ?? extractCounter(invoice.invoiceNumber)}</cbc:UUID>

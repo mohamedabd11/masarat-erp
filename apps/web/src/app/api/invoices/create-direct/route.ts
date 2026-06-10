@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { eq } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { agencies, invoices, journalEntries, journalLines } from '@/lib/schema';
-import { buildZatcaQr } from '@/lib/zatca-qr';
+import { buildZatcaInvoiceRecord, submitInvoiceToZatca } from '@/lib/zatca-einvoice';
 import { verifyAuth, assertRole, ApiAuthError, BusinessError, ROLES_ACCOUNTANT_UP } from '@/lib/api-auth';
 import { checkRateLimit, getClientIp, rateLimitHeaders } from '@/lib/rate-limit';
 import { getNextInvoiceNumber, getNextJournalNumber } from '@/lib/invoice-counter';
@@ -114,10 +114,24 @@ export async function POST(request: Request) {
         };
       });
 
-      const totalHalalas2 = totalHalalas;
-      const vatHalalas2   = vatHalalas;
-      const zatcaQr = isVatRegistered && agency.vatNumber
-        ? buildZatcaQr({ sellerName: agency.nameAr, vatNumber: agency.vatNumber, invoiceDate: today, totalHalalas: totalHalalas2, vatHalalas: vatHalalas2 })
+      // ZATCA e-invoice record — totals reconcile by construction here, so the
+      // builder's validation guard cannot fire on this path.
+      const zatcaRecord = isVatRegistered && agency.vatNumber
+        ? buildZatcaInvoiceRecord({
+            uuid:            crypto.randomUUID(),
+            invoiceNumber,
+            issueDateTime:   now,
+            sellerNameAr:    agency.nameAr,
+            sellerNameEn:    agency.nameEn,
+            vatNumber:       agency.vatNumber,
+            crNumber:        agency.crNumber,
+            buyerName:       body.buyerNameAr.trim(),
+            vatRatePercent:  vatRate,
+            subtotalHalalas,
+            vatHalalas,
+            totalHalalas,
+            items,
+          })
         : null;
 
       await tx.insert(invoices).values({
@@ -146,8 +160,8 @@ export async function POST(request: Request) {
         notes:           body.notes?.trim()   ?? null,
         journalEntryId:  jeId,
         createdBy:       uid,
-        zatcaUuid:       crypto.randomUUID(),
-        zatcaHash:       zatcaQr,
+        zatcaUuid:       zatcaRecord?.uuid ?? crypto.randomUUID(),
+        zatcaQr:         zatcaRecord?.qr ?? null,
       });
 
       // Journal entry — standard principal model
@@ -183,7 +197,11 @@ export async function POST(request: Request) {
       return { id: invId, invoiceNumber };
     });
 
-    return NextResponse.json({ success: true, ...result });
+    // Phase 2 clearance/reporting — internally gated on production onboarding
+    // and never throws; failures are recorded on the invoice for retry.
+    const zatca = await submitInvoiceToZatca(agencyId, result.id);
+
+    return NextResponse.json({ success: true, ...result, zatcaStatus: zatca.status });
   } catch (err) {
     if (err instanceof ApiAuthError)  return NextResponse.json({ error: err.message }, { status: err.status });
     if (err instanceof BusinessError) return NextResponse.json({ error: err.message }, { status: err.status });

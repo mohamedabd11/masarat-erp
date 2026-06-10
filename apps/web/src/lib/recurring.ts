@@ -19,7 +19,7 @@ import { db } from './db';
 import { recurringInvoices, invoices, journalEntries, journalLines, agencies } from './schema';
 import { getNextInvoiceNumber, getNextJournalNumber } from './invoice-counter';
 import { assertPeriodOpen } from './period-lock';
-import { buildZatcaQr } from './zatca-qr';
+import { buildZatcaInvoiceRecord, parseStoredInvoiceItems, submitInvoiceToZatca } from './zatca-einvoice';
 
 const AC = {
   receivable: { code: '1120', ar: 'ذمم مدينة - عملاء',           en: 'Accounts Receivable' },
@@ -139,9 +139,31 @@ export async function generateDueRecurringInvoices(now: Date = new Date()): Prom
         const jeId     = crypto.randomUUID();
         const buyer    = r.buyerNameAr ?? r.title;
 
-        const zatcaQr = isVatRegistered && agency.vatNumber
-          ? buildZatcaQr({ sellerName: agency.nameAr, vatNumber: agency.vatNumber, invoiceDate: today, totalHalalas, vatHalalas })
-          : null;
+        // ZATCA e-invoice record. Schedule amounts are user-entered, so a
+        // non-reconciling schedule must not block generation — fall back to
+        // no QR (legacy behaviour) and log for correction.
+        let zatcaRecord: ReturnType<typeof buildZatcaInvoiceRecord> | null = null;
+        if (isVatRegistered && agency.vatNumber) {
+          try {
+            zatcaRecord = buildZatcaInvoiceRecord({
+              uuid:            crypto.randomUUID(),
+              invoiceNumber,
+              issueDateTime:   now,
+              sellerNameAr:    agency.nameAr,
+              sellerNameEn:    agency.nameEn,
+              vatNumber:       agency.vatNumber,
+              crNumber:        agency.crNumber,
+              buyerName:       buyer,
+              vatRatePercent:  agency.vatRate ?? 15,
+              subtotalHalalas,
+              vatHalalas,
+              totalHalalas,
+              items:           parseStoredInvoiceItems(r.items),
+            });
+          } catch (zErr) {
+            console.error(JSON.stringify({ event: 'recurring_zatca_record_failed', recurringId: r.id, error: String(zErr) }));
+          }
+        }
 
         await tx.insert(invoices).values({
           id:              invId,
@@ -167,8 +189,8 @@ export async function generateDueRecurringInvoices(now: Date = new Date()): Prom
           paymentMethod:   r.paymentMethod ?? null,
           journalEntryId:  jeId,
           createdBy:       r.createdBy ?? 'system',
-          zatcaUuid:       crypto.randomUUID(),
-          zatcaHash:       zatcaQr,
+          zatcaUuid:       zatcaRecord?.uuid ?? crypto.randomUUID(),
+          zatcaQr:         zatcaRecord?.qr ?? null,
         });
 
         await tx.insert(journalEntries).values({
@@ -202,7 +224,12 @@ export async function generateDueRecurringInvoices(now: Date = new Date()): Prom
         return invId;
       });
 
-      if (newInvoiceId) { out.generated++; out.invoiceIds.push(newInvoiceId); }
+      if (newInvoiceId) {
+        out.generated++;
+        out.invoiceIds.push(newInvoiceId);
+        // Phase 2 submission — gated on production onboarding, never throws.
+        await submitInvoiceToZatca(r.agencyId, newInvoiceId);
+      }
       else out.skipped++;
     } catch (err) {
       out.errors++;

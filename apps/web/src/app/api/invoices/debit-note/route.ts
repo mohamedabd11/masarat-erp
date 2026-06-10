@@ -7,6 +7,7 @@ import { logAudit } from '@/lib/audit';
 import { getNextInvoiceNumber, getNextJournalNumber, type InvoiceType } from '@/lib/invoice-counter';
 import { assertPeriodOpen } from '@/lib/period-lock';
 import { GL } from '@/lib/gl-accounts';
+import { buildZatcaInvoiceRecord } from '@/lib/zatca-einvoice';
 
 // Fallback accounts when no original invoice GL is available
 const AC_FALLBACK = {
@@ -119,6 +120,35 @@ export async function POST(request: Request) {
         }
       }
 
+      // ── ZATCA e-invoice record (type 383) ────────────────────────────────────
+      // Items reconcile by construction (last line absorbs VAT rounding), but
+      // never block note creation over the QR.
+      let zatcaRecord: ReturnType<typeof buildZatcaInvoiceRecord> | null = null;
+      if (originalInvoice?.sellerVatNumber && originalInvoice.sellerNameAr && originalInvoice.isEInvoice) {
+        try {
+          zatcaRecord = buildZatcaInvoiceRecord({
+            uuid:                  crypto.randomUUID(),
+            invoiceNumber:         invNum,
+            issueDateTime:         now,
+            sellerNameAr:          originalInvoice.sellerNameAr,
+            sellerNameEn:          originalInvoice.sellerNameEn,
+            vatNumber:             originalInvoice.sellerVatNumber,
+            crNumber:              originalInvoice.sellerCrNumber,
+            buyerName:             body.buyerNameAr ?? originalInvoice.buyerNameAr ?? 'عميل',
+            vatRatePercent:        Math.round(vatRate * 100),
+            invoiceTypeCode:       '383',
+            subtotalHalalas:       subtotal,
+            vatHalalas:            vat,
+            totalHalalas:          total,
+            items,
+            originalInvoiceUuid:   originalInvoice.zatcaUuid,
+            originalInvoiceNumber: originalInvoice.invoiceNumber,
+          });
+        } catch (zErr) {
+          console.error(JSON.stringify({ event: 'debit_note_zatca_record_failed', invoiceId: invId, error: String(zErr) }));
+        }
+      }
+
       // ── Insert debit note invoice ────────────────────────────────────────────
       await tx.insert(invoices).values({
         id:                invId,
@@ -138,10 +168,13 @@ export async function POST(request: Request) {
         paidHalalas:       0,
         issueDate:         today,
         status:            'issued',
+        isEInvoice:        originalInvoice?.isEInvoice ?? false,
         items:             items as never,
         notes:             body.notes ? `${body.reason} — ${body.notes}` : body.reason,
         journalEntryId:    jeId,
         createdBy:         uid,
+        zatcaUuid:         zatcaRecord?.uuid ?? crypto.randomUUID(),
+        zatcaQr:           zatcaRecord?.qr ?? null,
       });
 
       // ── GL: debit note INCREASES amount owed ────────────────────────────────
