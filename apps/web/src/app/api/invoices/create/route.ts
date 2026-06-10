@@ -11,7 +11,8 @@ import { idempotencyKeys } from '@/lib/schema';
 import { getNextInvoiceNumber, getNextJournalNumber } from '@/lib/invoice-counter';
 import { assertPeriodOpen } from '@/lib/period-lock';
 import { GL } from '@/lib/gl-accounts';
-import { buildZatcaInvoiceRecord, submitInvoiceToZatca } from '@/lib/zatca-einvoice';
+import { buildZatcaInvoiceRecord, submitInvoiceToZatca, inferZatcaExemptionReason } from '@/lib/zatca-einvoice';
+import type { ZatcaVatCategory, ZatcaExemptionReason } from '@masarat/zatca';
 
 const AC = {
   receivable:       GL.receivable,
@@ -54,6 +55,8 @@ interface InvoiceItem {
   unitPriceHalalas: number;   // excl. VAT (for ZATCA line-level breakdown)
   vatHalalas:       number;
   totalHalalas:     number;   // incl. VAT
+  vatCategory?:     ZatcaVatCategory;
+  exemptionReason?: ZatcaExemptionReason;
 }
 
 export async function POST(request: Request) {
@@ -169,11 +172,14 @@ export async function POST(request: Request) {
           throw new BusinessError('لا يمكن إصدار فاتورة بمبلغ صفر — يرجى تحديث سعر الحجز أولاً', 400);
         }
 
-        // ── 4b. Credit-limit guard ──────────────────────────────────────────
+        // ── 4b. Credit-limit guard + buyer VAT number snapshot ──────────────
+        let buyerVatNumber: string | null = null;
         if (booking.customerId) {
-          const [customer] = await tx.select({ creditLimitHalalas: customers.creditLimitHalalas })
+          const [customer] = await tx.select({ creditLimitHalalas: customers.creditLimitHalalas, vatNumber: customers.vatNumber })
             .from(customers)
             .where(and(eq(customers.id, booking.customerId), eq(customers.agencyId, agencyId)));
+
+          buyerVatNumber = customer?.vatNumber ?? null;
 
           if (customer && customer.creditLimitHalalas > 0) {
             const [{ outstanding }] = await tx.select({
@@ -220,10 +226,14 @@ export async function POST(request: Request) {
         let jLines: Array<{ code: string; ar: string; en: string; dr: number; cr: number }>;
         let invoiceItems: InvoiceItem[];
 
+        // International transport (VATEX-SA-32) is signalled per-booking via
+        // booking.details.isInternational — set at booking creation for flights.
+        const isInternational = details['isInternational'] === true;
+
         if (hasActiveLines) {
           // New path: per-line VAT, per-line revenue model
           jLines       = buildJournalLinesFromBookingLines(activeLines, isVatRegistered, deferRevenue);
-          invoiceItems = buildInvoiceItemsFromLines(activeLines, isVatRegistered);
+          invoiceItems = buildInvoiceItemsFromLines(activeLines, isVatRegistered, booking.serviceType, isInternational);
         } else {
           // Legacy path: aggregated amounts
           const storedCost = booking.costPriceHalalas;
@@ -232,8 +242,16 @@ export async function POST(request: Request) {
             (details['serviceFee'] as number | undefined) ?? 0, totalVat, subtotalExclVat,
             deferRevenue,
           );
+          // Legacy bookings have one VAT treatment for the whole booking — a
+          // VAT-registered agency issuing a zero-VAT invoice means the booking
+          // itself is zero-rated (Z), not standard-rated (S).
+          const legacyVatCategory: ZatcaVatCategory | undefined = !isVatRegistered ? undefined : (totalVat > 0 ? 'S' : 'Z');
+          const legacyExemptionReason = legacyVatCategory
+            ? inferZatcaExemptionReason(legacyVatCategory, null, booking.serviceType, isInternational)
+            : undefined;
           invoiceItems = buildInvoiceItems(
             details['lineItems'], finalGrandTotal, subtotalExclVat, totalVat, typeLabel,
+            legacyVatCategory, legacyExemptionReason,
           );
         }
 
@@ -250,6 +268,7 @@ export async function POST(request: Request) {
               vatNumber:       agency.vatNumber,
               crNumber:        agency.crNumber,
               buyerName:       booking.customerNameAr || booking.customerNameEn || 'عميل نقدي',
+              buyerVatNumber,
               vatRatePercent:  agency.vatRate ?? 15,
               subtotalHalalas: subtotalExclVat,
               vatHalalas:      totalVat,
@@ -273,6 +292,7 @@ export async function POST(request: Request) {
           buyerNameAr:     booking.customerNameAr ?? '',
           buyerNameEn:     booking.customerNameEn ?? '',
           buyerPhone:      booking.customerPhone  ?? '',
+          buyerVatNumber,
           subtotalHalalas: subtotalExclVat,
           vatHalalas:      totalVat,
           totalHalalas:    finalGrandTotal,
@@ -388,22 +408,24 @@ function buildInvoiceItems(
   subtotalExclVat: number,
   totalVat:        number,
   typeLabel:       { ar: string; en: string },
+  vatCategory?:     ZatcaVatCategory,
+  exemptionReason?: ZatcaExemptionReason,
 ): InvoiceItem[] {
   // ── Validate rawLineItems ────────────────────────────────────────────────
   if (!Array.isArray(rawLineItems) || rawLineItems.length === 0) {
-    return [{ description: typeLabel.ar, descriptionEn: typeLabel.en, quantity: 1, unitPriceHalalas: subtotalExclVat, vatHalalas: totalVat, totalHalalas: grandTotal }];
+    return [{ description: typeLabel.ar, descriptionEn: typeLabel.en, quantity: 1, unitPriceHalalas: subtotalExclVat, vatHalalas: totalVat, totalHalalas: grandTotal, vatCategory, exemptionReason }];
   }
 
   const lineItems = rawLineItems as PackageLineItem[];
   for (const item of lineItems) {
     if (!item.descriptionAr || typeof item.descriptionAr !== 'string') {
-      return [{ description: typeLabel.ar, descriptionEn: typeLabel.en, quantity: 1, unitPriceHalalas: subtotalExclVat, vatHalalas: totalVat, totalHalalas: grandTotal }];
+      return [{ description: typeLabel.ar, descriptionEn: typeLabel.en, quantity: 1, unitPriceHalalas: subtotalExclVat, vatHalalas: totalVat, totalHalalas: grandTotal, vatCategory, exemptionReason }];
     }
     if (!Number.isInteger(item.quantity) || item.quantity <= 0) {
-      return [{ description: typeLabel.ar, descriptionEn: typeLabel.en, quantity: 1, unitPriceHalalas: subtotalExclVat, vatHalalas: totalVat, totalHalalas: grandTotal }];
+      return [{ description: typeLabel.ar, descriptionEn: typeLabel.en, quantity: 1, unitPriceHalalas: subtotalExclVat, vatHalalas: totalVat, totalHalalas: grandTotal, vatCategory, exemptionReason }];
     }
     if (!Number.isInteger(item.totalHalalas) || item.totalHalalas <= 0) {
-      return [{ description: typeLabel.ar, descriptionEn: typeLabel.en, quantity: 1, unitPriceHalalas: subtotalExclVat, vatHalalas: totalVat, totalHalalas: grandTotal }];
+      return [{ description: typeLabel.ar, descriptionEn: typeLabel.en, quantity: 1, unitPriceHalalas: subtotalExclVat, vatHalalas: totalVat, totalHalalas: grandTotal, vatCategory, exemptionReason }];
     }
   }
 
@@ -411,7 +433,7 @@ function buildInvoiceItems(
   const lineSum = lineItems.reduce((s, l) => s + l.totalHalalas, 0);
   if (lineSum !== grandTotal) {
     // Sum mismatch — fall back to single line rather than produce invalid ZATCA document
-    return [{ description: typeLabel.ar, descriptionEn: typeLabel.en, quantity: 1, unitPriceHalalas: subtotalExclVat, vatHalalas: totalVat, totalHalalas: grandTotal }];
+    return [{ description: typeLabel.ar, descriptionEn: typeLabel.en, quantity: 1, unitPriceHalalas: subtotalExclVat, vatHalalas: totalVat, totalHalalas: grandTotal, vatCategory, exemptionReason }];
   }
 
   // ── Distribute VAT proportionally ────────────────────────────────────────
@@ -431,6 +453,8 @@ function buildInvoiceItems(
       unitPriceHalalas: unitPriceExclVat,
       vatHalalas:       itemVat,
       totalHalalas:     item.totalHalalas,
+      vatCategory,
+      exemptionReason,
     };
   });
 }
@@ -442,9 +466,15 @@ function buildInvoiceItems(
 function buildInvoiceItemsFromLines(
   lines: BookingLine[],
   isVatRegistered: boolean,
+  bookingServiceType: string | null,
+  isInternational: boolean,
 ): InvoiceItem[] {
   return lines.map(line => {
     const lineVat = isVatRegistered ? line.vatHalalas : 0;
+    const vatCategory = isVatRegistered ? (line.vatCategory as ZatcaVatCategory) : undefined;
+    const exemptionReason = vatCategory
+      ? inferZatcaExemptionReason(vatCategory, line.serviceType, bookingServiceType, isInternational)
+      : undefined;
     return {
       description:      line.description,
       descriptionEn:    null,
@@ -452,6 +482,8 @@ function buildInvoiceItemsFromLines(
       unitPriceHalalas: line.unitPriceExclVatHalalas,
       vatHalalas:       lineVat,
       totalHalalas:     line.totalPriceExclVatHalalas + lineVat,
+      vatCategory,
+      exemptionReason,
     };
   });
 }

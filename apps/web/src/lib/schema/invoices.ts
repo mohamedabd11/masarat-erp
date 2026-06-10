@@ -22,6 +22,9 @@ export const invoices = pgTable('invoices', {
   buyerPhone:        text('buyer_phone'),
   buyerEmail:        text('buyer_email'),
   buyerNationalId:   text('buyer_national_id'),
+  // B2B: snapshot of the customer's VAT registration number at issuance —
+  // presence of this field drives ZATCA B2B (clearance) vs B2C (reporting).
+  buyerVatNumber:    text('buyer_vat_number'),
   // amounts
   subtotalHalalas:   bigint('subtotal_halalas', { mode: 'number' }).notNull().default(0),
   vatHalalas:        bigint('vat_halalas', { mode: 'number' }).notNull().default(0),

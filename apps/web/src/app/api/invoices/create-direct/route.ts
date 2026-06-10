@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
-import { eq } from 'drizzle-orm';
+import { eq, and } from 'drizzle-orm';
 import { db } from '@/lib/db';
-import { agencies, invoices, journalEntries, journalLines } from '@/lib/schema';
+import { agencies, invoices, journalEntries, journalLines, customers } from '@/lib/schema';
 import { buildZatcaInvoiceRecord, submitInvoiceToZatca } from '@/lib/zatca-einvoice';
 import { verifyAuth, assertRole, ApiAuthError, BusinessError, ROLES_ACCOUNTANT_UP } from '@/lib/api-auth';
 import { checkRateLimit, getClientIp, rateLimitHeaders } from '@/lib/rate-limit';
@@ -97,6 +97,15 @@ export async function POST(request: Request) {
       const invId    = crypto.randomUUID();
       const jeId     = crypto.randomUUID();
 
+      // Buyer VAT number snapshot — drives ZATCA B2B vs B2C classification
+      let buyerVatNumber: string | null = null;
+      if (body.customerId) {
+        const [customer] = await tx.select({ vatNumber: customers.vatNumber })
+          .from(customers)
+          .where(and(eq(customers.id, body.customerId), eq(customers.agencyId, agencyId)));
+        buyerVatNumber = customer?.vatNumber ?? null;
+      }
+
       // Build ZATCA-compatible line items with proportional VAT
       // Last line absorbs any rounding difference
       const items = lines.map((l, idx) => {
@@ -126,6 +135,7 @@ export async function POST(request: Request) {
             vatNumber:       agency.vatNumber,
             crNumber:        agency.crNumber,
             buyerName:       body.buyerNameAr.trim(),
+            buyerVatNumber,
             vatRatePercent:  vatRate,
             subtotalHalalas,
             vatHalalas,
@@ -148,6 +158,7 @@ export async function POST(request: Request) {
         buyerNameAr:     body.buyerNameAr.trim(),
         buyerNameEn:     body.buyerNameEn     ?? null,
         buyerPhone:      body.buyerPhone      ?? null,
+        buyerVatNumber,
         subtotalHalalas,
         vatHalalas,
         totalHalalas,

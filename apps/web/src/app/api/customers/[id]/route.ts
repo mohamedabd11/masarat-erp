@@ -93,11 +93,19 @@ export async function PATCH(
       nameAr: string; nameEn: string; phone: string; email: string;
       nationality: string; nationalId: string; passportNumber: string;
       dateOfBirth: string; notes: string; isActive: boolean;
-      openingBalanceHalalas: number;
+      openingBalanceHalalas: number; vatNumber: string;
     }>;
     if (body.openingBalanceHalalas !== undefined &&
         (!Number.isInteger(body.openingBalanceHalalas) || body.openingBalanceHalalas < 0)) {
       return NextResponse.json({ error: 'الرصيد الافتتاحي غير صالح' }, { status: 400 });
+    }
+    let vatNumber: string | null | undefined;
+    if (body.vatNumber !== undefined) {
+      const trimmed = body.vatNumber.trim();
+      if (trimmed && !/^3\d{14}$/.test(trimmed)) {
+        return NextResponse.json({ error: 'الرقم الضريبي للعميل يجب أن يكون 15 خانة ويبدأ بـ 3' }, { status: 400 });
+      }
+      vatNumber = trimmed || null;
     }
 
     const [existing] = await db
@@ -117,6 +125,7 @@ export async function PATCH(
     for (const k of ['nameAr', 'nameEn', 'phone', 'email', 'nationality', 'nationalId', 'passportNumber', 'dateOfBirth', 'notes', 'isActive', 'openingBalanceHalalas'] as const) {
       if (body[k] !== undefined) patch[k] = body[k];
     }
+    if (vatNumber !== undefined) patch['vatNumber'] = vatNumber;
     const [updated] = await db
       .update(customers)
       .set(patch as Partial<typeof customers.$inferInsert>)

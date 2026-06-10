@@ -29,7 +29,7 @@ const schema = z.object({
   passportNumber:      z.string().optional(),
   passportExpiry:      z.string().optional(),
   dateOfBirth:         z.string().optional(),
-  vatNumber:           z.string().optional(),
+  vatNumber:           z.string().regex(/^3\d{14}$/, 'الرقم الضريبي يجب أن يكون 15 خانة ويبدأ بـ 3').optional().or(z.literal('')),
   notes:               z.string().optional(),
   openingBalanceSar:   z.coerce.number().min(0).optional(),
 });
@@ -78,6 +78,7 @@ export default function NewCustomerPage() {
           nationalId:     data.nationalId || null,
           passportNumber: data.passportNumber || null,
           dateOfBirth:    data.dateOfBirth || null,
+          vatNumber:           data.vatNumber || null,
           notes:               data.notes || null,
           openingBalanceHalalas: Math.round((data.openingBalanceSar ?? 0) * 100),
         }),
@@ -309,6 +310,7 @@ export default function NewCustomerPage() {
                 placeholder={isAr ? '15 رقماً (اختياري)' : '15 digits (optional)'}
                 hint={isAr ? 'للشركات المسجلة بضريبة القيمة المضافة' : 'For VAT-registered companies'}
                 dir="ltr"
+                error={errors.vatNumber?.message}
                 {...register('vatNumber')}
               />
             )}

@@ -80,6 +80,7 @@ vi.mock('@/lib/zatca-einvoice', () => ({
     uuid: 'zatca-uuid-1', transactionType: 'B2C', qr: 'QR_TLV_BASE64', invoice: {},
   })),
   submitInvoiceToZatca: vi.fn(async () => ({ submitted: false, status: 'skipped', reason: 'test' })),
+  inferZatcaExemptionReason: vi.fn(() => undefined),
 }));
 
 vi.mock('drizzle-orm', () => ({
@@ -108,7 +109,7 @@ vi.mock('@/lib/schema', () => ({
 
 // ─── Mock db with configurable tx ─────────────────────────────────────────────
 
-const { mockTxSelect, mockDb } = vi.hoisted(() => {
+const { mockTxSelect, mockDb, mockInsertChain } = vi.hoisted(() => {
   const selectResults: unknown[][] = [];
 
   // Returns a "thenable chain" — every method returns `this`, and `await chain`
@@ -158,6 +159,7 @@ const { mockTxSelect, mockDb } = vi.hoisted(() => {
   return {
     mockTxSelect: { results: selectResults, next: (r: unknown[]) => selectResults.push(r) },
     mockDb,
+    mockInsertChain,
   };
 });
 
@@ -166,6 +168,7 @@ vi.mock('@/lib/db', () => ({ db: mockDb }));
 // ─── Import route under test ──────────────────────────────────────────────────
 
 import { POST } from '@/app/api/invoices/create/route';
+import { buildZatcaInvoiceRecord } from '@/lib/zatca-einvoice';
 
 // ─── Fixtures ─────────────────────────────────────────────────────────────────
 
@@ -329,6 +332,50 @@ describe('POST /api/invoices/create', () => {
     expect(data.success).toBe(true);
     expect(data.invoiceId).toBeTruthy();
     expect(data.invoiceNumber).toBe('INV-2024-000001');
+  });
+
+  it('200 — عميل B2B: يُمرَّر الرقم الضريبي للعميل إلى سجل ZATCA ويُحفظ على الفاتورة', async () => {
+    mockVerifyAuth.mockResolvedValue(DEFAULT_USER);
+    mockAssertRole.mockReturnValue(undefined);
+    mockCheckRateLimit.mockResolvedValue({ success: true });
+    mockAssertPeriodOpen.mockResolvedValue(undefined);
+    mockTxSelect.next([{ ...BOOKING, customerId: 'cust-1' }]); // booking
+    mockTxSelect.next([AGENCY]);                               // agency
+    mockTxSelect.next([]);                                     // booking_lines
+    mockTxSelect.next([]);                                     // existing invoice
+    mockTxSelect.next([{ creditLimitHalalas: 0, vatNumber: '311111111111113' }]); // customer
+
+    const res = await POST(makeRequest({ bookingId: 'booking-1' }));
+    expect(res.status).toBe(200);
+
+    expect(buildZatcaInvoiceRecord).toHaveBeenCalledWith(
+      expect.objectContaining({ buyerVatNumber: '311111111111113' }),
+    );
+    expect(mockInsertChain.values).toHaveBeenCalledWith(
+      expect.objectContaining({ buyerVatNumber: '311111111111113' }),
+    );
+  });
+
+  it('200 — عميل B2C (بدون رقم ضريبي): buyerVatNumber يُحفظ كـ null', async () => {
+    mockVerifyAuth.mockResolvedValue(DEFAULT_USER);
+    mockAssertRole.mockReturnValue(undefined);
+    mockCheckRateLimit.mockResolvedValue({ success: true });
+    mockAssertPeriodOpen.mockResolvedValue(undefined);
+    mockTxSelect.next([{ ...BOOKING, customerId: 'cust-2' }]); // booking
+    mockTxSelect.next([AGENCY]);                               // agency
+    mockTxSelect.next([]);                                     // booking_lines
+    mockTxSelect.next([]);                                     // existing invoice
+    mockTxSelect.next([{ creditLimitHalalas: 0, vatNumber: null }]); // customer
+
+    const res = await POST(makeRequest({ bookingId: 'booking-1' }));
+    expect(res.status).toBe(200);
+
+    expect(buildZatcaInvoiceRecord).toHaveBeenCalledWith(
+      expect.objectContaining({ buyerVatNumber: null }),
+    );
+    expect(mockInsertChain.values).toHaveBeenCalledWith(
+      expect.objectContaining({ buyerVatNumber: null }),
+    );
   });
 
   it('200 — وكالة غير مسجلة بالضريبة', async () => {

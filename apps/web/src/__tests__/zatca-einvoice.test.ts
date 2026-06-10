@@ -13,7 +13,7 @@ import { createHash } from 'crypto';
 
 vi.mock('@/lib/db', () => ({ db: {} }));
 
-import { ZATCA_GENESIS_PIH, buildZatcaInvoiceRecord } from '@/lib/zatca-einvoice';
+import { ZATCA_GENESIS_PIH, buildZatcaInvoiceRecord, inferZatcaExemptionReason, parseStoredInvoiceItems } from '@/lib/zatca-einvoice';
 import { buildInvoiceXml } from '@masarat/zatca';
 
 const BASE = {
@@ -160,5 +160,90 @@ describe('buildInvoiceXml — أكواد النوع الفرعي (BR-KSA-06)', (
     const xml = buildInvoiceXml(rec.invoice, ZATCA_GENESIS_PIH, 4217);
     expect(xml).toContain('<cbc:UUID>4217</cbc:UUID>');
     expect(xml).toContain(`<cbc:EmbeddedDocumentBinaryObject mimeCode="text/plain">${ZATCA_GENESIS_PIH}</cbc:EmbeddedDocumentBinaryObject>`);
+  });
+});
+
+describe('inferZatcaExemptionReason — أكواد إعفاء VATEX للسطور صفرية النسبة', () => {
+  it('طيران دولي ⇒ VATEX-SA-32', () => {
+    expect(inferZatcaExemptionReason('Z', 'flight', null, true)).toBe('VATEX-SA-32');
+    expect(inferZatcaExemptionReason('Z', 'flights', null, true)).toBe('VATEX-SA-32');
+  });
+
+  it('طيران محلي صفري النسبة بلا سبب إعفاء محدد', () => {
+    expect(inferZatcaExemptionReason('Z', 'flight', null, false)).toBeUndefined();
+  });
+
+  it('عمرة/حج ⇒ VATEX-SA-34-1 (من نوع الحجز عند غياب نوع السطر)', () => {
+    expect(inferZatcaExemptionReason('Z', null, 'umrah', false)).toBe('VATEX-SA-34-1');
+    expect(inferZatcaExemptionReason('Z', null, 'hajj', false)).toBe('VATEX-SA-34-1');
+  });
+
+  it('فئة قياسية (S) لا تحتاج سبب إعفاء حتى لو كانت دولية', () => {
+    expect(inferZatcaExemptionReason('S', 'flight', null, true)).toBeUndefined();
+  });
+});
+
+describe('buildZatcaInvoiceRecord — أكواد إعفاء VATEX على مستوى البند والإجمالي', () => {
+  it('يضع كود الإعفاء على البند وعلى vatBreakdown لسطر طيران دولي صفري', () => {
+    const rec = buildZatcaInvoiceRecord({
+      ...BASE,
+      subtotalHalalas: 100_000, vatHalalas: 0, totalHalalas: 100_000,
+      items: [{
+        description: 'تذكرة طيران دولي', quantity: 1,
+        unitPriceHalalas: 100_000, vatHalalas: 0, totalHalalas: 100_000,
+        vatCategory: 'Z', exemptionReason: 'VATEX-SA-32',
+      }],
+    });
+    expect(rec.invoice.lines[0]!.vatCategory).toBe('Z');
+    expect(rec.invoice.lines[0]!.exemptionReason).toBe('VATEX-SA-32');
+    expect(rec.invoice.totals.vatBreakdown).toEqual([
+      { category: 'Z', taxableAmount: 100_000, vatAmount: 0, exemptionReason: 'VATEX-SA-32' },
+    ]);
+  });
+
+  it('فاتورة مختلطة: سطر فندق قياسي (S) + سطر طيران دولي صفري (Z/VATEX-SA-32) ينتجان TaxSubtotal منفصلين', () => {
+    const rec = buildZatcaInvoiceRecord({
+      ...BASE,
+      subtotalHalalas: 100_000, vatHalalas: 9_000, totalHalalas: 109_000,
+      items: [
+        { description: 'تذكرة طيران دولي', quantity: 1, unitPriceHalalas: 40_000, vatHalalas: 0,     totalHalalas: 40_000, vatCategory: 'Z', exemptionReason: 'VATEX-SA-32' },
+        { description: 'إقامة فندق',       quantity: 1, unitPriceHalalas: 60_000, vatHalalas: 9_000, totalHalalas: 69_000, vatCategory: 'S' },
+      ],
+    });
+    expect(rec.invoice.totals.vatBreakdown).toEqual([
+      { category: 'S', taxableAmount: 60_000, vatAmount: 9_000 },
+      { category: 'Z', taxableAmount: 40_000, vatAmount: 0, exemptionReason: 'VATEX-SA-32' },
+    ]);
+  });
+
+  it('يحافظ على التوافق مع البنود القديمة بلا vatCategory/exemptionReason (تصنيف بالاستدلال من vatHalalas)', () => {
+    const rec = buildZatcaInvoiceRecord({
+      ...BASE, ...AMOUNTS,
+      items: [
+        { description: 'تذكرة طيران', quantity: 1, unitPriceHalalas: 60_000, vatHalalas: 9_000,  totalHalalas: 69_000 },
+        { description: 'إقامة فندق',  quantity: 2, unitPriceHalalas: 20_000, vatHalalas: 6_000,  totalHalalas: 46_000 },
+      ],
+    });
+    expect(rec.invoice.lines[0]!.vatCategory).toBe('S');
+    expect(rec.invoice.lines[0]!.exemptionReason).toBeUndefined();
+  });
+});
+
+describe('parseStoredInvoiceItems — يحافظ على vatCategory/exemptionReason المخزَّنين', () => {
+  it('يستخرج vatCategory وexemptionReason عند وجودهما في JSON المخزَّن', () => {
+    const items = parseStoredInvoiceItems([
+      { description: 'تذكرة عمرة', quantity: 1, unitPriceHalalas: 100_000, vatHalalas: 0, totalHalalas: 100_000, vatCategory: 'Z', exemptionReason: 'VATEX-SA-34-1' },
+    ]);
+    expect(items).toEqual([
+      { description: 'تذكرة عمرة', quantity: 1, unitPriceHalalas: 100_000, vatHalalas: 0, totalHalalas: 100_000, vatCategory: 'Z', exemptionReason: 'VATEX-SA-34-1' },
+    ]);
+  });
+
+  it('يتجاهل vatCategory/exemptionReason غير الصالحين بإعادة undefined', () => {
+    const items = parseStoredInvoiceItems([
+      { description: 'بند', quantity: 1, unitPriceHalalas: 100_000, vatHalalas: 15_000, totalHalalas: 115_000 },
+    ]);
+    expect(items![0]!.vatCategory).toBeUndefined();
+    expect(items![0]!.exemptionReason).toBeUndefined();
   });
 });

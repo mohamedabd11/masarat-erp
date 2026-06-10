@@ -31,6 +31,7 @@ import type {
   ZatcaInvoiceTypeCode,
   ZatcaTransactionType,
   ZatcaVatCategory,
+  ZatcaExemptionReason,
   ZatcaEnvironment,
   ZatcaInvoiceSubmitResponse,
 } from '@masarat/zatca';
@@ -50,6 +51,10 @@ export interface ZatcaRecordItem {
   unitPriceHalalas: number;   // excl. VAT
   vatHalalas:       number;
   totalHalalas:     number;   // incl. VAT
+  /** Actual VAT category (S/Z/E/O) from the source booking line — overrides the vatHalalas-based inference below */
+  vatCategory?:     ZatcaVatCategory;
+  /** VATEX exemption reason for non-standard categories (e.g. VATEX-SA-32 international transport) */
+  exemptionReason?: ZatcaExemptionReason;
 }
 
 export interface ZatcaInvoiceRecordInput {
@@ -108,17 +113,32 @@ export function buildZatcaInvoiceRecord(input: ZatcaInvoiceRecordInput): ZatcaIn
 
   const lines = buildLines(input, vatRate);
 
-  // VAT breakdown grouped by category (S = standard-rated, Z = zero-rated).
-  const vatBreakdown: ZatcaInvoice['totals']['vatBreakdown'] = [];
-  for (const category of ['S', 'Z'] as ZatcaVatCategory[]) {
-    const group = lines.filter(l => l.vatCategory === category);
-    if (group.length === 0) continue;
-    vatBreakdown.push({
-      category,
-      taxableAmount: group.reduce((s, l) => s + l.totalPriceExclVat, 0),
-      vatAmount:     group.reduce((s, l) => s + l.vatAmount, 0),
-    });
+  // VAT breakdown — BR-KSA requires a separate TaxSubtotal per distinct
+  // (category, exemption reason) combination, e.g. an invoice mixing a
+  // standard-rated hotel line (S) with a zero-rated international flight
+  // line (Z / VATEX-SA-32) needs two TaxSubtotal entries.
+  const breakdownGroups = new Map<string, { category: ZatcaVatCategory; exemptionReason?: ZatcaExemptionReason; taxableAmount: number; vatAmount: number }>();
+  for (const line of lines) {
+    const key = `${line.vatCategory}|${line.exemptionReason ?? ''}`;
+    let group = breakdownGroups.get(key);
+    if (!group) {
+      group = { category: line.vatCategory, exemptionReason: line.exemptionReason, taxableAmount: 0, vatAmount: 0 };
+      breakdownGroups.set(key, group);
+    }
+    group.taxableAmount += line.totalPriceExclVat;
+    group.vatAmount     += line.vatAmount;
   }
+  // Preserve the historical S-before-Z-before-others ordering for stable output.
+  const CATEGORY_ORDER: Record<ZatcaVatCategory, number> = { S: 0, Z: 1, E: 2, O: 3 };
+  const vatBreakdown: ZatcaInvoice['totals']['vatBreakdown'] = [...breakdownGroups.values()]
+    .sort((a, b) => CATEGORY_ORDER[a.category] - CATEGORY_ORDER[b.category]
+      || (a.exemptionReason ?? '').localeCompare(b.exemptionReason ?? ''))
+    .map(g => ({
+      category:      g.category,
+      taxableAmount: g.taxableAmount,
+      vatAmount:     g.vatAmount,
+      ...(g.exemptionReason ? { exemptionReason: g.exemptionReason } : {}),
+    }));
 
   const invoice: ZatcaInvoice = {
     uuid:            input.uuid,
@@ -189,17 +209,21 @@ function buildLines(input: ZatcaInvoiceRecordInput, vatRate: number): ZatcaInvoi
     }];
   }
 
-  return items.map((item, idx) => ({
-    id:                String(idx + 1),
-    name:              item.description,
-    quantity:          item.quantity,
-    unitCode:          'PCE' as const,
-    unitPriceExclVat:  item.unitPriceHalalas,
-    totalPriceExclVat: item.totalHalalas - item.vatHalalas,
-    vatCategory:       (item.vatHalalas > 0 ? 'S' : 'Z') as ZatcaVatCategory,
-    vatRate:           item.vatHalalas > 0 ? vatRate : 0,
-    vatAmount:         item.vatHalalas,
-  }));
+  return items.map((item, idx) => {
+    const vatCategory = item.vatCategory ?? ((item.vatHalalas > 0 ? 'S' : 'Z') as ZatcaVatCategory);
+    return {
+      id:                String(idx + 1),
+      name:              item.description,
+      quantity:          item.quantity,
+      unitCode:          'PCE' as const,
+      unitPriceExclVat:  item.unitPriceHalalas,
+      totalPriceExclVat: item.totalHalalas - item.vatHalalas,
+      vatCategory,
+      vatRate:           item.vatHalalas > 0 ? vatRate : 0,
+      vatAmount:         item.vatHalalas,
+      ...(vatCategory !== 'S' && item.exemptionReason ? { exemptionReason: item.exemptionReason } : {}),
+    };
+  });
 }
 
 // ─── Phase 2 submission (DB + network) ────────────────────────────────────────
@@ -271,7 +295,7 @@ export async function submitInvoiceToZatca(agencyId: string, invoiceId: string):
       vatNumber:       inv.sellerVatNumber,
       crNumber:        inv.sellerCrNumber,
       buyerName:       inv.buyerNameAr || inv.buyerNameEn || 'عميل نقدي',
-      buyerVatNumber:  null,   // buyer VAT is not snapshotted yet → simplified path
+      buyerVatNumber:  inv.buyerVatNumber ?? null,
       vatRatePercent:  agency.vatRate ?? 15,
       invoiceTypeCode: '388',   // the type guard above lets only tax invoices through
       subtotalHalalas: inv.subtotalHalalas,
@@ -384,7 +408,37 @@ export function parseStoredInvoiceItems(raw: unknown): ZatcaRecordItem[] | undef
       unitPriceHalalas: it['unitPriceHalalas'],
       vatHalalas:       it['vatHalalas'],
       totalHalalas:     it['totalHalalas'],
+      vatCategory:      typeof it['vatCategory'] === 'string' ? it['vatCategory'] as ZatcaVatCategory : undefined,
+      exemptionReason:  typeof it['exemptionReason'] === 'string' ? it['exemptionReason'] as ZatcaExemptionReason : undefined,
     });
   }
   return items;
+}
+
+/**
+ * Infers the ZATCA VATEX exemption reason for a zero-rated (Z) line from its
+ * service type and booking context. Returns undefined for non-Z categories or
+ * when no specific VATEX code can be determined — the line is still emitted
+ * as Z but without a TaxExemptionReasonCode (status quo behaviour).
+ *
+ * Covers the two cases that make up the bulk of zero-rated travel-agency
+ * supplies in KSA: international passenger transport (VATEX-SA-32) and
+ * Umrah/Hajj packages (VATEX-SA-34-1).
+ */
+export function inferZatcaExemptionReason(
+  vatCategory: string,
+  lineServiceType: string | null | undefined,
+  bookingServiceType: string | null | undefined,
+  isInternational: boolean,
+): ZatcaExemptionReason | undefined {
+  if (vatCategory !== 'Z') return undefined;
+
+  const svc = (lineServiceType ?? bookingServiceType ?? '').toLowerCase();
+  if ((svc === 'flight' || svc === 'flights') && isInternational) {
+    return 'VATEX-SA-32';
+  }
+  if (svc === 'umrah' || svc === 'hajj') {
+    return 'VATEX-SA-34-1';
+  }
+  return undefined;
 }

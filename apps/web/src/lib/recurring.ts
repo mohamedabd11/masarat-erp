@@ -16,7 +16,7 @@
  */
 import { eq, and, lte, gte, or, isNull, sql } from 'drizzle-orm';
 import { db } from './db';
-import { recurringInvoices, invoices, journalEntries, journalLines, agencies } from './schema';
+import { recurringInvoices, invoices, journalEntries, journalLines, agencies, customers } from './schema';
 import { getNextInvoiceNumber, getNextJournalNumber } from './invoice-counter';
 import { assertPeriodOpen } from './period-lock';
 import { buildZatcaInvoiceRecord, parseStoredInvoiceItems, submitInvoiceToZatca } from './zatca-einvoice';
@@ -139,6 +139,15 @@ export async function generateDueRecurringInvoices(now: Date = new Date()): Prom
         const jeId     = crypto.randomUUID();
         const buyer    = r.buyerNameAr ?? r.title;
 
+        // Buyer VAT number snapshot — drives ZATCA B2B vs B2C classification
+        let buyerVatNumber: string | null = null;
+        if (r.customerId) {
+          const [customer] = await tx.select({ vatNumber: customers.vatNumber })
+            .from(customers)
+            .where(and(eq(customers.id, r.customerId), eq(customers.agencyId, r.agencyId)));
+          buyerVatNumber = customer?.vatNumber ?? null;
+        }
+
         // ZATCA e-invoice record. Schedule amounts are user-entered, so a
         // non-reconciling schedule must not block generation — fall back to
         // no QR (legacy behaviour) and log for correction.
@@ -154,6 +163,7 @@ export async function generateDueRecurringInvoices(now: Date = new Date()): Prom
               vatNumber:       agency.vatNumber,
               crNumber:        agency.crNumber,
               buyerName:       buyer,
+              buyerVatNumber,
               vatRatePercent:  agency.vatRate ?? 15,
               subtotalHalalas,
               vatHalalas,
@@ -177,6 +187,7 @@ export async function generateDueRecurringInvoices(now: Date = new Date()): Prom
           sellerCrNumber:  agency.crNumber  ?? null,
           sellerAddress:   agency.addressAr ?? null,
           buyerNameAr:     buyer,
+          buyerVatNumber,
           subtotalHalalas,
           vatHalalas,
           totalHalalas,

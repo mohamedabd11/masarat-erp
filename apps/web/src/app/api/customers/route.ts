@@ -81,11 +81,22 @@ export async function POST(request: Request) {
       nameAr: string; nameEn?: string; phone?: string; email?: string;
       nationality?: string; nationalId?: string; passportNumber?: string;
       dateOfBirth?: string; notes?: string; openingBalanceHalalas?: number;
+      vatNumber?: string;
     };
     if (!body.nameAr?.trim()) return NextResponse.json({ error: 'الاسم مطلوب' }, { status: 400 });
     if (body.openingBalanceHalalas !== undefined &&
         (!Number.isInteger(body.openingBalanceHalalas) || body.openingBalanceHalalas < 0)) {
       return NextResponse.json({ error: 'الرصيد الافتتاحي غير صالح' }, { status: 400 });
+    }
+    let vatNumber: string | null = null;
+    if (body.vatNumber !== undefined) {
+      const trimmed = body.vatNumber.trim();
+      if (trimmed) {
+        if (!/^3\d{14}$/.test(trimmed)) {
+          return NextResponse.json({ error: 'الرقم الضريبي للعميل يجب أن يكون 15 خانة ويبدأ بـ 3' }, { status: 400 });
+        }
+        vatNumber = trimmed;
+      }
     }
     const id = crypto.randomUUID();
     const [row] = await db.insert(customers).values({
@@ -100,6 +111,7 @@ export async function POST(request: Request) {
       dateOfBirth:           body.dateOfBirth ?? null,
       notes:                 body.notes ?? null,
       openingBalanceHalalas: body.openingBalanceHalalas ?? 0,
+      vatNumber,
     }).returning();
     return NextResponse.json({ success: true, id, customer: row });
   } catch (err) {

@@ -11,6 +11,9 @@ export const customers = pgTable('customers', {
   passportNumber: text('passport_number'),
   nationalId:     text('national_id'),
   nationality:    text('nationality'),
+  // B2B: 15-digit KSA VAT registration number, e.g. "310123456700003" — only
+  // set for corporate customers; null for individuals (B2C, the common case).
+  vatNumber:      text('vat_number'),
   dateOfBirth:    text('date_of_birth'),
   notes:          text('notes'),
   creditLimitHalalas:    bigint('credit_limit_halalas', { mode: 'number' }).notNull().default(0),  // 0 = no limit
