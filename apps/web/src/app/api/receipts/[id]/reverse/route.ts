@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
-import { eq, and } from 'drizzle-orm';
+import { eq, and, sql } from 'drizzle-orm';
 import { db } from '@/lib/db';
-import { receiptVouchers, invoices, journalEntries, journalLines } from '@/lib/schema';
+import { receiptVouchers, invoices, bookings, journalEntries, journalLines } from '@/lib/schema';
 import { verifyAuth, assertRole, ApiAuthError, BusinessError, ROLES_ADMIN_ONLY } from '@/lib/api-auth';
 import { getNextReceiptNumber, getNextJournalNumber } from '@/lib/invoice-counter';
 import { assertPeriodOpen } from '@/lib/period-lock';
@@ -111,6 +111,16 @@ export async function POST(
             .set({ paidHalalas: newPaid, status: newStatus, updatedAt: now })
             .where(eq(invoices.id, orig.invoiceId));
         }
+      }
+
+      // Sync booking.paidHalalas if this receipt was linked to a booking
+      if (orig.bookingId) {
+        await tx.update(bookings)
+          .set({
+            paidHalalas: sql`GREATEST(0, ${bookings.paidHalalas} - ${amountHalalas})`,
+            updatedAt: now,
+          })
+          .where(and(eq(bookings.id, orig.bookingId), eq(bookings.agencyId, agencyId)));
       }
 
       return { reversalId, voucherNumber: revNumber };

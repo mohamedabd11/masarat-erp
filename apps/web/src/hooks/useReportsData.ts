@@ -2,7 +2,36 @@
 
 import { useState, useEffect, useMemo } from 'react';
 import { apiFetch } from '@/lib/api-client';
-import type { Booking, Invoice } from '@/lib/schema';
+
+// ── Server response shapes (from GET /api/reports/dashboard) ───────────────────
+interface ServerMonthly {
+  month:      number;   // 1–12
+  bookings:   number;
+  rev:        number;
+  vat:        number;
+  grandTotal: number;
+  cost:       number;
+}
+interface ServerType {
+  type:  string;
+  count: number;
+  rev:   number;
+}
+interface ServerVatInvoice {
+  id:              string;
+  invoiceNumber:   string;
+  subtotalHalalas: number;
+  vatHalalas:      number;
+  totalHalalas:    number;
+  status:          string;
+  createdAt:       string;
+}
+interface DashboardResponse {
+  year:        number;
+  monthly:     ServerMonthly[];
+  typeMix:     ServerType[];
+  vatInvoices: ServerVatInvoice[];
+}
 
 export interface MonthlyRow {
   month:      number;
@@ -62,31 +91,24 @@ const TYPE_META: Record<string, { nameAr: string; nameEn: string; color: string;
 };
 
 export function useReportsData(agencyId: string | null): ReportsData {
-  const [year, setYear]           = useState(new Date().getFullYear());
-  const [allInvoices, setInvoices] = useState<Invoice[]>([]);
-  const [allBookings, setBookings] = useState<Booking[]>([]);
-  const [loading, setLoading]     = useState(true);
+  const [year, setYear] = useState(new Date().getFullYear());
+  const [data, setData] = useState<DashboardResponse>({ year: new Date().getFullYear(), monthly: [], typeMix: [], vatInvoices: [] });
+  const [loading, setLoading] = useState(true);
 
+  // Re-fetch whenever the agency or selected year changes. Aggregation now happens
+  // server-side over the full year (previously the browser truncated to 50 invoices).
   useEffect(() => {
     if (!agencyId) { setLoading(false); return; }
     let cancelled = false;
     setLoading(true);
 
-    Promise.all([
-      apiFetch<{ invoices: Invoice[] }>('/api/invoices'),
-      apiFetch<{ bookings: Booking[] }>('/api/bookings'),
-    ])
-      .then(([invData, bkData]) => {
-        if (!cancelled) {
-          setInvoices(invData.invoices);
-          setBookings(bkData.bookings);
-        }
-      })
-      .catch(() => {})
+    apiFetch<DashboardResponse>(`/api/reports/dashboard?year=${year}`)
+      .then((res) => { if (!cancelled) setData(res); })
+      .catch(() => { if (!cancelled) setData({ year, monthly: [], typeMix: [], vatInvoices: [] }); })
       .finally(() => { if (!cancelled) setLoading(false); });
 
     return () => { cancelled = true; };
-  }, [agencyId]);
+  }, [agencyId, year]);
 
   const monthly = useMemo<MonthlyRow[]>(() => {
     const mm = new Map<number, MonthlyRow>();
@@ -95,66 +117,45 @@ export function useReportsData(agencyId: string | null): ReportsData {
         bookings: 0, rev: 0, cost: 0, vat: 0, grandTotal: 0 });
     }
 
-    // Build a bookingId → costPriceHalalas lookup so invoices can carry cost
-    const costByBookingId = new Map<string, number>();
-    for (const bk of allBookings) {
-      if (bk.id) costByBookingId.set(bk.id, bk.costPriceHalalas ?? 0);
-    }
-
-    for (const inv of allInvoices) {
-      const date = new Date(inv.createdAt as unknown as string);
-      if (date.getFullYear() !== year) continue;
-      const m   = date.getMonth();
-      const row = mm.get(m)!;
-      row.bookings++;
-      row.rev       += inv.subtotalHalalas;
-      row.vat       += inv.vatHalalas;
-      row.grandTotal += inv.totalHalalas;
-      // Lookup cost from the linked booking (invoices don't store cost themselves)
-      row.cost      += costByBookingId.get(inv.bookingId ?? '') ?? 0;
-      mm.set(m, row);
+    for (const r of data.monthly) {
+      const m   = r.month - 1;   // server returns 1–12; client rows are 0–11
+      const row = mm.get(m);
+      if (!row) continue;
+      row.bookings   = r.bookings;
+      row.rev        = r.rev;
+      row.vat        = r.vat;
+      row.grandTotal = r.grandTotal;
+      row.cost       = r.cost;
     }
 
     const nowMonth = year < new Date().getFullYear() ? 11 : new Date().getMonth();
     return Array.from(mm.values()).filter(r => r.month <= nowMonth && r.bookings > 0);
-  }, [allInvoices, allBookings, year]);
+  }, [data.monthly, year]);
 
   const typeMix = useMemo<TypeMixRow[]>(() => {
-    const typeMap: Record<string, { count: number; rev: number }> = {};
-    for (const bk of allBookings) {
-      const date = new Date(bk.createdAt as unknown as string);
-      if (date.getFullYear() !== year) continue;
-      const type = bk.serviceType ?? 'other';
-      if (!typeMap[type]) typeMap[type] = { count: 0, rev: 0 };
-      typeMap[type].count++;
-      typeMap[type].rev += bk.totalPriceHalalas;
-    }
-    const total = Object.values(typeMap).reduce((s, v) => s + v.count, 0);
+    const total = data.typeMix.reduce((s, v) => s + v.count, 0);
     if (total === 0) return [];
-    return Object.entries(typeMap)
-      .sort((a, b) => b[1].count - a[1].count)
-      .map(([type, { count, rev }]) => {
+    return [...data.typeMix]
+      .sort((a, b) => b.count - a.count)
+      .map(({ type, count, rev }) => {
         const meta = TYPE_META[type] ?? TYPE_META['other']!;
         return { type, nameAr: meta.nameAr, nameEn: meta.nameEn, count, rev,
           pct: Math.round((count / total) * 100), color: meta.color, dot: meta.dot };
       });
-  }, [allBookings, year]);
+  }, [data.typeMix]);
 
   const vatInvoices = useMemo<VatInvoice[]>(() =>
-    allInvoices
-      .filter(inv => inv.status !== 'cancelled' && new Date(inv.createdAt as unknown as string).getFullYear() === year)
-      .map(inv => ({
-        id:              inv.id,
-        invoiceNumber:   inv.invoiceNumber,
-        // An invoice is VAT-applicable when it has a non-zero VAT amount
-        // (isEInvoice is a ZATCA e-invoicing flag, not a VAT indicator)
-        isVatRegistered: (inv.vatHalalas ?? 0) > 0,
-        grandTotal:      inv.totalHalalas,
-        subtotalExclVat: inv.subtotalHalalas,
-        totalVat:        inv.vatHalalas,
-        createdAt:       new Date(inv.createdAt as unknown as string),
-      })),
-  [allInvoices, year]);
+    data.vatInvoices.map(inv => ({
+      id:              inv.id,
+      invoiceNumber:   inv.invoiceNumber,
+      // An invoice is VAT-applicable when it has a non-zero VAT amount
+      isVatRegistered: (inv.vatHalalas ?? 0) > 0,
+      grandTotal:      inv.totalHalalas,
+      subtotalExclVat: inv.subtotalHalalas,
+      totalVat:        inv.vatHalalas,
+      createdAt:       new Date(inv.createdAt),
+    })),
+  [data.vatInvoices]);
 
   return { monthly, typeMix, vatInvoices, loading, year, setYear };
 }

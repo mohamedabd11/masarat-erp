@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { eq, and, ne } from 'drizzle-orm';
 import { db } from '@/lib/db';
-import { bookings, invoices } from '@/lib/schema';
+import { bookings, invoices, bookingLines } from '@/lib/schema';
 import { verifyAuth, assertRole, ApiAuthError, ROLES_AGENT_UP } from '@/lib/api-auth';
 
 const VALID_STATUSES = new Set(['draft', 'confirmed', 'completed', 'cancelled']);
@@ -18,10 +18,24 @@ export async function GET(request: Request, { params }: { params: { id: string }
       .where(and(eq(bookings.id, params.id), eq(bookings.agencyId, agencyId)));
     if (!booking) return NextResponse.json({ error: 'الحجز غير موجود' }, { status: 404 });
 
+    // Fetch the booking's live (non-cancelled) invoice ID so the detail page
+    // can show payment / refund actions without a separate request.
+    const [liveInvoice] = await db
+      .select({ id: invoices.id, invoiceNumber: invoices.invoiceNumber })
+      .from(invoices)
+      .where(and(
+        eq(invoices.bookingId, params.id),
+        eq(invoices.agencyId, agencyId),
+        ne(invoices.status, 'cancelled'),
+      ))
+      .limit(1);
+
     // Reconstruct pricing object from stored details + numeric columns
     const det = (booking.details ?? {}) as Record<string, unknown>;
     const enriched = {
       ...booking,
+      invoiceIds:    liveInvoice ? [liveInvoice.id] : [],
+      invoiceNumber: liveInvoice?.invoiceNumber ?? null,
       pricing: {
         revenueModel: String(det['revenueModel'] ?? 'principal'),
         currency:     String(det['currency']     ?? 'SAR'),
@@ -60,6 +74,11 @@ export async function PATCH(request: Request, { params }: { params: { id: string
       .from(bookings)
       .where(and(eq(bookings.id, params.id), eq(bookings.agencyId, agencyId)));
     if (!existing) return NextResponse.json({ error: 'الحجز غير موجود' }, { status: 404 });
+
+    // Set when this request cancels the booking — triggers a cascade that marks
+    // its booking_lines 'cancelled' too, so the financial source-of-truth never
+    // shows active line items under a cancelled booking (see booking-financials.ts).
+    let cascadeCancelLines = false;
 
     // Enforce booking status state machine — cancelled and completed are terminal
     if (body['status'] !== undefined && body['status'] !== existing.status) {
@@ -100,6 +119,7 @@ export async function PATCH(request: Request, { params }: { params: { id: string
             { status: 422 },
           );
         }
+        cascadeCancelLines = true;
       }
     }
 
@@ -131,10 +151,23 @@ export async function PATCH(request: Request, { params }: { params: { id: string
       if (!STRIP.has(k)) patch[k] = v;
     }
 
-    await db
-      .update(bookings)
-      .set(patch as Partial<typeof bookings.$inferInsert>)
-      .where(and(eq(bookings.id, params.id), eq(bookings.agencyId, agencyId)));
+    await db.transaction(async (tx) => {
+      await tx
+        .update(bookings)
+        .set(patch as Partial<typeof bookings.$inferInsert>)
+        .where(and(eq(bookings.id, params.id), eq(bookings.agencyId, agencyId)));
+
+      if (cascadeCancelLines) {
+        await tx
+          .update(bookingLines)
+          .set({ status: 'cancelled', cancelledAt: now, updatedAt: now })
+          .where(and(
+            eq(bookingLines.bookingId, params.id),
+            eq(bookingLines.agencyId, agencyId),
+            eq(bookingLines.status, 'active'),
+          ));
+      }
+    });
 
     return NextResponse.json({ success: true });
   } catch (err) {

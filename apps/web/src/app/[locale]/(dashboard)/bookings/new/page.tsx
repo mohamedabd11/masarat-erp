@@ -579,7 +579,7 @@ function NewBookingContent() {
       const feeH   = toH(data.serviceFeeSAR ?? 0);
       const sell   = data.revenueModel === 'agent' ? costH + feeH : costH;
       const vBase  = data.revenueModel === 'agent' ? feeH : sell;
-      const vatH   = agencyIsVatRegistered ? Math.round(vBase * 0.15) : 0;
+      const vatH   = agencyIsVatRegistered ? Math.round(vBase * agencyVatRate / 100) : 0;
       const totalH = sell + vatH;
 
       const json = await apiFetch<{ bookingId?: string; error?: string }>('/api/bookings/create', {

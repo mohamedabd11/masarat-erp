@@ -1,12 +1,12 @@
 import { NextResponse } from 'next/server';
-import { eq, and, sql } from 'drizzle-orm';
+import { eq, and, sql, lt } from 'drizzle-orm';
 import { db } from '@/lib/db';
-import { invoices, bookings, agencies, appointments, leaveRequests, recurringInvoices } from '@/lib/schema';
+import { invoices, bookings, agencies, appointments, leaveRequests, recurringInvoices, paymentPlanInstallments } from '@/lib/schema';
 import { verifyAuth, ApiAuthError, ROLES_MANAGER_UP } from '@/lib/api-auth';
 
 export interface AppNotification {
   id:       string;
-  type:     'overdue_invoice' | 'passport_expiry' | 'trial_expiry' | 'upcoming_appointment' | 'leave_pending' | 'recurring_due';
+  type:     'overdue_invoice' | 'passport_expiry' | 'trial_expiry' | 'upcoming_appointment' | 'leave_pending' | 'recurring_due' | 'overdue_installment';
   severity: 'error' | 'warning' | 'info';
   titleAr:  string;
   titleEn:  string;
@@ -193,6 +193,37 @@ export async function GET(request: Request) {
         descAr:   `موعد إصدار الفاتورة الدورية: ${rec.nextIssueAt}`,
         descEn:   `Recurring invoice due: ${rec.nextIssueAt}`,
         link:     `/${locale}/recurring-invoices/${rec.id}`,
+      });
+    }
+
+    // 7. Overdue installments
+    const overdueInsts = await db
+      .select({
+        id:                paymentPlanInstallments.id,
+        bookingId:         paymentPlanInstallments.bookingId,
+        installmentNumber: paymentPlanInstallments.installmentNumber,
+        dueDate:           paymentPlanInstallments.dueDate,
+        amountHalalas:     paymentPlanInstallments.amountHalalas,
+      })
+      .from(paymentPlanInstallments)
+      .where(and(
+        eq(paymentPlanInstallments.agencyId, agencyId),
+        eq(paymentPlanInstallments.status, 'overdue'),
+        lt(paymentPlanInstallments.dueDate, today),
+      ))
+      .limit(20);
+
+    for (const inst of overdueInsts) {
+      const daysLate = Math.floor((now - new Date(inst.dueDate).getTime()) / 86_400_000);
+      result.push({
+        id:       `overdue-inst-${inst.id}`,
+        type:     'overdue_installment',
+        severity: 'error',
+        titleAr:  `قسط متأخر — القسط #${inst.installmentNumber}`,
+        titleEn:  `Overdue Installment — #${inst.installmentNumber}`,
+        descAr:   `متأخر ${daysLate} ${daysLate === 1 ? 'يوم' : 'أيام'} · ${(inst.amountHalalas / 100).toFixed(2)} ر.س`,
+        descEn:   `${daysLate} day${daysLate === 1 ? '' : 's'} overdue · SAR ${(inst.amountHalalas / 100).toFixed(2)}`,
+        link:     `/${locale}/bookings/${inst.bookingId}`,
       });
     }
 

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { useAuth } from '@masarat/firebase';
 import { apiFetch } from '@/lib/api-client';
 import { Card } from '@/components/ui/Card';
@@ -35,8 +35,9 @@ interface Employee {
   email: string;
   nationalId: string;
   nationality: string;
+  nationalityType: 'saudi' | 'expat';
   joinDate: string;
-  salary: number; // monthly SAR in halalas (x100)
+  salaryHalalas: number; // monthly SAR in halalas (x100)
   isActive: boolean;
   terminatedAt?: number;
   terminationReason?: string;
@@ -212,13 +213,20 @@ interface EmployeeFormState {
   role: EmployeeRole; department: EmployeeDepartment;
   phone: string; email: string;
   nationalId: string; nationality: string;
+  nationalityType: 'saudi' | 'expat';
   joinDate: string; salary: string; // display value in SAR
 }
 
 const EMPTY_EMP_FORM: EmployeeFormState = {
   nameAr: '', nameEn: '', role: 'agent', department: 'bookings',
   phone: '', email: '', nationalId: '', nationality: '',
+  nationalityType: 'saudi',
   joinDate: '', salary: '',
+};
+
+const NATIONALITY_TYPE_LABELS: Record<'saudi' | 'expat', { ar: string; en: string }> = {
+  saudi: { ar: 'سعودي',  en: 'Saudi' },
+  expat: { ar: 'وافد',   en: 'Expat' },
 };
 
 function EmployeesTab({ isAr, agencyId, locale }: { isAr: boolean; agencyId: string; locale: string }) {
@@ -259,7 +267,8 @@ function EmployeesTab({ isAr, agencyId, locale }: { isAr: boolean; agencyId: str
       role: emp.role, department: emp.department,
       phone: emp.phone ?? '', email: emp.email ?? '',
       nationalId: emp.nationalId ?? '', nationality: emp.nationality ?? '',
-      joinDate: emp.joinDate ?? '', salary: salaryDisplayValue(emp.salary ?? 0),
+      nationalityType: emp.nationalityType ?? 'saudi',
+      joinDate: emp.joinDate ?? '', salary: salaryDisplayValue(emp.salaryHalalas ?? 0),
     });
     setShowForm(true);
   }
@@ -273,6 +282,7 @@ function EmployeesTab({ isAr, agencyId, locale }: { isAr: boolean; agencyId: str
         department: form.department,
         phone: form.phone, email: form.email,
         nationalId: form.nationalId,
+        nationalityType: form.nationalityType,
         hireDate: form.joinDate,
         salaryHalalas: salaryToHalalas(form.salary),
       };
@@ -441,6 +451,21 @@ function EmployeesTab({ isAr, agencyId, locale }: { isAr: boolean; agencyId: str
               </datalist>
             </div>
             <div>
+              <label className={labelCls}>{isAr ? 'تصنيف التأمينات الاجتماعية (جوسي) *' : 'GOSI Classification *'}</label>
+              <select value={form.nationalityType}
+                onChange={e => setForm(p => ({ ...p, nationalityType: e.target.value as 'saudi' | 'expat' }))}
+                className={inputCls}>
+                {(Object.keys(NATIONALITY_TYPE_LABELS) as Array<'saudi' | 'expat'>).map(t => (
+                  <option key={t} value={t}>{isAr ? NATIONALITY_TYPE_LABELS[t].ar : NATIONALITY_TYPE_LABELS[t].en}</option>
+                ))}
+              </select>
+              <p className="mt-1 text-xs text-slate-400">
+                {isAr
+                  ? 'يحدد نسبة اشتراك التأمينات؛ تُضبط النسب من الإعدادات (الافتراضي: سعودي 12% لصاحب العمل و10% للموظف — وافد 2%)'
+                  : 'Determines GOSI rates; configurable in Settings (default: Saudi 12% employer / 10% employee — Expat 2%)'}
+              </p>
+            </div>
+            <div>
               <label className={labelCls}>{isAr ? 'تاريخ الالتحاق' : 'Join Date'}</label>
               <input value={form.joinDate} onChange={e => setForm(p => ({ ...p, joinDate: e.target.value }))}
                 className={inputCls} type="date" dir="ltr" />
@@ -565,7 +590,7 @@ function EmployeesTab({ isAr, agencyId, locale }: { isAr: boolean; agencyId: str
                         {emp.email || '—'}
                       </td>
                       <td className="px-4 py-3 text-slate-700 whitespace-nowrap font-medium">
-                        {emp.salary ? formatCurrency(emp.salary, isAr ? 'ar-SA' : 'en-US') : '—'}
+                        {emp.salaryHalalas ? formatCurrency(emp.salaryHalalas, isAr ? 'ar-SA' : 'en-US') : '—'}
                       </td>
                       <td className="px-4 py-3 text-slate-500 whitespace-nowrap">
                         {emp.joinDate || '—'}
@@ -636,7 +661,7 @@ function EmployeesTab({ isAr, agencyId, locale }: { isAr: boolean; agencyId: str
                       <div className="space-y-1 text-xs text-slate-500">
                         {emp.phone && <div className="flex items-center gap-1.5"><Phone size={11} /><span>{emp.phone}</span></div>}
                         {emp.email && <div className="flex items-center gap-1.5"><Mail size={11} /><span className="truncate">{emp.email}</span></div>}
-                        {emp.salary ? <div className="flex items-center gap-1.5"><Banknote size={11} /><span>{formatCurrency(emp.salary, isAr ? 'ar-SA' : 'en-US')}</span></div> : null}
+                        {emp.salaryHalalas ? <div className="flex items-center gap-1.5"><Banknote size={11} /><span>{formatCurrency(emp.salaryHalalas, isAr ? 'ar-SA' : 'en-US')}</span></div> : null}
                       </div>
                       <div className="flex gap-3 mt-3 pt-2 border-t border-slate-100">
                         <button onClick={() => openEdit(emp)} className="text-xs text-brand-600 hover:text-brand-800 font-medium">
@@ -681,11 +706,30 @@ function SalariesTab({ isAr, agencyId, locale }: { isAr: boolean; agencyId: stri
       .catch(() => {});
   }, [agencyId]);
 
-  // Load payments for selected month (not yet migrated — stub empty)
+  // Load payslips and salary-payments for the selected month
   useEffect(() => {
     if (!agencyId) { setLoading(false); return; }
-    setPayments([]);
-    setLoading(false);
+    setLoading(true);
+    Promise.all([
+      apiFetch<{ payslips: Array<{ id: string; employeeId: string; baseSalaryHalalas: number; otherAllowancesHalalas: number; deductionsHalalas: number; advanceDeductionHalalas: number; gosiEmployeeHalalas: number; netHalalas: number }> }>(`/api/employees/payslips?month=${month}`),
+      apiFetch<{ salaryPayments: Array<{ employeeId: string; month: string }> }>('/api/salary-payments'),
+    ]).then(([psData, spData]) => {
+      const paidEmpIds = new Set(spData.salaryPayments.filter(p => p.month === month).map(p => p.employeeId));
+      setPayments(psData.payslips.map(ps => ({
+        id:           ps.id,
+        employeeId:   ps.employeeId,
+        employeeName: ps.employeeId,
+        month,
+        baseSalary:   ps.baseSalaryHalalas,
+        bonus:        ps.otherAllowancesHalalas,
+        // Show GOSI + advance repayments alongside manual deductions so the
+        // displayed Net reconciles with the server-computed net (which subtracts them).
+        deductions:   ps.deductionsHalalas + (ps.gosiEmployeeHalalas ?? 0) + (ps.advanceDeductionHalalas ?? 0),
+        netSalary:    ps.netHalalas,
+        status:       (paidEmpIds.has(ps.employeeId) ? 'paid' : 'unpaid') as PaymentStatus,
+        agencyId,
+      })));
+    }).catch(() => {}).finally(() => setLoading(false));
   }, [agencyId, month]);
 
   // Build merged rows: one per active employee, creating payment doc if missing
@@ -696,8 +740,8 @@ function SalariesTab({ isAr, agencyId, locale }: { isAr: boolean; agencyId: stri
     const virtual: SalaryPayment = {
       id: '', employeeId: emp.id,
       employeeName: isAr ? emp.nameAr : (emp.nameEn || emp.nameAr),
-      month, baseSalary: emp.salary ?? 0,
-      bonus: 0, deductions: 0, netSalary: emp.salary ?? 0,
+      month, baseSalary: emp.salaryHalalas ?? 0,
+      bonus: 0, deductions: 0, netSalary: emp.salaryHalalas ?? 0,
       status: 'unpaid', agencyId,
     };
     return { emp, pay: virtual };
@@ -706,8 +750,38 @@ function SalariesTab({ isAr, agencyId, locale }: { isAr: boolean; agencyId: stri
   async function markPaid(emp: Employee, pay: SalaryPayment) {
     setActionId(emp.id);
     try {
-      // salary_payments API not yet migrated — no-op placeholder
+      let netHalalas = pay.netSalary;
+      let payslipId  = pay.id;
+
+      // No payslip yet (virtual row) — create one first
+      if (!payslipId) {
+        const result = await apiFetch<{ id: string; netHalalas: number }>('/api/employees/payslips', {
+          method: 'POST',
+          body: JSON.stringify({
+            employeeId:            emp.id,
+            month,
+            baseSalaryHalalas:     pay.baseSalary,
+            otherAllowancesHalalas: pay.bonus,
+            deductionsHalalas:     pay.deductions,
+          }),
+        });
+        payslipId  = result.id;
+        netHalalas = result.netHalalas;
+        // Carry the SERVER-computed net (GOSI-deducted), not the stale virtual gross —
+        // otherwise a retry after a failed disbursement would re-enter the existing-
+        // payslip branch and pay out gross instead of net.
+        setPayments(prev => [...prev, { ...pay, id: payslipId!, netSalary: netHalalas, status: 'unpaid' }]);
+      }
+
+      // Record the cash disbursement
+      await apiFetch('/api/salary-payments', {
+        method: 'POST',
+        body: JSON.stringify({ employeeId: emp.id, month, amountHalalas: netHalalas }),
+      });
+
       setPayments(prev => prev.map(p => p.employeeId === emp.id ? { ...p, status: 'paid' as PaymentStatus, paidAt: Date.now() } : p));
+    } catch (err) {
+      alert((err as Error).message);
     } finally {
       setActionId(null);
     }
@@ -734,7 +808,7 @@ function SalariesTab({ isAr, agencyId, locale }: { isAr: boolean; agencyId: stri
     try {
       const bonus      = salaryToHalalas(editBonus);
       const deductions = salaryToHalalas(editDeduct);
-      const netSalary  = (emp.salary ?? 0) + bonus - deductions;
+      const netSalary  = (emp.salaryHalalas ?? 0) + bonus - deductions;
       if (netSalary < 0) {
         alert(
           isAr
@@ -761,7 +835,7 @@ function SalariesTab({ isAr, agencyId, locale }: { isAr: boolean; agencyId: stri
     setMonth(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`);
   }
 
-  const totalBase    = rows.reduce((s, r) => s + (r.emp.salary ?? 0), 0);
+  const totalBase    = rows.reduce((s, r) => s + (r.emp.salaryHalalas ?? 0), 0);
   const totalPaid    = rows.filter(r => r.pay.status === 'paid').reduce((s, r) => s + r.pay.netSalary, 0);
   const totalPending = rows.filter(r => r.pay.status === 'unpaid').reduce((s, r) => s + r.pay.netSalary, 0);
 
@@ -830,7 +904,11 @@ function SalariesTab({ isAr, agencyId, locale }: { isAr: boolean; agencyId: stri
               {rows.map(({ emp, pay }) => {
                 const name    = isAr ? emp.nameAr : (emp.nameEn || emp.nameAr);
                 const editing = showEditId === emp.id;
-                const net     = (emp.salary ?? 0) + (pay.bonus ?? 0) - (pay.deductions ?? 0);
+                // For a committed payslip use the server-authoritative net (GOSI-deducted);
+                // for a virtual/unsaved row estimate it from base + bonus − deductions.
+                const net     = pay.id
+                  ? (pay.netSalary ?? 0)
+                  : ((emp.salaryHalalas ?? 0) + (pay.bonus ?? 0) - (pay.deductions ?? 0));
                 return (
                   <tr key={emp.id} className="hover:bg-slate-50 transition-colors">
                     <td className="px-4 py-3">
@@ -841,7 +919,7 @@ function SalariesTab({ isAr, agencyId, locale }: { isAr: boolean; agencyId: stri
                         <span className="font-medium text-slate-900">{name}</span>
                       </div>
                     </td>
-                    <td className="px-4 py-3 text-slate-700 whitespace-nowrap">{fmt(emp.salary ?? 0)}</td>
+                    <td className="px-4 py-3 text-slate-700 whitespace-nowrap">{fmt(emp.salaryHalalas ?? 0)}</td>
                     <td className="px-4 py-3 text-emerald-600 whitespace-nowrap">
                       {editing ? (
                         <input value={editBonus} onChange={e => setEditBonus(e.target.value)}
@@ -935,34 +1013,68 @@ function LeavesTab({ isAr, agencyId, locale }: { isAr: boolean; agencyId: string
       .catch(() => {});
   }, [agencyId]);
 
+  // Resolve employee display names at render time from a memoized map. Keeping this
+  // out of the leave-fetch effect avoids a refetch loop on the (new-reference-every-load)
+  // `employees` array and the UUID-name flash before employees resolve.
+  const empNameMap = useMemo(
+    () => new Map(employees.map(e => [e.id, isAr ? e.nameAr : (e.nameEn || e.nameAr)])),
+    [employees, isAr],
+  );
+
   useEffect(() => {
     if (!agencyId) { setLoading(false); return; }
-    // leave_requests API not yet migrated — stub empty
-    setLeaves([]);
-    setLoading(false);
+    setLoading(true);
+    apiFetch<{ leaveRequests: Array<{ id: string; agencyId: string; employeeId: string; type: string; startDate: string; endDate: string; status: string; notes: string | null; createdAt: string }> }>('/api/leave-requests')
+      .then(data => {
+        setLeaves(data.leaveRequests.map(r => ({
+          id:           r.id,
+          employeeId:   r.employeeId,
+          employeeName: '',                       // resolved at render via empNameMap
+          type:         r.type as LeaveType,
+          fromDate:     r.startDate,
+          toDate:       r.endDate,
+          reason:       r.notes ?? '',
+          status:       r.status as LeaveStatus,
+          agencyId:     r.agencyId,
+          createdAt:    new Date(r.createdAt).getTime(),
+        })));
+      })
+      .catch(() => {})
+      .finally(() => setLoading(false));
   }, [agencyId]);
 
   async function handleAdd() {
     if (!form.employeeId || !form.fromDate || !form.toDate || !agencyId) return;
     setSaving(true);
     try {
-      // leave_requests API not yet migrated — optimistic local add
+      const result = await apiFetch<{ success: boolean; id: string }>('/api/leave-requests', {
+        method: 'POST',
+        body: JSON.stringify({
+          employeeId: form.employeeId,
+          type:       form.type,
+          startDate:  form.fromDate,
+          endDate:    form.toDate,
+          notes:      form.reason || undefined,
+        }),
+      });
       const emp = employees.find(e => e.id === form.employeeId);
       const newLeave: LeaveRequest = {
-        id: crypto.randomUUID(),
-        employeeId: form.employeeId,
+        id:           result.id,
+        employeeId:   form.employeeId,
         employeeName: emp ? (isAr ? emp.nameAr : (emp.nameEn || emp.nameAr)) : '',
-        type: form.type,
-        fromDate: form.fromDate,
-        toDate: form.toDate,
-        reason: form.reason,
-        status: 'pending',
+        type:         form.type,
+        fromDate:     form.fromDate,
+        toDate:       form.toDate,
+        reason:       form.reason,
+        status:       'pending',
         agencyId,
-        createdAt: Date.now(),
+        createdAt:    Date.now(),
       };
       setLeaves(prev => [newLeave, ...prev]);
       setForm(EMPTY_LEAVE_FORM);
       setShowForm(false);
+    } catch (err) {
+      alert((err as Error).message);
     } finally {
       setSaving(false);
     }
@@ -971,7 +1083,13 @@ function LeavesTab({ isAr, agencyId, locale }: { isAr: boolean; agencyId: string
   async function updateStatus(leave: LeaveRequest, status: LeaveStatus) {
     setActionId(leave.id);
     try {
+      await apiFetch(`/api/leave-requests/${leave.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ status }),
+      });
       setLeaves(prev => prev.map(l => l.id === leave.id ? { ...l, status } : l));
+    } catch (err) {
+      alert((err as Error).message);
     } finally {
       setActionId(null);
     }
@@ -1107,7 +1225,7 @@ function LeavesTab({ isAr, agencyId, locale }: { isAr: boolean; agencyId: string
                   : '—';
                 return (
                   <tr key={leave.id} className="hover:bg-slate-50 transition-colors">
-                    <td className="px-4 py-3 font-medium text-slate-900 whitespace-nowrap">{leave.employeeName}</td>
+                    <td className="px-4 py-3 font-medium text-slate-900 whitespace-nowrap">{empNameMap.get(leave.employeeId) || leave.employeeName || leave.employeeId}</td>
                     <td className="px-4 py-3 whitespace-nowrap">
                       <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-slate-100 text-slate-700">
                         {isAr ? LEAVE_TYPE_LABELS[leave.type].ar : LEAVE_TYPE_LABELS[leave.type].en}

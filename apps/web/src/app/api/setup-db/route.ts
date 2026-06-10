@@ -942,6 +942,17 @@ ALTER TABLE agencies ADD COLUMN IF NOT EXISTS zatca_certificate_expiry   TIMESTA
 ALTER TABLE agencies ADD COLUMN IF NOT EXISTS zatca_last_invoice_hash    TEXT;
 ALTER TABLE agencies ADD COLUMN IF NOT EXISTS zatca_onboarded_at         TIMESTAMPTZ;
 ALTER TABLE agencies ADD COLUMN IF NOT EXISTS zatca_error_message        TEXT;
+-- ICV is monotonically increasing per agency (invoice numbers reset yearly; ICV never resets)
+ALTER TABLE agencies ADD COLUMN IF NOT EXISTS zatca_invoice_counter      BIGINT NOT NULL DEFAULT 0;
+
+-- Per-invoice Phase 2 submission tracking
+ALTER TABLE invoices ADD COLUMN IF NOT EXISTS zatca_status       TEXT NOT NULL DEFAULT 'not_submitted';
+ALTER TABLE invoices ADD COLUMN IF NOT EXISTS zatca_icv          BIGINT;
+ALTER TABLE invoices ADD COLUMN IF NOT EXISTS zatca_pih          TEXT;
+ALTER TABLE invoices ADD COLUMN IF NOT EXISTS zatca_qr           TEXT;
+ALTER TABLE invoices ADD COLUMN IF NOT EXISTS zatca_signed_xml   TEXT;
+ALTER TABLE invoices ADD COLUMN IF NOT EXISTS zatca_submitted_at TIMESTAMPTZ;
+ALTER TABLE invoices ADD COLUMN IF NOT EXISTS zatca_response     JSONB;
 
 -- ══ PERFORMANCE INDEXES (financial query hot paths) ══════════════════════════
 -- Composite indexes that back the agency-scoped report/GL/list queries.
@@ -981,6 +992,150 @@ ALTER TABLE payslips          ALTER COLUMN base_salary_halalas TYPE BIGINT, ALTE
 ALTER TABLE salary_advances   ALTER COLUMN amount_halalas TYPE BIGINT;
 ALTER TABLE salary_payments   ALTER COLUMN amount_halalas TYPE BIGINT;
 ALTER TABLE eosb_accruals     ALTER COLUMN amount_halalas TYPE BIGINT;
+
+-- ══ BOOKING PASSENGERS ═══════════════════════════════════════════════════════
+-- Structured per-passenger travel documents for each booking.
+-- Normalises the ad-hoc passengers array that was previously buried in
+-- bookings.details (JSONB), making passenger records properly queryable and
+-- indexed (e.g. lookup by passport number, filter by nationality).
+CREATE TABLE IF NOT EXISTS booking_passengers (
+  id               TEXT PRIMARY KEY,
+  agency_id        TEXT NOT NULL REFERENCES agencies(id) ON DELETE CASCADE,
+  booking_id       TEXT NOT NULL REFERENCES bookings(id)  ON DELETE CASCADE,
+  name_ar          TEXT NOT NULL,
+  name_en          TEXT,
+  type             TEXT NOT NULL DEFAULT 'ADT',
+  gender           TEXT,
+  passport_number  TEXT,
+  passport_expiry  TEXT,
+  nationality      TEXT,
+  date_of_birth    TEXT,
+  national_id      TEXT,
+  notes            TEXT,
+  created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  created_by       TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_bp_agency_booking ON booking_passengers(agency_id, booking_id);
+CREATE INDEX IF NOT EXISTS idx_bp_passport        ON booking_passengers(agency_id, passport_number)
+  WHERE passport_number IS NOT NULL;
+
+-- ══ PAYMENT PLANS ════════════════════════════════════════════════════════════
+-- Installment payment schedules: one plan per booking, N installment records.
+CREATE TABLE IF NOT EXISTS payment_plans (
+  id                   TEXT PRIMARY KEY,
+  agency_id            TEXT NOT NULL REFERENCES agencies(id) ON DELETE CASCADE,
+  booking_id           TEXT NOT NULL REFERENCES bookings(id)  ON DELETE CASCADE,
+  invoice_id           TEXT NOT NULL REFERENCES invoices(id)  ON DELETE CASCADE,
+  total_amount_halalas BIGINT NOT NULL,
+  num_installments     INTEGER NOT NULL,
+  notes                TEXT,
+  status               TEXT NOT NULL DEFAULT 'active',
+  created_by           TEXT,
+  created_at           TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at           TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_pp_agency  ON payment_plans(agency_id);
+CREATE INDEX IF NOT EXISTS idx_pp_booking ON payment_plans(agency_id, booking_id);
+
+CREATE TABLE IF NOT EXISTS payment_plan_installments (
+  id                   TEXT PRIMARY KEY,
+  agency_id            TEXT NOT NULL,
+  plan_id              TEXT NOT NULL REFERENCES payment_plans(id) ON DELETE CASCADE,
+  booking_id           TEXT NOT NULL,
+  invoice_id           TEXT NOT NULL,
+  installment_number   INTEGER NOT NULL,
+  due_date             TEXT NOT NULL,
+  amount_halalas       BIGINT NOT NULL,
+  status               TEXT NOT NULL DEFAULT 'pending',
+  paid_at              TIMESTAMPTZ,
+  payment_id           TEXT,
+  notes                TEXT,
+  created_at           TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at           TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_ppi_plan   ON payment_plan_installments(plan_id);
+CREATE INDEX IF NOT EXISTS idx_ppi_agency ON payment_plan_installments(agency_id, status);
+CREATE INDEX IF NOT EXISTS idx_ppi_due    ON payment_plan_installments(agency_id, due_date);
+
+-- ══ GROUP TRIPS ══════════════════════════════════════════════════════════════
+-- Umrah / Hajj / package group trip management.
+CREATE TABLE IF NOT EXISTS group_trips (
+  id                       TEXT PRIMARY KEY,
+  agency_id                TEXT NOT NULL REFERENCES agencies(id) ON DELETE CASCADE,
+  name                     TEXT NOT NULL,
+  service_type             TEXT NOT NULL DEFAULT 'umrah',
+  departure_date           TEXT,
+  return_date              TEXT,
+  capacity                 INTEGER,
+  price_per_person_halalas BIGINT NOT NULL DEFAULT 0,
+  status                   TEXT NOT NULL DEFAULT 'planning',
+  notes                    TEXT,
+  created_by               TEXT,
+  created_at               TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at               TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_gt_agency        ON group_trips(agency_id);
+CREATE INDEX IF NOT EXISTS idx_gt_agency_status ON group_trips(agency_id, status);
+
+CREATE TABLE IF NOT EXISTS group_trip_members (
+  id               TEXT PRIMARY KEY,
+  agency_id        TEXT NOT NULL REFERENCES agencies(id) ON DELETE CASCADE,
+  group_trip_id    TEXT NOT NULL REFERENCES group_trips(id) ON DELETE CASCADE,
+  name_ar          TEXT NOT NULL,
+  name_en          TEXT,
+  phone            TEXT,
+  passport_number  TEXT,
+  passport_expiry  TEXT,
+  nationality      TEXT,
+  visa_status      TEXT NOT NULL DEFAULT 'pending',
+  visa_number      TEXT,
+  visa_expiry      TEXT,
+  room_type        TEXT,
+  notes            TEXT,
+  status           TEXT NOT NULL DEFAULT 'registered',
+  created_by       TEXT,
+  created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_gtm_group  ON group_trip_members(group_trip_id);
+CREATE INDEX IF NOT EXISTS idx_gtm_agency ON group_trip_members(agency_id, group_trip_id);
+
+-- ══ CUSTOMER MESSAGES ════════════════════════════════════════════════════════
+-- Outbound communication log (WhatsApp, copy-to-clipboard, etc.) per booking.
+CREATE TABLE IF NOT EXISTS customer_messages (
+  id               TEXT PRIMARY KEY,
+  agency_id        TEXT NOT NULL REFERENCES agencies(id) ON DELETE CASCADE,
+  booking_id       TEXT REFERENCES bookings(id) ON DELETE SET NULL,
+  recipient_name   TEXT NOT NULL,
+  recipient_phone  TEXT,
+  channel          TEXT NOT NULL,
+  template_key     TEXT,
+  message_ar       TEXT NOT NULL,
+  message_en       TEXT,
+  sent_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  sent_by          TEXT,
+  created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_cm_agency_booking ON customer_messages(agency_id, booking_id);
+CREATE INDEX IF NOT EXISTS idx_cm_agency_time    ON customer_messages(agency_id, sent_at DESC);
+
+-- ══ DOCUMENTS ════════════════════════════════════════════════════════════════
+-- File attachments (Vercel Blob) linked to any entity (booking, group_trip, etc).
+CREATE TABLE IF NOT EXISTS documents (
+  id           TEXT PRIMARY KEY,
+  agency_id    TEXT NOT NULL REFERENCES agencies(id) ON DELETE CASCADE,
+  entity_type  TEXT NOT NULL,
+  entity_id    TEXT NOT NULL,
+  file_name    TEXT NOT NULL,
+  file_url     TEXT NOT NULL,
+  file_size    INTEGER,
+  mime_type    TEXT,
+  uploaded_by  TEXT,
+  created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_docs_entity      ON documents(agency_id, entity_type, entity_id);
+CREATE INDEX IF NOT EXISTS idx_docs_agency_time ON documents(agency_id, created_at DESC);
 
 `;
 

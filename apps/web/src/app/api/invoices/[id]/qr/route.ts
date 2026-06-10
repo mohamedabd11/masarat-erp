@@ -12,13 +12,15 @@ export async function GET(
   try {
     const { agencyId } = await verifyAuth(request);
     const [inv] = await db
-      .select({ zatcaHash: invoices.zatcaHash })
+      .select({ zatcaQr: invoices.zatcaQr, zatcaHash: invoices.zatcaHash })
       .from(invoices)
       .where(and(eq(invoices.id, params.id), eq(invoices.agencyId, agencyId)));
-    if (!inv?.zatcaHash) {
+    // New rows store the QR TLV in zatca_qr; legacy rows stored it in zatca_hash.
+    const qrTlv = inv?.zatcaQr ?? inv?.zatcaHash;
+    if (!qrTlv) {
       return NextResponse.json({ error: 'QR not available' }, { status: 404 });
     }
-    const dataUrl = await QRCode.toDataURL(inv.zatcaHash, { width: 128, margin: 1, errorCorrectionLevel: 'M' });
+    const dataUrl = await QRCode.toDataURL(qrTlv, { width: 128, margin: 1, errorCorrectionLevel: 'M' });
     return NextResponse.json({ dataUrl }, {
       headers: { 'Cache-Control': 'public, max-age=86400, immutable' },
     });

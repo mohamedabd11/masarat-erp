@@ -9,8 +9,13 @@ import { BookingStatusBadge } from '@/components/ui/StatusBadge';
 import { Spinner } from '@/components/ui/Spinner';
 import { formatCurrency, formatDate } from '@/lib/utils';
 import { BookingActions } from './BookingActions';
+import { BookingPassengersSection } from './BookingPassengersSection';
+import { BookingMessagesSection } from './BookingMessagesSection';
+import { BookingLinesSection } from './BookingLinesSection';
+import { BookingPaymentPlanSection } from './BookingPaymentPlanSection';
+import { DocumentsSection } from '@/components/ui/DocumentsSection';
 import {
-  ArrowRight, ArrowLeft, FileText, User, MapPin, Users, Receipt,
+  ArrowRight, ArrowLeft, FileText, User, MapPin, Receipt,
   TrendingDown, Banknote, CreditCard, Building2, Globe, FileCheck2, ArrowUpRight,
   CheckCircle2, Circle, Clock, BadgeCheck,
 } from 'lucide-react';
@@ -232,7 +237,6 @@ export function BookingDetailClient({ locale, bookingId }: BookingDetailClientPr
   const travelDate = rawTravelDate ? new Date(rawTravelDate) : null;
   const returnDate = rawReturnDate ? new Date(rawReturnDate) : null;
 
-  const travelers: BookingData[] = (det['passengers'] as BookingData[] | undefined) ?? booking.passengers ?? [];
   const invoiceIds: string[] = booking.invoiceIds ?? [];
   const existingInvoiceId = invoiceIds[0];
 
@@ -389,44 +393,51 @@ export function BookingDetailClient({ locale, bookingId }: BookingDetailClientPr
             </div>
           </Card>
 
-          {/* Travelers */}
-          {travelers.length > 0 && (
-            <Card>
-              <CardHeader>
-                <CardTitle>
-                  <div className="flex items-center gap-2">
-                    <Users size={16} className="text-brand-600" />
-                    {isAr
-                      ? `المسافرون (${travelers.length})`
-                      : `Travelers (${travelers.length})`}
-                  </div>
-                </CardTitle>
-              </CardHeader>
-              <div className="space-y-3">
-                {travelers.map((t, idx) => (
-                  <div
-                    key={idx}
-                    className="flex items-center gap-4 p-3 rounded-lg bg-slate-50 border border-slate-100"
-                  >
-                    <div className="w-8 h-8 rounded-full bg-brand-100 flex items-center justify-center text-xs font-bold text-brand-700 flex-shrink-0">
-                      {idx + 1}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium text-slate-900">
-                        {isAr ? (t.nameAr || t.nameEn) : (t.nameEn || t.nameAr)}
-                      </p>
-                      {t.passportNumber && (
-                        <p className="text-xs text-slate-500 font-mono mt-0.5">{t.passportNumber}</p>
-                      )}
-                    </div>
-                    {t.nationality && (
-                      <span className="text-xs text-slate-400 flex-shrink-0">{t.nationality}</span>
-                    )}
-                  </div>
-                ))}
-              </div>
-            </Card>
-          )}
+          {/* Service Lines — per-line breakdown with operational statuses */}
+          <BookingLinesSection
+            bookingId={bookingId}
+            locale={locale}
+            isCancelled={booking.status === 'cancelled'}
+            hasInvoice={!!existingInvoiceId}
+          />
+
+          {/* Passengers — structured, editable records */}
+          <BookingPassengersSection
+            bookingId={bookingId}
+            locale={locale}
+            isCancelled={booking.status === 'cancelled'}
+          />
+
+          {/* Payment Plan — installment schedule */}
+          <BookingPaymentPlanSection
+            bookingId={bookingId}
+            bookingNumber={booking.bookingNumber ?? ''}
+            hasInvoice={!!existingInvoiceId}
+            locale={locale}
+            isCancelled={booking.status === 'cancelled'}
+            totalHalalas={grandTotalHalalas}
+            paidHalalas={paidHalalas}
+          />
+
+          {/* Customer Messages — outbound communication log */}
+          <BookingMessagesSection
+            bookingId={bookingId}
+            bookingNumber={booking.bookingNumber ?? ''}
+            customerNameAr={booking.customerName?.ar ?? booking.customerName ?? ''}
+            customerPhone={booking.customerPhone ?? null}
+            totalHalalas={grandTotalHalalas}
+            paidHalalas={paidHalalas}
+            locale={locale}
+            isCancelled={booking.status === 'cancelled'}
+          />
+
+          {/* Documents & Attachments */}
+          <DocumentsSection
+            entityType="booking"
+            entityId={bookingId}
+            locale={locale}
+            readOnly={booking.status === 'cancelled'}
+          />
 
           {booking.notes && (
             <Card>

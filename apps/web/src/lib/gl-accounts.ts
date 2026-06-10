@@ -43,6 +43,7 @@ export const GL = {
   // ── Revenue (4xxx) ─────────────────────────────────────────────────────────
   revenueAgent:     { code: '4000', ar: 'إيراد رسوم الوكالة',     en: 'Revenue - Agency Fees' },
   revenuePrincipal: { code: '4100', ar: 'إيراد خدمات السفر',      en: 'Revenue - Travel Services' },
+  cancellationFee:  { code: '4200', ar: 'إيراد رسوم الإلغاء',     en: 'Cancellation Fee Revenue' },
   admRecovery:      { code: '4420', ar: 'إيراد استرداد ADM',      en: 'ADM Recovery Income' },
   // FX gain (IFRS 9 — realised exchange differences favourable to the agency)
   fxGain:           { code: '4900', ar: 'أرباح فروق أسعار الصرف', en: 'FX Gain' },

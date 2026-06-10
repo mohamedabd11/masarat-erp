@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { eq, and, desc } from 'drizzle-orm';
 import { db } from '@/lib/db';
-import { payslips, employees, salaryAdvances, employeeContracts, journalEntries, journalLines } from '@/lib/schema';
+import { payslips, employees, salaryAdvances, employeeContracts, journalEntries, journalLines, agencies } from '@/lib/schema';
 import { verifyAuth, assertRole, ApiAuthError, BusinessError, ROLES_ADMIN_ONLY } from '@/lib/api-auth';
 import { requireFeature } from '@/lib/feature-access';
 import { logAudit } from '@/lib/audit';
@@ -47,7 +47,6 @@ export async function POST(request: Request) {
       transportAllowanceHalalas?: number;
       otherAllowancesHalalas?:  number;
       deductionsHalalas?:       number;
-      gosiEmployeeHalalas?:     number;
       components?:              unknown;
       paymentDate?:             string;
       paymentMethod?:           string;
@@ -58,6 +57,23 @@ export async function POST(request: Request) {
     }
     if (!/^\d{4}-\d{2}$/.test(body.month)) {
       return NextResponse.json({ error: 'صيغة الشهر يجب أن تكون YYYY-MM' }, { status: 400 });
+    }
+    // Guard every monetary input: must be a non-negative integer (halalas).
+    // baseSalaryHalalas must additionally be strictly positive.
+    const moneyInputs: Array<[string, number | undefined]> = [
+      ['baseSalaryHalalas',        body.baseSalaryHalalas],
+      ['housingAllowanceHalalas',  body.housingAllowanceHalalas],
+      ['transportAllowanceHalalas', body.transportAllowanceHalalas],
+      ['otherAllowancesHalalas',   body.otherAllowancesHalalas],
+      ['deductionsHalalas',        body.deductionsHalalas],
+    ];
+    for (const [name, val] of moneyInputs) {
+      if (val !== undefined && (!Number.isInteger(val) || val < 0)) {
+        return NextResponse.json({ error: `${name}: يجب أن يكون رقماً صحيحاً غير سالب` }, { status: 400 });
+      }
+    }
+    if (!Number.isInteger(body.baseSalaryHalalas) || body.baseSalaryHalalas <= 0) {
+      return NextResponse.json({ error: 'الراتب الأساسي يجب أن يكون رقماً صحيحاً موجباً' }, { status: 400 });
     }
 
     // Check no duplicate
@@ -77,11 +93,21 @@ export async function POST(request: Request) {
       ));
     const advanceDeduction = pendingAdvances.reduce((s, a) => s + a.amountHalalas, 0);
 
-    // Fetch employee for the journal-entry description (and to validate it exists)
-    const [employee] = await db.select({ id: employees.id, nameAr: employees.nameAr, nationalityType: employees.nationalityType })
-      .from(employees)
-      .where(and(eq(employees.id, body.employeeId), eq(employees.agencyId, agencyId)))
-      .limit(1);
+    // Fetch employee (validates it exists) and agency GOSI rates in parallel
+    const [[employee], [agency]] = await Promise.all([
+      db.select({ id: employees.id, nameAr: employees.nameAr, nationalityType: employees.nationalityType })
+        .from(employees)
+        .where(and(eq(employees.id, body.employeeId), eq(employees.agencyId, agencyId)))
+        .limit(1),
+      db.select({
+          gosiEmployerRateSaudi: agencies.gosiEmployerRateSaudi,
+          gosiEmployeeRateSaudi: agencies.gosiEmployeeRateSaudi,
+          gosiEmployerRateExpat: agencies.gosiEmployerRateExpat,
+        })
+        .from(agencies)
+        .where(eq(agencies.id, agencyId))
+        .limit(1),
+    ]);
     if (!employee) return NextResponse.json({ error: 'الموظف غير موجود' }, { status: 404 });
 
     const base      = body.baseSalaryHalalas;
@@ -90,14 +116,26 @@ export async function POST(request: Request) {
     const other     = body.otherAllowancesHalalas    ?? 0;
     const gross     = base + housing + transport + other;
     const deduct    = body.deductionsHalalas ?? 0;
-    const gosiEmployee = body.gosiEmployeeHalalas ?? 0;
-    // GOSI employer rates per Saudi social insurance regulations:
-    //   Saudi nationals: 9% pension + 0.75% occupational hazard = 9.75%
-    //   Expats: 2% occupational hazard only
-    const GOSI_EMPLOYER_RATE = (employee.nationalityType ?? 'saudi') === 'expat' ? 0.02 : 0.0975;
-    const gosiBase     = base + housing;
-    const gosiEmployer = Math.round(gosiBase * GOSI_EMPLOYER_RATE);
-    const net          = gross - deduct - advanceDeduction - gosiEmployee;
+
+    // Compute GOSI server-side from agency-configured rates (basis points × 100)
+    const gosiBase         = base + housing;
+    const isExpat          = (employee.nationalityType ?? 'saudi') === 'expat';
+    const empRateBps       = isExpat ? 0 : (agency?.gosiEmployeeRateSaudi ?? 1000);
+    const emplrRateBps     = isExpat ? (agency?.gosiEmployerRateExpat ?? 200) : (agency?.gosiEmployerRateSaudi ?? 1200);
+    const gosiEmployee     = Math.round(gosiBase * empRateBps   / 10000);
+    const gosiEmployer     = Math.round(gosiBase * emplrRateBps / 10000);
+    const net              = gross - deduct - advanceDeduction - gosiEmployee;
+
+    // Negative net is rejected outright. Allowing it would force netPayable to be
+    // clamped to 0 while the residual-balancing block below still credits the full
+    // shortfall to Salaries Payable (2310) — producing a phantom liability that no
+    // disbursement can ever clear. Deductions + GOSI must never exceed gross.
+    if (net < 0) {
+      return NextResponse.json(
+        { error: 'صافي الراتب سالب — مجموع الخصومات والتأمينات يتجاوز إجمالي الراتب' },
+        { status: 422 },
+      );
+    }
 
     const id    = crypto.randomUUID();
     const jeId  = crypto.randomUUID();
@@ -133,6 +171,14 @@ export async function POST(request: Request) {
       const payableLine = jLines.find((l) => l.code === GL.salariesPayable.code)!;
       payableLine.cr += (totalDr - totalCr);
     }
+    // Defensive invariant: the entry must balance and never carry a negative credit.
+    // With net >= 0 enforced above this always holds; the guard catches future regressions.
+    const balancedDr = jLines.reduce((s, l) => s + l.dr, 0);
+    const balancedCr = jLines.reduce((s, l) => s + l.cr, 0);
+    const payableLine = jLines.find((l) => l.code === GL.salariesPayable.code)!;
+    if (balancedDr !== balancedCr || payableLine.cr < 0) {
+      return NextResponse.json({ error: 'تعذّر توليد قيد رواتب متوازن' }, { status: 500 });
+    }
 
     await db.transaction(async (tx) => {
       // Block posting the payroll journal into a closed accounting period.
@@ -151,7 +197,7 @@ export async function POST(request: Request) {
         grossHalalas:             gross,
         deductionsHalalas:        deduct,
         advanceDeductionHalalas:  advanceDeduction,
-        gosi_employee_halalas:    gosiEmployee,
+        gosiEmployeeHalalas:      gosiEmployee,
         gosiEmployerHalalas:      gosiEmployer,
         netHalalas:               netPayable,
         components:               (body.components ?? null) as never,
@@ -197,7 +243,7 @@ export async function POST(request: Request) {
       }
     });
 
-    await logAudit({ agencyId, userId: uid, action: 'create', resource: 'payslip', resourceId: id, after: { employeeId: body.employeeId, month: body.month, netHalalas: net, gosiEmployer, journalEntryId: jeId } });
+    await logAudit({ agencyId, userId: uid, action: 'create', resource: 'payslip', resourceId: id, after: { employeeId: body.employeeId, month: body.month, netHalalas: netPayable, gosiEmployee, gosiEmployer, journalEntryId: jeId } });
     return NextResponse.json({ success: true, id, journalEntryId: jeId, netHalalas: netPayable, advanceDeduction, gosiEmployer });
   } catch (err) {
     if (err instanceof ApiAuthError || err instanceof BusinessError) return NextResponse.json({ error: err.message }, { status: err.status });

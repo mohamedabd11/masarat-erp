@@ -39,6 +39,8 @@ export async function PATCH(request: Request) {
       vatRate: number; defaultCurrency: string; logoUrl: string;
       city: string; contactEmail: string; contactPhone: string; contactHours: string;
       defaultQuoteTerms: string;
+      // GOSI rates (basis points × 100; e.g. 1200 = 12.00%)
+      gosiEmployerRateSaudi: number; gosiEmployeeRateSaudi: number; gosiEmployerRateExpat: number;
       // SMTP — only admin/owner may change
       smtpHost: string; smtpPort: number; smtpUser: string; smtpPassword: string;
       smtpFromName: string; smtpFromEmail: string; smtpEncryption: string;
@@ -48,6 +50,12 @@ export async function PATCH(request: Request) {
     const smtpFields = ['smtpHost','smtpPort','smtpUser','smtpPassword','smtpFromName','smtpFromEmail','smtpEncryption'] as const;
     const wantsSmtp  = smtpFields.some(k => body[k] !== undefined);
     if (wantsSmtp) assertRole(role, [...ROLES_ADMIN_ONLY]);
+
+    // GOSI rate changes require admin — they alter statutory liability booked on
+    // every subsequent payslip, so they are gated like SMTP credentials.
+    const gosiFields = ['gosiEmployerRateSaudi','gosiEmployeeRateSaudi','gosiEmployerRateExpat'] as const;
+    const wantsGosi  = gosiFields.some(k => body[k] !== undefined);
+    if (wantsGosi) assertRole(role, [...ROLES_ADMIN_ONLY]);
 
     if (body.isVatRegistered && body.vatNumber !== undefined) {
       const vat = body.vatNumber.trim();
@@ -60,6 +68,15 @@ export async function PATCH(request: Request) {
         return NextResponse.json({ error: 'معدل الضريبة غير مدعوم' }, { status: 400 });
       }
     }
+    for (const gf of gosiFields) {
+      if (body[gf] !== undefined) {
+        const v = body[gf]!;
+        if (!Number.isInteger(v) || v < 0 || v > 3000) {
+          return NextResponse.json({ error: `${gf}: يجب أن يكون عدداً صحيحاً بين 0 و 3000` }, { status: 400 });
+        }
+      }
+    }
+
     if (body.smtpEncryption !== undefined && !['tls','ssl','none'].includes(body.smtpEncryption)) {
       return NextResponse.json({ error: 'نوع التشفير غير صالح' }, { status: 400 });
     }
@@ -76,6 +93,7 @@ export async function PATCH(request: Request) {
       'nameAr','nameEn','phone','addressAr','vatNumber','crNumber','isVatRegistered',
       'vatRate','defaultCurrency','logoUrl','city','contactEmail','contactPhone','contactHours',
       'defaultQuoteTerms',
+      ...gosiFields,
       ...smtpFields,
     ] as const;
 

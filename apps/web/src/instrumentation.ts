@@ -197,6 +197,34 @@ export async function register() {
     // This is a safe widening migration — no data loss, no default changes.
     `DO $$ BEGIN IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='vat_returns' AND column_name='output_vat_halalas' AND data_type='integer') THEN ALTER TABLE vat_returns ALTER COLUMN output_vat_halalas TYPE bigint, ALTER COLUMN input_vat_halalas TYPE bigint, ALTER COLUMN net_vat_halalas TYPE bigint; END IF; END $$`,
 
+    // ── 2026-06-09 — Structured per-passenger table ───────────────────────────
+    // Normalises the ad-hoc passengers array from bookings.details (JSONB) into
+    // queryable, indexed rows — enabling passenger manifests, passport-expiry
+    // warnings, and repeat-customer document lookup without JSON extraction.
+    `DO $$ BEGIN
+       CREATE TABLE IF NOT EXISTS booking_passengers (
+         id               TEXT PRIMARY KEY,
+         agency_id        TEXT NOT NULL REFERENCES agencies(id)  ON DELETE CASCADE,
+         booking_id       TEXT NOT NULL REFERENCES bookings(id)  ON DELETE CASCADE,
+         name_ar          TEXT NOT NULL,
+         name_en          TEXT,
+         type             TEXT NOT NULL DEFAULT 'ADT',
+         gender           TEXT,
+         passport_number  TEXT,
+         passport_expiry  TEXT,
+         nationality      TEXT,
+         date_of_birth    TEXT,
+         national_id      TEXT,
+         notes            TEXT,
+         created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+         updated_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+         created_by       TEXT
+       );
+       CREATE INDEX IF NOT EXISTS idx_bp_agency_booking ON booking_passengers(agency_id, booking_id);
+       CREATE INDEX IF NOT EXISTS idx_bp_passport ON booking_passengers(agency_id, passport_number)
+         WHERE passport_number IS NOT NULL;
+     END $$`,
+
     // ── 2026-06-08 — Create booking_lines table ──────────────────────────────
     // Source of Truth for per-service VAT, cost, revenue model, and GL mapping.
     // Replaces the single aggregated VAT on bookings/invoices with per-line
@@ -274,6 +302,156 @@ export async function register() {
        b.updated_at
      FROM bookings b
      WHERE NOT EXISTS (SELECT 1 FROM booking_lines bl WHERE bl.booking_id = b.id)`,
+
+    // ── 2026-06-09 — Payment plan & installments tables ──────────────────────
+    `DO $$ BEGIN
+       CREATE TABLE IF NOT EXISTS payment_plans (
+         id                   TEXT PRIMARY KEY,
+         agency_id            TEXT NOT NULL,
+         booking_id           TEXT NOT NULL,
+         invoice_id           TEXT NOT NULL,
+         total_amount_halalas BIGINT NOT NULL,
+         num_installments     INTEGER NOT NULL,
+         notes                TEXT,
+         status               TEXT NOT NULL DEFAULT 'active',
+         created_by           TEXT,
+         created_at           TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+         updated_at           TIMESTAMPTZ NOT NULL DEFAULT NOW()
+       );
+       CREATE INDEX IF NOT EXISTS idx_pp_agency  ON payment_plans(agency_id);
+       CREATE INDEX IF NOT EXISTS idx_pp_booking ON payment_plans(agency_id, booking_id);
+
+       CREATE TABLE IF NOT EXISTS payment_plan_installments (
+         id                   TEXT PRIMARY KEY,
+         agency_id            TEXT NOT NULL,
+         plan_id              TEXT NOT NULL,
+         booking_id           TEXT NOT NULL,
+         invoice_id           TEXT NOT NULL,
+         installment_number   INTEGER NOT NULL,
+         due_date             TEXT NOT NULL,
+         amount_halalas       BIGINT NOT NULL,
+         status               TEXT NOT NULL DEFAULT 'pending',
+         paid_at              TIMESTAMPTZ,
+         payment_id           TEXT,
+         notes                TEXT,
+         created_at           TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+         updated_at           TIMESTAMPTZ NOT NULL DEFAULT NOW()
+       );
+       CREATE INDEX IF NOT EXISTS idx_ppi_plan   ON payment_plan_installments(plan_id);
+       CREATE INDEX IF NOT EXISTS idx_ppi_agency ON payment_plan_installments(agency_id, status);
+       CREATE INDEX IF NOT EXISTS idx_ppi_due    ON payment_plan_installments(agency_id, due_date);
+     END $$`,
+
+    // ── 2026-06-09 — Group trips & members (Umrah/Hajj group management) ──────
+    `DO $$ BEGIN
+       CREATE TABLE IF NOT EXISTS group_trips (
+         id                       TEXT PRIMARY KEY,
+         agency_id                TEXT NOT NULL,
+         name                     TEXT NOT NULL,
+         service_type             TEXT NOT NULL DEFAULT 'umrah',
+         departure_date           TEXT,
+         return_date              TEXT,
+         capacity                 INTEGER,
+         price_per_person_halalas BIGINT NOT NULL DEFAULT 0,
+         status                   TEXT NOT NULL DEFAULT 'planning',
+         notes                    TEXT,
+         created_by               TEXT,
+         created_at               TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+         updated_at               TIMESTAMPTZ NOT NULL DEFAULT NOW()
+       );
+       CREATE INDEX IF NOT EXISTS idx_gt_agency        ON group_trips(agency_id);
+       CREATE INDEX IF NOT EXISTS idx_gt_agency_status ON group_trips(agency_id, status);
+
+       CREATE TABLE IF NOT EXISTS group_trip_members (
+         id               TEXT PRIMARY KEY,
+         agency_id        TEXT NOT NULL,
+         group_trip_id    TEXT NOT NULL,
+         name_ar          TEXT NOT NULL,
+         name_en          TEXT,
+         phone            TEXT,
+         passport_number  TEXT,
+         passport_expiry  TEXT,
+         nationality      TEXT,
+         visa_status      TEXT NOT NULL DEFAULT 'pending',
+         visa_number      TEXT,
+         visa_expiry      TEXT,
+         room_type        TEXT,
+         notes            TEXT,
+         status           TEXT NOT NULL DEFAULT 'registered',
+         created_by       TEXT,
+         created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+         updated_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
+       );
+       CREATE INDEX IF NOT EXISTS idx_gtm_group  ON group_trip_members(group_trip_id);
+       CREATE INDEX IF NOT EXISTS idx_gtm_agency ON group_trip_members(agency_id, group_trip_id);
+     END $$`,
+
+    // ── 2026-06-09 — Customer messages outbound communication log ───────────
+    `DO $$ BEGIN
+       CREATE TABLE IF NOT EXISTS customer_messages (
+         id               TEXT PRIMARY KEY,
+         agency_id        TEXT NOT NULL,
+         booking_id       TEXT,
+         recipient_name   TEXT NOT NULL,
+         recipient_phone  TEXT,
+         channel          TEXT NOT NULL,
+         template_key     TEXT,
+         message_ar       TEXT NOT NULL,
+         message_en       TEXT,
+         sent_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+         sent_by          TEXT,
+         created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
+       );
+       CREATE INDEX IF NOT EXISTS idx_cm_agency_booking ON customer_messages(agency_id, booking_id);
+       CREATE INDEX IF NOT EXISTS idx_cm_agency_time    ON customer_messages(agency_id, sent_at DESC);
+     END $$`,
+
+  // ── 2026-06-09 — Document attachments (Vercel Blob) ─────────────────────
+  `DO $$ BEGIN
+     CREATE TABLE IF NOT EXISTS documents (
+       id           TEXT PRIMARY KEY,
+       agency_id    TEXT NOT NULL,
+       entity_type  TEXT NOT NULL,
+       entity_id    TEXT NOT NULL,
+       file_name    TEXT NOT NULL,
+       file_url     TEXT NOT NULL,
+       file_size    INTEGER,
+       mime_type    TEXT,
+       uploaded_by  TEXT,
+       created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+     );
+     CREATE INDEX IF NOT EXISTS idx_docs_entity      ON documents(agency_id, entity_type, entity_id);
+     CREATE INDEX IF NOT EXISTS idx_docs_agency_time ON documents(agency_id, created_at DESC);
+   END $$`,
+
+    // ── 2026-06-09 — Configurable GOSI rates per agency ─────────────────────
+    // Saudi 2024 social insurance reform: employer 12% (9%+2%+1%), employee 10% (9%+1%), expat 2%.
+    // Stored as basis points × 100 (1200 = 12.00%) so integer arithmetic can represent fractions.
+    `ALTER TABLE agencies ADD COLUMN IF NOT EXISTS gosi_employer_rate_saudi INTEGER NOT NULL DEFAULT 1200`,
+    `ALTER TABLE agencies ADD COLUMN IF NOT EXISTS gosi_employee_rate_saudi INTEGER NOT NULL DEFAULT 1000`,
+    `ALTER TABLE agencies ADD COLUMN IF NOT EXISTS gosi_employer_rate_expat  INTEGER NOT NULL DEFAULT 200`,
+
+    // ── 2026-06-09 — Payroll uniqueness guards (prevent double-posting race) ──
+    // At most one payslip and one salary-payment per employee per month. Without
+    // these, two concurrent "Mark Paid" requests could double-book salary expense
+    // / disbursement. Idempotent; if pre-existing duplicate rows exist the index
+    // creation fails and is logged, leaving the table unchanged (no startup crash).
+    `CREATE UNIQUE INDEX IF NOT EXISTS payslips_agency_emp_month_uq
+      ON payslips(agency_id, employee_id, month)`,
+    `CREATE UNIQUE INDEX IF NOT EXISTS salary_payments_agency_emp_month_uq
+      ON salary_payments(agency_id, employee_id, month)`,
+
+    // ── 2026-06-10 — ZATCA Phase 2 per-invoice submission tracking ───────────
+    // Mirrors drizzle/0018_zatca_invoice_submission.sql.
+    `ALTER TABLE invoices ADD COLUMN IF NOT EXISTS zatca_status       TEXT NOT NULL DEFAULT 'not_submitted'`,
+    `ALTER TABLE invoices ADD COLUMN IF NOT EXISTS zatca_icv          BIGINT`,
+    `ALTER TABLE invoices ADD COLUMN IF NOT EXISTS zatca_pih          TEXT`,
+    `ALTER TABLE invoices ADD COLUMN IF NOT EXISTS zatca_qr           TEXT`,
+    `ALTER TABLE invoices ADD COLUMN IF NOT EXISTS zatca_signed_xml   TEXT`,
+    `ALTER TABLE invoices ADD COLUMN IF NOT EXISTS zatca_submitted_at TIMESTAMPTZ`,
+    `ALTER TABLE invoices ADD COLUMN IF NOT EXISTS zatca_response     JSONB`,
+    // ICV is monotonically increasing per agency (invoice numbers reset yearly; ICV never resets)
+    `ALTER TABLE agencies ADD COLUMN IF NOT EXISTS zatca_invoice_counter BIGINT NOT NULL DEFAULT 0`,
   ];
 
   try {

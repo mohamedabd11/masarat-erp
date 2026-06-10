@@ -11,7 +11,7 @@ import { idempotencyKeys } from '@/lib/schema';
 import { getNextInvoiceNumber, getNextJournalNumber } from '@/lib/invoice-counter';
 import { assertPeriodOpen } from '@/lib/period-lock';
 import { GL } from '@/lib/gl-accounts';
-import { buildZatcaQr } from '@/lib/zatca-qr';
+import { buildZatcaInvoiceRecord, submitInvoiceToZatca } from '@/lib/zatca-einvoice';
 
 const AC = {
   receivable:       GL.receivable,
@@ -237,14 +237,24 @@ export async function POST(request: Request) {
           );
         }
 
-        // ── ZATCA QR — only for VAT-registered agencies with a vatNumber ─────
-        const zatcaQr = isVatRegistered && agency.vatNumber
-          ? buildZatcaQr({
-              sellerName:   agency.nameAr,
-              vatNumber:    agency.vatNumber,
-              invoiceDate:  today,
-              totalHalalas: finalGrandTotal,
-              vatHalalas:   totalVat,
+        // ── ZATCA e-invoice record — only for VAT-registered agencies ────────
+        // Builds the UUID + Phase 1 QR + validated UBL payload in one place;
+        // throws if the amounts cannot form a ZATCA-valid document.
+        const zatcaRecord = isVatRegistered && agency.vatNumber
+          ? buildZatcaInvoiceRecord({
+              uuid:            crypto.randomUUID(),
+              invoiceNumber,
+              issueDateTime:   now,
+              sellerNameAr:    agency.nameAr,
+              sellerNameEn:    agency.nameEn,
+              vatNumber:       agency.vatNumber,
+              crNumber:        agency.crNumber,
+              buyerName:       booking.customerNameAr || booking.customerNameEn || 'عميل نقدي',
+              vatRatePercent:  agency.vatRate ?? 15,
+              subtotalHalalas: subtotalExclVat,
+              vatHalalas:      totalVat,
+              totalHalalas:    finalGrandTotal,
+              items:           invoiceItems,
             })
           : null;
 
@@ -274,8 +284,8 @@ export async function POST(request: Request) {
           items:           invoiceItems,
           journalEntryId:  jLines.length > 0 ? jeId : null,
           createdBy:       uid,
-          zatcaUuid:       crypto.randomUUID(),
-          zatcaHash:       zatcaQr,
+          zatcaUuid:       zatcaRecord?.uuid ?? crypto.randomUUID(),
+          zatcaQr:         zatcaRecord?.qr ?? null,
         });
 
         if (jLines.length > 0) {
@@ -331,7 +341,12 @@ export async function POST(request: Request) {
       after: { invoiceNumber: result.invoiceNumber, bookingId },
     });
 
-    return NextResponse.json({ success: true, ...result });
+    // Phase 2 clearance/reporting — internally gated on production onboarding
+    // (skips with no network cost otherwise) and never throws; a failed
+    // submission is recorded on the invoice (zatca_status='failed') for retry.
+    const zatca = await submitInvoiceToZatca(agencyId, result.invoiceId);
+
+    return NextResponse.json({ success: true, ...result, zatcaStatus: zatca.status });
   } catch (err) {
     if (err instanceof ApiAuthError) {
       return NextResponse.json({ error: err.message }, { status: err.status });

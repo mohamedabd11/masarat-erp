@@ -75,10 +75,18 @@ vi.mock('@/lib/idempotency', () => ({
   buildIdempotencyInsert: vi.fn().mockReturnValue({}),
 }));
 
+vi.mock('@/lib/zatca-einvoice', () => ({
+  buildZatcaInvoiceRecord: vi.fn(() => ({
+    uuid: 'zatca-uuid-1', transactionType: 'B2C', qr: 'QR_TLV_BASE64', invoice: {},
+  })),
+  submitInvoiceToZatca: vi.fn(async () => ({ submitted: false, status: 'skipped', reason: 'test' })),
+}));
+
 vi.mock('drizzle-orm', () => ({
   eq:      vi.fn(() => ({})),
   and:     vi.fn((...a: unknown[]) => ({ a })),
   ne:      vi.fn(() => ({})),
+  asc:     vi.fn(() => ({})),
   sql:     Object.assign(vi.fn(), { raw: vi.fn() }),
   inArray: vi.fn(),
 }));
@@ -86,6 +94,10 @@ vi.mock('drizzle-orm', () => ({
 vi.mock('@/lib/schema', () => ({
   bookings:        { id: 'id', agencyId: 'agencyId', status: 'status' },
   agencies:        { id: 'id' },
+  bookingLines:    { id: 'id', agencyId: 'agencyId', bookingId: 'bookingId',
+                     sortOrder: 'sortOrder', createdAt: 'createdAt', status: 'status',
+                     isLegacy: 'isLegacy', totalPriceExclVatHalalas: 'totalPriceExclVatHalalas',
+                     vatHalalas: 'vatHalalas' },
   invoices:        { id: 'id', agencyId: 'agencyId', bookingId: 'bookingId',
                      status: 'status', paidHalalas: 'paidHalalas', totalHalalas: 'totalHalalas' },
   journalEntries:  {},
@@ -251,6 +263,7 @@ describe('POST /api/invoices/create', () => {
     mockCheckRateLimit.mockResolvedValue({ success: true });
     mockTxSelect.next([{ ...BOOKING, status: 'pending' }]);
     mockTxSelect.next([AGENCY]);
+    mockTxSelect.next([]);  // booking_lines
     const res = await POST(makeRequest({ bookingId: 'b1' }));
     expect(res.status).toBe(400);
     const data = await res.json();
@@ -263,6 +276,7 @@ describe('POST /api/invoices/create', () => {
     mockCheckRateLimit.mockResolvedValue({ success: true });
     mockTxSelect.next([{ ...BOOKING, status: 'cancelled' }]);
     mockTxSelect.next([AGENCY]);
+    mockTxSelect.next([]);  // booking_lines
     const res = await POST(makeRequest({ bookingId: 'b1' }));
     expect(res.status).toBe(400);
   });
@@ -273,7 +287,8 @@ describe('POST /api/invoices/create', () => {
     mockCheckRateLimit.mockResolvedValue({ success: true });
     mockTxSelect.next([BOOKING]);
     mockTxSelect.next([AGENCY]);
-    mockTxSelect.next([{ id: 'existing-invoice' }]);
+    mockTxSelect.next([]);                            // booking_lines (no active lines)
+    mockTxSelect.next([{ id: 'existing-invoice' }]); // existing invoice → 409
     const res = await POST(makeRequest({ bookingId: 'b1' }));
     expect(res.status).toBe(409);
   });

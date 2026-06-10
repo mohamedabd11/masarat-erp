@@ -25,6 +25,7 @@ const DEFAULT_COA = [
   { code: '4130', nameAr: 'إيرادات العمرة',              nameEn: 'Umrah Revenue',                type: 'revenue'   },
   { code: '4140', nameAr: 'إيرادات التأشيرات',           nameEn: 'Visa Revenue',                 type: 'revenue'   },
   { code: '4150', nameAr: 'إيرادات التأمين',             nameEn: 'Insurance Revenue',            type: 'revenue'   },
+  { code: '4200', nameAr: 'إيراد رسوم الإلغاء',          nameEn: 'Cancellation Fee Revenue',     type: 'revenue'   },
   { code: '4510', nameAr: 'إيراد فروق المطابقة البنكية',  nameEn: 'Bank Reconciliation Income',   type: 'revenue'   },
   { code: '4900', nameAr: 'أرباح فروق أسعار الصرف',       nameEn: 'FX Exchange Gain',             type: 'revenue'   },
   { code: '5000', nameAr: 'تكلفة الخدمات',               nameEn: 'Cost of Services',             type: 'expense'   },
@@ -94,6 +95,22 @@ export async function POST(request: Request): Promise<NextResponse> {
         }
       });
     }
+
+    // Backfill standard accounts introduced after this agency was created
+    // (e.g. Cancellation Fee Revenue, 4200 — added so refund postings stop
+    // colliding with Revenue - Agency Fees, 4000). Idempotent: onConflictDoNothing
+    // on the (agency_id, code) unique index makes this safe to run on every sync,
+    // for both new and pre-existing agencies.
+    await db.insert(chartOfAccounts).values({
+      id:       crypto.randomUUID(),
+      agencyId,
+      code:     '4200',
+      nameAr:   'إيراد رسوم الإلغاء',
+      nameEn:   'Cancellation Fee Revenue',
+      type:     'revenue',
+      isSystem: true,
+      level:    1,
+    }).onConflictDoNothing({ target: [chartOfAccounts.agencyId, chartOfAccounts.code] });
 
     // Upsert user row
     await db

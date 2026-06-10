@@ -23,8 +23,14 @@
 --   From migration 0004: shifts, attendance_records
 --   From migration 0009: accounting_periods
 --   From migration 0011: travel_events, provider_credentials, tickets
+--   Added later (see section 4 below — created via instrumentation.ts after
+--     this scaffold was authored): agency_features, booking_lines,
+--     bsp_billings, bsp_adjustments, eosb_accruals, leave_balances
 --
 -- Tables WITHOUT agency_id (excluded): agencies, idempotency_keys, ticket_coupons
+--   (idempotency_keys carries an OPTIONAL agency_id — nullable, not
+--   referenced — so a strict equality policy would hide its NULL-agency
+--   rows once enforced; left out by design, matching the original scaffold)
 
 -- ============================================================
 -- 1. Enable RLS
@@ -352,6 +358,74 @@ CREATE POLICY agency_isolation ON provider_credentials AS PERMISSIVE FOR ALL
   );
 
 CREATE POLICY agency_isolation ON tickets AS PERMISSIVE FOR ALL
+  USING (
+    current_setting('app.current_agency_id', true) IS NULL OR
+    current_setting('app.current_agency_id', true) = '' OR
+    agency_id = current_setting('app.current_agency_id', true)
+  );
+
+-- ============================================================
+-- 4. Tables added to the schema after the original RLS rollout
+--
+--    agency_features, booking_lines, bsp_billings, bsp_adjustments,
+--    eosb_accruals and leave_balances were introduced later (each
+--    carries a NOT NULL agency_id referencing agencies(id), the same
+--    shape as every table above). They were missing from this
+--    scaffold purely because it predates them — appended here, using
+--    the identical three-step pattern, so the policy set stays
+--    complete and accurate against the live schema.
+-- ============================================================
+
+ALTER TABLE agency_features ENABLE ROW LEVEL SECURITY;
+ALTER TABLE booking_lines   ENABLE ROW LEVEL SECURITY;
+ALTER TABLE bsp_billings    ENABLE ROW LEVEL SECURITY;
+ALTER TABLE bsp_adjustments ENABLE ROW LEVEL SECURITY;
+ALTER TABLE eosb_accruals   ENABLE ROW LEVEL SECURITY;
+ALTER TABLE leave_balances  ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY bypass_for_service_role ON agency_features AS PERMISSIVE FOR ALL TO CURRENT_USER USING (true);
+CREATE POLICY bypass_for_service_role ON booking_lines   AS PERMISSIVE FOR ALL TO CURRENT_USER USING (true);
+CREATE POLICY bypass_for_service_role ON bsp_billings    AS PERMISSIVE FOR ALL TO CURRENT_USER USING (true);
+CREATE POLICY bypass_for_service_role ON bsp_adjustments AS PERMISSIVE FOR ALL TO CURRENT_USER USING (true);
+CREATE POLICY bypass_for_service_role ON eosb_accruals   AS PERMISSIVE FOR ALL TO CURRENT_USER USING (true);
+CREATE POLICY bypass_for_service_role ON leave_balances  AS PERMISSIVE FOR ALL TO CURRENT_USER USING (true);
+
+CREATE POLICY agency_isolation ON agency_features AS PERMISSIVE FOR ALL
+  USING (
+    current_setting('app.current_agency_id', true) IS NULL OR
+    current_setting('app.current_agency_id', true) = '' OR
+    agency_id = current_setting('app.current_agency_id', true)
+  );
+
+CREATE POLICY agency_isolation ON booking_lines AS PERMISSIVE FOR ALL
+  USING (
+    current_setting('app.current_agency_id', true) IS NULL OR
+    current_setting('app.current_agency_id', true) = '' OR
+    agency_id = current_setting('app.current_agency_id', true)
+  );
+
+CREATE POLICY agency_isolation ON bsp_billings AS PERMISSIVE FOR ALL
+  USING (
+    current_setting('app.current_agency_id', true) IS NULL OR
+    current_setting('app.current_agency_id', true) = '' OR
+    agency_id = current_setting('app.current_agency_id', true)
+  );
+
+CREATE POLICY agency_isolation ON bsp_adjustments AS PERMISSIVE FOR ALL
+  USING (
+    current_setting('app.current_agency_id', true) IS NULL OR
+    current_setting('app.current_agency_id', true) = '' OR
+    agency_id = current_setting('app.current_agency_id', true)
+  );
+
+CREATE POLICY agency_isolation ON eosb_accruals AS PERMISSIVE FOR ALL
+  USING (
+    current_setting('app.current_agency_id', true) IS NULL OR
+    current_setting('app.current_agency_id', true) = '' OR
+    agency_id = current_setting('app.current_agency_id', true)
+  );
+
+CREATE POLICY agency_isolation ON leave_balances AS PERMISSIVE FOR ALL
   USING (
     current_setting('app.current_agency_id', true) IS NULL OR
     current_setting('app.current_agency_id', true) = '' OR

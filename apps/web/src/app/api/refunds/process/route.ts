@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { eq, and, sql } from 'drizzle-orm';
 import { db } from '@/lib/db';
-import { invoices, bookings, payments, journalEntries, journalLines, idempotencyKeys } from '@/lib/schema';
+import { invoices, bookings, payments, journalEntries, journalLines, idempotencyKeys, bookingLines } from '@/lib/schema';
 import { verifyAuth, assertRole, ApiAuthError, BusinessError, ROLES_ACCOUNTANT_UP } from '@/lib/api-auth';
 import { withIdempotency, buildIdempotencyInsert } from '@/lib/idempotency';
 import { getNextInvoiceNumber, getNextJournalNumber } from '@/lib/invoice-counter';
@@ -22,7 +22,7 @@ const AC = {
   vatPayable:       { code: '2200', ar: 'ضريبة القيمة المضافة مستحقة',  en: 'VAT Payable' },
   revenueAgent:     { code: '4000', ar: 'إيراد رسوم الوكالة',            en: 'Revenue - Agency Fees' },
   revenuePrincipal: { code: '4100', ar: 'إيراد خدمات السفر',             en: 'Revenue - Travel Services' },
-  cancellationFee:  { code: '4000', ar: 'إيراد رسوم الإلغاء',            en: 'Cancellation Fee Revenue' },
+  cancellationFee:  GL.cancellationFee,   // 4200 — dedicated code (must not collide with revenueAgent 4000)
   // Reversing the original purchase posting (Dr 5000 / Cr 2000 booked at invoice time)
   payableSupplier:  GL.payableSupplier,   // 2000 — Dr to reverse the original AP credit
   costOfServices:   GL.costOfServices,    // 5000 — Cr to reverse the original COGS debit
@@ -231,11 +231,31 @@ export async function POST(request: Request) {
         }
         const isFullyRefunded = (refundClaim[0]!.paidHalalas ?? 0) <= 0;
 
-        // Only cancel the booking on a full refund
+        // Sync booking.paidHalalas to reflect the refund
         if (isFullyRefunded) {
+          // Full refund → cancel booking + zero out paid amount
           await tx.update(bookings)
-            .set({ status: 'cancelled', updatedAt: now })
-            .where(eq(bookings.id, bookingId));
+            .set({ status: 'cancelled', paidHalalas: 0, updatedAt: now })
+            .where(and(eq(bookings.id, bookingId), eq(bookings.agencyId, agencyId)));
+
+          // Cascade to booking_lines — keeps the financial source-of-truth
+          // consistent (no 'active' line items survive under a cancelled booking;
+          // see booking-financials.ts and invoices/create's status='active' filter).
+          await tx.update(bookingLines)
+            .set({ status: 'cancelled', cancelledAt: now, updatedAt: now })
+            .where(and(
+              eq(bookingLines.bookingId, bookingId),
+              eq(bookingLines.agencyId, agencyId),
+              eq(bookingLines.status, 'active'),
+            ));
+        } else {
+          // Partial refund → decrement paidHalalas, booking stays active
+          await tx.update(bookings)
+            .set({
+              paidHalalas: sql`GREATEST(0, ${bookings.paidHalalas} - ${refundAmountHalalas})`,
+              updatedAt: now,
+            })
+            .where(and(eq(bookings.id, bookingId), eq(bookings.agencyId, agencyId)));
         }
 
         await tx.insert(idempotencyKeys)
