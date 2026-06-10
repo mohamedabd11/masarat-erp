@@ -37,8 +37,18 @@ export const invoices = pgTable('invoices', {
   paymentRef:        text('payment_ref'),
   // ZATCA
   zatcaUuid:         text('zatca_uuid'),
+  // Legacy rows store the Phase 1 QR TLV here; once submitted via Phase 2 this
+  // holds the real invoice hash (SHA-256 base64 of the canonical XML).
   zatcaHash:         text('zatca_hash'),
   isEInvoice:        boolean('is_e_invoice').notNull().default(false),
+  // ZATCA Phase 2 submission tracking
+  zatcaStatus:       text('zatca_status').notNull().default('not_submitted'), // not_submitted|pending|cleared|reported|warning|failed
+  zatcaIcv:          bigint('zatca_icv', { mode: 'number' }),     // invoice counter value assigned at signing
+  zatcaPih:          text('zatca_pih'),                           // previous invoice hash used in the chain
+  zatcaQr:           text('zatca_qr'),                            // QR TLV base64 (Phase 1 at issuance, Phase 2 after signing)
+  zatcaSignedXml:    text('zatca_signed_xml'),                    // signed UBL 2.1 XML
+  zatcaSubmittedAt:  timestamp('zatca_submitted_at', { withTimezone: true }),
+  zatcaResponse:     jsonb('zatca_response'),                     // validationResults from ZATCA
   // items stored as JSON array
   items:             jsonb('items'),
   notes:             text('notes'),

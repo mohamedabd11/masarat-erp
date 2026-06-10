@@ -54,12 +54,17 @@ function buildVatCategory(
 /**
  * يبني XML كامل لفاتورة ZATCA وفق UBL 2.1
  * القيمة المُعادة تحتاج للتوقيع الرقمي قبل الإرسال لـ ZATCA.
+ *
+ * @param icv  قيمة عدّاد الفاتورة ICV (تسلسلي لكل وكالة). عند غيابها تُستخرج
+ *             من رقم الفاتورة — لكن العدّاد الصريح هو الصحيح لأن أرقام
+ *             الفواتير تُعاد سنوياً بينما ICV يجب أن يبقى تصاعدياً دائماً.
  */
-export function buildInvoiceXml(invoice: ZatcaInvoice, previousHash: string): string {
+export function buildInvoiceXml(invoice: ZatcaInvoice, previousHash: string, icv?: number): string {
   const { dateStr, timeStr } = formatDateTime(invoice.issueDateTime);
 
-  // subtype codes: 0100000 = B2C standard, 0200000 = B2B standard
-  const subtypeCode = invoice.transactionType === 'B2B' ? '0200000' : '0100000';
+  // subtype codes (BR-KSA-06): 01xxxxx = فاتورة قياسية (B2B — clearance)
+  //                            02xxxxx = فاتورة مبسطة (B2C — reporting)
+  const subtypeCode = invoice.transactionType === 'B2B' ? '0100000' : '0200000';
 
   const xml = `<?xml version="1.0" encoding="UTF-8"?>
 <Invoice xmlns="urn:oasis:names:specification:ubl:schema:xsd:Invoice-2"
@@ -102,7 +107,7 @@ export function buildInvoiceXml(invoice: ZatcaInvoice, previousHash: string): st
   <!-- ── Hash الفاتورة السابقة (للتسلسل) ── -->
   <cac:AdditionalDocumentReference>
     <cbc:ID>ICV</cbc:ID>
-    <cbc:UUID>${extractCounter(invoice.invoiceNumber)}</cbc:UUID>
+    <cbc:UUID>${icv ?? extractCounter(invoice.invoiceNumber)}</cbc:UUID>
   </cac:AdditionalDocumentReference>
   <cac:AdditionalDocumentReference>
     <cbc:ID>PIH</cbc:ID>

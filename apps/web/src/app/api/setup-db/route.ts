@@ -942,6 +942,17 @@ ALTER TABLE agencies ADD COLUMN IF NOT EXISTS zatca_certificate_expiry   TIMESTA
 ALTER TABLE agencies ADD COLUMN IF NOT EXISTS zatca_last_invoice_hash    TEXT;
 ALTER TABLE agencies ADD COLUMN IF NOT EXISTS zatca_onboarded_at         TIMESTAMPTZ;
 ALTER TABLE agencies ADD COLUMN IF NOT EXISTS zatca_error_message        TEXT;
+-- ICV is monotonically increasing per agency (invoice numbers reset yearly; ICV never resets)
+ALTER TABLE agencies ADD COLUMN IF NOT EXISTS zatca_invoice_counter      BIGINT NOT NULL DEFAULT 0;
+
+-- Per-invoice Phase 2 submission tracking
+ALTER TABLE invoices ADD COLUMN IF NOT EXISTS zatca_status       TEXT NOT NULL DEFAULT 'not_submitted';
+ALTER TABLE invoices ADD COLUMN IF NOT EXISTS zatca_icv          BIGINT;
+ALTER TABLE invoices ADD COLUMN IF NOT EXISTS zatca_pih          TEXT;
+ALTER TABLE invoices ADD COLUMN IF NOT EXISTS zatca_qr           TEXT;
+ALTER TABLE invoices ADD COLUMN IF NOT EXISTS zatca_signed_xml   TEXT;
+ALTER TABLE invoices ADD COLUMN IF NOT EXISTS zatca_submitted_at TIMESTAMPTZ;
+ALTER TABLE invoices ADD COLUMN IF NOT EXISTS zatca_response     JSONB;
 
 -- ══ PERFORMANCE INDEXES (financial query hot paths) ══════════════════════════
 -- Composite indexes that back the agency-scoped report/GL/list queries.

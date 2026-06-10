@@ -75,6 +75,13 @@ vi.mock('@/lib/idempotency', () => ({
   buildIdempotencyInsert: vi.fn().mockReturnValue({}),
 }));
 
+vi.mock('@/lib/zatca-einvoice', () => ({
+  buildZatcaInvoiceRecord: vi.fn(() => ({
+    uuid: 'zatca-uuid-1', transactionType: 'B2C', qr: 'QR_TLV_BASE64', invoice: {},
+  })),
+  submitInvoiceToZatca: vi.fn(async () => ({ submitted: false, status: 'skipped', reason: 'test' })),
+}));
+
 vi.mock('drizzle-orm', () => ({
   eq:      vi.fn(() => ({})),
   and:     vi.fn((...a: unknown[]) => ({ a })),

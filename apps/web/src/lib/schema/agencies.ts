@@ -1,4 +1,4 @@
-import { pgTable, text, boolean, timestamp, integer } from 'drizzle-orm/pg-core';
+import { pgTable, text, boolean, timestamp, integer, bigint } from 'drizzle-orm/pg-core';
 
 export const agencies = pgTable('agencies', {
   id:                   text('id').primaryKey(),           // nanoid
@@ -60,6 +60,8 @@ export const agencies = pgTable('agencies', {
   zatcaLastInvoiceHash:       text('zatca_last_invoice_hash'),
   zatcaOnboardedAt:           timestamp('zatca_onboarded_at', { withTimezone: true }),
   zatcaErrorMessage:          text('zatca_error_message'),
+  // ICV — monotonically increasing per agency (never resets, unlike yearly invoice numbers)
+  zatcaInvoiceCounter:        bigint('zatca_invoice_counter', { mode: 'number' }).notNull().default(0),
 });
 
 export type Agency    = typeof agencies.$inferSelect;

@@ -440,6 +440,18 @@ export async function register() {
       ON payslips(agency_id, employee_id, month)`,
     `CREATE UNIQUE INDEX IF NOT EXISTS salary_payments_agency_emp_month_uq
       ON salary_payments(agency_id, employee_id, month)`,
+
+    // ── 2026-06-10 — ZATCA Phase 2 per-invoice submission tracking ───────────
+    // Mirrors drizzle/0018_zatca_invoice_submission.sql.
+    `ALTER TABLE invoices ADD COLUMN IF NOT EXISTS zatca_status       TEXT NOT NULL DEFAULT 'not_submitted'`,
+    `ALTER TABLE invoices ADD COLUMN IF NOT EXISTS zatca_icv          BIGINT`,
+    `ALTER TABLE invoices ADD COLUMN IF NOT EXISTS zatca_pih          TEXT`,
+    `ALTER TABLE invoices ADD COLUMN IF NOT EXISTS zatca_qr           TEXT`,
+    `ALTER TABLE invoices ADD COLUMN IF NOT EXISTS zatca_signed_xml   TEXT`,
+    `ALTER TABLE invoices ADD COLUMN IF NOT EXISTS zatca_submitted_at TIMESTAMPTZ`,
+    `ALTER TABLE invoices ADD COLUMN IF NOT EXISTS zatca_response     JSONB`,
+    // ICV is monotonically increasing per agency (invoice numbers reset yearly; ICV never resets)
+    `ALTER TABLE agencies ADD COLUMN IF NOT EXISTS zatca_invoice_counter BIGINT NOT NULL DEFAULT 0`,
   ];
 
   try {

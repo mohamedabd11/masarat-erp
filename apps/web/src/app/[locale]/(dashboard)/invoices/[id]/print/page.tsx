@@ -78,7 +78,7 @@ export default function PrintInvoicePage({
 
         let zatcaQrDataUrl: string | undefined;
         const invRecord = inv as Record<string, unknown>;
-        if (invRecord['zatcaHash']) {
+        if (invRecord['zatcaQr'] || invRecord['zatcaHash']) {
           try {
             const qrRes = await apiFetch<{ dataUrl: string }>(`/api/invoices/${params.id}/qr`);
             zatcaQrDataUrl = qrRes.dataUrl;
