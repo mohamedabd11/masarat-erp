@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { eq, and, desc, or, ilike, isNull, sql } from 'drizzle-orm';
+import { eq, and, desc, or, ilike, isNull, sql, count } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { pnrRecords } from '@/lib/schema';
 import { verifyAuth, assertRole, ApiAuthError, ROLES_AGENT_UP } from '@/lib/api-auth';
@@ -14,6 +14,9 @@ export async function GET(request: Request) {
     const customerId = url.searchParams.get('customerId') ?? undefined;
 
     const showDeleted = url.searchParams.get('deleted') === 'true';
+    const page     = Math.max(1, parseInt(url.searchParams.get('page')  ?? '1', 10) || 1);
+    const pageSize = Math.min(200, Math.max(1, parseInt(url.searchParams.get('limit') ?? '200', 10) || 200));
+    const offset   = (page - 1) * pageSize;
     const conditions = [
       eq(pnrRecords.agencyId, agencyId),
       ...(showDeleted ? [] : [isNull(pnrRecords.deletedAt)]),
@@ -32,14 +35,21 @@ export async function GET(request: Request) {
       );
     }
 
+    const [{ total }] = await db.select({ total: count(pnrRecords.id) })
+      .from(pnrRecords).where(and(...conditions));
+
     const rows = await db
       .select()
       .from(pnrRecords)
       .where(and(...conditions))
       .orderBy(desc(pnrRecords.createdAt))
-      .limit(200);
+      .limit(pageSize)
+      .offset(offset);
 
-    return NextResponse.json({ pnrRecords: rows });
+    return NextResponse.json({
+      pnrRecords: rows,
+      pagination: { page, pageSize, total: Number(total), totalPages: Math.ceil(Number(total) / pageSize) },
+    });
   } catch (err) {
     if (err instanceof ApiAuthError) return NextResponse.json({ error: err.message }, { status: err.status });
     return NextResponse.json({ error: 'خطأ في الخادم' }, { status: 500 });

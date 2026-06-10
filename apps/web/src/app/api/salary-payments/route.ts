@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { eq, and, desc } from 'drizzle-orm';
+import { eq, and, desc, count } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { salaryPayments, employees, journalEntries, journalLines, payslips } from '@/lib/schema';
 import { verifyAuth, assertRole, ApiAuthError, BusinessError, ROLES_ADMIN_ONLY } from '@/lib/api-auth';
@@ -7,6 +7,9 @@ import { requireFeature } from '@/lib/feature-access';
 import { getNextJournalNumber } from '@/lib/invoice-counter';
 import { assertPeriodOpen } from '@/lib/period-lock';
 import { GL } from '@/lib/gl-accounts';
+
+const DEFAULT_PAGE_SIZE = 50;
+const MAX_PAGE_SIZE     = 200;
 
 const METHOD_ACCOUNT: Record<string, { code: string; ar: string; en: string }> = {
   cash:          GL.cash,
@@ -24,16 +27,27 @@ export async function GET(request: Request) {
     await requireFeature(agencyId, 'payroll', db);
     const url        = new URL(request.url);
     const employeeId = url.searchParams.get('employeeId') ?? undefined;
+    const page     = Math.max(1, parseInt(url.searchParams.get('page')  ?? '1', 10) || 1);
+    const pageSize = Math.min(MAX_PAGE_SIZE, Math.max(1, parseInt(url.searchParams.get('limit') ?? String(DEFAULT_PAGE_SIZE), 10) || DEFAULT_PAGE_SIZE));
+    const offset   = (page - 1) * pageSize;
 
     const conditions = [eq(salaryPayments.agencyId, agencyId)];
     if (employeeId) conditions.push(eq(salaryPayments.employeeId, employeeId));
+
+    const [{ total }] = await db.select({ total: count(salaryPayments.id) })
+      .from(salaryPayments).where(and(...conditions));
 
     const rows = await db
       .select()
       .from(salaryPayments)
       .where(and(...conditions))
-      .orderBy(desc(salaryPayments.createdAt));
-    return NextResponse.json({ salaryPayments: rows });
+      .orderBy(desc(salaryPayments.createdAt))
+      .limit(pageSize)
+      .offset(offset);
+    return NextResponse.json({
+      salaryPayments: rows,
+      pagination: { page, pageSize, total: Number(total), totalPages: Math.ceil(Number(total) / pageSize) },
+    });
   } catch (err) {
     if (err instanceof ApiAuthError) return NextResponse.json({ error: err.message }, { status: err.status });
     return NextResponse.json({ error: 'خطأ في الخادم' }, { status: 500 });

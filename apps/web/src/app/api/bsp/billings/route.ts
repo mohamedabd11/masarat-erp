@@ -9,7 +9,7 @@
  *   DR BSP Payable 2150  / CR Bank 1100
  */
 import { NextResponse } from 'next/server';
-import { eq, and, desc } from 'drizzle-orm';
+import { eq, and, desc, count } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { bspBillings, journalEntries, journalLines } from '@/lib/schema';
 import { verifyAuth, assertRole, ApiAuthError, ROLES_ADMIN_ONLY, ROLES_MANAGER_UP } from '@/lib/api-auth';
@@ -21,19 +21,29 @@ export async function GET(request: Request) {
   try {
     const { agencyId, role } = await verifyAuth(request);
     assertRole(role, [...ROLES_MANAGER_UP]);
-    const url    = new URL(request.url);
-    const limit  = Math.min(100, parseInt(url.searchParams.get('limit') ?? '50', 10) || 50);
-    const offset = parseInt(url.searchParams.get('offset') ?? '0', 10) || 0;
+    const url      = new URL(request.url);
+    const pageSize = Math.min(100, Math.max(1, parseInt(url.searchParams.get('limit') ?? '50', 10) || 50));
+    const page     = Math.max(1, parseInt(url.searchParams.get('page') ?? '1', 10) || 1);
+    // Backward compatible: honour an explicit ?offset= when provided, else derive from page.
+    const offset   = url.searchParams.has('offset')
+      ? Math.max(0, parseInt(url.searchParams.get('offset') ?? '0', 10) || 0)
+      : (page - 1) * pageSize;
+
+    const [{ total }] = await db.select({ total: count(bspBillings.id) })
+      .from(bspBillings).where(eq(bspBillings.agencyId, agencyId));
 
     const rows = await db
       .select()
       .from(bspBillings)
       .where(eq(bspBillings.agencyId, agencyId))
       .orderBy(desc(bspBillings.billingPeriod))
-      .limit(limit)
+      .limit(pageSize)
       .offset(offset);
 
-    return NextResponse.json({ billings: rows });
+    return NextResponse.json({
+      billings: rows,
+      pagination: { page, pageSize, total: Number(total), totalPages: Math.ceil(Number(total) / pageSize) },
+    });
   } catch (err) {
     if (err instanceof ApiAuthError) return NextResponse.json({ error: err.message }, { status: err.status });
     return NextResponse.json({ error: 'خطأ في الخادم' }, { status: 500 });

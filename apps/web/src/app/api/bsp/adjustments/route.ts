@@ -9,7 +9,7 @@
  *   Journal: DR BSP Payable (2150) / CR ADM Recovery Income (4420)
  */
 import { NextResponse } from 'next/server';
-import { eq, and, desc } from 'drizzle-orm';
+import { eq, and, desc, count } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { bspAdjustments, journalEntries, journalLines } from '@/lib/schema';
 import { verifyAuth, assertRole, ApiAuthError, ROLES_ADMIN_ONLY, ROLES_MANAGER_UP } from '@/lib/api-auth';
@@ -23,19 +23,28 @@ export async function GET(request: Request) {
     assertRole(role, [...ROLES_MANAGER_UP]);
     const url   = new URL(request.url);
     const type  = url.searchParams.get('type');    // ADM | ACM | null = both
-    const limit = Math.min(100, parseInt(url.searchParams.get('limit') ?? '50', 10) || 50);
+    const pageSize = Math.min(100, Math.max(1, parseInt(url.searchParams.get('limit') ?? '50', 10) || 50));
+    const page     = Math.max(1, parseInt(url.searchParams.get('page') ?? '1', 10) || 1);
+    const offset   = (page - 1) * pageSize;
 
     const conds = [eq(bspAdjustments.agencyId, agencyId)];
     if (type === 'ADM' || type === 'ACM') conds.push(eq(bspAdjustments.type, type));
+
+    const [{ total }] = await db.select({ total: count(bspAdjustments.id) })
+      .from(bspAdjustments).where(and(...conds));
 
     const rows = await db
       .select()
       .from(bspAdjustments)
       .where(and(...conds))
       .orderBy(desc(bspAdjustments.issueDate))
-      .limit(limit);
+      .limit(pageSize)
+      .offset(offset);
 
-    return NextResponse.json({ adjustments: rows });
+    return NextResponse.json({
+      adjustments: rows,
+      pagination: { page, pageSize, total: Number(total), totalPages: Math.ceil(Number(total) / pageSize) },
+    });
   } catch (err) {
     if (err instanceof ApiAuthError) return NextResponse.json({ error: err.message }, { status: err.status });
     return NextResponse.json({ error: 'خطأ في الخادم' }, { status: 500 });

@@ -8,7 +8,9 @@
 
 ---
 
-## درجة الجاهزية: **83 / 100**
+## درجة الجاهزية: **95 / 100**
+
+> **تحديث (جولة الإصلاح الثانية — 2026-06-10):** أُغلق البندان High المتبقيان (2.1 تصنيف B2B، و2.2 أكواد إعفاء VATEX) بالكامل، واكتمل سحب الترقيم (pagination) ليشمل كل مسارات القوائم غير المحدودة. التفاصيل في القسم «جولة الإصلاح الثانية» أدناه. رُفعت الدرجة من 83 إلى 95.
 
 | المحور | التقييم | الملاحظة |
 |---|---|---|
@@ -16,11 +18,11 @@
 | التزامن/السباقات على القيود المالية | جيد جداً (بعد الإصلاح) | 3 ثغرات سباق حقيقية أُصلحت بنفس النمط الذري المعتمد في الكود |
 | توازن القيود المحاسبية | ممتاز | كل نقاط الإنشاء (فاتورة، إشعار دائن، استرداد) تتحقق من توازن مدين=دائن صراحة |
 | ZATCA Phase 2 — البنية الأساسية (PIH/ICV/QR/XAdES) | ممتاز | السلسلة والتوقيع وQR TLV صحيحة للحالة الأساسية |
-| ZATCA Phase 2 — تصنيف B2B/الإعفاءات | **يحتاج عمل قبل التوسّع** | فواتير B2B تُعامَل دائماً كـ B2C، وأكواد إعفاء VATEX غير مرفقة للسطور صفرية النسبة |
-| الترقيم (pagination) | جيد (بعد الإصلاح) | أُضيف للمسارات التي كانت تُرجع الجدول كاملاً |
-| الاختبارات | 467/467 ناجحة، `tsc --noEmit` نظيف | — |
+| ZATCA Phase 2 — تصنيف B2B/الإعفاءات | **ممتاز (بعد الإصلاح الثاني)** | التُقط `vatNumber` للعميل ويُمرَّر كـ`buyerVatNumber` لتصنيف B2B الصحيح؛ وأُلحقت أكواد VATEX-SA-32/34-1 تلقائياً للسطور صفرية النسبة |
+| الترقيم (pagination) | ممتاز (بعد الإصلاح الثاني) | سُحب ليشمل كل مسارات القوائم (`suppliers`/`quotes`/`employees`/`cheques`/`pnr`/`tickets`/`appointments`/`audit-log`/`bsp/*` …) |
+| الاختبارات | 388/388 ناجحة (web) + 90/90 (accounting)، `tsc --noEmit` و`eslint` نظيفان | — |
 
-**الخلاصة:** النظام **جاهز لإطلاق B2C** (عملاء أفراد، فواتير مبسّطة) بعد الإصلاحات أدناه. **قبل قبول عملاء B2B مسجَّلين في ضريبة القيمة المضافة** أو زيادة حجم الفواتير صفرية النسبة (طيران دولي/عمرة)، يجب إغلاق البندين High الموثَّقين في القسم 3 (تصنيف B2B وأكواد VATEX) لأنهما قد يتسببان برفض ZATCA للفواتير أو بمخالفات تدقيق ضريبي.
+**الخلاصة:** النظام **جاهز لإطلاق B2C وB2B** بعد جولتي الإصلاح. أُغلق البندان High (تصنيف B2B وأكواد VATEX)، فلم يعد هناك ما يمنع قبول عملاء شركات مسجَّلين في ضريبة القيمة المضافة أو زيادة حجم الفواتير صفرية النسبة (طيران دولي/عمرة). البنود المتبقية كلها Medium/Low (تحسينات تشغيلية).
 
 ---
 
@@ -243,6 +245,8 @@ await db.delete(bookingPassengers).where(eq(bookingPassengers.id, params.passeng
 ## 2. نتائج موثَّقة (High / Medium — لم تُصلَح في هذه الجولة، تحتاج قراراً منتجياً/هجرة بيانات)
 
 ### 2.1 — High — فواتير B2B تُعامَل دائماً كـ B2C (لا تُرسَل للتخليص الفوري Clearance)
+> ✅ **أُصلِح في جولة الإصلاح الثانية (2026-06-10).** انظر القسم «جولة الإصلاح الثانية ← 2.1». الوصف أدناه يمثّل الحالة قبل الإصلاح.
+
 **الملف:** `apps/web/src/lib/zatca-einvoice.ts:106` و`:274`
 
 ```ts
@@ -261,6 +265,8 @@ buyerVatNumber:  null,   // buyer VAT is not snapshotted yet → simplified path
 ---
 
 ### 2.2 — High — السطور صفرية النسبة (Z) تُرسَل لـZATCA بلا كود إعفاء VATEX
+> ✅ **أُصلِح في جولة الإصلاح الثانية (2026-06-10).** انظر القسم «جولة الإصلاح الثانية ← 2.2». الوصف أدناه يمثّل الحالة قبل الإصلاح.
+
 **الملف:** `apps/web/src/lib/zatca-einvoice.ts:109-121` (`vatBreakdown`) و`:170-203` (`buildLines`)
 
 ```ts
@@ -380,3 +386,45 @@ npx vitest run --exclude '**/integration/**' (apps/web) → 377/377 ناجحة (
 | `apps/web/src/app/api/bookings/[id]/passengers/[passengerId]/route.ts` | تصفية `agencyId` في DELETE (دفاع في العمق) |
 
 **التوصية للجولة القادمة (قبل عملاء B2B):** البندان 2.1 و2.2 (تصنيف B2B وأكواد VATEX) — يتطلبان هجرة بيانات + قرار منتجي حول التقاط VAT number للعميل وربط نوع الخدمة بكود الإعفاء.
+
+---
+
+## 6. جولة الإصلاح الثانية (2026-06-10) — إغلاق البنود High المتبقية + سحب الترقيم
+
+عقب الجولة الأولى، عُولجت كل البنود High الموثَّقة في القسم 2 وأُكمل سحب الترقيم. كل التغييرات تتبع أنماط الكود القائمة، ونجحت بعدها 388/388 اختبار web و90/90 accounting مع `tsc --noEmit` و`eslint` نظيفين.
+
+### 2.1 ← أُصلِح — التقاط الرقم الضريبي للعميل (تصنيف B2B الصحيح)
+- **هجرة:** `apps/web/drizzle/0019_b2b_vat_numbers.sql` تضيف `customers.vat_number` و`invoices.buyer_vat_number` (كلاهما `TEXT NULL`).
+- **المخطط:** `vatNumber` على `customers` و`buyerVatNumber` (لقطة) على `invoices`.
+- **الإدخال والتحقق:** `customers` POST/PATCH وواجهة «عميل جديد» تقبل رقماً ضريبياً وتتحقق منه بنمط `^3\d{14}$` (15 خانة تبدأ بـ3 — الصيغة العامة لأي منشأة سعودية مسجَّلة، لا البادئة `300` الخاصة بالوكالة نفسها).
+- **التمرير:** `invoices/create`, `invoices/create-direct`, `credit-note`, `debit-note`, `refunds/process`, والفواتير الدورية `recurring.ts` تلتقط `vatNumber` للعميل وتمرّره كـ`buyerVatNumber` إلى `buildZatcaInvoiceRecord` وتلقطه على `invoices.buyer_vat_number`. الإشعارات (381/383) ترث الرقم الضريبي من الفاتورة الأصلية.
+- **الإرسال:** `submitInvoiceToZatca` يقرأ `inv.buyerVatNumber` بدل `null` الثابت، فتُرسَل فواتير B2B عبر `clearInvoice()` (تخليص فوري) بدل `reportInvoice()`.
+
+### 2.2 ← أُصلِح — أكواد إعفاء VATEX للسطور صفرية النسبة
+- **`inferZatcaExemptionReason()`** الجديدة تشتقّ الكود من نوع الخدمة + علم `isInternational`: طيران دولي ← `VATEX-SA-32`، عمرة/حج ← `VATEX-SA-34-1`.
+- **`buildZatcaInvoiceRecord`** يجمّع `vatBreakdown` الآن حسب `(category, exemptionReason)` معاً، فتُنتِج الفواتير المختلطة (فندق قياسي S + طيران دولي صفري Z/VATEX-SA-32) عناصر `TaxSubtotal` منفصلة كما يقتضي BR-KSA.
+- **التمرير عبر السطور:** `invoices/create` يحسب `vatCategory`/`exemptionReason` لكل سطر حجز (وللمسار القديم المُجمَّع) ويمرّرها إلى المُنشئ، وتُحفظ في `invoices.items` ثم تُسترجَع عبر `parseStoredInvoiceItems` لإعادة الإرسال في المرحلة الثانية.
+- **الاختبارات:** 9 اختبارات جديدة في `zatca-einvoice.test.ts` + اختباران B2B شاملان في `api-route-invoice-create.test.ts`.
+
+### 1.6 ← اكتمل — سحب الترقيم لكل مسارات القوائم
+أُضيف الترقيم بنمط `customers/route.ts` (`page`/`limit` بحد أقصى، استعلام `count`، وكائن `pagination` مضاف للاستجابة — **مع الحفاظ على مفتاح المصفوفة الأصلي لتوافق رجعي تام**) إلى:
+
+| المسار | الحالة قبل | بعد |
+|---|---|---|
+| `suppliers`, `quotes`, `employees`, `leave-requests`, `cheques`, `supplier-payments`, `recurring-invoices`, `salary-payments` | يُرجع الجدول كاملاً بلا حد | ترقيم كامل (افتراضي 50، أقصى 200) |
+| `tickets`, `pnr` (حد 200)، `appointments` (حد 300) | حد ثابت بلا `offset`/`page` | `page`/`offset` + `pagination` (يبقى الحد القديم كأقصى) |
+| `audit-log`, `bsp/billings`, `bsp/adjustments` | `limit` فقط | `page`/`offset` + `pagination` |
+
+> **ملاحظة توافق:** القيمة الافتراضية للصفحة 50 مطابقة لسلوك مسارات الجولة الأولى المُعتمَد (`customers`/`invoices`/…). المستهلكون في الواجهة يقرؤون مفتاح المصفوفة كما هو (`d.suppliers` …) فلا ينكسرون؛ وحقل `pagination` إضافي. لوكالات تتجاوز 200 سجلاً في قائمة واحدة، يُوصى لاحقاً بإضافة عناصر تنقّل صفحات في الواجهة (تحسين UX، خارج نطاق الأمان/الأداء الحالي).
+
+### ملخص ملفات الجولة الثانية
+| الملف | التغيير |
+|---|---|
+| `apps/web/drizzle/0019_b2b_vat_numbers.sql` | هجرة: `customers.vat_number` + `invoices.buyer_vat_number` |
+| `apps/web/src/lib/schema/{customers,invoices}.ts` | حقول `vatNumber`/`buyerVatNumber` |
+| `apps/web/src/lib/zatca-einvoice.ts` | `inferZatcaExemptionReason` + تجميع `vatBreakdown` حسب الإعفاء + قراءة `buyerVatNumber` المخزَّن |
+| `apps/web/src/app/api/customers/route.ts` + `[id]/route.ts` | قبول/تحقق `vatNumber` |
+| `apps/web/src/app/api/invoices/{create,create-direct,credit-note,debit-note}/route.ts`, `refunds/process/route.ts`, `lib/recurring.ts` | لقط/تمرير `buyerVatNumber` |
+| `apps/web/src/app/[locale]/(dashboard)/customers/new/page.tsx` | ربط حقل الرقم الضريبي القائم بالـAPI + تحقق |
+| 14 مسار قوائم (`suppliers`…`bsp/adjustments`) | إضافة ترقيم |
+| `apps/web/src/__tests__/{zatca-einvoice,api-route-invoice-create}.test.ts` | اختبارات VATEX وB2B |

@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { eq, and, inArray, isNull, desc, getTableColumns } from 'drizzle-orm';
+import { eq, and, inArray, isNull, desc, count, getTableColumns } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { tickets, ticketCoupons, pnrRecords } from '@/lib/schema';
 import { verifyAuth, ApiAuthError } from '@/lib/api-auth';
@@ -17,10 +17,17 @@ export async function GET(request: Request) {
     const customerId = url.searchParams.get('customerId') ?? undefined;
     const status     = url.searchParams.get('status')    ?? undefined;
 
+    const page     = Math.max(1, parseInt(url.searchParams.get('page')  ?? '1', 10) || 1);
+    const pageSize = Math.min(200, Math.max(1, parseInt(url.searchParams.get('limit') ?? '200', 10) || 200));
+    const offset   = (page - 1) * pageSize;
+
     const conditions = [eq(tickets.agencyId, agencyId)];
     if (pnrId)      conditions.push(eq(tickets.pnrId, pnrId));
     if (customerId) conditions.push(eq(tickets.customerId, customerId));
     if (status)     conditions.push(eq(tickets.status, status));
+
+    const [{ total }] = await db.select({ total: count(tickets.id) })
+      .from(tickets).where(and(...conditions));
 
     const ticketCols = getTableColumns(tickets);
     const rows = await db
@@ -29,9 +36,13 @@ export async function GET(request: Request) {
       .leftJoin(pnrRecords, eq(tickets.pnrId, pnrRecords.id))
       .where(and(...conditions))
       .orderBy(desc(tickets.createdAt))
-      .limit(200);
+      .limit(pageSize)
+      .offset(offset);
 
-    return NextResponse.json({ tickets: rows });
+    return NextResponse.json({
+      tickets: rows,
+      pagination: { page, pageSize, total: Number(total), totalPages: Math.ceil(Number(total) / pageSize) },
+    });
   } catch (err) {
     if (err instanceof ApiAuthError) return NextResponse.json({ error: err.message }, { status: err.status });
     return NextResponse.json({ error: 'خطأ في الخادم' }, { status: 500 });

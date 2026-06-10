@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { eq, and, desc, gte, lte } from 'drizzle-orm';
+import { eq, and, desc, gte, lte, count } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { appointments } from '@/lib/schema';
 import { verifyAuth, assertRole, ApiAuthError, ROLES_AGENT_UP } from '@/lib/api-auth';
@@ -18,6 +18,10 @@ export async function GET(request: Request) {
     const from       = url.searchParams.get('from')       ?? undefined;
     const to         = url.searchParams.get('to')         ?? undefined;
 
+    const page     = Math.max(1, parseInt(url.searchParams.get('page')  ?? '1', 10) || 1);
+    const pageSize = Math.min(300, Math.max(1, parseInt(url.searchParams.get('limit') ?? '300', 10) || 300));
+    const offset   = (page - 1) * pageSize;
+
     const conditions = [eq(appointments.agencyId, agencyId)];
     if (customerId) conditions.push(eq(appointments.customerId, customerId));
     if (assignedTo) conditions.push(eq(appointments.assignedTo, assignedTo));
@@ -25,14 +29,21 @@ export async function GET(request: Request) {
     if (from)       conditions.push(gte(appointments.scheduledAt, new Date(from)));
     if (to)         conditions.push(lte(appointments.scheduledAt, new Date(to)));
 
+    const [{ total }] = await db.select({ total: count(appointments.id) })
+      .from(appointments).where(and(...conditions));
+
     const rows = await db
       .select()
       .from(appointments)
       .where(and(...conditions))
       .orderBy(desc(appointments.scheduledAt))
-      .limit(300);
+      .limit(pageSize)
+      .offset(offset);
 
-    return NextResponse.json({ appointments: rows });
+    return NextResponse.json({
+      appointments: rows,
+      pagination: { page, pageSize, total: Number(total), totalPages: Math.ceil(Number(total) / pageSize) },
+    });
   } catch (err) {
     if (err instanceof ApiAuthError) return NextResponse.json({ error: err.message }, { status: err.status });
     return NextResponse.json({ error: 'خطأ في الخادم' }, { status: 500 });
