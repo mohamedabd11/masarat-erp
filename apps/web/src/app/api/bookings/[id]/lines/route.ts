@@ -1,8 +1,9 @@
 import { NextResponse } from 'next/server';
 import { eq, and, asc } from 'drizzle-orm';
 import { db } from '@/lib/db';
-import { bookings, bookingLines, VAT_RATE_BPS } from '@/lib/schema';
+import { bookings, bookingLines, invoices, VAT_RATE_BPS } from '@/lib/schema';
 import type { VatCategory } from '@/lib/schema';
+import { inArray } from 'drizzle-orm';
 import { verifyAuth, assertRole, ApiAuthError, BusinessError, ROLES_MANAGER_UP } from '@/lib/api-auth';
 import { syncBookingTotalsFromLines } from '@/lib/booking-financials';
 
@@ -55,6 +56,25 @@ export async function POST(
     if (!booking) return NextResponse.json({ error: 'الحجز غير موجود' }, { status: 404 });
     if (booking.status === 'cancelled') {
       return NextResponse.json({ error: 'لا يمكن إضافة سطر لحجز ملغي' }, { status: 422 });
+    }
+
+    // Block adding lines once a live invoice exists for this booking. Otherwise the
+    // booking totals (recomputed by syncBookingTotalsFromLines) would silently
+    // diverge from the already-issued invoice, leaving AR exposure with no matching
+    // invoice. Corrections after invoicing must go through a debit/credit note.
+    const [liveInvoice] = await db.select({ id: invoices.id })
+      .from(invoices)
+      .where(and(
+        eq(invoices.bookingId, booking.id),
+        eq(invoices.agencyId, agencyId),
+        inArray(invoices.status, ['issued', 'partial', 'paid']),
+      ))
+      .limit(1);
+    if (liveInvoice) {
+      return NextResponse.json(
+        { error: 'لا يمكن إضافة خدمات بعد إصدار الفاتورة — استخدم إشعاراً مديناً لإضافة رسوم' },
+        { status: 422 },
+      );
     }
 
     const body = await request.json() as {

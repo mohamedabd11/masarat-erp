@@ -17,11 +17,26 @@ export async function GET(request: Request) {
 
     if (!agency) return NextResponse.json({ error: 'وكالة غير موجودة' }, { status: 404 });
 
-    // Never return the SMTP password to the client
-    const { smtpPassword: _, ...safeAgency } = agency as typeof agency & { smtpPassword?: unknown };
-    const smtpConfigured = Boolean(agency.smtpHost && agency.smtpUser);
+    // Never return secrets to the client: SMTP password + all encrypted ZATCA
+    // credentials (CSIDs, secrets, private key). Strip them and surface only
+    // booleans indicating whether each integration is configured.
+    const {
+      smtpPassword:        _smtpPw,
+      zatcaComplianceCsid: _zcc,
+      zatcaComplianceSecret: _zcs,
+      zatcaProductionCsid: _zpc,
+      zatcaProductionSecret: _zps,
+      zatcaPrivateKey:     _zpk,
+      ...safeAgency
+    } = agency as typeof agency & Record<string, unknown>;
+    const smtpConfigured  = Boolean(agency.smtpHost && agency.smtpUser);
+    const zatcaConfigured = Boolean(agency.zatcaProductionCsid || agency.zatcaComplianceCsid);
 
-    return NextResponse.json({ agency: { ...safeAgency, smtpConfigured }, user: user ?? null, users: allUsers });
+    return NextResponse.json({
+      agency: { ...safeAgency, smtpConfigured, zatcaConfigured },
+      user: user ?? null,
+      users: allUsers,
+    });
   } catch (err) {
     if (err instanceof ApiAuthError) return NextResponse.json({ error: err.message }, { status: err.status });
     return NextResponse.json({ error: 'خطأ في الخادم' }, { status: 500 });

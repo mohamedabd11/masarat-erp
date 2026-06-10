@@ -12,7 +12,7 @@
  * reducing the amount the customer still owes on the invoice.
  */
 import { NextResponse } from 'next/server';
-import { eq, and } from 'drizzle-orm';
+import { eq, and, isNull } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { invoices, receiptVouchers, journalEntries, journalLines } from '@/lib/schema';
 import { verifyAuth, assertRole, ApiAuthError, BusinessError, ROLES_ACCOUNTANT_UP } from '@/lib/api-auth';
@@ -109,9 +109,19 @@ export async function POST(
         .where(eq(invoices.id, invoice.id));
 
       // ── 6. Link voucher to invoice ────────────────────────────────────────
-      await tx.update(receiptVouchers)
+      // Atomic claim: only succeeds if the voucher is still unapplied. Two
+      // concurrent requests reading the same unapplied voucher (step 2) cannot
+      // both reach here — the loser matches 0 rows and the whole transaction
+      // rolls back, so the advance is never double-applied.
+      const [claimed] = await tx.update(receiptVouchers)
         .set({ invoiceId: invoice.id })
-        .where(eq(receiptVouchers.id, body.voucherId));
+        .where(and(
+          eq(receiptVouchers.id, body.voucherId),
+          eq(receiptVouchers.agencyId, agencyId),
+          isNull(receiptVouchers.invoiceId),
+        ))
+        .returning({ id: receiptVouchers.id });
+      if (!claimed) throw new BusinessError('سند القبض مُطبَّق مسبقاً على فاتورة أخرى', 409);
 
       return { applyAmount, newPaid, newStatus, journalEntryId: jeId };
     });

@@ -59,6 +59,15 @@ export async function POST(req: Request, { params }: RouteCtx) {
           throw new BusinessError('لا يمكن تسجيل دفعة على فاتورة ملغاة أو مستردة', 422);
         }
 
+        // Also block payment when the underlying booking is cancelled — the
+        // invoice may still read 'issued' while the operational booking is dead.
+        const [booking] = await tx.select({ status: bookings.status })
+          .from(bookings)
+          .where(and(eq(bookings.id, bookingId), eq(bookings.agencyId, agencyId)));
+        if (booking && booking.status === 'cancelled') {
+          throw new BusinessError('لا يمكن تسجيل دفعة على حجز ملغي', 422);
+        }
+
         const remaining = invoice.totalHalalas - invoice.paidHalalas;
         if (amountHalalas > remaining) {
           throw new BusinessError(`مبلغ القسط (${amountHalalas / 100} ر.س) يتجاوز المتبقي (${remaining / 100} ر.س)`, 400);

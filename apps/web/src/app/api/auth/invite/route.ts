@@ -47,7 +47,9 @@ export async function POST(request: Request) {
     if (!callerAgency) {
       return NextResponse.json({ error: 'يجب تسجيل الدخول أولاً' }, { status: 401 });
     }
-    if (callerRole !== 'admin') {
+    // Only owner/admin may invite. (Non-admins are blocked here, so a lower role
+    // can never escalate a new user above its own tier.)
+    if (callerRole !== 'owner' && callerRole !== 'admin') {
       return NextResponse.json({ error: 'فقط مدير الوكالة يمكنه دعوة مستخدمين' }, { status: 403 });
     }
 

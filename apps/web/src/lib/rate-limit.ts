@@ -84,6 +84,17 @@ export async function checkRateLimit(
     return checkRedisRateLimit(identifier, type, config);
   }
 
+  // Fail closed in production: the in-memory fallback resets on every serverless
+  // cold start, so it provides NO real protection against brute-force on auth /
+  // register / financial routes. Requiring a distributed store mirrors how
+  // CRON_SECRET and ENCRYPTION_KEY fail closed. Evaluated per-call (not at module
+  // load) so `next build` — which runs with NODE_ENV=production — is unaffected.
+  if (process.env.NODE_ENV === 'production') {
+    throw new Error(
+      'UPSTASH_REDIS_REST_URL/TOKEN are required in production — the in-memory rate limiter is ineffective in serverless and must not be used',
+    );
+  }
+
   // In-memory (development only)
   return checkMemoryRateLimit(identifier, type, config);
 }

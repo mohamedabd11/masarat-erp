@@ -98,7 +98,10 @@ export async function PATCH(
 
     await db.update(providerCredentials)
       .set(patch as Partial<typeof providerCredentials.$inferInsert>)
-      .where(eq(providerCredentials.id, params.id));
+      .where(and(
+        eq(providerCredentials.id, params.id),
+        eq(providerCredentials.agencyId, agencyId),
+      ));
 
     await logAudit({
       agencyId,
@@ -142,7 +145,10 @@ export async function DELETE(
     }
 
     await db.delete(providerCredentials)
-      .where(eq(providerCredentials.id, params.id));
+      .where(and(
+        eq(providerCredentials.id, params.id),
+        eq(providerCredentials.agencyId, agencyId),
+      ));
 
     await logAudit({
       agencyId,

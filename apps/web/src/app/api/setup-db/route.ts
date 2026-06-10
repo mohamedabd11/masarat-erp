@@ -1147,7 +1147,11 @@ export async function POST(req: NextRequest) {
 
   let authorized = false;
 
-  if (secret && secret === process.env.SETUP_SECRET) {
+  // Defense-in-depth: a weak/short SETUP_SECRET must never grant DDL access. The
+  // env var must be present AND at least 16 chars before the header path is even
+  // considered, so an accidentally-blank secret can't authorise.
+  const setupSecret = process.env.SETUP_SECRET;
+  if (secret && setupSecret && setupSecret.length >= 16 && secret === setupSecret) {
     authorized = true;
   } else if (bearerToken) {
     try {

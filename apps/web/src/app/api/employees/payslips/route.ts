@@ -117,8 +117,13 @@ export async function POST(request: Request) {
     const gross     = base + housing + transport + other;
     const deduct    = body.deductionsHalalas ?? 0;
 
-    // Compute GOSI server-side from agency-configured rates (basis points × 100)
-    const gosiBase         = base + housing;
+    // Compute GOSI server-side from agency-configured rates (basis points × 100).
+    // GOSI contributory wage (الأجر الخاضع) = basic + housing, capped at the
+    // statutory ceiling of 45,000 SAR/month (GOSI Law). Without this cap a
+    // high earner would over-contribute, overstating GOSI payable/expense and
+    // understating net pay.
+    const GOSI_CEILING_HALALAS = 45_000 * 100; // 45,000 SAR
+    const gosiBase         = Math.min(base + housing, GOSI_CEILING_HALALAS);
     const isExpat          = (employee.nationalityType ?? 'saudi') === 'expat';
     const empRateBps       = isExpat ? 0 : (agency?.gosiEmployeeRateSaudi ?? 1000);
     const emplrRateBps     = isExpat ? (agency?.gosiEmployerRateExpat ?? 200) : (agency?.gosiEmployerRateSaudi ?? 1200);

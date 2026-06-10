@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { eq, and, ilike, or, desc, sql } from 'drizzle-orm';
+import { eq, and, ilike, desc, inArray, sql } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { groupTrips, groupTripMembers } from '@/lib/schema';
 import { verifyAuth, assertRole, ApiAuthError, BusinessError, ROLES_AGENT_UP, ROLES_MANAGER_UP } from '@/lib/api-auth';
@@ -46,7 +46,7 @@ export async function GET(req: Request) {
         .from(groupTripMembers)
         .where(and(
           eq(groupTripMembers.agencyId, agencyId),
-          sql`${groupTripMembers.groupTripId} = ANY(ARRAY[${sql.raw(ids.map((id) => `'${id}'`).join(','))}]::text[])`,
+          inArray(groupTripMembers.groupTripId, ids),
           sql`${groupTripMembers.status} != 'cancelled'`,
         ))
         .groupBy(groupTripMembers.groupTripId);
