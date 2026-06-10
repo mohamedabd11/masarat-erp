@@ -149,11 +149,13 @@ export async function POST(request: Request) {
     return NextResponse.json({ success: true });
 
   } catch (err: unknown) {
+    // Uniform response for every outcome — never reveal whether the email is
+    // registered (prevents account enumeration). Unexpected failures (email
+    // provider outage, misconfiguration) are logged server-side only.
     const code = (err as { code?: string }).code ?? '';
-    if (code === 'auth/user-not-found' || code === 'auth/invalid-email') {
-      return NextResponse.json({ success: false, error: 'not_found' });
+    if (code !== 'auth/user-not-found' && code !== 'auth/invalid-email') {
+      console.error(JSON.stringify({ event: 'forgot_password_failed', code, error: (err as Error).message }));
     }
-    // Swallow unexpected errors silently
     return NextResponse.json({ success: true });
   }
 }

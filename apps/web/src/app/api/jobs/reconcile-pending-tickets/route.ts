@@ -8,12 +8,12 @@ import { resolveFlightProviderByCode } from '@/lib/provider-factory';
 import { generateDueRecurringInvoices } from '@/lib/recurring';
 import { recognizeDueRevenue } from '@/lib/revenue-recognition';
 import { markOverdueInstallments } from '@/lib/payment-plans';
+import { requireCronAuth } from '@/lib/cron-auth';
 import type { ExchangeResult } from '@/lib/providers/types';
 
 // Invoked by Vercel Cron: "30 * * * *" (offset 30 min from expire-pnrs at :00)
 // Authorization: Bearer ${CRON_SECRET}
-// Production: CRON_SECRET is required — missing secret → 401 (fail closed)
-// Development: unprotected when CRON_SECRET is unset
+// CRON_SECRET is required in every environment — missing/invalid → 401 (fail closed)
 //
 // Heals all pending_* tickets where Phase 3 (local transaction) failed
 // after the provider call (Phase 2) already succeeded.
@@ -34,19 +34,8 @@ const RECOVERABLE = ['pending', 'pending_void', 'pending_refund', 'pending_excha
 const MAX_ATTEMPTS = 20;
 
 export async function GET(request: Request) {
-  const secret = process.env['CRON_SECRET'];
-  const isDev  = process.env['NODE_ENV'] !== 'production';
-
-  if (!secret && !isDev) {
-    console.error(JSON.stringify({ event: 'cron_misconfigured', route: 'reconcile-pending-tickets', reason: 'CRON_SECRET not set in production' }));
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
-  if (secret) {
-    const auth = request.headers.get('authorization') ?? '';
-    if (auth !== `Bearer ${secret}`) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
-  }
+  const unauthorized = await requireCronAuth(request, 'reconcile-pending-tickets');
+  if (unauthorized) return unauthorized;
 
   const now                = new Date();
 

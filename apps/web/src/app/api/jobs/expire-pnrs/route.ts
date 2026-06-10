@@ -3,25 +3,14 @@ import { eq, and, lt, isNull, inArray } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { pnrRecords } from '@/lib/schema';
 import { logTravelEvent } from '@/lib/travel-event-log';
+import { requireCronAuth } from '@/lib/cron-auth';
 
 // Invoked by Vercel Cron every hour: "0 * * * *"
 // Authorization: Bearer ${CRON_SECRET}
-// Production: CRON_SECRET is required — missing secret → 401 (fail closed)
-// Development: unprotected when CRON_SECRET is unset
+// CRON_SECRET is required in every environment — missing/invalid → 401 (fail closed)
 export async function GET(request: Request) {
-  const secret = process.env['CRON_SECRET'];
-  const isDev  = process.env['NODE_ENV'] !== 'production';
-
-  if (!secret && !isDev) {
-    console.error(JSON.stringify({ event: 'cron_misconfigured', route: 'expire-pnrs', reason: 'CRON_SECRET not set in production' }));
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
-  if (secret) {
-    const auth = request.headers.get('authorization') ?? '';
-    if (auth !== `Bearer ${secret}`) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
-  }
+  const unauthorized = await requireCronAuth(request, 'expire-pnrs');
+  if (unauthorized) return unauthorized;
 
   const now = new Date();
 

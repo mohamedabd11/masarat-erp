@@ -49,20 +49,24 @@ export default function LoginPage() {
     }
     setResetSending(true);
     setResetError('');
+    const failMsg = isAr
+      ? 'تعذر إرسال الطلب، يرجى المحاولة لاحقاً'
+      : 'Could not send the request, please try again later';
     try {
       const res  = await fetch('/api/auth/forgot-password', {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
         body:    JSON.stringify({ email, locale }),
       });
-      const data = await res.json() as { success: boolean; error?: string };
-      if (!data.success && data.error === 'not_found') {
-        setResetError(isAr
-          ? 'هذا البريد الإلكتروني غير مسجّل في النظام'
-          : 'This email is not registered in the system');
+      // The API responds uniformly whether or not the email is registered
+      // (anti-enumeration) — only transport-level failures surface an error.
+      if (!res.ok) {
+        setResetError(failMsg);
         return;
       }
       setResetDone(true);
+    } catch {
+      setResetError(failMsg);
     } finally {
       setResetSending(false);
     }
@@ -124,8 +128,8 @@ export default function LoginPage() {
           {resetDone ? (
             <div className="rounded-xl bg-emerald-50 border border-emerald-200 px-5 py-4 text-sm text-emerald-700 text-center leading-relaxed">
               {isAr
-                ? 'تم إرسال رابط إعادة تعيين كلمة المرور إلى بريدك الإلكتروني. تحقق من صندوق الوارد والبريد المزعج.'
-                : 'A password reset link has been sent to your email. Please check your inbox and spam folder.'}
+                ? 'إذا كان هذا البريد مسجلاً لدينا فستصلك رسالة برابط إعادة التعيين. تحقق من صندوق الوارد والبريد المزعج.'
+                : 'If this email is registered with us, you\'ll receive a reset link. Please check your inbox and spam folder.'}
             </div>
           ) : (
             <div className="space-y-4">
