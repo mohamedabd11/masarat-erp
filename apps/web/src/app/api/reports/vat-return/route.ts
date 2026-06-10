@@ -28,6 +28,10 @@ export async function GET(request: Request) {
     if (!from || !to) {
       return NextResponse.json({ error: 'from و to مطلوبان (YYYY-MM-DD)' }, { status: 400 });
     }
+    const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
+    if (!ISO_DATE.test(from) || !ISO_DATE.test(to)) {
+      return NextResponse.json({ error: 'صيغة التاريخ يجب أن تكون YYYY-MM-DD' }, { status: 400 });
+    }
 
     // Verify agency is VAT-registered
     const [agency] = await db.select().from(agencies).where(eq(agencies.id, agencyId));

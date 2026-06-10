@@ -53,16 +53,22 @@ export async function POST(request: Request) {
     await db.transaction(async (tx) => {
       await assertPeriodOpen(agencyId, today, tx);
       for (const inv of due) {
+        // Race-safe claim: atomically flag the invoice as recognised ONLY if it
+        // hasn't been already (mirrors recognizeDueRevenue in the cron path). A
+        // concurrent run — cron + manual, or a double POST — matches 0 rows here
+        // and is skipped, so the same deferral can never be recognised twice
+        // (which would double-count both revenue and output VAT).
+        const [claimed] = await tx.update(invoices)
+          .set({ revenueRecognizedAt: today, updatedAt: new Date() })
+          .where(and(eq(invoices.id, inv.id), isNull(invoices.revenueRecognizedAt)))
+          .returning({ id: invoices.id });
+        if (!claimed) continue;
+
         // The deferred amount is the revenue portion (subtotal excl. VAT). VAT was
-        // already posted to VAT Payable at issuance and is not deferred.
+        // already posted to VAT Payable at issuance and is not deferred. Nothing to
+        // post for a zero-amount deferral — the claim above already flagged it.
         const amount = inv.subtotalHalalas;
-        if (amount <= 0) {
-          // Nothing to recognise; still flag it as recognised so it isn't re-scanned.
-          await tx.update(invoices)
-            .set({ revenueRecognizedAt: today, updatedAt: new Date() })
-            .where(eq(invoices.id, inv.id));
-          continue;
-        }
+        if (amount <= 0) continue;
 
         const jeId     = crypto.randomUUID();
         const jeNumber = await getNextJournalNumber(agencyId, year, tx);
@@ -100,10 +106,6 @@ export async function POST(request: Request) {
             sortOrder:     i + 1,
           });
         }
-
-        await tx.update(invoices)
-          .set({ revenueRecognizedAt: today, updatedAt: new Date() })
-          .where(eq(invoices.id, inv.id));
 
         recognized.push({ id: inv.id, invoiceNumber: inv.invoiceNumber, amountHalalas: amount, journalEntryId: jeId });
       }

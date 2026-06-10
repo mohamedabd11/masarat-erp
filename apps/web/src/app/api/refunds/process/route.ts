@@ -47,6 +47,11 @@ export async function POST(request: Request) {
     if (!Number.isInteger(cancellationFeeHalalas) || cancellationFeeHalalas < 0) {
       return NextResponse.json({ error: 'رسوم الإلغاء غير صالحة' }, { status: 400 });
     }
+    // At least one of the two must be positive — a 0/0 request would otherwise
+    // create an empty credit note and a zero-amount payment record.
+    if (refundAmountHalalas + cancellationFeeHalalas <= 0) {
+      return NextResponse.json({ error: 'يجب أن يكون مبلغ الاسترداد أو رسوم الإلغاء أكبر من صفر' }, { status: 400 });
+    }
 
     const result = await withIdempotency(idempKey, agencyId, 'processRefund', async () => {
       return db.transaction(async (tx) => {

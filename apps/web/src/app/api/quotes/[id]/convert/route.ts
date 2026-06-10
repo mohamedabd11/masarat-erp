@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { eq, and } from 'drizzle-orm';
 import { db } from '@/lib/db';
-import { quotes, bookings, bookingLines } from '@/lib/schema';
+import { quotes, bookings, bookingLines, agencies } from '@/lib/schema';
 import { verifyAuth, assertRole, ApiAuthError, ROLES_AGENT_UP } from '@/lib/api-auth';
 import { getNextBookingNumber } from '@/lib/invoice-counter';
 import { logAudit } from '@/lib/audit';
@@ -22,6 +22,13 @@ export async function POST(request: Request, { params }: { params: { id: string 
     if (!quote) {
       return NextResponse.json({ error: 'عرض السعر غير موجود' }, { status: 404 });
     }
+
+    // VAT settings of the agency — used to split the quote's (VAT-inclusive)
+    // total into a taxable base + VAT for the resulting booking line.
+    const [agency] = await db
+      .select({ isVatRegistered: agencies.isVatRegistered, vatRate: agencies.vatRate })
+      .from(agencies)
+      .where(eq(agencies.id, agencyId));
 
     // Only approved or sent quotes can be converted
     if (!CONVERTIBLE_STATUSES.has(quote.status)) {
@@ -57,7 +64,18 @@ export async function POST(request: Request, { params }: { params: { id: string 
       for (const item of items) {
         costPriceHalalas += Number(item['costHalalas'] ?? item['cost'] ?? 0);
       }
-      const profitHalalas = totalPriceHalalas - costPriceHalalas;
+
+      // quote.totalHalalas is the VAT-inclusive price agreed with the customer.
+      // For VAT-registered agencies, back-calculate the taxable base + VAT so the
+      // resulting invoice charges standard-rate output VAT instead of silently
+      // zero-rating the whole amount (ZATCA 'Z' requires a justified exemption).
+      const isVatRegistered = agency?.isVatRegistered === true;
+      const vatRatePercent  = agency?.vatRate ?? 15;
+      const lineVatHalalas  = isVatRegistered
+        ? Math.round(totalPriceHalalas * vatRatePercent / (100 + vatRatePercent))
+        : 0;
+      const lineSubtotalHalalas = totalPriceHalalas - lineVatHalalas;
+      const profitHalalas = lineSubtotalHalalas - costPriceHalalas;
 
       await tx.insert(bookings).values({
         id:               bookingId,
@@ -79,10 +97,10 @@ export async function POST(request: Request, { params }: { params: { id: string 
       });
 
       // Create a consolidating booking_line so this booking enters the canonical
-      // financial layer (booking_lines as source of truth).
-      // vatCategory='Z' (zero-rated, vatHalalas=0) because quote.totalHalalas is
-      // the agreed final amount — we don't back-calculate VAT from an opaque total.
-      // The caller can refine lines via POST /api/bookings/:id/lines after conversion.
+      // financial layer (booking_lines as source of truth). VAT is split out of
+      // the quote's VAT-inclusive total above; non-VAT-registered agencies fall
+      // back to vatCategory='Z' / vatHalalas=0 (no VAT applies regardless).
+      // The caller can still refine lines via POST /api/bookings/:id/lines after conversion.
       await tx.insert(bookingLines).values({
         id:                       crypto.randomUUID(),
         bookingId,
@@ -94,11 +112,11 @@ export async function POST(request: Request, { params }: { params: { id: string 
         quantity:                 1,
         unitCostHalalas:          costPriceHalalas,
         totalCostHalalas:         costPriceHalalas,
-        unitPriceExclVatHalalas:  totalPriceHalalas,
-        totalPriceExclVatHalalas: totalPriceHalalas,
-        vatCategory:              'Z',
-        vatRateBps:               0,
-        vatHalalas:               0,
+        unitPriceExclVatHalalas:  lineSubtotalHalalas,
+        totalPriceExclVatHalalas: lineSubtotalHalalas,
+        vatCategory:              isVatRegistered ? 'S' : 'Z',
+        vatRateBps:               isVatRegistered ? vatRatePercent * 100 : 0,
+        vatHalalas:               lineVatHalalas,
         revenueModel:             'agent',
         revenueAccountCode:       null,
         costAccountCode:          null,

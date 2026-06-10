@@ -71,7 +71,10 @@ export async function DELETE(req: Request, { params }: RouteCtx) {
       ));
     if (!existing) return NextResponse.json({ error: 'المسافر غير موجود' }, { status: 404 });
 
-    await db.delete(bookingPassengers).where(eq(bookingPassengers.id, params.passengerId));
+    await db.delete(bookingPassengers).where(and(
+      eq(bookingPassengers.id, params.passengerId),
+      eq(bookingPassengers.agencyId, agencyId),
+    ));
 
     return NextResponse.json({ success: true });
   } catch (err) {

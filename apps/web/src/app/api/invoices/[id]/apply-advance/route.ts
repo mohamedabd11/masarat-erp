@@ -12,7 +12,7 @@
  * reducing the amount the customer still owes on the invoice.
  */
 import { NextResponse } from 'next/server';
-import { eq, and, isNull } from 'drizzle-orm';
+import { eq, and, isNull, sql } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { invoices, receiptVouchers, journalEntries, journalLines } from '@/lib/schema';
 import { verifyAuth, assertRole, ApiAuthError, BusinessError, ROLES_ACCOUNTANT_UP } from '@/lib/api-auth';
@@ -98,15 +98,25 @@ export async function POST(
         },
       ]);
 
-      // ── 5. Update invoice paidHalalas & status ────────────────────────────
-      const newPaid = (invoice.paidHalalas ?? 0) + applyAmount;
-      const newStatus = newPaid >= invoice.totalHalalas ? 'paid'
-        : newPaid > 0 ? 'partial'
-        : invoice.status;
-
-      await tx.update(invoices)
-        .set({ paidHalalas: newPaid, status: newStatus, updatedAt: now })
-        .where(eq(invoices.id, invoice.id));
+      // ── 5. Update invoice paidHalalas & status (atomic, race-safe) ────────
+      // Increment in SQL and re-check the remaining balance in the WHERE clause
+      // so two advances applied to the SAME invoice concurrently (via different
+      // vouchers) can never lost-update paidHalalas. 0 rows → the balance no
+      // longer covers this apply → roll back with a 409.
+      const [updatedInv] = await tx.update(invoices)
+        .set({
+          paidHalalas: sql`${invoices.paidHalalas} + ${applyAmount}`,
+          status: sql`CASE WHEN ${invoices.paidHalalas} + ${applyAmount} >= ${invoices.totalHalalas} THEN 'paid' ELSE 'partial' END`,
+          updatedAt: now,
+        })
+        .where(and(
+          eq(invoices.id, invoice.id),
+          sql`(${invoices.totalHalalas} - ${invoices.paidHalalas}) >= ${applyAmount}`,
+        ))
+        .returning({ paidHalalas: invoices.paidHalalas, status: invoices.status });
+      if (!updatedInv) throw new BusinessError('تعذّر تطبيق الدفعة المقدمة — تعارض متزامن، حاول مجدداً', 409);
+      const newPaid   = updatedInv.paidHalalas;
+      const newStatus = updatedInv.status;
 
       // ── 6. Link voucher to invoice ────────────────────────────────────────
       // Atomic claim: only succeeds if the voucher is still unapplied. Two
