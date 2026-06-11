@@ -79,3 +79,39 @@ export const GL = {
 } as const;
 
 export type GLAccount = { code: string; ar: string; en: string };
+
+// ── Supplier-payment account maps (L7) ─────────────────────────────────────────
+// Centralized here so the supplier-payments `create` and `reverse` routes share a
+// single source of truth instead of each redefining the same maps inline (which
+// had drifted — e.g. the cash label differed between routes).
+
+/**
+ * Debit (expense) account chosen per supplier-payment expense category.
+ *
+ * `supplier`: the cost was ALREADY recognised (Dr 5000 / Cr 2000) when the
+ * purchase invoice was booked, so paying the supplier merely settles the payable
+ * (debit 2000) — NOT 5000 (which would double-count the cost). Every other
+ * category is a genuine direct expense with no prior invoice posting and debits
+ * its own expense account.
+ *
+ * NOTE: `salaries` here (5100 — cash-basis direct pay) is intentionally distinct
+ * from the payroll module's accrual account `GL.salaryExpense` (6100).
+ */
+export const SUPPLIER_PAYMENT_EXPENSE_ACCOUNT: Record<string, GLAccount> = {
+  supplier:    GL.payableSupplier,
+  salaries:    { code: '5100', ar: 'الرواتب والأجور',  en: 'Salaries' },
+  rent:        { code: '5200', ar: 'الإيجار',          en: 'Rent' },
+  marketing:   { code: '5300', ar: 'التسويق والإعلان', en: 'Marketing' },
+  operational: GL.operatingExpenses,
+  office:      GL.operatingExpenses,
+  other:       GL.operatingExpenses,
+};
+
+/** Credit (cash/clearing) account chosen per payment method, for supplier payments. */
+export const PAYMENT_METHOD_ACCOUNT: Record<string, GLAccount> = {
+  cash:          GL.cash,
+  bank_transfer: GL.bank,
+  card:          GL.posCard,
+  online:        GL.posCard,
+  check:         GL.bank,
+};

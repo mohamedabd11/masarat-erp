@@ -8,7 +8,7 @@ import { assertPeriodOpen } from '@/lib/period-lock';
 import { withIdempotency, markIdempotencyComplete } from '@/lib/idempotency';
 import { logAudit } from '@/lib/audit';
 import { lookupFxRate, fxToHalalas } from '@/lib/fx';
-import { GL } from '@/lib/gl-accounts';
+import { GL, SUPPLIER_PAYMENT_EXPENSE_ACCOUNT, PAYMENT_METHOD_ACCOUNT } from '@/lib/gl-accounts';
 import type { Tx } from '@/lib/db';
 
 interface SupplierPaymentBody {
@@ -31,35 +31,14 @@ interface SupplierPaymentBody {
   vatAmountHalalas?: number;  // optional: VAT portion of the payment (for Input VAT claim)
 }
 
-// Debit account chosen per expense category.
-//
-// `supplier`: the cost was ALREADY recognised (Dr 5000 / Cr 2000) when the
-// purchase invoice was booked. Paying the supplier merely settles the payable,
-// so the debit goes to 2000 Accounts Payable — NOT to 5000 (which would
-// double-count the cost). All other categories are genuine direct expenses
-// (no prior invoice posting) and keep debiting their expense account.
-const EXPENSE_ACCOUNT: Record<string, { code: string; ar: string; en: string }> = {
-  supplier:    GL.payableSupplier,
-  salaries:    { code: '5100', ar: 'الرواتب والأجور',     en: 'Salaries' },
-  rent:        { code: '5200', ar: 'الإيجار',             en: 'Rent' },
-  marketing:   { code: '5300', ar: 'التسويق والإعلان',    en: 'Marketing' },
-  operational: { code: '5400', ar: 'المصاريف التشغيلية',  en: 'Operating Expenses' },
-  office:      { code: '5400', ar: 'المصاريف التشغيلية',  en: 'Operating Expenses' },
-  other:       { code: '5400', ar: 'المصاريف التشغيلية',  en: 'Operating Expenses' },
-};
+// Debit (expense) and credit (payment-method) account maps are centralized in
+// gl-accounts.ts (L7) so create + reverse share one source of truth. See
+// SUPPLIER_PAYMENT_EXPENSE_ACCOUNT for the per-category posting rationale.
 
 // FX differences post to dedicated 5900 (loss) / 4900 (gain) accounts —
 // NEVER to 6100 (Salary Expense).
 const AC_FX_LOSS = GL.fxLoss;
 const AC_FX_GAIN = GL.fxGain;
-
-const METHOD_ACCOUNT: Record<string, { code: string; ar: string; en: string }> = {
-  cash:          { code: '1100', ar: 'الصندوق النقدي', en: 'Cash' },
-  bank_transfer: { code: '1110', ar: 'البنك',           en: 'Bank' },
-  card:          { code: '1115', ar: 'نقاط البيع',      en: 'POS / Card' },
-  online:        { code: '1115', ar: 'نقاط البيع',      en: 'POS / Card' },
-  check:         { code: '1110', ar: 'البنك',           en: 'Bank' },
-};
 
 export async function POST(request: Request) {
   try {
@@ -118,8 +97,8 @@ export async function POST(request: Request) {
       const spId          = crypto.randomUUID();
       const jeId          = crypto.randomUUID();
 
-      const expenseAc = EXPENSE_ACCOUNT[expenseCategory] ?? EXPENSE_ACCOUNT['other']!;
-      const paymentAc = METHOD_ACCOUNT[paymentMethod]    ?? METHOD_ACCOUNT['cash']!;
+      const expenseAc = SUPPLIER_PAYMENT_EXPENSE_ACCOUNT[expenseCategory] ?? SUPPLIER_PAYMENT_EXPENSE_ACCOUNT['other']!;
+      const paymentAc = PAYMENT_METHOD_ACCOUNT[paymentMethod]             ?? PAYMENT_METHOD_ACCOUNT['cash']!;
 
       await tx.insert(supplierPayments).values({
         id:              spId,

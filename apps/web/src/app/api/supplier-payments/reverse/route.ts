@@ -4,31 +4,13 @@ import { db } from '@/lib/db';
 import { supplierPayments, suppliers, journalEntries, journalLines } from '@/lib/schema';
 import { verifyAuth, assertRole, ApiAuthError, BusinessError, ROLES_ADMIN_ONLY } from '@/lib/api-auth';
 import { getNextJournalNumber } from '@/lib/invoice-counter';
-import { GL } from '@/lib/gl-accounts';
+import { SUPPLIER_PAYMENT_EXPENSE_ACCOUNT, PAYMENT_METHOD_ACCOUNT } from '@/lib/gl-accounts';
 import { assertPeriodOpen } from '@/lib/period-lock';
 
 interface ReverseBody {
   supplierPaymentId: string;
   reason?:           string;
 }
-
-const EXPENSE_ACCOUNT: Record<string, { code: string; ar: string; en: string }> = {
-  supplier:    GL.payableSupplier,
-  salaries:    { code: '5100', ar: 'الرواتب والأجور',     en: 'Salaries' },
-  rent:        { code: '5200', ar: 'الإيجار',             en: 'Rent' },
-  marketing:   { code: '5300', ar: 'التسويق والإعلان',    en: 'Marketing' },
-  operational: GL.operatingExpenses,
-  office:      GL.operatingExpenses,
-  other:       GL.operatingExpenses,
-};
-
-const METHOD_ACCOUNT: Record<string, { code: string; ar: string; en: string }> = {
-  cash:          GL.cash,
-  bank_transfer: GL.bank,
-  card:          GL.posCard,
-  online:        GL.posCard,
-  check:         GL.bank,
-};
 
 export async function POST(request: Request) {
   try {
@@ -68,8 +50,8 @@ export async function POST(request: Request) {
 
       await assertPeriodOpen(agencyId, today, tx);
 
-      const expenseAc = EXPENSE_ACCOUNT[expenseCategory] ?? EXPENSE_ACCOUNT['other']!;
-      const paymentAc = METHOD_ACCOUNT[paymentMethod]    ?? METHOD_ACCOUNT['cash']!;
+      const expenseAc = SUPPLIER_PAYMENT_EXPENSE_ACCOUNT[expenseCategory] ?? SUPPLIER_PAYMENT_EXPENSE_ACCOUNT['other']!;
+      const paymentAc = PAYMENT_METHOD_ACCOUNT[paymentMethod]             ?? PAYMENT_METHOD_ACCOUNT['cash']!;
 
       const origJLines = orig.journalEntryId
         ? await tx.select().from(journalLines)

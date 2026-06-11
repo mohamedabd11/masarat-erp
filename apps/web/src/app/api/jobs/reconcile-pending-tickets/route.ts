@@ -34,6 +34,14 @@ import type { ExchangeResult } from '@/lib/providers/types';
 const RECOVERABLE = ['pending', 'pending_void', 'pending_refund', 'pending_exchange'] as const;
 const MAX_ATTEMPTS = 20;
 
+// Cron healing job — raise the function ceiling (Hobby max is 60s) so a batch of
+// serial provider round-trips isn't killed at the ~10s default. The ticket loop is
+// additionally bounded by RUN_BUDGET_MS (below the ceiling) to leave headroom for
+// the final DB writes + response; any tickets not reached this run keep their prior
+// lastReconciliationAt and are retried on the next run (B5).
+export const maxDuration = 60;
+const RUN_BUDGET_MS = 50_000;
+
 export async function GET(request: Request) {
   const unauthorized = await requireCronAuth(request, 'reconcile-pending-tickets');
   if (unauthorized) return unauthorized;
@@ -89,13 +97,14 @@ export async function GET(request: Request) {
     .limit(50);
 
   if (batch.length === 0) {
-    return NextResponse.json({ reconciled: 0, voided: 0, reset: 0, manualReview: 0, recurring, revenueRecognition, overdueInstallments });
+    return NextResponse.json({ reconciled: 0, voided: 0, reset: 0, manualReview: 0, deferred: 0, recurring, revenueRecognition, overdueInstallments });
   }
 
   let reconciled   = 0;
   let voided       = 0;
   let reset        = 0;
   let manualReview = 0;
+  let deferred     = 0;
 
   // Stamp lastReconciliationAt WITHOUT counting the attempt — used for transient
   // failures (provider unreachable, credential missing, PNR not found) so a
@@ -104,7 +113,37 @@ export async function GET(request: Request) {
   const throttle = (id: string) =>
     db.update(tickets).set({ lastReconciliationAt: now, updatedAt: now }).where(eq(tickets.id, id));
 
-  for (const ticket of batch) {
+  // Resolve each (agency, provider) credential set at most once per run — many
+  // pending tickets share the same issuing provider, and resolution hits the
+  // credential store. A cached `null` marks a known-bad/unreachable credential so
+  // it isn't re-attempted for every ticket in the same run (B5).
+  type ResolvedProvider = Awaited<ReturnType<typeof resolveFlightProviderByCode>>;
+  const providerCache = new Map<string, ResolvedProvider | null>();
+  const resolveProviderCached = async (agencyId: string, issuingProvider: string): Promise<ResolvedProvider | null> => {
+    const key = `${agencyId}::${issuingProvider}`;
+    const cached = providerCache.get(key);
+    if (cached !== undefined) return cached;
+    try {
+      const resolved = await resolveFlightProviderByCode(issuingProvider, agencyId);
+      providerCache.set(key, resolved);
+      return resolved;
+    } catch {
+      providerCache.set(key, null);
+      return null;
+    }
+  };
+
+  for (let i = 0; i < batch.length; i++) {
+    const ticket = batch[i]!;
+
+    // Wall-clock budget: stop before we risk a hard function timeout (which would
+    // also discard the piggybacked jobs' response). Unreached tickets keep their
+    // prior lastReconciliationAt and are processed on the next run.
+    if (Date.now() - now.getTime() > RUN_BUDGET_MS) {
+      deferred = batch.length - i;
+      break;
+    }
+
     try {
       // ── Orphan handling ────────────────────────────────────────────────────
       // Triggered only once a ticket has accrued MAX_ATTEMPTS *real* (deterministic)
@@ -126,17 +165,13 @@ export async function GET(request: Request) {
         .where(eq(pnrRecords.id, ticket.pnrId));
       if (!pnr) { await throttle(ticket.id); continue; }
 
-      let provider, credentials, providerCode: string;
-      try {
-        ({ provider, credentials, providerCode } = await resolveFlightProviderByCode(
-          ticket.issuingProvider,
-          ticket.agencyId,
-        ));
-      } catch {
+      const resolved = await resolveProviderCached(ticket.agencyId, ticket.issuingProvider);
+      if (!resolved) {
         // Credential deactivated / provider unreachable — transient, throttle only.
         await throttle(ticket.id);
         continue;
       }
+      const { provider, credentials, providerCode } = resolved;
 
       // ── Real, deterministic attempt — now count it toward MAX_ATTEMPTS ──────
       await db.update(tickets).set({
@@ -178,7 +213,7 @@ export async function GET(request: Request) {
     }
   }
 
-  return NextResponse.json({ reconciled, voided, reset, manualReview, recurring, revenueRecognition, overdueInstallments });
+  return NextResponse.json({ reconciled, voided, reset, manualReview, deferred, recurring, revenueRecognition, overdueInstallments });
 }
 
 // ── Handlers ─────────────────────────────────────────────────────────────────
