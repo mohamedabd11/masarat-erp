@@ -8,9 +8,9 @@
  * Buckets: Current (0-30d), 31-60d, 61-90d, 90+d
  */
 import { NextResponse } from 'next/server';
-import { eq, and, lte, sql } from 'drizzle-orm';
+import { eq, and, ne, lte, sql } from 'drizzle-orm';
 import { db } from '@/lib/db';
-import { suppliers, supplierPayments } from '@/lib/schema';
+import { suppliers, supplierPayments, journalLines, journalEntries } from '@/lib/schema';
 import { verifyAuth, ApiAuthError } from '@/lib/api-auth';
 
 export async function GET(request: Request) {
@@ -19,6 +19,37 @@ export async function GET(request: Request) {
     const url   = new URL(request.url);
     const asOf  = url.searchParams.get('asOf') ?? new Date().toISOString().slice(0, 10);
     const asOfDate = new Date(asOf + 'T23:59:59');
+
+    // ── Reconcile the subledger to the GL control account (2000) ──────────────
+    // suppliers.balanceHalalas is maintained at invoice time (CRIT-9) and on
+    // payment, but in-house/legacy lines with no supplierId book to 2000 without a
+    // supplier attribution. Surface the difference between Σ subledger balances and
+    // the GL AP balance so it can never silently diverge.
+    const apGlRows = await db
+      .select({ netCredit: sql<number>`cast(coalesce(sum(${journalLines.creditHalalas} - ${journalLines.debitHalalas}), 0) as bigint)` })
+      .from(journalLines)
+      .innerJoin(journalEntries, eq(journalLines.entryId, journalEntries.id))
+      .where(and(
+        eq(journalLines.agencyId, agencyId),
+        eq(journalEntries.isPosted, true),
+        ne(journalEntries.source, 'closing'),
+        sql`${journalLines.accountCode} = '2000'`,
+        lte(sql`${journalEntries.date}`, sql`${asOf}`),
+      ));
+    const apGlBalance = Number(apGlRows[0]?.netCredit ?? 0);
+
+    const supBalRows = await db
+      .select({ total: sql<number>`cast(coalesce(sum(${suppliers.balanceHalalas}), 0) as bigint)` })
+      .from(suppliers)
+      .where(eq(suppliers.agencyId, agencyId));
+    const supplierBalanceTotal = Number(supBalRows[0]?.total ?? 0);
+
+    const reconciliation = {
+      supplierBalanceTotal,
+      apGlBalance,
+      difference: apGlBalance - supplierBalanceTotal,
+      reconciled: apGlBalance === supplierBalanceTotal,
+    };
 
     // Load all active suppliers with outstanding balance
     const allSuppliers = await db
@@ -31,7 +62,7 @@ export async function GET(request: Request) {
       ));
 
     if (allSuppliers.length === 0) {
-      return NextResponse.json({ asOf, rows: [], totals: { current: 0, days31_60: 0, days61_90: 0, days91plus: 0, total: 0 } });
+      return NextResponse.json({ asOf, rows: [], totals: { current: 0, days31_60: 0, days61_90: 0, days91plus: 0, total: 0 }, reconciliation });
     }
 
     // For each supplier, bucket their unpaid/outstanding payments by date
@@ -103,7 +134,7 @@ export async function GET(request: Request) {
       { current: 0, days31_60: 0, days61_90: 0, days91plus: 0, total: 0 },
     );
 
-    return NextResponse.json({ asOf, rows, totals });
+    return NextResponse.json({ asOf, rows, totals, reconciliation });
   } catch (err) {
     if (err instanceof ApiAuthError) return NextResponse.json({ error: err.message }, { status: err.status });
     console.error(JSON.stringify({ event: 'supplier_aging_error', error: String(err) }));

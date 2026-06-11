@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { eq, and, sql } from 'drizzle-orm';
+import { eq, and, ne, sql } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { invoices, supplierPayments, agencies, bookings, journalLines, journalEntries } from '@/lib/schema';
 import { verifyAuth, assertRole, ApiAuthError, ROLES_ACCOUNTANT_UP } from '@/lib/api-auth';
@@ -145,6 +145,7 @@ export async function GET(request: Request) {
       .where(and(
         eq(journalLines.agencyId, agencyId),
         eq(journalEntries.isPosted, true),
+        ne(journalEntries.source, 'closing'),
         sql`${journalLines.accountCode} = '1230'`,
         sql`${journalLines.debitHalalas} > 0`,
         sql`${journalEntries.date} >= ${from}`,
@@ -153,8 +154,33 @@ export async function GET(request: Request) {
 
     const inputVat = Number(inputVatRows[0]?.inputVat ?? 0);
 
+    // ── Authoritative Output VAT from the GL (account 2200) ───────────────────
+    // The number FILED to ZATCA must equal VAT Payable in the ledger, not the sum
+    // of invoices.vatHalalas (which excludes cancelled invoices while their 2200
+    // reversal stays in the GL → report ≠ trial balance). Output VAT is the net
+    // CREDIT movement on 2200 over the period; credit/debit notes and refunds
+    // (which debit 2200) net automatically. Mirrors balance-sheet/trial-balance.
+    const outputVatGlRows = await db
+      .select({
+        netCredit: sql<number>`cast(coalesce(sum(${journalLines.creditHalalas} - ${journalLines.debitHalalas}), 0) as bigint)`,
+      })
+      .from(journalLines)
+      .innerJoin(journalEntries, eq(journalLines.entryId, journalEntries.id))
+      .where(and(
+        eq(journalLines.agencyId, agencyId),
+        eq(journalEntries.isPosted, true),
+        ne(journalEntries.source, 'closing'),
+        sql`${journalLines.accountCode} = '2200'`,
+        sql`${journalEntries.date} >= ${from}`,
+        sql`${journalEntries.date} <= ${to}`,
+      ));
+
+    const outputVatGl = Number(outputVatGlRows[0]?.netCredit ?? 0);
+
     // ── Summary ───────────────────────────────────────────────────────────────
-    const netVatPayable = netOutputVat - inputVat;
+    // Authoritative figures come from the GL; the invoice-derived breakdown above
+    // is retained for display only.
+    const netVatPayable = outputVatGl - inputVat;
     const netVatDue     = netVatPayable;
 
     return NextResponse.json({
@@ -196,10 +222,20 @@ export async function GET(request: Request) {
         standardRatedSales,   // صافي المبيعات الخاضعة للنسبة الأساسية (15%)
         zeroRatedSales,       // المبيعات صفرية النسبة (طيران دولي)
         exemptSales,          // المبيعات المعفاة
-        outputVat:  netOutputVat,
+        outputVat:  outputVatGl,   // authoritative: net credit movement on GL 2200
         inputVat,
         netVatPayable,        // positive = payable to ZATCA; negative = refundable
         netVatDue,            // alias kept for backward compatibility
+      },
+
+      // Reconciliation: the GL is authoritative; a non-zero difference flags a
+      // posting that the invoice-level view misses (e.g. a cancelled invoice whose
+      // 2200 reversal stays in the ledger). Surface it, never silently diverge.
+      reconciliation: {
+        outputVatFromInvoices: netOutputVat,
+        outputVatFromGl:       outputVatGl,
+        difference:            outputVatGl - netOutputVat,
+        reconciled:            outputVatGl === netOutputVat,
       },
     });
   } catch (err) {
