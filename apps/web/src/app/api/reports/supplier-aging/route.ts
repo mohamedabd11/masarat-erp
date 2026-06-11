@@ -79,7 +79,9 @@ export async function GET(request: Request) {
       .where(and(
         eq(supplierPayments.agencyId, agencyId),
         eq(supplierPayments.status, 'completed'),
-        lte(sql`${supplierPayments.date}::date`, sql`${asOf}::date`),
+        // Compare as plain text — ISO YYYY-MM-DD sorts chronologically, and the
+        // ::date cast defeated idx_supplier_payments_agency_date (B2).
+        lte(supplierPayments.date, asOf),
       ));
 
     // Build a map: supplierId → payments array

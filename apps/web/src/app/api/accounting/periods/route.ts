@@ -208,6 +208,26 @@ export async function POST(request: Request) {
 
       // Year-end closing: automatically create the closing entry when December is locked
       if (body.isLocked && body.month === 12) {
+        // MED-3: only fire the year-end close once EVERY prior month (Jan–Nov) is
+        // locked. Otherwise a late posting into an earlier still-open month would
+        // never roll into retained earnings. Blocks the December lock (tx rolls
+        // back) until the books are closed sequentially.
+        const lockedRows = await tx
+          .select({ m: accountingPeriods.periodMonth })
+          .from(accountingPeriods)
+          .where(and(
+            eq(accountingPeriods.agencyId, agencyId),
+            eq(accountingPeriods.periodYear, body.year),
+            eq(accountingPeriods.isLocked, true),
+          ));
+        const lockedSet = new Set(lockedRows.map((r) => r.m));
+        const missing = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11].filter((m) => !lockedSet.has(m));
+        if (missing.length > 0) {
+          throw new BusinessError(
+            `لا يمكن الإقفال السنوي قبل إقفال جميع الأشهر السابقة — الأشهر غير المقفلة: ${missing.join('، ')}`,
+            422,
+          );
+        }
         await createYearEndClosingEntry(agencyId, uid, body.year, tx);
       }
     });

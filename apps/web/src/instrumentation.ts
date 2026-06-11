@@ -510,6 +510,18 @@ export async function register() {
     `CREATE INDEX IF NOT EXISTS idx_psl_agency_time     ON provider_sync_log(agency_id, created_at DESC)`,
     `CREATE INDEX IF NOT EXISTS idx_psl_agency_provider ON provider_sync_log(agency_id, provider, operation)`,
 
+    // ── 2026-06-11 — Journal line non-negativity CHECK (MED-5) ──────────────
+    // A journal line's debit and credit must never be negative (negatives are
+    // expressed as the opposite side). NOT VALID applies to new rows without
+    // scanning history, so it can't fail startup on legacy data.
+    `DO $$ BEGIN
+       IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='journal_lines_nonneg_chk') THEN
+         ALTER TABLE journal_lines
+           ADD CONSTRAINT journal_lines_nonneg_chk
+           CHECK (debit_halalas >= 0 AND credit_halalas >= 0) NOT VALID;
+       END IF;
+     END $$`,
+
     // ── 2026-06-11 — Rounding-difference account for every agency (MED-10) ──
     // Backfills 8399 so manual-journal rounding remainders have a dedicated home
     // instead of inflating a real line. Idempotent via the (agency_id, code) uq.
