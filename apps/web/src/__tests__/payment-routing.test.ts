@@ -64,8 +64,9 @@ describe('resolveExpenseAccount', () => {
     expect(resolveExpenseAccount('office').code).toBe('5300');
   });
 
-  it('other → 5900 (Other Expenses)', () => {
-    expect(resolveExpenseAccount('other').code).toBe('5900');
+  it('other → 5400 (Operating Expenses, not FX Loss 5900) [L4]', () => {
+    // 5900 is canonically FX Loss — "other" opex must not land there.
+    expect(resolveExpenseAccount('other').code).toBe('5400');
   });
 
   it('all expense accounts are of type expense', () => {
