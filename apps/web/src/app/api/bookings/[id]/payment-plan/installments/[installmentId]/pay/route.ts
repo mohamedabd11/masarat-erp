@@ -1,9 +1,9 @@
 import { NextResponse } from 'next/server';
 import { eq, and, ne, sql } from 'drizzle-orm';
 import { db } from '@/lib/db';
-import { bookings, invoices, payments, paymentPlans, paymentPlanInstallments, journalEntries, journalLines, idempotencyKeys } from '@/lib/schema';
+import { bookings, invoices, payments, paymentPlans, paymentPlanInstallments, journalEntries, journalLines } from '@/lib/schema';
 import { verifyAuth, assertRole, ApiAuthError, BusinessError, ROLES_ACCOUNTANT_UP } from '@/lib/api-auth';
-import { withIdempotency, buildIdempotencyInsert } from '@/lib/idempotency';
+import { withIdempotency, markIdempotencyComplete } from '@/lib/idempotency';
 import { getNextReceiptNumber, getNextJournalNumber } from '@/lib/invoice-counter';
 import { assertPeriodOpen } from '@/lib/period-lock';
 
@@ -181,10 +181,8 @@ export async function POST(req: Request, { params }: RouteCtx) {
             .where(and(eq(paymentPlans.id, installment.planId), eq(paymentPlans.agencyId, agencyId)));
         }
 
-        // ── 10. Idempotency ───────────────────────────────────────────────────
-        await tx.insert(idempotencyKeys)
-          .values(buildIdempotencyInsert(agencyId, 'installmentPay', idempKey, { paymentId, receiptNumber }))
-          .onConflictDoNothing();
+        // ── 10. Idempotency (authoritative, inside the tx — see markIdempotencyComplete)
+        await markIdempotencyComplete(tx, agencyId, 'installmentPay', idempKey, { paymentId, receiptNumber });
 
         return {
           paymentId,

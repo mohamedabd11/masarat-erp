@@ -6,8 +6,7 @@ import type { BookingLine } from '@/lib/schema';
 import { verifyAuth, assertRole, ApiAuthError, BusinessError, ROLES_ACCOUNTANT_UP } from '@/lib/api-auth';
 import { logAudit } from '@/lib/audit';
 import { checkRateLimit, getClientIp, rateLimitHeaders } from '@/lib/rate-limit';
-import { withIdempotency, buildIdempotencyInsert } from '@/lib/idempotency';
-import { idempotencyKeys } from '@/lib/schema';
+import { withIdempotency, markIdempotencyComplete } from '@/lib/idempotency';
 import { getNextInvoiceNumber, getNextJournalNumber } from '@/lib/invoice-counter';
 import { assertPeriodOpen } from '@/lib/period-lock';
 import { GL } from '@/lib/gl-accounts';
@@ -366,10 +365,8 @@ export async function POST(request: Request) {
           .set({ status: 'completed', updatedAt: now })
           .where(eq(bookings.id, bookingId));
 
-        // Record idempotency
-        await tx.insert(idempotencyKeys)
-          .values(buildIdempotencyInsert(agencyId, 'createInvoice', idempKey, { invoiceId, invoiceNumber }))
-          .onConflictDoNothing();
+        // Record idempotency (authoritative, inside the tx — see markIdempotencyComplete)
+        await markIdempotencyComplete(tx, agencyId, 'createInvoice', idempKey, { invoiceId, invoiceNumber });
 
         return { invoiceId, invoiceNumber };
       });

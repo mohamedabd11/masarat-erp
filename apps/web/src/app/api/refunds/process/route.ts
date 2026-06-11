@@ -1,9 +1,9 @@
 import { NextResponse } from 'next/server';
 import { eq, and, sql } from 'drizzle-orm';
 import { db } from '@/lib/db';
-import { invoices, bookings, payments, journalEntries, journalLines, idempotencyKeys, bookingLines, suppliers } from '@/lib/schema';
+import { invoices, bookings, payments, journalEntries, journalLines, bookingLines, suppliers } from '@/lib/schema';
 import { verifyAuth, assertRole, ApiAuthError, BusinessError, ROLES_ACCOUNTANT_UP } from '@/lib/api-auth';
-import { withIdempotency, buildIdempotencyInsert } from '@/lib/idempotency';
+import { withIdempotency, markIdempotencyComplete } from '@/lib/idempotency';
 import { getNextInvoiceNumber, getNextJournalNumber } from '@/lib/invoice-counter';
 import { assertPeriodOpen } from '@/lib/period-lock';
 import { buildRefundJournalLines } from '@/lib/refund-journal';
@@ -311,9 +311,7 @@ export async function POST(request: Request) {
             .where(and(eq(bookings.id, bookingId), eq(bookings.agencyId, agencyId)));
         }
 
-        await tx.insert(idempotencyKeys)
-          .values(buildIdempotencyInsert(agencyId, 'processRefund', idempKey, { refundPaymentId, creditNoteId, creditNoteNumber }))
-          .onConflictDoNothing();
+        await markIdempotencyComplete(tx, agencyId, 'processRefund', idempKey, { refundPaymentId, creditNoteId, creditNoteNumber });
 
         return { creditNoteId, creditNoteNumber, refundAmountHalalas, cancellationFeeHalalas };
       });

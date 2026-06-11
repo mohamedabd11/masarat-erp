@@ -86,3 +86,38 @@ export function buildIdempotencyInsert(
     expiresAt: new Date(Date.now() + TTL_MS),
   };
 }
+
+/**
+ * Atomically finalize an idempotency key INSIDE the business transaction (HIGH-2).
+ *
+ * `withIdempotency` pre-inserts a 'pending' claim and flips it to 'complete' AFTER
+ * `fn()` commits — a crash in that window leaves the key 'pending', and a retry
+ * after PENDING_STALE_MS re-runs the operation (double-post). Calling this inside
+ * the same transaction makes commit-and-finalize atomic: on commit the key is
+ * already 'complete', so any retry replays the stored result instead of re-posting.
+ * The post-tx update in `withIdempotency` then becomes a harmless no-op fallback.
+ *
+ * Uses onConflictDoUpdate (not onConflictDoNothing) precisely because the 'pending'
+ * row pre-inserted by withIdempotency already exists — DoNothing would be a no-op
+ * and leave the key 'pending', defeating the fix.
+ */
+export async function markIdempotencyComplete(
+  tx: Tx,
+  agencyId: string,
+  operation: string,
+  key: string,
+  result: unknown,
+): Promise<void> {
+  const values = buildIdempotencyInsert(agencyId, operation, key, result);
+  await tx
+    .insert(idempotencyKeys)
+    .values(values)
+    .onConflictDoUpdate({
+      target: idempotencyKeys.id,
+      set: {
+        status:    'complete',
+        result:    (values.result ?? null) as Record<string, unknown> | null,
+        expiresAt: values.expiresAt,
+      },
+    });
+}
