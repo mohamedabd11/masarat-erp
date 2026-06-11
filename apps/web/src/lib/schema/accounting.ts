@@ -61,7 +61,7 @@ export type NewJournalEntry = typeof journalEntries.$inferInsert;
 export const journalLines = pgTable('journal_lines', {
   id:            text('id').primaryKey(),
   entryId:       text('entry_id').notNull().references(() => journalEntries.id, { onDelete: 'cascade' }),
-  agencyId:      text('agency_id').notNull(),
+  agencyId:      text('agency_id').notNull().references(() => agencies.id, { onDelete: 'cascade' }),
   accountCode:   text('account_code').notNull(),   // e.g. '1120', '4000'
   accountNameAr: text('account_name_ar'),
   accountNameEn: text('account_name_en'),

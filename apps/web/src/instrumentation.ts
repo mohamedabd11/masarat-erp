@@ -474,6 +474,25 @@ export async function register() {
     `CREATE UNIQUE INDEX IF NOT EXISTS tickets_active_passenger_uq
        ON tickets(agency_id, pnr_id, passenger_name)
        WHERE status IN ('active','pending')`,
+
+    // ── 2026-06-11 — DB integrity & performance hardening ────────────────────
+    // Counter sequence overflow guard: widen to bigint (MED-12).
+    `ALTER TABLE agency_counters ALTER COLUMN current_value TYPE BIGINT`,
+    // Referential integrity on journal lines: agency_id must reference a real
+    // agency (MED-4). Guarded so a pre-existing constraint or orphan rows can't
+    // crash startup.
+    `DO $$ BEGIN
+       IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='fk_journal_lines_agency') THEN
+         ALTER TABLE journal_lines
+           ADD CONSTRAINT fk_journal_lines_agency
+           FOREIGN KEY (agency_id) REFERENCES agencies(id) ON DELETE CASCADE;
+       END IF;
+     END $$`,
+    // PNR indexes: the hourly expire-cron and per-agency PNR list were full
+    // table scans (B1 / MED-16).
+    `CREATE INDEX IF NOT EXISTS idx_pnr_expiry         ON pnr_records(status, expires_at) WHERE deleted_at IS NULL`,
+    `CREATE INDEX IF NOT EXISTS idx_pnr_agency_created ON pnr_records(agency_id, created_at DESC)`,
+    `CREATE INDEX IF NOT EXISTS idx_pnr_agency_status  ON pnr_records(agency_id, status)`,
   ];
 
   try {

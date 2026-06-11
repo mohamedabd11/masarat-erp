@@ -1,4 +1,4 @@
-import { pgTable, text, integer, timestamp, jsonb, primaryKey } from 'drizzle-orm/pg-core';
+import { pgTable, text, integer, bigint, timestamp, jsonb, primaryKey } from 'drizzle-orm/pg-core';
 import { agencies } from './agencies';
 
 // ── Atomic counters (INSERT ... ON CONFLICT DO UPDATE RETURNING) ───────────
@@ -6,7 +6,9 @@ import { agencies } from './agencies';
 export const agencyCounters = pgTable('agency_counters', {
   agencyId:     text('agency_id').notNull().references(() => agencies.id, { onDelete: 'cascade' }),
   counterType:  text('counter_type').notNull(),
-  currentValue: integer('current_value').notNull().default(0),
+  // bigint so invoice/voucher/journal sequences can never overflow (~2.1B int limit),
+  // consistent with the bigint money columns.
+  currentValue: bigint('current_value', { mode: 'number' }).notNull().default(0),
 }, (t) => ({
   pk: primaryKey({ columns: [t.agencyId, t.counterType] }),
 }));
