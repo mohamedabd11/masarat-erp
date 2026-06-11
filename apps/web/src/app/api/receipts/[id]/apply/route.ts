@@ -92,12 +92,12 @@ export async function POST(
           status:      newPaid >= inv.totalHalalas ? 'paid' : inv.status,
           updatedAt:   now,
         })
-        .where(eq(invoices.id, invoiceId));
+        .where(and(eq(invoices.id, invoiceId), eq(invoices.agencyId, agencyId)));
 
       // Link the voucher to the invoice so it can't be double-applied.
       await tx.update(receiptVouchers)
         .set({ invoiceId })
-        .where(eq(receiptVouchers.id, voucher.id));
+        .where(and(eq(receiptVouchers.id, voucher.id), eq(receiptVouchers.agencyId, agencyId)));
 
       return { voucherId: voucher.id, invoiceId, appliedHalalas: amount, journalEntryId: jeId };
     });

@@ -22,7 +22,15 @@ export async function PATCH(request: Request, { params }: { params: { id: string
     const { agencyId, role } = await verifyAuth(request);
     assertRole(role, [...ROLES_MANAGER_UP]);
     const body = await request.json() as Record<string, unknown>;
-    await db.update(serviceTypes).set(body as Partial<typeof serviceTypes.$inferInsert>)
+    // Allowlist editable columns only — never spread the raw body, which would
+    // let a caller rewrite agencyId/id and move the row to another tenant.
+    const ALLOWED = ['nameAr', 'nameEn', 'icon', 'revenueMode', 'vatRate', 'isTaxable', 'isActive'] as const;
+    const patch: Record<string, unknown> = {};
+    for (const k of ALLOWED) if (k in body) patch[k] = body[k];
+    if (Object.keys(patch).length === 0) {
+      return NextResponse.json({ error: 'لا توجد حقول قابلة للتعديل' }, { status: 400 });
+    }
+    await db.update(serviceTypes).set(patch as Partial<typeof serviceTypes.$inferInsert>)
       .where(and(eq(serviceTypes.id, params.id), eq(serviceTypes.agencyId, agencyId)));
     return NextResponse.json({ success: true });
   } catch (err) {

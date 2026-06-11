@@ -138,10 +138,14 @@ export async function POST(request: Request) {
         const newPaidHalalas = updatedInvoice.paidHalalas;
         const isFullyPaid    = newPaidHalalas >= updatedInvoice.totalHalalas;
 
-        if (bookingId) {
+        // Update the booking tied to THIS invoice — never the body-supplied
+        // bookingId, which is attacker-controlled. invoice.bookingId is the
+        // trusted, agency-scoped link; the UPDATE is also scoped by agencyId so
+        // a cross-tenant booking can never be touched (RLS provides no backstop).
+        if (invoice.bookingId) {
           await tx.update(bookings)
             .set({ paidHalalas: sql`${bookings.paidHalalas} + ${amountHalalas}`, updatedAt: now })
-            .where(eq(bookings.id, bookingId));
+            .where(and(eq(bookings.id, invoice.bookingId), eq(bookings.agencyId, agencyId)));
         }
 
         await tx.insert(idempotencyKeys)

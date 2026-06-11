@@ -45,7 +45,10 @@ export async function PATCH(req: Request, { params }: RouteCtx) {
 
     const [updated] = await db.update(bookingPassengers)
       .set(patch as never)
-      .where(eq(bookingPassengers.id, params.passengerId))
+      .where(and(
+        eq(bookingPassengers.id, params.passengerId),
+        eq(bookingPassengers.agencyId, agencyId),
+      ))
       .returning();
 
     return NextResponse.json({ passenger: updated });
