@@ -1,11 +1,11 @@
 import { NextResponse } from 'next/server';
 import { eq, and, sql } from 'drizzle-orm';
 import { db } from '@/lib/db';
-import { supplierPayments, suppliers, journalEntries, journalLines, idempotencyKeys } from '@/lib/schema';
+import { supplierPayments, suppliers, journalEntries, journalLines } from '@/lib/schema';
 import { verifyAuth, assertRole, ApiAuthError, BusinessError, ROLES_ACCOUNTANT_UP } from '@/lib/api-auth';
 import { getNextPaymentVoucherNumber, getNextJournalNumber } from '@/lib/invoice-counter';
 import { assertPeriodOpen } from '@/lib/period-lock';
-import { withIdempotency, buildIdempotencyInsert } from '@/lib/idempotency';
+import { withIdempotency, markIdempotencyComplete } from '@/lib/idempotency';
 import { logAudit } from '@/lib/audit';
 import { lookupFxRate, fxToHalalas } from '@/lib/fx';
 import { GL } from '@/lib/gl-accounts';
@@ -188,9 +188,7 @@ export async function POST(request: Request) {
           { id: crypto.randomUUID(), entryId: jeId, agencyId, accountCode: paymentAc.code, accountNameAr: paymentAc.ar, accountNameEn: paymentAc.en, debitHalalas: 0, creditHalalas: resolvedAmountHalalas, sortOrder: 3 },
         ];
         await tx.insert(journalLines).values(lines);
-        await tx.insert(idempotencyKeys)
-          .values(buildIdempotencyInsert(agencyId, 'supplierPayment', idempKey, { id: spId, voucherNumber }))
-          .onConflictDoNothing();
+        await markIdempotencyComplete(tx, agencyId, 'supplierPayment', idempKey, { id: spId, voucherNumber });
         return { id: spId, voucherNumber, resolvedAmountHalalas, appliedFxRate, appliedFxRateDate };
       }
 
@@ -212,9 +210,7 @@ export async function POST(request: Request) {
       }
 
       await tx.insert(journalLines).values(lines);
-      await tx.insert(idempotencyKeys)
-        .values(buildIdempotencyInsert(agencyId, 'supplierPayment', idempKey, { id: spId, voucherNumber }))
-        .onConflictDoNothing();
+      await markIdempotencyComplete(tx, agencyId, 'supplierPayment', idempKey, { id: spId, voucherNumber });
 
       return { id: spId, voucherNumber, resolvedAmountHalalas, appliedFxRate, appliedFxRateDate };
     }));

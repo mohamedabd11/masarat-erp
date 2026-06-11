@@ -41,6 +41,7 @@ vi.mock('@/lib/api-auth', () => ({
 vi.mock('@/lib/idempotency', () => ({
   withIdempotency:        (_k: string, _a: string, _o: string, fn: () => Promise<unknown>) => fn(),
   buildIdempotencyInsert: vi.fn().mockReturnValue({}),
+  markIdempotencyComplete: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock('@/lib/invoice-counter', () => ({

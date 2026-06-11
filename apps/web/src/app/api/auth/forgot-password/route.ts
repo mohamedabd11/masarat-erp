@@ -137,14 +137,21 @@ export async function POST(request: Request) {
     const oobCode  = new URL(firebaseLink).searchParams.get('oobCode') ?? '';
     const resetUrl = `${appUrl}/${locale}/auth/action?mode=resetPassword&oobCode=${oobCode}`;
 
-    // Send via Resend
+    // Send via Resend. The SDK has no built-in timeout; race it against a 15s
+    // deadline (matching the provider-fetch timeout elsewhere) so a hung Resend
+    // API can't block the request indefinitely. Email is best-effort — the
+    // uniform success response below holds regardless.
     const resend = new Resend(process.env.RESEND_API_KEY);
-    await resend.emails.send({
-      from:    'مسارات <noreply@masarat-erp.com>',
-      to:      email,
-      subject: isAr ? 'إعادة تعيين كلمة المرور — مسارات' : 'Reset your password — Masarat',
-      html:    isAr ? htmlAr(resetUrl) : htmlEn(resetUrl),
-    });
+    const EMAIL_TIMEOUT_MS = 15_000;
+    await Promise.race([
+      resend.emails.send({
+        from:    'مسارات <noreply@masarat-erp.com>',
+        to:      email,
+        subject: isAr ? 'إعادة تعيين كلمة المرور — مسارات' : 'Reset your password — Masarat',
+        html:    isAr ? htmlAr(resetUrl) : htmlEn(resetUrl),
+      }),
+      new Promise((_, reject) => setTimeout(() => reject(new Error('resend email timeout')), EMAIL_TIMEOUT_MS)),
+    ]);
 
     return NextResponse.json({ success: true });
 

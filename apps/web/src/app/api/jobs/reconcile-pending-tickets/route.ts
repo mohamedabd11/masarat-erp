@@ -24,11 +24,12 @@ import type { ExchangeResult } from '@/lib/providers/types';
 //   pending_refund   → recoverRefund     (call retrievePNR to verify refund)
 //   pending_exchange → recoverExchange   (use stored payload OR call retrievePNR)
 //
-// Orphan policy (attempts >= 20):
-//   pending          → void        (assume issuance didn't happen)
-//   pending_void     → void        (provider void likely succeeded)
-//   pending_refund   → active      (preserve ticket, admin must verify)
-//   pending_exchange → active      (preserve ticket, admin must verify)
+// Orphan policy (attempts >= 20, counting only deterministic provider checks):
+//   pending          → manual_review (issuance unconfirmed — never auto-void; an
+//                                      operator must verify against the BSP)
+//   pending_void     → void          (provider void likely succeeded)
+//   pending_refund   → active        (preserve ticket, admin must verify)
+//   pending_exchange → active        (preserve ticket, admin must verify)
 
 const RECOVERABLE = ['pending', 'pending_void', 'pending_refund', 'pending_exchange'] as const;
 const MAX_ATTEMPTS = 20;
@@ -88,50 +89,43 @@ export async function GET(request: Request) {
     .limit(50);
 
   if (batch.length === 0) {
-    return NextResponse.json({ reconciled: 0, voided: 0, reset: 0, recurring, revenueRecognition, overdueInstallments });
+    return NextResponse.json({ reconciled: 0, voided: 0, reset: 0, manualReview: 0, recurring, revenueRecognition, overdueInstallments });
   }
 
-  let reconciled = 0;
-  let voided     = 0;
-  let reset      = 0;
+  let reconciled   = 0;
+  let voided       = 0;
+  let reset        = 0;
+  let manualReview = 0;
+
+  // Stamp lastReconciliationAt WITHOUT counting the attempt — used for transient
+  // failures (provider unreachable, credential missing, PNR not found) so a
+  // temporary outage can't burn through MAX_ATTEMPTS and force an orphan decision
+  // on a ticket that was never actually checked against the provider (HIGH-11).
+  const throttle = (id: string) =>
+    db.update(tickets).set({ lastReconciliationAt: now, updatedAt: now }).where(eq(tickets.id, id));
 
   for (const ticket of batch) {
     try {
-      // Atomically increment attempts + stamp lastReconciliationAt
-      const [updated] = await db
-        .update(tickets)
-        .set({
-          reconciliationAttempts: sql`${tickets.reconciliationAttempts} + 1`,
-          lastReconciliationAt:   now,
-          updatedAt:              now,
-        })
-        .where(eq(tickets.id, ticket.id))
-        .returning({ attempts: tickets.reconciliationAttempts });
-
-      const newAttempts = updated?.attempts ?? MAX_ATTEMPTS;
-
       // ── Orphan handling ────────────────────────────────────────────────────
-      if (newAttempts >= MAX_ATTEMPTS) {
+      // Triggered only once a ticket has accrued MAX_ATTEMPTS *real* (deterministic)
+      // attempts — the transient skips below never increment the counter.
+      if ((ticket.reconciliationAttempts ?? 0) >= MAX_ATTEMPTS) {
         await handleOrphan(ticket, now);
-        if (ticket.status === 'pending' || ticket.status === 'pending_void') {
-          voided++;
-        } else {
-          reset++;
-        }
+        if (ticket.status === 'pending')           manualReview++;  // issuance unconfirmed → manual review, NEVER auto-void
+        else if (ticket.status === 'pending_void') voided++;
+        else                                       reset++;
         continue;
       }
 
-      // ── Skip if provider is unknown ────────────────────────────────────────
-      if (!ticket.issuingProvider) continue;
+      // ── Transient skips: throttle but DON'T count toward MAX_ATTEMPTS ───────
+      if (!ticket.issuingProvider) { await throttle(ticket.id); continue; }
 
-      // ── Fetch PNR ──────────────────────────────────────────────────────────
       const [pnr] = await db
         .select()
         .from(pnrRecords)
         .where(eq(pnrRecords.id, ticket.pnrId));
-      if (!pnr) continue;
+      if (!pnr) { await throttle(ticket.id); continue; }
 
-      // ── Resolve provider ───────────────────────────────────────────────────
       let provider, credentials, providerCode: string;
       try {
         ({ provider, credentials, providerCode } = await resolveFlightProviderByCode(
@@ -139,9 +133,17 @@ export async function GET(request: Request) {
           ticket.agencyId,
         ));
       } catch {
-        // Credential may have been deactivated — skip, will hit orphan threshold
+        // Credential deactivated / provider unreachable — transient, throttle only.
+        await throttle(ticket.id);
         continue;
       }
+
+      // ── Real, deterministic attempt — now count it toward MAX_ATTEMPTS ──────
+      await db.update(tickets).set({
+        reconciliationAttempts: sql`${tickets.reconciliationAttempts} + 1`,
+        lastReconciliationAt:   now,
+        updatedAt:              now,
+      }).where(eq(tickets.id, ticket.id));
 
       // ── Dispatch ───────────────────────────────────────────────────────────
       const t0 = Date.now();
@@ -176,7 +178,7 @@ export async function GET(request: Request) {
     }
   }
 
-  return NextResponse.json({ reconciled, voided, reset, recurring, revenueRecognition, overdueInstallments });
+  return NextResponse.json({ reconciled, voided, reset, manualReview, recurring, revenueRecognition, overdueInstallments });
 }
 
 // ── Handlers ─────────────────────────────────────────────────────────────────
@@ -409,9 +411,12 @@ async function handleOrphan(
 
   switch (ticket.status) {
     case 'pending':
-      // Assume not issued — void is the safe choice
-      finalStatus       = 'void';
-      eventPayloadReason = 'orphan_issuance';
+      // Issuance is UNCONFIRMED: Phase-2 may have succeeded at the BSP (live ticket
+      // + charge) even though Phase-3 never completed locally. Auto-voiding here
+      // would hide a real, billable ticket → uncollected revenue. Route to manual
+      // review instead so an operator verifies against the BSP (HIGH-11).
+      finalStatus       = 'manual_review';
+      eventPayloadReason = 'orphan_issuance_needs_manual_review';
       break;
     case 'pending_void':
       // Void likely succeeded at provider — complete locally

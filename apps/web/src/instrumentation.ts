@@ -493,6 +493,61 @@ export async function register() {
     `CREATE INDEX IF NOT EXISTS idx_pnr_expiry         ON pnr_records(status, expires_at) WHERE deleted_at IS NULL`,
     `CREATE INDEX IF NOT EXISTS idx_pnr_agency_created ON pnr_records(agency_id, created_at DESC)`,
     `CREATE INDEX IF NOT EXISTS idx_pnr_agency_status  ON pnr_records(agency_id, status)`,
+
+    // ── 2026-06-11 — Provider sync log (A6) ─────────────────────────────────
+    // Queryable audit trail of GDS/provider operations for financial reconciliation.
+    `CREATE TABLE IF NOT EXISTS provider_sync_log (
+       id            TEXT PRIMARY KEY,
+       agency_id     TEXT NOT NULL,
+       provider      TEXT NOT NULL,
+       operation     TEXT NOT NULL,
+       status        TEXT NOT NULL,
+       reference_id  TEXT,
+       error_message TEXT,
+       duration_ms   BIGINT,
+       created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+     )`,
+    `CREATE INDEX IF NOT EXISTS idx_psl_agency_time     ON provider_sync_log(agency_id, created_at DESC)`,
+    `CREATE INDEX IF NOT EXISTS idx_psl_agency_provider ON provider_sync_log(agency_id, provider, operation)`,
+
+    // ── 2026-06-11 — Per-agency document-number uniqueness (HIGH-9) ─────────
+    // These live in drizzle/0013 but the boot-time migrator (this file) never
+    // applied them, so on a boot-only deploy duplicate invoice/journal/voucher
+    // numbers were NOT prevented. Mirror them here. If legacy duplicates exist the
+    // index creation fails and is logged (per the loop below) without crashing.
+    `CREATE UNIQUE INDEX IF NOT EXISTS invoices_agency_number_uq          ON invoices         (agency_id, invoice_number)`,
+    `CREATE UNIQUE INDEX IF NOT EXISTS journal_entries_agency_number_uq   ON journal_entries  (agency_id, entry_number)`,
+    `CREATE UNIQUE INDEX IF NOT EXISTS payments_agency_voucher_uq         ON payments         (agency_id, voucher_number)`,
+    `CREATE UNIQUE INDEX IF NOT EXISTS receipt_vouchers_agency_voucher_uq ON receipt_vouchers (agency_id, voucher_number)`,
+    `CREATE UNIQUE INDEX IF NOT EXISTS supplier_payments_agency_voucher_uq ON supplier_payments (agency_id, voucher_number)`,
+
+    // ── 2026-06-11 — Journal line non-negativity CHECK (MED-5) ──────────────
+    // A journal line's debit and credit must never be negative (negatives are
+    // expressed as the opposite side). NOT VALID applies to new rows without
+    // scanning history, so it can't fail startup on legacy data.
+    `DO $$ BEGIN
+       IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='journal_lines_nonneg_chk') THEN
+         ALTER TABLE journal_lines
+           ADD CONSTRAINT journal_lines_nonneg_chk
+           CHECK (debit_halalas >= 0 AND credit_halalas >= 0) NOT VALID;
+       END IF;
+     END $$`,
+
+    // ── 2026-06-11 — Rounding-difference account for every agency (MED-10) ──
+    // Backfills 8399 so manual-journal rounding remainders have a dedicated home
+    // instead of inflating a real line. Idempotent via the (agency_id, code) uq.
+    `INSERT INTO chart_of_accounts (id, agency_id, code, name_ar, name_en, type, is_system, allow_direct_entry, level)
+       SELECT a.id || '-coa-8399', a.id, '8399', 'فروق التقريب', 'Rounding Differences', 'expense', true, true, 1
+       FROM agencies a
+       ON CONFLICT (agency_id, code) DO NOTHING`,
+
+    // ── 2026-06-11 — FX revaluation idempotency (HIGH-7) ────────────────────
+    // One revaluation entry per (agency, account, date) so two concurrent runs
+    // for the same date cannot both post. Partial index scoped to the
+    // fx_revaluation source only — monthly revaluations on other dates are fine.
+    `CREATE UNIQUE INDEX IF NOT EXISTS journal_entries_fx_reval_uq
+       ON journal_entries(agency_id, source_id, date)
+       WHERE source = 'fx_revaluation'`,
   ];
 
   try {

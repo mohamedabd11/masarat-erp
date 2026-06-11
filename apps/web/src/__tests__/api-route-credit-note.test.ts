@@ -68,6 +68,7 @@ vi.mock('@/lib/audit', () => ({ logAudit: vi.fn().mockResolvedValue(undefined) }
 vi.mock('@/lib/idempotency', () => ({
   withIdempotency: (_k: string, _a: string, _o: string, fn: () => Promise<unknown>) => fn(),
   buildIdempotencyInsert: () => ({}),
+  markIdempotencyComplete: () => Promise.resolve(),
 }));
 
 vi.mock('drizzle-orm', () => ({

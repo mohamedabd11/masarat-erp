@@ -1,13 +1,12 @@
 import { NextResponse } from 'next/server';
 import { eq, and, sql, ne, asc } from 'drizzle-orm';
 import { db } from '@/lib/db';
-import { bookings, bookingLines, agencies, invoices, journalEntries, journalLines, customers } from '@/lib/schema';
+import { bookings, bookingLines, agencies, invoices, journalEntries, journalLines, customers, suppliers } from '@/lib/schema';
 import type { BookingLine } from '@/lib/schema';
 import { verifyAuth, assertRole, ApiAuthError, BusinessError, ROLES_ACCOUNTANT_UP } from '@/lib/api-auth';
 import { logAudit } from '@/lib/audit';
 import { checkRateLimit, getClientIp, rateLimitHeaders } from '@/lib/rate-limit';
-import { withIdempotency, buildIdempotencyInsert } from '@/lib/idempotency';
-import { idempotencyKeys } from '@/lib/schema';
+import { withIdempotency, markIdempotencyComplete } from '@/lib/idempotency';
 import { getNextInvoiceNumber, getNextJournalNumber } from '@/lib/invoice-counter';
 import { assertPeriodOpen } from '@/lib/period-lock';
 import { GL } from '@/lib/gl-accounts';
@@ -341,15 +340,33 @@ export async function POST(request: Request) {
           }
         }
 
+        // Maintain the supplier (AP) subledger at invoice time. The journal
+        // credits account 2000 per costed line, but suppliers.balanceHalalas was
+        // only ever decremented on payment — never incremented here — so AP aging
+        // understated liabilities vs GL 2000 (CRIT-9). Attribute the AP credit to
+        // each line's supplier and increment. Lines with no supplierId (in-house /
+        // legacy) stay unattributed and are surfaced by the supplier-aging recon.
+        if (hasActiveLines) {
+          const apBySupplier = new Map<string, number>();
+          for (const l of activeLines) {
+            if (l.supplierId && l.totalCostHalalas > 0) {
+              apBySupplier.set(l.supplierId, (apBySupplier.get(l.supplierId) ?? 0) + l.totalCostHalalas);
+            }
+          }
+          for (const [sid, amt] of apBySupplier) {
+            await tx.update(suppliers)
+              .set({ balanceHalalas: sql`${suppliers.balanceHalalas} + ${amt}`, updatedAt: now })
+              .where(and(eq(suppliers.id, sid), eq(suppliers.agencyId, agencyId)));
+          }
+        }
+
         // Update booking status
         await tx.update(bookings)
           .set({ status: 'completed', updatedAt: now })
           .where(eq(bookings.id, bookingId));
 
-        // Record idempotency
-        await tx.insert(idempotencyKeys)
-          .values(buildIdempotencyInsert(agencyId, 'createInvoice', idempKey, { invoiceId, invoiceNumber }))
-          .onConflictDoNothing();
+        // Record idempotency (authoritative, inside the tx — see markIdempotencyComplete)
+        await markIdempotencyComplete(tx, agencyId, 'createInvoice', idempKey, { invoiceId, invoiceNumber });
 
         return { invoiceId, invoiceNumber };
       });

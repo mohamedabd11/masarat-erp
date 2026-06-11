@@ -1,9 +1,9 @@
 import { NextResponse } from 'next/server';
-import { eq, and, sql } from 'drizzle-orm';
+import { eq, and, ne, sql } from 'drizzle-orm';
 import { db } from '@/lib/db';
-import { bookings, invoices, payments, paymentPlans, paymentPlanInstallments, journalEntries, journalLines, idempotencyKeys } from '@/lib/schema';
+import { bookings, invoices, payments, paymentPlans, paymentPlanInstallments, journalEntries, journalLines } from '@/lib/schema';
 import { verifyAuth, assertRole, ApiAuthError, BusinessError, ROLES_ACCOUNTANT_UP } from '@/lib/api-auth';
-import { withIdempotency, buildIdempotencyInsert } from '@/lib/idempotency';
+import { withIdempotency, markIdempotencyComplete } from '@/lib/idempotency';
 import { getNextReceiptNumber, getNextJournalNumber } from '@/lib/invoice-counter';
 import { assertPeriodOpen } from '@/lib/period-lock';
 
@@ -28,7 +28,10 @@ export async function POST(req: Request, { params }: RouteCtx) {
     if (!paymentMethod || !['cash', 'bank_transfer', 'card', 'online'].includes(paymentMethod)) {
       return NextResponse.json({ error: 'طريقة الدفع يجب أن تكون: cash | bank_transfer | card | online' }, { status: 400 });
     }
-    const idempKey = (body['idempotencyKey'] as string | undefined) ?? `inst-pay-${installmentId}`;
+    // Idempotency key is server-derived per installment — clients may NOT override
+    // it. A client-supplied key would let the same installment be paid twice by
+    // sending a fresh key on each retry, bypassing the per-installment guard.
+    const idempKey = `inst-pay-${installmentId}`;
 
     const result = await withIdempotency(idempKey, agencyId, 'installmentPay', async () => {
       return db.transaction(async (tx) => {
@@ -55,8 +58,8 @@ export async function POST(req: Request, { params }: RouteCtx) {
           .from(invoices)
           .where(and(eq(invoices.id, installment.invoiceId), eq(invoices.agencyId, agencyId)));
         if (!invoice) throw new BusinessError('الفاتورة غير موجودة', 404);
-        if (invoice.status === 'cancelled' || invoice.status === 'refunded') {
-          throw new BusinessError('لا يمكن تسجيل دفعة على فاتورة ملغاة أو مستردة', 422);
+        if (invoice.status === 'cancelled' || invoice.status === 'refunded' || invoice.status === 'credit_noted') {
+          throw new BusinessError('لا يمكن تسجيل دفعة على فاتورة ملغاة أو مستردة أو مُصدر بها إشعار دائن', 422);
         }
 
         // Also block payment when the underlying booking is cancelled — the
@@ -140,10 +143,20 @@ export async function POST(req: Request, { params }: RouteCtx) {
           .set({ paidHalalas: sql`${bookings.paidHalalas} + ${amountHalalas}`, updatedAt: now })
           .where(and(eq(bookings.id, bookingId), eq(bookings.agencyId, agencyId)));
 
-        // ── 8. Mark installment paid ──────────────────────────────────────────
-        await tx.update(paymentPlanInstallments)
+        // ── 8. Mark installment paid (atomic, race-safe) ──────────────────────
+        // Guard on status != 'paid' so a concurrent request (or retry that slipped
+        // past the read-check at step 1) cannot flip an already-paid installment a
+        // second time. 0 rows → another request won the race → abort.
+        const flipped = await tx.update(paymentPlanInstallments)
           .set({ status: 'paid', paidAt: now, paymentId, updatedAt: now })
-          .where(eq(paymentPlanInstallments.id, installmentId));
+          .where(and(
+            eq(paymentPlanInstallments.id, installmentId),
+            ne(paymentPlanInstallments.status, 'paid'),
+          ))
+          .returning({ id: paymentPlanInstallments.id });
+        if (flipped.length === 0) {
+          throw new BusinessError('هذا القسط مدفوع بالفعل', 409);
+        }
 
         // ── 9. Check if plan is complete ──────────────────────────────────────
         const unpaid = await tx.select({ id: paymentPlanInstallments.id })
@@ -168,10 +181,8 @@ export async function POST(req: Request, { params }: RouteCtx) {
             .where(and(eq(paymentPlans.id, installment.planId), eq(paymentPlans.agencyId, agencyId)));
         }
 
-        // ── 10. Idempotency ───────────────────────────────────────────────────
-        await tx.insert(idempotencyKeys)
-          .values(buildIdempotencyInsert(agencyId, 'installmentPay', idempKey, { paymentId, receiptNumber }))
-          .onConflictDoNothing();
+        // ── 10. Idempotency (authoritative, inside the tx — see markIdempotencyComplete)
+        await markIdempotencyComplete(tx, agencyId, 'installmentPay', idempKey, { paymentId, receiptNumber });
 
         return {
           paymentId,

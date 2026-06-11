@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
-import { eq, and, inArray, sql } from 'drizzle-orm';
+import { eq, and, ne, inArray, sql } from 'drizzle-orm';
 import { db } from '@/lib/db';
-import { invoices, customers } from '@/lib/schema';
+import { invoices, customers, journalLines, journalEntries } from '@/lib/schema';
 import { verifyAuth, assertRole, ApiAuthError, ROLES_ACCOUNTANT_UP } from '@/lib/api-auth';
 
 // ── Types ──────────────────────────────────────────────────────────────────────
@@ -182,7 +182,39 @@ export async function GET(request: Request) {
       summary.totalOutstanding += row.totalOutstanding;
     }
 
-    return NextResponse.json({ asOf: asOfStr, summary, customers: customerList });
+    // ── 5. Reconcile the aged total to the GL control account (1120) ──────────
+    // The per-customer buckets are derived from invoices (they need invoice-level
+    // due dates; journal_lines carry no customer dimension). But manual journals to
+    // 1120, credit notes, FX revaluation of AR and opening balances never appear in
+    // the invoice view — so the aged total can drift from the AR control account.
+    // Surface the difference instead of silently diverging (HIGH-8). Skipped when a
+    // single customer is filtered (the GL 1120 balance is agency-wide).
+    if (filterCust) {
+      return NextResponse.json({ asOf: asOfStr, summary, customers: customerList, reconciliation: null });
+    }
+    const arGlRows = await db
+      .select({
+        netDebit: sql<number>`cast(coalesce(sum(${journalLines.debitHalalas} - ${journalLines.creditHalalas}), 0) as bigint)`,
+      })
+      .from(journalLines)
+      .innerJoin(journalEntries, eq(journalLines.entryId, journalEntries.id))
+      .where(and(
+        eq(journalLines.agencyId, agencyId),
+        eq(journalEntries.isPosted, true),
+        ne(journalEntries.source, 'closing'),
+        sql`${journalLines.accountCode} = '1120'`,
+        sql`${journalEntries.date} <= ${asOfStr}`,
+      ));
+    const glReceivableBalance = Number(arGlRows[0]?.netDebit ?? 0);
+
+    const reconciliation = {
+      agingTotalOutstanding: summary.totalOutstanding,
+      glReceivableBalance,
+      difference:            glReceivableBalance - summary.totalOutstanding,
+      reconciled:            glReceivableBalance === summary.totalOutstanding,
+    };
+
+    return NextResponse.json({ asOf: asOfStr, summary, customers: customerList, reconciliation });
   } catch (err) {
     if (err instanceof ApiAuthError) return NextResponse.json({ error: err.message }, { status: err.status });
     console.error(JSON.stringify({ event: 'aging_report_failed', error: (err as Error).message }));

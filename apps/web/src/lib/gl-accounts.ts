@@ -67,6 +67,11 @@ export const GL = {
   gosiExpense:      { code: '6200', ar: 'مصروف GOSI - صاحب العمل', en: 'GOSI Expense - Employer' },
   eosbExpense:      { code: '6300', ar: 'مصروف مكافأة نهاية الخدمة', en: 'EOSB Expense' },
 
+  // Rounding differences — dedicated account for the ±1 halala tax/rounding
+  // remainder on manual journals, so the remainder is never silently folded into
+  // a real revenue/expense line (MED-10). Expense by convention.
+  roundingDifference: { code: '8399', ar: 'فروق التقريب', en: 'Rounding Differences' },
+
   // ── Suspense / clearing (9xxx) ─────────────────────────────────────────────
   // Default counter account for unclassified manual deposits — held in suspense
   // until reclassified, never posted directly to retained earnings.

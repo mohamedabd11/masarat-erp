@@ -32,8 +32,8 @@ export async function DELETE(request: Request, { params }: { params: { id: strin
         .limit(1);
 
       if (je) {
-        await tx.delete(journalLines).where(eq(journalLines.entryId, je.id));
-        await tx.delete(journalEntries).where(eq(journalEntries.id, je.id));
+        await tx.delete(journalLines).where(and(eq(journalLines.entryId, je.id), eq(journalLines.agencyId, agencyId)));
+        await tx.delete(journalEntries).where(and(eq(journalEntries.id, je.id), eq(journalEntries.agencyId, agencyId)));
       }
 
       await tx.delete(bankAccounts)

@@ -27,8 +27,11 @@ export async function GET(request: Request) {
     const baseWhere = and(
       eq(bookings.agencyId, agencyId),
       ne(bookings.status, 'cancelled'),
-      sql`cast(${bookings.createdAt} as date) >= ${from}::date`,
-      sql`cast(${bookings.createdAt} as date) <= ${to}::date`,
+      // Compare the timestamp column directly to a timestamp range (cast pushed to
+      // the literals) so idx_bookings_agency_created stays usable — casting the
+      // column to date defeated it (B3). Upper bound is exclusive next-day.
+      sql`${bookings.createdAt} >= ${from}::timestamp`,
+      sql`${bookings.createdAt} <  (${to}::date + interval '1 day')`,
     );
 
     if (groupBy === 'serviceType') {

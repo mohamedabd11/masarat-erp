@@ -117,7 +117,11 @@ export async function POST(request: Request, { params }: { params: { id: string 
         vatCategory:              isVatRegistered ? 'S' : 'Z',
         vatRateBps:               isVatRegistered ? vatRatePercent * 100 : 0,
         vatHalalas:               lineVatHalalas,
-        revenueModel:             'agent',
+        // Default to 'principal' (matches the booking GET default). The agent
+        // model with cost=0 would misclassify the full gross sale as pure
+        // commission, understating revenue and COGS. A real agent quote can be
+        // refined via POST /api/bookings/:id/lines after conversion.
+        revenueModel:             'principal',
         revenueAccountCode:       null,
         costAccountCode:          null,
         operationalStatus:        'pending',

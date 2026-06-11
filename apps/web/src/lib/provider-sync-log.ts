@@ -10,8 +10,10 @@ interface SyncLogParams {
 
 /**
  * Structured log for provider sync operations.
- * A dedicated provider_sync_log table can be added in Phase 10 for analytics.
- * For now writes to stdout — Vercel captures and indexes these as structured logs.
+ * Writes to stdout (Vercel captures/indexes these) AND persists a row to the
+ * queryable provider_sync_log table for financial reconciliation (A6). The DB
+ * write is best-effort and fire-and-forget so logging never blocks or fails the
+ * caller; failures are surfaced on stdout.
  */
 export function logProviderSync(p: SyncLogParams): void {
   const level = p.status === 'success' ? 'info' : 'error';
@@ -24,4 +26,24 @@ export function logProviderSync(p: SyncLogParams): void {
     error:       p.errorMessage ?? null,
     agencyId:    p.agencyId,
   }));
+  void persistProviderSync(p);
+}
+
+async function persistProviderSync(p: SyncLogParams): Promise<void> {
+  try {
+    const { db } = await import('./db');
+    const { providerSyncLog } = await import('./schema');
+    await db.insert(providerSyncLog).values({
+      id:           crypto.randomUUID(),
+      agencyId:     p.agencyId,
+      provider:     p.provider,
+      operation:    p.operation,
+      status:       p.status,
+      referenceId:  p.referenceId  ?? null,
+      errorMessage: p.errorMessage ?? null,
+      durationMs:   p.durationMs   ?? null,
+    });
+  } catch (err) {
+    console.error(JSON.stringify({ event: 'provider_sync_log_persist_failed', error: String(err) }));
+  }
 }

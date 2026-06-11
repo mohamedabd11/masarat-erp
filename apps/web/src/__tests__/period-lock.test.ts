@@ -22,15 +22,20 @@ vi.mock('@/lib/schema', () => ({
 vi.mock('drizzle-orm', () => ({
   eq: vi.fn((col, val) => ({ col, val, op: 'eq' })),
   and: vi.fn((...args) => ({ args, op: 'and' })),
+  desc: vi.fn((col) => ({ col, op: 'desc' })),
 }));
 
 // ─── Setup a chainable mock query builder ─────────────────────────────────────
+// Both the explicit-period lookup and the MED-1 "latest locked period" lookup
+// resolve through .limit(1) to returnRows; the second query (no explicit row) sees
+// [] for these tests, so the implicit-lock branch is a no-op.
 
 function makeMockDb(returnRows: Record<string, unknown>[]) {
   const chain = {
     select: vi.fn().mockReturnThis(),
     from: vi.fn().mockReturnThis(),
     where: vi.fn().mockReturnThis(),
+    orderBy: vi.fn().mockReturnThis(),
     limit: vi.fn().mockResolvedValue(returnRows),
   };
   return chain;
@@ -143,6 +148,36 @@ describe('assertPeriodOpen', () => {
       assertPeriodOpen('agency-1', '', mockDb as never)
     ).resolves.toBeUndefined();
     expect(mockDb.limit).not.toHaveBeenCalled();
+  });
+
+  // ── MED-1: implicit lock for months at/before the latest locked period ────
+
+  it('يقفل ضمنياً شهراً قبل أحدث فترة مقفلة دون صف صريح (MED-1)', async () => {
+    // explicit lookup → [] (no row), latest-locked lookup → 2024/06 locked.
+    const chain = {
+      select: vi.fn().mockReturnThis(),
+      from: vi.fn().mockReturnThis(),
+      where: vi.fn().mockReturnThis(),
+      orderBy: vi.fn().mockReturnThis(),
+      limit: vi.fn().mockResolvedValueOnce([]).mockResolvedValueOnce([{ y: 2024, m: 6 }]),
+    };
+    await expect(
+      assertPeriodOpen('agency-1', '2024-03-15', chain as never),
+    ).rejects.toThrow(BusinessError);
+  });
+
+  it('لا يقفل شهراً بعد أحدث فترة مقفلة (MED-1)', async () => {
+    const chain = {
+      select: vi.fn().mockReturnThis(),
+      from: vi.fn().mockReturnThis(),
+      where: vi.fn().mockReturnThis(),
+      orderBy: vi.fn().mockReturnThis(),
+      limit: vi.fn().mockResolvedValueOnce([]).mockResolvedValueOnce([{ y: 2024, m: 1 }]),
+    };
+    // target 2024/03 is AFTER the latest locked 2024/01 → still open
+    await expect(
+      assertPeriodOpen('agency-1', '2024-03-15', chain as never),
+    ).resolves.toBeUndefined();
   });
 
   // ── 8. DB error → propagates ──────────────────────────────────────────────

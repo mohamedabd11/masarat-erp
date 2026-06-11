@@ -52,6 +52,13 @@ export async function POST(
       if (!voucher) throw new BusinessError('سند القبض غير موجود', 404);
       if (voucher.invoiceId) throw new BusinessError('سند القبض مُطبَّق مسبقاً على فاتورة أخرى', 409);
       if (voucher.isRefund === 'true') throw new BusinessError('لا يمكن تطبيق سند استرداد', 400);
+      // L1: the deposit must belong to this invoice's customer — otherwise one
+      // customer's advance could be applied against another's AR (deposit/AR
+      // contamination). Enforced only when the invoice has a named customer
+      // (walk-in invoices carry no customerId).
+      if (invoice.customerId && voucher.customerId && voucher.customerId !== invoice.customerId) {
+        throw new BusinessError('سند القبض يخص عميلاً آخر — لا يمكن تطبيقه على هذه الفاتورة', 400);
+      }
 
       // ── 3. Determine apply amount ─────────────────────────────────────────
       const applyAmount = body.amountHalalas

@@ -8,6 +8,7 @@ import { checkRateLimit, getClientIp, rateLimitHeaders } from '@/lib/rate-limit'
 import { validateJournalLines } from '@/lib/journal-validation';
 import { requireFeature } from '@/lib/feature-access';
 import { getNextJournalNumber } from '@/lib/invoice-counter';
+import { GL } from '@/lib/gl-accounts';
 
 const DEFAULT_PAGE_SIZE = 100;
 const MAX_PAGE_SIZE     = 500;
@@ -82,24 +83,23 @@ export async function POST(request: Request) {
     const id   = crypto.randomUUID();
     const year = new Date(body.date).getFullYear();
 
-    // Force exact balance before persisting. validateJournalLines tolerates a
-    // ±1 halala rounding gap, but a *posted* entry must have ΣDr == ΣCr or the
-    // trial balance / balance sheet permanently report "not balanced". Push the
-    // 1-halala remainder into the largest line on the deficient side.
+    // validateJournalLines above already rejected any |diff| > 1 halala (422), so a
+    // nonzero diff here is a genuine ±1 rounding remainder. Route it to the
+    // dedicated rounding account (8399) instead of silently inflating the largest
+    // real line (MED-10), so the remainder is visible and never distorts a
+    // revenue/expense balance.
     const lines = (body.lines ?? []).map((l) => ({ ...l }));
     const diff  = computedDebit - computedCredit;
     if (diff !== 0 && lines.length > 0) {
-      if (diff > 0) {
-        let bi = 0;
-        for (let i = 1; i < lines.length; i++) if (lines[i]!.creditHalalas > lines[bi]!.creditHalalas) bi = i;
-        lines[bi]!.creditHalalas += diff;
-        computedCredit += diff;
-      } else {
-        let bi = 0;
-        for (let i = 1; i < lines.length; i++) if (lines[i]!.debitHalalas > lines[bi]!.debitHalalas) bi = i;
-        lines[bi]!.debitHalalas += -diff;
-        computedDebit += -diff;
-      }
+      lines.push({
+        accountCode:   GL.roundingDifference.code,
+        accountNameAr: GL.roundingDifference.ar,
+        accountNameEn: GL.roundingDifference.en,
+        debitHalalas:  diff < 0 ? -diff : 0,   // credit-heavy entry → add a debit
+        creditHalalas: diff > 0 ?  diff : 0,   // debit-heavy entry  → add a credit
+        memo:          'فرق تقريب / rounding difference',
+      });
+      if (diff > 0) computedCredit += diff; else computedDebit += -diff;
     }
 
     await db.transaction(async (tx) => {

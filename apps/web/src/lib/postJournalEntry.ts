@@ -50,7 +50,10 @@ export const AC = {
   operatingExpenses: { code: '5100', nameAr: 'مصاريف تشغيلية',               nameEn: 'Operating Expenses',            type: 'expense'   as const },
   salariesExpenses:  { code: '5200', nameAr: 'رواتب وأجور',                   nameEn: 'Salaries & Wages',              type: 'expense'   as const },
   officeExpenses:    { code: '5300', nameAr: 'مصاريف مكتبية',                 nameEn: 'Office Expenses',               type: 'expense'   as const },
-  otherExpenses:     { code: '5900', nameAr: 'مصاريف أخرى',                   nameEn: 'Other Expenses',                type: 'expense'   as const },
+  // L4: 5900 is canonically FX Loss in gl-accounts / DEFAULT_COA. The legacy
+  // catch-all "other expenses" must NOT reuse 5900 (it would mix opex into the FX
+  // Loss account); route it to Operating Expenses (5400) instead.
+  otherExpenses:     { code: '5400', nameAr: 'المصاريف التشغيلية',            nameEn: 'Operating Expenses',            type: 'expense'   as const },
 } as const;
 
 export type PaymentMethod = 'cash' | 'bank_transfer' | 'card' | 'online' | 'check';

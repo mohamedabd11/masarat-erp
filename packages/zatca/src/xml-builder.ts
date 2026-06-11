@@ -238,7 +238,7 @@ export function buildInvoiceXml(invoice: ZatcaInvoice, previousHash: string, icv
     <cac:TaxSubtotal>
       <cbc:TaxableAmount currencyID="SAR">${hal(vb.taxableAmount)}</cbc:TaxableAmount>
       <cbc:TaxAmount currencyID="SAR">${hal(vb.vatAmount)}</cbc:TaxAmount>
-      ${buildVatCategory(vb.category, vb.vatAmount > 0 ? 0.15 : 0, vb.exemptionReason)}
+      ${buildVatCategory(vb.category, vb.taxableAmount > 0 ? vb.vatAmount / vb.taxableAmount : 0, vb.exemptionReason)}
     </cac:TaxSubtotal>`).join('')}
   </cac:TaxTotal>
 
