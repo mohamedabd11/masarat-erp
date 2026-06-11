@@ -64,19 +64,29 @@ vi.mock('@/lib/invoice-counter', () => ({
 
 vi.mock('@/lib/audit', () => ({ logAudit: vi.fn().mockResolvedValue(undefined) }));
 
+// Idempotency wrapper runs the operation directly in tests (no DB claim).
+vi.mock('@/lib/idempotency', () => ({
+  withIdempotency: (_k: string, _a: string, _o: string, fn: () => Promise<unknown>) => fn(),
+  buildIdempotencyInsert: () => ({}),
+}));
+
 vi.mock('drizzle-orm', () => ({
   eq:  vi.fn(() => ({})),
   and: vi.fn((...a: unknown[]) => ({ a })),
+  sql: Object.assign((..._a: unknown[]) => ({}), { raw: (s: string) => s }),
 }));
 
 vi.mock('@/lib/schema', () => ({
-  invoices:       {},
-  journalEntries: {},
-  journalLines:   {},
+  invoices:        {},
+  journalEntries:  {},
+  journalLines:    {},
+  idempotencyKeys: {},
 }));
 
 const { mockTx, mockDb } = vi.hoisted(() => {
-  const insertChain = { values: vi.fn().mockResolvedValue(undefined) };
+  const insertChain = {
+    values: vi.fn().mockReturnValue({ onConflictDoNothing: vi.fn().mockResolvedValue(undefined), then: (r: (v: unknown) => unknown) => Promise.resolve(undefined).then(r) }),
+  };
   const makeSelectChain = () => {
     const p = Promise.resolve([] as unknown[]);
     const chain: Record<string, unknown> = {};

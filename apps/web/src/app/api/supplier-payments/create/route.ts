@@ -1,10 +1,12 @@
 import { NextResponse } from 'next/server';
 import { eq, and, sql } from 'drizzle-orm';
 import { db } from '@/lib/db';
-import { supplierPayments, suppliers, journalEntries, journalLines } from '@/lib/schema';
+import { supplierPayments, suppliers, journalEntries, journalLines, idempotencyKeys } from '@/lib/schema';
 import { verifyAuth, assertRole, ApiAuthError, BusinessError, ROLES_ACCOUNTANT_UP } from '@/lib/api-auth';
 import { getNextPaymentVoucherNumber, getNextJournalNumber } from '@/lib/invoice-counter';
 import { assertPeriodOpen } from '@/lib/period-lock';
+import { withIdempotency, buildIdempotencyInsert } from '@/lib/idempotency';
+import { logAudit } from '@/lib/audit';
 import { lookupFxRate, fxToHalalas } from '@/lib/fx';
 import { GL } from '@/lib/gl-accounts';
 import type { Tx } from '@/lib/db';
@@ -21,6 +23,7 @@ interface SupplierPaymentBody {
   bookingId?:         string;
   bookingNumber?:     string;
   supplierId?:        string;
+  idempotencyKey?:    string;
   // FX fields (IFRS 9)
   foreignCurrency?:   string;  // e.g. 'USD', 'AED'
   foreignAmountMinor?: number; // amount in minor units (cents, fils, etc.)
@@ -99,7 +102,11 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'مبلغ الدفعة غير صالح' }, { status: 400 });
     }
 
-    const result = await db.transaction(async (tx: Tx) => {
+    // Idempotency: a retry/double-click with the same key replays the first
+    // result instead of disbursing cash twice. The completion marker is written
+    // INSIDE the transaction (below) so commit and idempotency-finalize are atomic.
+    const idempKey = body.idempotencyKey ?? crypto.randomUUID();
+    const result = await withIdempotency(idempKey, agencyId, 'supplierPayment', () => db.transaction(async (tx: Tx) => {
       await assertPeriodOpen(agencyId, today0, tx);
 
       const now   = new Date();
@@ -181,6 +188,9 @@ export async function POST(request: Request) {
           { id: crypto.randomUUID(), entryId: jeId, agencyId, accountCode: paymentAc.code, accountNameAr: paymentAc.ar, accountNameEn: paymentAc.en, debitHalalas: 0, creditHalalas: resolvedAmountHalalas, sortOrder: 3 },
         ];
         await tx.insert(journalLines).values(lines);
+        await tx.insert(idempotencyKeys)
+          .values(buildIdempotencyInsert(agencyId, 'supplierPayment', idempKey, { id: spId, voucherNumber }))
+          .onConflictDoNothing();
         return { id: spId, voucherNumber, resolvedAmountHalalas, appliedFxRate, appliedFxRateDate };
       }
 
@@ -202,8 +212,18 @@ export async function POST(request: Request) {
       }
 
       await tx.insert(journalLines).values(lines);
+      await tx.insert(idempotencyKeys)
+        .values(buildIdempotencyInsert(agencyId, 'supplierPayment', idempKey, { id: spId, voucherNumber }))
+        .onConflictDoNothing();
 
       return { id: spId, voucherNumber, resolvedAmountHalalas, appliedFxRate, appliedFxRateDate };
+    }));
+
+    // Audit trail (HIGH-6): supplier disbursements were previously untraceable.
+    await logAudit({
+      agencyId, userId: uid, action: 'create', resource: 'supplier_payment',
+      resourceId: result.id,
+      after: { voucherNumber: result.voucherNumber, amountHalalas: result.resolvedAmountHalalas, payeeName, expenseCategory, paymentMethod },
     });
 
     const { resolvedAmountHalalas: computedAmount, appliedFxRate: fxRate, appliedFxRateDate: fxRateDate, ...rest } = result;

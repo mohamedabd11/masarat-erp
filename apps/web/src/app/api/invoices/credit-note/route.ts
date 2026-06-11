@@ -1,8 +1,9 @@
 import { NextResponse } from 'next/server';
-import { eq, and } from 'drizzle-orm';
+import { eq, and, sql } from 'drizzle-orm';
 import { db } from '@/lib/db';
-import { invoices, journalEntries, journalLines } from '@/lib/schema';
+import { invoices, journalEntries, journalLines, idempotencyKeys } from '@/lib/schema';
 import { verifyAuth, assertRole, ApiAuthError, BusinessError, ROLES_MANAGER_UP } from '@/lib/api-auth';
+import { withIdempotency, buildIdempotencyInsert } from '@/lib/idempotency';
 import { logAudit } from '@/lib/audit';
 import { getNextInvoiceNumber, getNextJournalNumber, type InvoiceType } from '@/lib/invoice-counter';
 import { assertPeriodOpen } from '@/lib/period-lock';
@@ -33,6 +34,7 @@ export async function POST(request: Request) {
       reason:             string;
       items?:             unknown;
       notes?:             string;
+      idempotencyKey?:    string;
     };
 
     if (!body.reason?.trim()) {
@@ -51,11 +53,36 @@ export async function POST(request: Request) {
       originalInvoice = orig;
     }
 
-    const result = await db.transaction(async (tx) => {
+    // Idempotency: a retry with the same key replays the first credit note
+    // rather than posting a second reversal. The completion marker is written
+    // inside the transaction so commit and finalize are atomic.
+    const idempKey = body.idempotencyKey ?? crypto.randomUUID();
+    const result = await withIdempotency(idempKey, agencyId, 'creditNote', () => db.transaction(async (tx) => {
       const now   = new Date();
       const year  = now.getFullYear();
       const today = now.toISOString().split('T')[0]!;
       await assertPeriodOpen(agencyId, today, tx);
+
+      const subtotalEarly = body.subtotalHalalas;
+      const totalEarly    = body.totalHalalas ?? subtotalEarly + (body.vatHalalas ?? 0);
+      // Ceiling: cumulative credit notes against an original invoice may never
+      // exceed its total — otherwise repeat submissions over-credit the customer
+      // and drive revenue/VAT arbitrarily negative.
+      if (originalInvoice && body.originalInvoiceId) {
+        const [agg] = await tx
+          .select({ s: sql<number>`coalesce(sum(${invoices.totalHalalas}), 0)` })
+          .from(invoices)
+          .where(and(
+            eq(invoices.agencyId, agencyId),
+            eq(invoices.type, '381'),
+            eq(invoices.originalInvoiceId, body.originalInvoiceId),
+          ));
+        const alreadyCredited = Number(agg?.s ?? 0);
+        if (alreadyCredited + totalEarly > originalInvoice.totalHalalas) {
+          throw new BusinessError('إجمالي الإشعارات الدائنة يتجاوز قيمة الفاتورة الأصلية', 422);
+        }
+      }
+
       const invNum = await getNextInvoiceNumber(agencyId, 'creditNote' as InvoiceType, year, tx);
       const jeNum  = await getNextJournalNumber(agencyId, year, tx);
       const invId  = crypto.randomUUID();
@@ -209,9 +236,12 @@ export async function POST(request: Request) {
       });
 
       await tx.insert(journalLines).values(jLines);
+      await tx.insert(idempotencyKeys)
+        .values(buildIdempotencyInsert(agencyId, 'creditNote', idempKey, { invoiceId: invId, invoiceNumber: invNum }))
+        .onConflictDoNothing();
 
       return { invoiceId: invId, invoiceNumber: invNum };
-    });
+    }));
 
     await logAudit({
       agencyId, userId: uid, action: 'create', resource: 'credit_note', resourceId: result.invoiceId,
