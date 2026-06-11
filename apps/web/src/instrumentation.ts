@@ -510,6 +510,14 @@ export async function register() {
     `CREATE INDEX IF NOT EXISTS idx_psl_agency_time     ON provider_sync_log(agency_id, created_at DESC)`,
     `CREATE INDEX IF NOT EXISTS idx_psl_agency_provider ON provider_sync_log(agency_id, provider, operation)`,
 
+    // ── 2026-06-11 — Rounding-difference account for every agency (MED-10) ──
+    // Backfills 8399 so manual-journal rounding remainders have a dedicated home
+    // instead of inflating a real line. Idempotent via the (agency_id, code) uq.
+    `INSERT INTO chart_of_accounts (id, agency_id, code, name_ar, name_en, type, is_system, allow_direct_entry, level)
+       SELECT a.id || '-coa-8399', a.id, '8399', 'فروق التقريب', 'Rounding Differences', 'expense', true, true, 1
+       FROM agencies a
+       ON CONFLICT (agency_id, code) DO NOTHING`,
+
     // ── 2026-06-11 — FX revaluation idempotency (HIGH-7) ────────────────────
     // One revaluation entry per (agency, account, date) so two concurrent runs
     // for the same date cannot both post. Partial index scoped to the

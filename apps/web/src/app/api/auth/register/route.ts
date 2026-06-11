@@ -64,6 +64,7 @@ const DEFAULT_COA = [
   { code: '6100', nameAr: 'مصروف الرواتب',               nameEn: 'Salary Expense',               type: 'expense',   },
   { code: '6200', nameAr: 'مصروف GOSI - صاحب العمل',     nameEn: 'GOSI Expense - Employer',      type: 'expense',   },
   { code: '6300', nameAr: 'مصروف مكافأة نهاية الخدمة',   nameEn: 'EOSB Expense',                 type: 'expense',   },
+  { code: '8399', nameAr: 'فروق التقريب',                 nameEn: 'Rounding Differences',          type: 'expense',   },
   { code: '9001', nameAr: 'حساب التعليق - دخل',           nameEn: 'Suspense Income',               type: 'revenue',   },
 ] as const;
 
