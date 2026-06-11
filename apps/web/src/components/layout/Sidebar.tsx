@@ -9,10 +9,11 @@ import { cn } from '@/lib/utils';
 import { MasaratLogo } from '@/components/ui/MasaratLogo';
 import { useSubscription } from '@/providers/SubscriptionProvider';
 import { type FeatureKey } from '@/lib/plan-features';
+import { usePersistedState } from '@/hooks/usePersistedState';
 import {
   LayoutDashboard, ClipboardList, Users, Plane, Building2, Package,
   Moon, Shield, Stamp, FileText, Receipt, BarChart3, Truck, UserCog,
-  Settings, HelpCircle, ChevronLeft, ChevronRight, Calculator,
+  Settings, HelpCircle, ChevronLeft, ChevronRight, ChevronDown, Calculator,
   Anchor, Car, Train, Camera, Mountain, Plus, Layers, Landmark, Send, Wallet,
   TrendingDown, TrendingUp, FileSearch, Ticket, ClipboardCheck, UsersRound,
 } from 'lucide-react';
@@ -110,6 +111,17 @@ const BOTTOM_ITEMS: NavItem[] = [
   { key: 'help',     href: '/help',     icon: <HelpCircle size={18} />, labelAr: 'المساعدة',  labelEn: 'Help' },
 ];
 
+const NAV_GROUPS: NavGroup[] = [SERVICES_GROUP, FINANCE_GROUP, MANAGEMENT_GROUP];
+
+// Collapsible-group state on first visit (no saved preference yet): Services
+// open (the day-to-day workflow), Finance/Management collapsed to cut the
+// initial list from ~26 rows to ~14. Persisted per-group after that.
+const DEFAULT_EXPANDED_GROUPS: Record<string, boolean> = {
+  services:   true,
+  finance:    false,
+  management: false,
+};
+
 interface SidebarProps {
   collapsed?: boolean;
   onToggle?: () => void;
@@ -124,6 +136,7 @@ export function Sidebar({ collapsed = false, onToggle, onClose }: SidebarProps) 
   const agencyId = user?.agencyId ?? null;
   const { canAccess } = useSubscription();
   const [customTypes, setCustomTypes] = useState<CustomServiceType[]>([]);
+  const [expandedGroups, setExpandedGroups] = usePersistedState('masarat:sidebar:groups', DEFAULT_EXPANDED_GROUPS);
 
   useEffect(() => {
     if (!agencyId) return;
@@ -148,6 +161,29 @@ export function Sidebar({ collapsed = false, onToggle, onClose }: SidebarProps) 
 
   function buildHref(path: string): string {
     return `/${locale}${path}`;
+  }
+
+  // If the active page lives in a collapsed group, reveal it so the highlighted
+  // item stays visible. After that, the user's manual toggle is respected.
+  useEffect(() => {
+    const activeGroup = NAV_GROUPS.find(g => g.items.some(item => isActive(item.href)));
+    if (activeGroup && expandedGroups[activeGroup.key] === false) {
+      setExpandedGroups(prev => ({ ...prev, [activeGroup.key]: true }));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pathname]);
+
+  // Icon-only rail (collapsed) always shows every item, flattened with
+  // separators — group accordions only apply to the full-width sidebar.
+  function isGroupExpanded(key: string): boolean {
+    return collapsed || (expandedGroups[key] ?? true);
+  }
+
+  // Item count shown next to a collapsed group's header, after feature-gating
+  // (and including dynamic custom service types for the Services group).
+  function visibleItemCount(group: NavGroup): number {
+    const base = group.items.filter(item => !item.feature || canAccess(item.feature)).length;
+    return group.key === 'services' ? base + customTypes.length : base;
   }
 
   const CollapseIcon = isAr
@@ -179,7 +215,7 @@ export function Sidebar({ collapsed = false, onToggle, onClose }: SidebarProps) 
     );
   }
 
-  const groups = [SERVICES_GROUP, FINANCE_GROUP, MANAGEMENT_GROUP];
+  const groups = NAV_GROUPS;
 
   return (
     <aside
@@ -213,19 +249,33 @@ export function Sidebar({ collapsed = false, onToggle, onClose }: SidebarProps) 
           />
         </div>
 
-        {groups.map((group, gi) => (
+        {groups.map((group, gi) => {
+          const expanded = isGroupExpanded(group.key);
+          return (
           <div key={group.key} className={cn('px-3', gi < groups.length - 1 ? 'mb-3' : '')}>
-            {/* Group label */}
+            {/* Group label — toggles the accordion when the sidebar is expanded */}
             {!collapsed ? (
-              <div className="flex items-center justify-between px-3 pt-2 pb-1.5">
-                <span className="text-[10px] font-semibold uppercase tracking-widest text-slate-400 select-none">
-                  {isAr ? group.labelAr : group.labelEn}
-                </span>
+              <div className="flex items-center gap-1 px-1 pt-2 pb-1.5">
+                <button
+                  type="button"
+                  onClick={() => setExpandedGroups(prev => ({ ...prev, [group.key]: !expanded }))}
+                  aria-expanded={expanded}
+                  className="flex-1 flex items-center gap-1.5 px-2 py-0.5 rounded text-[10px] font-semibold uppercase tracking-widest text-slate-400 hover:text-slate-600 hover:bg-slate-100 select-none transition-colors"
+                >
+                  <ChevronDown
+                    size={12}
+                    className={cn('flex-shrink-0 transition-transform duration-200', !expanded && '-rotate-90')}
+                  />
+                  <span className="truncate">{isAr ? group.labelAr : group.labelEn}</span>
+                  <span className="text-slate-300 font-normal normal-case tracking-normal">
+                    ({visibleItemCount(group)})
+                  </span>
+                </button>
                 {group.key === 'services' && (
                   <Link
                     href={buildHref('/settings?tab=service_types')}
                     title={isAr ? 'إضافة خدمة مخصصة' : 'Add service type'}
-                    className="p-0.5 rounded text-slate-300 hover:text-brand-500 hover:bg-brand-50 transition-colors"
+                    className="p-0.5 rounded text-slate-300 hover:text-brand-500 hover:bg-brand-50 transition-colors flex-shrink-0"
                   >
                     <Plus size={12} />
                   </Link>
@@ -235,6 +285,7 @@ export function Sidebar({ collapsed = false, onToggle, onClose }: SidebarProps) 
               gi > 0 && <div className="my-2 border-t border-slate-100 mx-2" />
             )}
 
+            {expanded && (
             <ul className="space-y-0.5">
               {group.items.map(item => (
                 <li key={item.key}>
@@ -271,8 +322,10 @@ export function Sidebar({ collapsed = false, onToggle, onClose }: SidebarProps) 
                 );
               })}
             </ul>
+            )}
           </div>
-        ))}
+          );
+        })}
 
         {/* Bottom items inside nav — eliminates mobile gap */}
         <div className="px-3 mt-3 pt-3 border-t border-surface-border space-y-0.5">

@@ -7,12 +7,13 @@ import { Header } from '@/components/layout/Header';
 import { TrialBanner } from '@/components/layout/TrialBanner';
 import { SubscriptionExpiredOverlay } from '@/components/layout/SubscriptionExpiredOverlay';
 import { SubscriptionProvider, useSubscription } from '@/providers/SubscriptionProvider';
+import { usePersistedState } from '@/hooks/usePersistedState';
 import { cn } from '@/lib/utils';
 
 // ─── Inner layout — reads subscription context ────────────────────────────────
 
 function DashboardInner({ children }: { children: ReactNode }) {
-  const [sidebarCollapsed,  setSidebarCollapsed]  = useState(false);
+  const [sidebarCollapsed,  setSidebarCollapsed]  = usePersistedState('masarat:sidebar:collapsed', false);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const { isExpired } = useSubscription();
 
