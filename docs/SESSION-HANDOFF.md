@@ -57,11 +57,22 @@ A4, A5, A6 (`provider_sync_log` table).
    `bypass_for_service_role` policies. Infra/env change; option (b) guard is
    already shipped.
 
-3. **Performance B4/B5/B6** — server-side aggregation for the AR-aging and
-   dashboard queries. A naive `LIMIT` would corrupt AR totals, so these need a
-   measured aggregation refactor (deferred by the owner).
+3. **Performance B4/B6 — DONE (2026-06-11).** AR-aging is now SQL-aggregated in
+   `apps/web/src/lib/ar-aging.ts` (`getAgingReport`): per-customer bucket totals +
+   `invoiceCount` via a single `GROUP BY` + conditional `FILTER`, bounded by the
+   customer count; invoice-level detail only on a single-customer drill-down; the
+   GL-1120 reconciliation is preserved. Verified by a new integration test
+   (`ar-aging.integration.test.ts`) against real Postgres. **B5 — DONE:** the
+   `reconcile-pending-tickets` cron is wall-clock-bounded (`RUN_BUDGET_MS`,
+   `maxDuration=60`) and caches `resolveFlightProviderByCode` per (agency,provider)
+   per run. **Still TODO (B4 dashboard tail):** `reports/dashboard` still returns
+   the full-year `vatInvoices` list (the VAT-return tab filters it client-side);
+   moving that to a server-side date-range aggregation needs a coordinated change
+   to the VAT-return tab UI.
 
-4. **Minor:** L7 (centralize supplier-payment expense maps in `gl-accounts.ts`).
+4. ~~**Minor:** L7~~ — **DONE (2026-06-11):** supplier-payment account maps are
+   centralized in `gl-accounts.ts` (`SUPPLIER_PAYMENT_EXPENSE_ACCOUNT`,
+   `PAYMENT_METHOD_ACCOUNT`); create + reverse import them.
 
 ## Suggested next session order
 

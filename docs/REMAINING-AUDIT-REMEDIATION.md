@@ -201,9 +201,20 @@
 ### MED-15 / Performance detail
 - **B2** `apps/web/src/app/api/reports/supplier-aging/route.ts:40-52` — `lte(sql\`${supplierPayments.date}::date\`, ...)` casts the text column → defeats `idx_supplier_payments_agency_date`; also no LIMIT + O(payments×suppliers) `.includes` in JS. Compare as plain text (ISO dates sort chronologically), aggregate in SQL with `GROUP BY supplier_id`.
 - **B3** `apps/web/src/app/api/reports/booking-profitability/route.ts:27-32` — `cast(${bookings.createdAt} as date)` defeats `idx_bookings_agency_created`. Compare the timestamp column directly to a timestamp range (push the cast to the literal).
-- **B4** `apps/web/src/app/api/reports/aging/route.ts:95-108` and `apps/web/src/app/api/reports/dashboard/route.ts:76-93` — unbounded result sets (all open invoices / full-year `vatInvoices`). Paginate or aggregate server-side.
-- **B5** `apps/web/src/app/api/jobs/reconcile-pending-tickets/route.ts:98-177` — serial per-ticket GDS round-trip (50×15s worst case > serverless limit). Bound by wall-clock, small concurrency pool, cache `resolveFlightProviderByCode` per (agency,providerCode) per run.
-- **B6** `apps/web/src/app/api/reports/aging/route.ts:124-172` — in-memory grouping/sorting over the full set; push bucketing into SQL.
+- **B4** — aging side **DONE** (2026-06-11): `reports/aging` now delegates to
+  `getAgingReport` (`apps/web/src/lib/ar-aging.ts`) which aggregates per-customer in
+  SQL (bounded by customer count). **Dashboard tail still open:**
+  `apps/web/src/app/api/reports/dashboard/route.ts:76-93` still returns full-year
+  `vatInvoices`; the VAT-return tab filters it client-side, so server-side date-range
+  aggregation needs a coordinated VAT-return tab UI change.
+- **B5** **DONE** (2026-06-11): `reconcile-pending-tickets` is wall-clock-bounded
+  (`RUN_BUDGET_MS=50s`, `maxDuration=60`); unreached tickets defer to the next run.
+  `resolveFlightProviderByCode` is cached per (agency,provider) per run (incl. a
+  null marker for bad credentials). Concurrency pool intentionally skipped (provider
+  rate-limit / tx-interleaving risk; the budget already prevents the timeout).
+- **B6** **DONE** (2026-06-11): bucketing pushed into SQL (`GROUP BY` + conditional
+  `FILTER`) in `getAgingReport`; per-invoice detail only on single-customer drill-down.
+  Covered by `ar-aging.integration.test.ts`.
 - **Impact estimate:** negligible at 10 agencies; multi-second at 100; timeout-prone at 1,000.
 
 ---
@@ -213,7 +224,11 @@
 - **L2** `apps/web/src/app/api/reports/vat-return/route.ts:107` — zero-rated detection includes types 388/383 but excludes 381; a credit note vs an international zero-rated flight isn't subtracted. Include 381 with sign handling.
 - **L3** `packages/zatca/src/signing.ts:225` — `SigningTime` UTC `Z` while `IssueTime` is `+03:00`; normalize to `+03:00`.
 - **L4** `apps/web/src/lib/postJournalEntry.ts:53` vs `apps/web/src/lib/gl-accounts.ts:60` — divergent 5900 ("Other Expenses" vs "FX Loss"); reclassify migrated rows.
-- **L5/L6/L7** — Amadeus token dedup (=A5), provider-sync-log table (=A6), supplier-payment expense maps hardcoded locally (centralize in `gl-accounts.ts`).
+- **L5/L6/L7** — Amadeus token dedup (=A5, done), provider-sync-log table (=A6, done),
+  supplier-payment expense maps hardcoded locally. **L7 DONE** (2026-06-11):
+  centralized in `gl-accounts.ts` as `SUPPLIER_PAYMENT_EXPENSE_ACCOUNT` +
+  `PAYMENT_METHOD_ACCOUNT`, imported by the create + reverse routes (also fixed the
+  drifted cash label in create → `GL.cash`).
 
 ---
 
