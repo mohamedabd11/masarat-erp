@@ -28,6 +28,12 @@ import { GL } from '@/lib/gl-accounts';
 const FX_GAIN_CODE = GL.fxGain.code;  // 4900
 const FX_LOSS_CODE = GL.fxLoss.code;  // 5900
 
+// Thrown inside a per-account tx when a concurrent run already claimed the
+// (agency, account, date) revaluation. Rolls the tx back (un-consuming the
+// journal counter → no number gap) and is swallowed by the loop to skip the
+// account rather than fail the whole request.
+class FxAlreadyClaimed extends Error {}
+
 export async function POST(request: Request) {
   try {
     const { uid, agencyId, role } = await verifyAuth(request);
@@ -144,13 +150,18 @@ export async function POST(request: Request) {
       const bankGl    = (adj.accountType === 'cash' || adj.accountType === 'petty_cash') ? GL.cash : GL.bank;
       const entryId   = crypto.randomUUID();
 
+      try {
       await db.transaction(async tx => {
         // Period lock must be checked inside the transaction (with tx) so a
         // concurrent lock can't slip a posting into a just-closed period.
         await assertPeriodOpen(agencyId, revalDate, tx);
         const entryNumber = await getNextJournalNumber(agencyId, new Date(revalDate).getFullYear(), tx);
 
-        await tx.insert(journalEntries).values({
+        // Atomically claim this (agency, account, date) revaluation via the partial
+        // unique index journal_entries_fx_reval_uq. If a concurrent run already
+        // posted it, 0 rows return → abort the tx so the journal counter consumed
+        // above rolls back (no number gap) and the account is skipped (HIGH-7).
+        const claimed = await tx.insert(journalEntries).values({
           id:              entryId,
           agencyId,
           entryNumber,
@@ -164,7 +175,8 @@ export async function POST(request: Request) {
           totalDebitHalalas:  absAmount,
           totalCreditHalalas: absAmount,
           createdBy:       uid,
-        });
+        }).onConflictDoNothing().returning({ id: journalEntries.id });
+        if (claimed.length === 0) throw new FxAlreadyClaimed();
 
         // Gain: DR Bank / CR FX Gain
         // Loss: DR FX Loss / CR Bank
@@ -202,6 +214,12 @@ export async function POST(request: Request) {
       });
 
       createdEntries.push(entryId);
+      } catch (txErr) {
+        // Concurrent run already revalued this account/date — skip it, don't fail
+        // the whole request (the counter increment rolled back with the tx).
+        if (txErr instanceof FxAlreadyClaimed) continue;
+        throw txErr;
+      }
     }
 
     await logAudit({

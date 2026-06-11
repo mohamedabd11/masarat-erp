@@ -493,6 +493,30 @@ export async function register() {
     `CREATE INDEX IF NOT EXISTS idx_pnr_expiry         ON pnr_records(status, expires_at) WHERE deleted_at IS NULL`,
     `CREATE INDEX IF NOT EXISTS idx_pnr_agency_created ON pnr_records(agency_id, created_at DESC)`,
     `CREATE INDEX IF NOT EXISTS idx_pnr_agency_status  ON pnr_records(agency_id, status)`,
+
+    // ── 2026-06-11 — Provider sync log (A6) ─────────────────────────────────
+    // Queryable audit trail of GDS/provider operations for financial reconciliation.
+    `CREATE TABLE IF NOT EXISTS provider_sync_log (
+       id            TEXT PRIMARY KEY,
+       agency_id     TEXT NOT NULL,
+       provider      TEXT NOT NULL,
+       operation     TEXT NOT NULL,
+       status        TEXT NOT NULL,
+       reference_id  TEXT,
+       error_message TEXT,
+       duration_ms   BIGINT,
+       created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+     )`,
+    `CREATE INDEX IF NOT EXISTS idx_psl_agency_time     ON provider_sync_log(agency_id, created_at DESC)`,
+    `CREATE INDEX IF NOT EXISTS idx_psl_agency_provider ON provider_sync_log(agency_id, provider, operation)`,
+
+    // ── 2026-06-11 — FX revaluation idempotency (HIGH-7) ────────────────────
+    // One revaluation entry per (agency, account, date) so two concurrent runs
+    // for the same date cannot both post. Partial index scoped to the
+    // fx_revaluation source only — monthly revaluations on other dates are fine.
+    `CREATE UNIQUE INDEX IF NOT EXISTS journal_entries_fx_reval_uq
+       ON journal_entries(agency_id, source_id, date)
+       WHERE source = 'fx_revaluation'`,
   ];
 
   try {
