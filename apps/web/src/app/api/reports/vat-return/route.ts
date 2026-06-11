@@ -94,7 +94,9 @@ export async function GET(request: Request) {
     // Derived from invoices whose linked booking is an international flight.
     const zeroRatedRows = await db
       .select({
-        netAmount: sql<number>`cast(coalesce(sum(${invoices.subtotalHalalas}), 0) as int)`,
+        // Net of credit notes (381) against international zero-rated flights —
+        // otherwise a refund of a zero-rated sale isn't subtracted (L2).
+        netAmount: sql<number>`cast(coalesce(sum(CASE WHEN ${invoices.type} = '381' THEN -${invoices.subtotalHalalas} ELSE ${invoices.subtotalHalalas} END), 0) as int)`,
         count:     sql<number>`cast(count(*) as int)`,
       })
       .from(invoices)
@@ -104,7 +106,7 @@ export async function GET(request: Request) {
         sql`${invoices.issueDate} >= ${from}`,
         sql`${invoices.issueDate} <= ${to}`,
         sql`${invoices.status} NOT IN ('cancelled')`,
-        sql`${invoices.type} IN ('388', '383')`,
+        sql`${invoices.type} IN ('388', '383', '381')`,
         sql`${bookings.serviceType} IN ('flight', 'flights')`,
         sql`(${bookings.details} ->> 'isInternational') = 'true'`,
       ));

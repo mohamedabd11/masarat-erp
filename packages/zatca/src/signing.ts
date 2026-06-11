@@ -222,7 +222,10 @@ export function signInvoiceXml(input: SigningInput): SignedInvoiceResult {
   // 3. Embed into XML via placeholders
   const certBase64 = certPemToBase64(input.certificatePem);
   const cert       = parseCertificate(input.certificatePem);
-  const signingTime = `${new Date().toISOString().split('.')[0]}Z`;
+  // SigningTime must use the same +03:00 (Asia/Riyadh, no DST) offset as IssueTime;
+  // a UTC 'Z' timestamp here is inconsistent with the invoice's local times (L3).
+  const ksaNow      = new Date(Date.now() + 3 * 60 * 60 * 1000);
+  const signingTime = `${ksaNow.toISOString().split('.')[0]}+03:00`;
 
   let signedXml = input.invoiceXml
     .replaceAll('{{INVOICE_HASH}}',      invoiceHash)
