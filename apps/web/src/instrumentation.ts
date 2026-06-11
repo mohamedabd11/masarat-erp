@@ -510,6 +510,17 @@ export async function register() {
     `CREATE INDEX IF NOT EXISTS idx_psl_agency_time     ON provider_sync_log(agency_id, created_at DESC)`,
     `CREATE INDEX IF NOT EXISTS idx_psl_agency_provider ON provider_sync_log(agency_id, provider, operation)`,
 
+    // ── 2026-06-11 — Per-agency document-number uniqueness (HIGH-9) ─────────
+    // These live in drizzle/0013 but the boot-time migrator (this file) never
+    // applied them, so on a boot-only deploy duplicate invoice/journal/voucher
+    // numbers were NOT prevented. Mirror them here. If legacy duplicates exist the
+    // index creation fails and is logged (per the loop below) without crashing.
+    `CREATE UNIQUE INDEX IF NOT EXISTS invoices_agency_number_uq          ON invoices         (agency_id, invoice_number)`,
+    `CREATE UNIQUE INDEX IF NOT EXISTS journal_entries_agency_number_uq   ON journal_entries  (agency_id, entry_number)`,
+    `CREATE UNIQUE INDEX IF NOT EXISTS payments_agency_voucher_uq         ON payments         (agency_id, voucher_number)`,
+    `CREATE UNIQUE INDEX IF NOT EXISTS receipt_vouchers_agency_voucher_uq ON receipt_vouchers (agency_id, voucher_number)`,
+    `CREATE UNIQUE INDEX IF NOT EXISTS supplier_payments_agency_voucher_uq ON supplier_payments (agency_id, voucher_number)`,
+
     // ── 2026-06-11 — Journal line non-negativity CHECK (MED-5) ──────────────
     // A journal line's debit and credit must never be negative (negatives are
     // expressed as the opposite side). NOT VALID applies to new rows without

@@ -3,14 +3,17 @@
  *
  * IAS 21 Foreign Currency Revaluation.
  *
- * Revalues all foreign-currency monetary items (bank accounts, AR, AP)
- * to the current exchange rate as of the revaluation date.
+ * SCOPE (MED-2): currently revalues foreign-currency **bank/cash accounts** only
+ * (those carrying an `fxBalanceMinor`). Revaluation of foreign-currency AR/AP
+ * monetary balances is NOT yet implemented — it requires per-currency AR/AP
+ * balances which the subledger does not track today. Do not assume AR/AP are
+ * remeasured here.
  *
- * Creates journal entries for unrealised gains/losses:
- *   Gain: DR Bank/AR/AP / CR FX Gain (4500)
- *   Loss: DR FX Loss (5500) / CR Bank/AR/AP
+ * Creates journal entries for unrealised gains/losses on those bank/cash accounts:
+ *   Gain: DR Bank/Cash / CR FX Gain (4900)
+ *   Loss: DR FX Loss (5900) / CR Bank/Cash
  *
- * Idempotent per date — won't duplicate if re-run on the same date.
+ * Idempotent per (account, date) — won't duplicate if re-run on the same date.
  *
  * Body: { revaluationDate: YYYY-MM-DD, dryRun?: boolean }
  */
