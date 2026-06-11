@@ -1,4 +1,5 @@
 import { pgTable, text, integer, bigint, boolean, timestamp, jsonb, index, uniqueIndex } from 'drizzle-orm/pg-core';
+import { sql } from 'drizzle-orm';
 import { agencies } from './agencies';
 import { bookings } from './bookings';
 import { customers } from './customers';
@@ -71,9 +72,14 @@ export const invoices = pgTable('invoices', {
   index('idx_invoices_customer').on(t.customerId),
   index('idx_invoices_booking').on(t.bookingId),
   index('idx_invoices_agency_deferred').on(t.agencyId, t.deferredUntil),
-  // One invoice per booking per agency (skips standalone invoices where bookingId is NULL —
-  // Postgres treats NULLs as distinct, so multiple booking-less invoices remain allowed).
-  uniqueIndex('uq_invoices_agency_booking').on(t.agencyId, t.bookingId),
+  // One ORIGINAL invoice per booking per agency. Restricted to original invoice
+  // types (380 legacy / 388 simplified) so credit notes (381) and debit notes
+  // (383) can reference the same booking_id — without this filter every
+  // booking-linked refund collided (23505). Standalone invoices (bookingId NULL)
+  // stay unconstrained (Postgres treats NULLs as distinct).
+  uniqueIndex('invoices_one_per_booking')
+    .on(t.agencyId, t.bookingId)
+    .where(sql`type IN ('380','388') AND booking_id IS NOT NULL`),
   uniqueIndex('invoices_agency_number_uq').on(t.agencyId, t.invoiceNumber),
 ]);
 

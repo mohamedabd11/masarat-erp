@@ -200,7 +200,7 @@ CREATE INDEX IF NOT EXISTS idx_invoices_agency   ON invoices(agency_id);
 CREATE INDEX IF NOT EXISTS idx_invoices_customer ON invoices(customer_id);
 CREATE INDEX IF NOT EXISTS idx_invoices_booking  ON invoices(booking_id);
 CREATE INDEX IF NOT EXISTS idx_invoices_created  ON invoices(agency_id, created_at DESC);
-CREATE UNIQUE INDEX IF NOT EXISTS invoices_one_per_booking ON invoices(booking_id, agency_id) WHERE type = '380' AND booking_id IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS invoices_one_per_booking ON invoices(agency_id, booking_id) WHERE type IN ('380','388') AND booking_id IS NOT NULL;
 
 -- ══ PAYMENTS ═════════════════════════════════════════════════════════════════
 CREATE TABLE IF NOT EXISTS payments (
@@ -960,8 +960,12 @@ CREATE INDEX IF NOT EXISTS idx_invoices_agency_status   ON invoices(agency_id, s
 CREATE INDEX IF NOT EXISTS idx_je_agency_source         ON journal_entries(agency_id, source);
 CREATE INDEX IF NOT EXISTS idx_bookings_agency_status   ON bookings(agency_id, status);
 CREATE INDEX IF NOT EXISTS idx_payments_booking         ON payments(booking_id);
--- One invoice row per booking per agency (NULL booking_id rows stay unconstrained).
-CREATE UNIQUE INDEX IF NOT EXISTS uq_invoices_agency_booking ON invoices(agency_id, booking_id);
+-- One ORIGINAL invoice per booking per agency. Credit/debit notes (381/383) are
+-- excluded so refunds can reference the same booking_id; NULL booking_id rows
+-- (direct invoices) stay unconstrained. The old unfiltered uq_invoices_agency_booking
+-- blocked every booking-linked refund (23505) and was removed.
+CREATE UNIQUE INDEX IF NOT EXISTS invoices_one_per_booking ON invoices(agency_id, booking_id) WHERE type IN ('380','388') AND booking_id IS NOT NULL;
+DROP INDEX IF EXISTS uq_invoices_agency_booking;
 
 -- ══ WIDEN MONETARY COLUMNS TO BIGINT ═════════════════════════════════════════
 -- Hajj/Umrah group invoices and BSP remittances can exceed the 32-bit signed

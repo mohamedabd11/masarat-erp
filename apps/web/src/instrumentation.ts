@@ -452,6 +452,20 @@ export async function register() {
     `ALTER TABLE invoices ADD COLUMN IF NOT EXISTS zatca_response     JSONB`,
     // ICV is monotonically increasing per agency (invoice numbers reset yearly; ICV never resets)
     `ALTER TABLE agencies ADD COLUMN IF NOT EXISTS zatca_invoice_counter BIGINT NOT NULL DEFAULT 0`,
+
+    // ── 2026-06-11 — Fix booking↔invoice uniqueness (unblocks refunds) ───────
+    // The previous unfiltered unique index uq_invoices_agency_booking made EVERY
+    // booking-linked credit note (type 381, refunds) and debit note (383) collide
+    // (23505) with the original invoice, so refunds could never post. Replace it
+    // with a PARTIAL unique index that constrains only ORIGINAL invoices
+    // (type 380 legacy / 388 simplified) — credit/debit notes are excluded and
+    // may freely reference the same booking_id. Drop the stale type='380'-only
+    // partial index too; the app issues type '388', so it never matched.
+    `DROP INDEX IF EXISTS uq_invoices_agency_booking`,
+    `DROP INDEX IF EXISTS invoices_one_per_booking`,
+    `CREATE UNIQUE INDEX IF NOT EXISTS invoices_one_per_booking
+       ON invoices(agency_id, booking_id)
+       WHERE type IN ('380','388') AND booking_id IS NOT NULL`,
   ];
 
   try {
