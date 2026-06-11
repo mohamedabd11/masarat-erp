@@ -69,26 +69,37 @@ export async function verifyAuth(request: Request): Promise<AuthClaims> {
   if (!agencyId && !isSuperAdmin) throw new ApiAuthError('يجب تسجيل الدخول أولاً', 401);
 
   // Block suspended / expired / deactivated agencies from all API access.
-  // Super-admin is exempt. This is deliberately FAIL-OPEN: only an explicit
-  // inactive/suspended/expired row throws; any other error (DB unreachable,
-  // missing row, import failure) is swallowed so a transient issue can never
-  // lock every tenant out of the system.
+  // Super-admin is exempt. We distinguish two failure modes:
+  //   • The lookup SUCCEEDS but the row is missing or inactive/suspended/expired
+  //     → FAIL CLOSED (the agency was deleted/disabled; deny access).
+  //   • The lookup itself THROWS (DB unreachable, import failure)
+  //     → FAIL OPEN, but log a degraded-path alert, so a transient infra blip
+  //       cannot lock every tenant out of the system.
   if (agencyId && !isSuperAdmin) {
+    let ag: { isActive: boolean | null; subscriptionStatus: string | null } | undefined;
+    let lookupSucceeded = false;
     try {
       const { db } = await import('./db');
       const { agencies } = await import('./schema');
       const { eq } = await import('drizzle-orm');
-      const [ag] = await db
+      [ag] = await db
         .select({ isActive: agencies.isActive, subscriptionStatus: agencies.subscriptionStatus })
         .from(agencies)
         .where(eq(agencies.id, agencyId))
         .limit(1);
-      if (ag && (ag.isActive === false || ag.subscriptionStatus === 'suspended' || ag.subscriptionStatus === 'expired')) {
+      lookupSucceeded = true;
+    } catch (err) {
+      // Infrastructure error — fail open, but surface it so the swallow path is
+      // observable rather than silent.
+      console.error(JSON.stringify({ event: 'agency_status_check_degraded', agencyId, error: String(err) }));
+    }
+    if (lookupSucceeded) {
+      if (!ag) {
+        throw new ApiAuthError('حساب الوكالة غير موجود — يرجى التواصل مع الدعم', 403);
+      }
+      if (ag.isActive === false || ag.subscriptionStatus === 'suspended' || ag.subscriptionStatus === 'expired') {
         throw new ApiAuthError('حساب الوكالة موقوف أو انتهى اشتراكه — يرجى التواصل مع الدعم', 403);
       }
-    } catch (err) {
-      if (err instanceof ApiAuthError) throw err; // genuine block — propagate
-      // otherwise fail open (do not block on infrastructure errors)
     }
   }
 

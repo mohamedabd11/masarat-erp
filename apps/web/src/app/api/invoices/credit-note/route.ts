@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { eq, and, sql } from 'drizzle-orm';
+import { eq, and, ne, sql } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { invoices, journalEntries, journalLines, idempotencyKeys } from '@/lib/schema';
 import { verifyAuth, assertRole, ApiAuthError, BusinessError, ROLES_MANAGER_UP } from '@/lib/api-auth';
@@ -68,6 +68,7 @@ export async function POST(request: Request) {
       // Ceiling: cumulative credit notes against an original invoice may never
       // exceed its total — otherwise repeat submissions over-credit the customer
       // and drive revenue/VAT arbitrarily negative.
+      let fullyCredited = false;
       if (originalInvoice && body.originalInvoiceId) {
         const [agg] = await tx
           .select({ s: sql<number>`coalesce(sum(${invoices.totalHalalas}), 0)` })
@@ -81,6 +82,7 @@ export async function POST(request: Request) {
         if (alreadyCredited + totalEarly > originalInvoice.totalHalalas) {
           throw new BusinessError('إجمالي الإشعارات الدائنة يتجاوز قيمة الفاتورة الأصلية', 422);
         }
+        fullyCredited = alreadyCredited + totalEarly >= originalInvoice.totalHalalas;
       }
 
       const invNum = await getNextInvoiceNumber(agencyId, 'creditNote' as InvoiceType, year, tx);
@@ -236,6 +238,22 @@ export async function POST(request: Request) {
       });
 
       await tx.insert(journalLines).values(jLines);
+
+      // HIGH-1: once cumulative credit notes fully credit the original invoice,
+      // mark it 'credit_noted' so it stops counting as outstanding AR / against the
+      // credit limit and no further payment can be recorded against it. Without
+      // this the original stayed 'issued' with its full balance still collectible,
+      // double-counting the receivable the credit note just reversed in the GL.
+      if (fullyCredited && body.originalInvoiceId) {
+        await tx.update(invoices)
+          .set({ status: 'credit_noted', updatedAt: now })
+          .where(and(
+            eq(invoices.id, body.originalInvoiceId),
+            eq(invoices.agencyId, agencyId),
+            ne(invoices.status, 'cancelled'),
+          ));
+      }
+
       await tx.insert(idempotencyKeys)
         .values(buildIdempotencyInsert(agencyId, 'creditNote', idempKey, { invoiceId: invId, invoiceNumber: invNum }))
         .onConflictDoNothing();

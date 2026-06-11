@@ -1,9 +1,8 @@
 import { NextResponse } from 'next/server';
-import { eq, and, asc } from 'drizzle-orm';
+import { eq, and, ne, asc } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { bookings, bookingLines, invoices, VAT_RATE_BPS } from '@/lib/schema';
 import type { VatCategory } from '@/lib/schema';
-import { inArray } from 'drizzle-orm';
 import { verifyAuth, assertRole, ApiAuthError, BusinessError, ROLES_MANAGER_UP } from '@/lib/api-auth';
 import { syncBookingTotalsFromLines } from '@/lib/booking-financials';
 
@@ -67,7 +66,11 @@ export async function POST(
       .where(and(
         eq(invoices.bookingId, booking.id),
         eq(invoices.agencyId, agencyId),
-        inArray(invoices.status, ['issued', 'partial', 'paid']),
+        // Any non-cancelled invoice counts as live — including DRAFT. The old
+        // allowlist ('issued','partial','paid') let an add-line slip through while
+        // a draft invoice existed, desyncing booking totals from the draft. Use
+        // the same predicate the cancel guards use.
+        ne(invoices.status, 'cancelled'),
       ))
       .limit(1);
     if (liveInvoice) {

@@ -61,33 +61,50 @@ async function fetchWithTimeout(input: string, init?: RequestInit): Promise<Resp
 }
 
 // ─── Token cache (in-memory, resets on cold start — fine for serverless) ──────
+// Cache the in-flight PROMISE, not just the resolved token, so concurrent callers
+// on a cold start share a single OAuth request instead of each firing their own
+// (which hit the Amadeus token rate limit → 429 thundering herd).
 interface CachedToken { token: string; expiresAt: number }
-const tokenCache = new Map<string, CachedToken>();
+const tokenCache = new Map<string, Promise<CachedToken>>();
 
 async function getAccessToken(creds: AmadeusCredentials): Promise<string> {
   const key    = `${creds.hostname}:${creds.clientId}`;
   const cached = tokenCache.get(key);
-  if (cached && cached.expiresAt > Date.now() + 60_000) return cached.token;  // 60s buffer
-
-  const res = await fetchWithTimeout(`https://${creds.hostname}/v1/security/oauth2/token`, {
-    method:  'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body:    new URLSearchParams({
-      grant_type:    'client_credentials',
-      client_id:     creds.clientId,
-      client_secret: creds.clientSecret,
-    }),
-  });
-
-  if (!res.ok) {
-    const body = await res.text();
-    throw new Error(`Amadeus auth failed (${res.status}): ${body}`);
+  if (cached) {
+    try {
+      const t = await cached;
+      if (t.expiresAt > Date.now() + 60_000) return t.token;  // 60s buffer
+    } catch {
+      // a previously-cached fetch rejected — fall through and refetch below
+    }
   }
 
-  const data      = await res.json() as { access_token: string; expires_in: number };
-  const expiresAt = Date.now() + data.expires_in * 1000;
-  tokenCache.set(key, { token: data.access_token, expiresAt });
-  return data.access_token;
+  const pending = (async (): Promise<CachedToken> => {
+    const res = await fetchWithTimeout(`https://${creds.hostname}/v1/security/oauth2/token`, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body:    new URLSearchParams({
+        grant_type:    'client_credentials',
+        client_id:     creds.clientId,
+        client_secret: creds.clientSecret,
+      }),
+    });
+    if (!res.ok) {
+      const body = await res.text();
+      throw new Error(`Amadeus auth failed (${res.status}): ${body}`);
+    }
+    const data = await res.json() as { access_token: string; expires_in: number };
+    return { token: data.access_token, expiresAt: Date.now() + data.expires_in * 1000 };
+  })();
+
+  tokenCache.set(key, pending);
+  try {
+    return (await pending).token;
+  } catch (err) {
+    // Never leave a rejected promise cached — evict so the next call retries.
+    if (tokenCache.get(key) === pending) tokenCache.delete(key);
+    throw err;
+  }
 }
 
 // ─── Response type helpers ────────────────────────────────────────────────────
