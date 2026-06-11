@@ -1,12 +1,12 @@
 import { NextResponse } from 'next/server';
 import { eq, and, sql } from 'drizzle-orm';
 import { db } from '@/lib/db';
-import { invoices, bookings, payments, journalEntries, journalLines, idempotencyKeys, bookingLines } from '@/lib/schema';
+import { invoices, bookings, payments, journalEntries, journalLines, idempotencyKeys, bookingLines, suppliers } from '@/lib/schema';
 import { verifyAuth, assertRole, ApiAuthError, BusinessError, ROLES_ACCOUNTANT_UP } from '@/lib/api-auth';
 import { withIdempotency, buildIdempotencyInsert } from '@/lib/idempotency';
 import { getNextInvoiceNumber, getNextJournalNumber } from '@/lib/invoice-counter';
 import { assertPeriodOpen } from '@/lib/period-lock';
-import { GL } from '@/lib/gl-accounts';
+import { buildRefundJournalLines } from '@/lib/refund-journal';
 import { buildZatcaInvoiceRecord } from '@/lib/zatca-einvoice';
 
 interface RefundBody {
@@ -15,19 +15,14 @@ interface RefundBody {
   refundAmountHalalas:    number;
   cancellationFeeHalalas: number;
   reason:                 string;
+  /**
+   * Total invoiced value being cancelled (VAT-inclusive). Optional; defaults to
+   * `refundAmount + cancellationFee`. Pass a larger value to also void the
+   * still-open (unpaid) AR for the cancelled portion.
+   */
+  cancelledTotalHalalas?: number;
   idempotencyKey?:        string;
 }
-
-const AC = {
-  bank:             { code: '1110', ar: 'البنك',                        en: 'Bank' },
-  vatPayable:       { code: '2200', ar: 'ضريبة القيمة المضافة مستحقة',  en: 'VAT Payable' },
-  revenueAgent:     { code: '4000', ar: 'إيراد رسوم الوكالة',            en: 'Revenue - Agency Fees' },
-  revenuePrincipal: { code: '4100', ar: 'إيراد خدمات السفر',             en: 'Revenue - Travel Services' },
-  cancellationFee:  GL.cancellationFee,   // 4200 — dedicated code (must not collide with revenueAgent 4000)
-  // Reversing the original purchase posting (Dr 5000 / Cr 2000 booked at invoice time)
-  payableSupplier:  GL.payableSupplier,   // 2000 — Dr to reverse the original AP credit
-  costOfServices:   GL.costOfServices,    // 5000 — Cr to reverse the original COGS debit
-};
 
 export async function POST(request: Request) {
   try {
@@ -51,6 +46,13 @@ export async function POST(request: Request) {
     // create an empty credit note and a zero-amount payment record.
     if (refundAmountHalalas + cancellationFeeHalalas <= 0) {
       return NextResponse.json({ error: 'يجب أن يكون مبلغ الاسترداد أو رسوم الإلغاء أكبر من صفر' }, { status: 400 });
+    }
+    // Optional cancelled-total: if supplied, it must cover at least the cash
+    // returned + retained fee (otherwise the unwound AR would be negative).
+    if (body.cancelledTotalHalalas !== undefined &&
+        (!Number.isInteger(body.cancelledTotalHalalas) ||
+         body.cancelledTotalHalalas < refundAmountHalalas + cancellationFeeHalalas)) {
+      return NextResponse.json({ error: 'قيمة الجزء الملغى غير صالحة' }, { status: 400 });
     }
 
     const result = await withIdempotency(idempKey, agencyId, 'processRefund', async () => {
@@ -78,22 +80,17 @@ export async function POST(request: Request) {
           );
         }
 
-        // ── 3. Calculate ────────────────────────────────────────────────────
-        const details      = (booking.details ?? {}) as Record<string, unknown>;
-        const revenueModel = (details['revenueModel'] as string | undefined) ?? 'principal';
-        const revenueAc    = revenueModel === 'agent' ? AC.revenueAgent : AC.revenuePrincipal;
-
-        // Prorate the original invoice's VAT by ratio of each component to the
-        // original total. Works for standard rate, margin scheme, or any VAT rate.
+        // ── 3. Calculate refund-document amounts (credit-note invoice + ZATCA) ─
+        // These describe the customer-facing refund document. The GL journal is
+        // built separately in step 5 by reversing the ORIGINAL invoice's lines.
         const originalTotal  = invoice.totalHalalas > 0 ? invoice.totalHalalas : 1;
         const refundRatio    = refundAmountHalalas / originalTotal;
         const refundVat      = Math.round(invoice.vatHalalas * refundRatio);
         const refundSubtotal = refundAmountHalalas - refundVat;
 
-        // Cancellation fee VAT (same proportional method)
-        const feeRatio       = cancellationFeeHalalas / originalTotal;
-        const cancelFeeVat   = invoice.isEInvoice ? Math.round(invoice.vatHalalas * feeRatio) : 0;
-        const cancelFeeNet   = cancellationFeeHalalas - cancelFeeVat;
+        // Fraction of the invoice being unwound (defaults to refund + retained fee).
+        const cancelledTotal = body.cancelledTotalHalalas ?? (refundAmountHalalas + cancellationFeeHalalas);
+        const reversalRatio  = cancelledTotal / originalTotal;
 
         // ── 4. Counters + IDs ───────────────────────────────────────────────
         const now  = new Date();
@@ -109,42 +106,36 @@ export async function POST(request: Request) {
         // Block posting into a closed accounting period.
         await assertPeriodOpen(agencyId, today, tx);
 
-        // ── 5. Build journal lines (reversal + cancellation fee) ────────────
-        type JLine = { code: string; ar: string; en: string; dr: number; cr: number };
-        const jLines: JLine[] = refundVat > 0
-          ? [{ ...revenueAc, dr: refundSubtotal, cr: 0 }, { ...AC.vatPayable, dr: refundVat, cr: 0 }, { ...AC.bank, dr: 0, cr: refundAmountHalalas }]
-          : [{ ...revenueAc, dr: refundAmountHalalas, cr: 0 }, { ...AC.bank, dr: 0, cr: refundAmountHalalas }];
+        // ── 5. Build the refund GL by reversing the ORIGINAL invoice's journal ─
+        // Mirrors invoices/credit-note: read the original entry's lines and reverse
+        // each pro-rated by `cancelledTotal`. This correctly handles mixed
+        // agent+principal revenue, the real per-line COGS/AP, deferred revenue
+        // (3201), and the Bank-vs-AR split for partially-paid invoices.
+        const origLines = invoice.journalEntryId
+          ? await tx.select({
+              accountCode:   journalLines.accountCode,
+              accountNameAr: journalLines.accountNameAr,
+              accountNameEn: journalLines.accountNameEn,
+              debitHalalas:  journalLines.debitHalalas,
+              creditHalalas: journalLines.creditHalalas,
+            }).from(journalLines).where(eq(journalLines.entryId, invoice.journalEntryId))
+          : [];
 
-        // Cancellation fee — reclassify ONLY the net (VAT-exclusive) amount from
-        // service revenue to cancellation-fee revenue. The fee money stays in the
-        // bank (it was received with the original payment and is not refunded), and
-        // the VAT on the retained fee remains in VAT Payable from the original
-        // invoice (the fee is still a taxable supply). Debiting service revenue by
-        // the GROSS fee and re-crediting VAT here would double-count output VAT and
-        // push service revenue negative. This pair is self-balancing (Dr = Cr = net).
-        if (cancellationFeeHalalas > 0) {
-          jLines.push({
-            code: revenueAc.code,
-            ar:   'رسوم إلغاء — مقتطعة من الحجز',
-            en:   'Cancellation Fee Withheld',
-            dr:   cancelFeeNet,
-            cr:   0,
-          });
-          jLines.push({ ...AC.cancellationFee, dr: 0, cr: cancelFeeNet });
-        }
+        const details = (booking.details ?? {}) as Record<string, unknown>;
+        const fallbackModel: 'agent' | 'principal' =
+          (details['revenueModel'] as string | undefined) === 'agent' ? 'agent' : 'principal';
 
-        // ── Reverse the original COGS + AP for the refunded portion ─────────
-        // The original invoice booked the cost as Dr 5000 (COGS) / Cr 2000 (AP).
-        // A refund returns the customer's money AND unwinds the agency's
-        // obligation to the supplier, so we reverse the cost proportionally:
-        //   Dr 2000 Accounts Payable   (cancel the payable we no longer owe)
-        //      Cr 5000 Cost of Services (remove the cost we no longer incur)
-        // This pair is self-balancing and does not affect the cash/revenue legs.
-        const refundCost = Math.round((booking.costPriceHalalas ?? 0) * refundRatio);
-        if (refundCost > 0) {
-          jLines.push({ ...AC.payableSupplier, dr: refundCost, cr: 0 });
-          jLines.push({ ...AC.costOfServices,  dr: 0, cr: refundCost });
-        }
+        const jLines = buildRefundJournalLines({
+          originalLines:          origLines,
+          originalTotalHalalas:   invoice.totalHalalas,
+          originalVatHalalas:     invoice.vatHalalas,
+          paidHalalas:            invoice.paidHalalas,
+          refundAmountHalalas,
+          cancellationFeeHalalas,
+          cancelledTotalHalalas:  body.cancelledTotalHalalas,
+          isEInvoice:             invoice.isEInvoice,
+          fallback:               { revenueModel: fallbackModel, costPriceHalalas: booking.costPriceHalalas ?? 0 },
+        });
 
         // ── ZATCA e-invoice record for the refund credit note (type 381) ────
         // refundSubtotal + refundVat = refundAmountHalalas by construction;
@@ -267,6 +258,31 @@ export async function POST(request: Request) {
           throw new BusinessError('تعذّر تنفيذ الاسترداد — قد يكون استرداد آخر نُفّذ في نفس الوقت، حاول مجدداً', 409);
         }
         const isFullyRefunded = (refundClaim[0]!.paidHalalas ?? 0) <= 0;
+
+        // Decrement supplier subledger balances to mirror the AP (2000) reversal
+        // posted above, keeping suppliers.balanceHalalas consistent with GL 2000.
+        // Read the still-active lines BEFORE the cascade cancels them. The AP was
+        // reversed pro-rated by reversalRatio, so decrement each supplier by the
+        // same fraction of its line cost.
+        const activeLines = await tx.select({ supplierId: bookingLines.supplierId, totalCostHalalas: bookingLines.totalCostHalalas })
+          .from(bookingLines)
+          .where(and(
+            eq(bookingLines.bookingId, bookingId),
+            eq(bookingLines.agencyId, agencyId),
+            eq(bookingLines.status, 'active'),
+          ));
+        const apBySupplier = new Map<string, number>();
+        for (const l of activeLines) {
+          if (l.supplierId && l.totalCostHalalas > 0) {
+            const dec = Math.round(l.totalCostHalalas * reversalRatio);
+            if (dec > 0) apBySupplier.set(l.supplierId, (apBySupplier.get(l.supplierId) ?? 0) + dec);
+          }
+        }
+        for (const [sid, amt] of apBySupplier) {
+          await tx.update(suppliers)
+            .set({ balanceHalalas: sql`GREATEST(0, ${suppliers.balanceHalalas} - ${amt})`, updatedAt: now })
+            .where(and(eq(suppliers.id, sid), eq(suppliers.agencyId, agencyId)));
+        }
 
         // Sync booking.paidHalalas to reflect the refund
         if (isFullyRefunded) {
