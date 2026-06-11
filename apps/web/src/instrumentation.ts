@@ -466,6 +466,14 @@ export async function register() {
     `CREATE UNIQUE INDEX IF NOT EXISTS invoices_one_per_booking
        ON invoices(agency_id, booking_id)
        WHERE type IN ('380','388') AND booking_id IS NOT NULL`,
+
+    // ── 2026-06-11 — Prevent concurrent double ticket issuance (HIGH-3) ──────
+    // At most one in-flight (active/pending) ticket per passenger per PNR.
+    // Without this the non-atomic SELECT-then-INSERT let two concurrent requests
+    // both pass the duplicate check and both call the GDS → two BSP tickets.
+    `CREATE UNIQUE INDEX IF NOT EXISTS tickets_active_passenger_uq
+       ON tickets(agency_id, pnr_id, passenger_name)
+       WHERE status IN ('active','pending')`,
   ];
 
   try {

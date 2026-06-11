@@ -137,8 +137,12 @@ export async function POST(request: Request) {
     );
 
     // ── Phase 1: local INSERT (before provider call) ─────────────────────────
+    // Atomic claim: the partial unique index tickets_active_passenger_uq makes
+    // this INSERT the real guard against concurrent double issuance. The SELECT
+    // above is only a fast-path 409; under a race the loser gets 0 rows back here
+    // and returns 409 WITHOUT calling the GDS — so the BSP ticket is issued once.
     const ticketId = crypto.randomUUID();
-    await db.insert(tickets).values({
+    const claimed = await db.insert(tickets).values({
       id:              ticketId,
       agencyId,
       pnrId:           body.pnrId,
@@ -153,7 +157,14 @@ export async function POST(request: Request) {
       taxHalalas:      body.taxHalalas   ?? pnr.taxHalalas,
       totalHalalas:    body.totalHalalas ?? pnr.totalHalalas,
       issuedBy:        uid,
-    });
+    }).onConflictDoNothing().returning({ id: tickets.id });
+
+    if (claimed.length === 0) {
+      return NextResponse.json(
+        { error: 'تذكرة لهذا الراكب على هذا PNR قيد الإصدار بالفعل' },
+        { status: 409 },
+      );
+    }
 
     // ── Phase 2: provider call ───────────────────────────────────────────────
     const t0 = Date.now();
