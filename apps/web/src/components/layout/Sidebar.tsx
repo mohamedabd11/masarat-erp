@@ -13,7 +13,7 @@ import { usePersistedState } from '@/hooks/usePersistedState';
 import {
   LayoutDashboard, ClipboardList, Users, Plane, Building2, Package,
   Moon, Shield, Stamp, FileText, Receipt, BarChart3, Truck, UserCog,
-  Settings, HelpCircle, ChevronLeft, ChevronRight, ChevronDown, Calculator,
+  Settings, HelpCircle, ChevronDown, Calculator, Menu,
   Anchor, Car, Train, Camera, Mountain, Plus, Layers, Landmark, Send, Wallet,
   TrendingDown, TrendingUp, FileSearch, Ticket, ClipboardCheck, UsersRound,
 } from 'lucide-react';
@@ -186,10 +186,6 @@ export function Sidebar({ collapsed = false, onToggle, onClose }: SidebarProps) 
     return group.key === 'services' ? base + customTypes.length : base;
   }
 
-  const CollapseIcon = isAr
-    ? collapsed ? ChevronLeft : ChevronRight
-    : collapsed ? ChevronRight : ChevronLeft;
-
   function NavLink({ item, active }: { item: NavItem; active: boolean }) {
     // If admin disabled this feature for the agency, hide the item entirely
     if (item.feature && !canAccess(item.feature)) return null;
@@ -226,17 +222,45 @@ export function Sidebar({ collapsed = false, onToggle, onClose }: SidebarProps) 
       )}
       style={{ background: 'linear-gradient(180deg, #f8faff 0%, #ffffff 120px)' }}
     >
-      {/* Logo */}
+      {/* Header: brand logo + sidebar toggle (hamburger) — the toggle stays
+          visible in both expanded and collapsed states. */}
       <div className={cn(
-        'flex items-center justify-center flex-shrink-0',
-        collapsed
-          ? 'h-16 px-2 border-b border-slate-100'
-          : 'h-32 px-6 border-b border-slate-100',
+        'relative flex-shrink-0 border-b border-slate-100',
+        collapsed ? 'flex flex-col items-center gap-2 py-3 px-2' : 'h-32 px-6',
       )}>
-        {collapsed
-          ? <MasaratLogo size={42} variant="icon" />
-          : <MasaratLogo size={110} variant="full" />
-        }
+        {collapsed ? (
+          <>
+            <MasaratLogo size={36} variant="icon" />
+            {onToggle && (
+              <button
+                type="button"
+                onClick={onToggle}
+                aria-label={isAr ? 'توسيع القائمة' : 'Expand sidebar'}
+                title={isAr ? 'توسيع القائمة' : 'Expand sidebar'}
+                className="p-1.5 rounded-lg text-slate-500 hover:bg-slate-100 hover:text-slate-800 transition-colors"
+              >
+                <Menu size={18} />
+              </button>
+            )}
+          </>
+        ) : (
+          <>
+            {onToggle && (
+              <button
+                type="button"
+                onClick={onToggle}
+                aria-label={isAr ? 'طي القائمة' : 'Collapse sidebar'}
+                title={isAr ? 'طي القائمة' : 'Collapse sidebar'}
+                className="absolute top-2 start-2 z-10 p-1.5 rounded-lg text-slate-500 hover:bg-slate-100 hover:text-slate-800 transition-colors"
+              >
+                <Menu size={18} />
+              </button>
+            )}
+            <div className="flex items-center justify-center h-full">
+              <MasaratLogo size={110} variant="full" />
+            </div>
+          </>
+        )}
       </div>
 
       {/* Navigation */}
@@ -346,22 +370,6 @@ export function Sidebar({ collapsed = false, onToggle, onClose }: SidebarProps) 
               {!collapsed && <span>{isAr ? item.labelAr : item.labelEn}</span>}
             </Link>
           ))}
-
-          {onToggle && (
-            <button
-              onClick={onToggle}
-              className={cn(
-                'w-full flex items-center rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-600',
-                'transition-colors duration-150 text-sm',
-                collapsed ? 'justify-center px-2 py-2.5' : 'gap-3 px-3 py-2.5',
-              )}
-            >
-              <CollapseIcon size={16} />
-              {!collapsed && (
-                <span className="text-xs">{isAr ? 'طي القائمة' : 'Collapse'}</span>
-              )}
-            </button>
-          )}
         </div>
       </nav>
     </aside>
