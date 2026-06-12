@@ -548,6 +548,15 @@ export async function register() {
     `CREATE UNIQUE INDEX IF NOT EXISTS journal_entries_fx_reval_uq
        ON journal_entries(agency_id, source_id, date)
        WHERE source = 'fx_revaluation'`,
+
+    // ── 2026-06-12 — B2B VAT number capture (drizzle/0019, never applied to the
+    // live DB — boot-time migrator never mirrored it, see commit 46093bd).
+    // Missing customers.vat_number broke the credit-limit read and missing
+    // invoices.buyer_vat_number broke the INSERT in every invoice-issuing route
+    // (create, create-direct, credit-note, debit-note, refunds/process),
+    // surfacing as a generic 500 "خطأ في الخادم" on "إصدار فاتورة".
+    `ALTER TABLE customers ADD COLUMN IF NOT EXISTS vat_number TEXT`,
+    `ALTER TABLE invoices  ADD COLUMN IF NOT EXISTS buyer_vat_number TEXT`,
   ];
 
   try {
