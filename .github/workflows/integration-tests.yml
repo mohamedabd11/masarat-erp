@@ -54,6 +54,7 @@ jobs:
 
       - name: Apply schema to the test database
         working-directory: apps/web
+        # db-safe: runs only against the ephemeral `postgres` service container above (DATABASE_URL=127.0.0.1 throwaway test DB), never the shared production DATABASE_URL.
         run: pnpm exec drizzle-kit push --force
 
       - name: Run tests (unit + integration against Postgres)
