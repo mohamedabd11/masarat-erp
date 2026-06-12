@@ -88,8 +88,12 @@ pnpm install --frozen-lockfile
 pnpm --filter @masarat/accounting test
 cd apps/web && pnpm exec tsc --noEmit -p tsconfig.json
 cd apps/web && pnpm exec vitest run          # unit only (integration skip w/o DB)
-# Integration against a real DB (also runs automatically in CI):
-#   start Postgres, set TEST_DATABASE_URL + DATABASE_URL, then:
+# Integration against a real DB (also runs automatically in CI against an
+# ephemeral container, see .github/workflows/integration-tests.yml):
+#   start a DISPOSABLE local Postgres and point TEST_DATABASE_URL + DATABASE_URL
+#   at IT. NEVER run this against the sandbox's existing DATABASE_URL -- that is
+#   the SAME database the deployed app uses, and `push --force` can drop/recreate
+#   tables (e.g. invoices), permanently deleting real agency data:
 #   pnpm exec drizzle-kit push --force && pnpm exec vitest run
 ```
 CI workflow `.github/workflows/integration-tests.yml` does the DB run on every PR.

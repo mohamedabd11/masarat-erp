@@ -13,7 +13,7 @@
   "scripts": {
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
-    "db:push": "drizzle-kit push",
+    "db:push": "if [ \"$ALLOW_DB_PUSH\" != \"1\" ]; then echo 'REFUSED: the schema in this package (src/schema) does not match the tables used by apps/web -- pushing it would diff against the SAME DATABASE_URL the deployed app and .github/workflows/backup.yml use, and could rename/drop/recreate columns and tables, permanently deleting real agency data. This package is not used by the running app at runtime; never push its schema to the shared database. Only re-run with ALLOW_DB_PUSH=1 against a disposable local database.' >&2; exit 1; fi && drizzle-kit push",
     "db:studio": "drizzle-kit studio",
     "db:seed": "tsx src/lib/seed.ts",
     "test": "vitest run",

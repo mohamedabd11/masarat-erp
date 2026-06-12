@@ -14,7 +14,7 @@
     "test:e2e": "playwright test",
     "test:e2e:ui": "playwright test --ui",
     "test:e2e:report": "playwright show-report",
-    "db:push": "echo 'WARNING: db:push is for local dev only — never run against production. Use db:migrate instead.' && drizzle-kit push",
+    "db:push": "if [ \"$ALLOW_DB_PUSH\" != \"1\" ]; then echo 'REFUSED: drizzle-kit push diffs this schema directly against the live DATABASE_URL and can DROP/RECREATE tables (deleting all their rows) when it cannot express a change as ALTER -- and in non-interactive sessions it auto-picks the destructive option for any rename/ambiguous prompt. DATABASE_URL here is the SAME database the deployed app and .github/workflows/backup.yml use, so this can wipe real agency data. Apply schema changes via apps/web/src/instrumentation.ts (idempotent IF NOT EXISTS statements) or a numbered apps/web/drizzle/NNNN_*.sql migration instead. Only re-run with ALLOW_DB_PUSH=1 against a disposable local database.' >&2; exit 1; fi && drizzle-kit push",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
     "db:studio": "drizzle-kit studio"
