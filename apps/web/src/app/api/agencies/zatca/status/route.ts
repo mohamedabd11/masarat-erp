@@ -26,6 +26,12 @@ export async function GET(request: NextRequest) {
 
     if (!agency) return NextResponse.json({ error: 'Not found' }, { status: 404 });
 
+    const expiry = agency.zatcaCertificateExpiry;
+    const daysUntilExpiry = expiry ? Math.floor((expiry.getTime() - Date.now()) / 86_400_000) : null;
+    const certWarning = daysUntilExpiry !== null && daysUntilExpiry <= 30
+      ? `شهادة ZATCA تنتهي خلال ${daysUntilExpiry} يوم — يجب تجديدها`
+      : null;
+
     return NextResponse.json({
       status: agency.zatcaOnboardingStatus,          // not_started | pending_otp | compliance | production | error
       environment: agency.zatcaEnvironment,
@@ -33,6 +39,8 @@ export async function GET(request: NextRequest) {
       errorMessage: agency.zatcaErrorMessage,
       hasCertificate: !!agency.zatcaCertificatePem,
       certificateExpiry: agency.zatcaCertificateExpiry,
+      daysUntilExpiry,
+      certWarning,
       vatNumber: agency.vatNumber,
       isVatRegistered: agency.isVatRegistered,
       isReady: agency.zatcaOnboardingStatus === 'production',

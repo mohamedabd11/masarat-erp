@@ -65,7 +65,7 @@ async function createYearEndClosingEntry(
       ne(journalEntries.source, 'closing'),
       sql`${journalEntries.date} >= ${yearStart}`,
       sql`${journalEntries.date} <= ${yearEnd}`,
-      sql`(${journalLines.accountCode} LIKE '4%' OR ${journalLines.accountCode} LIKE '5%' OR ${journalLines.accountCode} LIKE '6%')`,
+      sql`(${journalLines.accountCode} LIKE '4%' OR ${journalLines.accountCode} LIKE '5%' OR ${journalLines.accountCode} LIKE '6%' OR ${journalLines.accountCode} LIKE '8%')`,
     ))
     .groupBy(
       journalLines.accountCode,
@@ -89,8 +89,8 @@ async function createYearEndClosingEntry(
       const netCredit = credit - debit;
       if (netCredit > 0) { jLines.push({ code, ar, en, dr: netCredit, cr: 0 }); netIncome += netCredit; }
       else if (netCredit < 0) { jLines.push({ code, ar, en, dr: 0, cr: -netCredit }); netIncome += netCredit; }
-    } else if (code.startsWith('5') || code.startsWith('6')) {
-      // Expense (5xxx cost/opex, 6xxx payroll/GOSI/EOSB): normal debit balance → Cr to zero it out
+    } else if (code.startsWith('5') || code.startsWith('6') || code.startsWith('8')) {
+      // Expense (5xxx cost/opex, 6xxx payroll/GOSI/EOSB, 8xxx other): normal debit balance → Cr to zero it out
       const netDebit = debit - credit;
       if (netDebit > 0) { jLines.push({ code, ar, en, dr: 0, cr: netDebit }); netIncome -= netDebit; }
       else if (netDebit < 0) { jLines.push({ code, ar, en, dr: -netDebit, cr: 0 }); netIncome -= netDebit; }
@@ -205,6 +205,28 @@ export async function POST(request: Request) {
             updatedAt: now,
           },
         });
+
+      // When December is UNLOCKED, reverse any existing year-end closing entry —
+      // otherwise the books contain stale retained-earnings figures while the
+      // period is open for new postings.
+      if (!body.isLocked && body.month === 12) {
+        const yearStart = `${body.year}-01-01`;
+        const yearEnd   = `${body.year}-12-31`;
+        const [closingJe] = await tx
+          .select({ id: journalEntries.id })
+          .from(journalEntries)
+          .where(and(
+            eq(journalEntries.agencyId, agencyId),
+            eq(journalEntries.source, 'closing'),
+            sql`${journalEntries.date} >= ${yearStart}`,
+            sql`${journalEntries.date} <= ${yearEnd}`,
+          ))
+          .limit(1);
+        if (closingJe) {
+          await tx.delete(journalLines).where(eq(journalLines.entryId, closingJe.id));
+          await tx.delete(journalEntries).where(eq(journalEntries.id, closingJe.id));
+        }
+      }
 
       // Year-end closing: automatically create the closing entry when December is locked
       if (body.isLocked && body.month === 12) {

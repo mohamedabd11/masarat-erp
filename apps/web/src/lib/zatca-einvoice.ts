@@ -275,6 +275,9 @@ export async function submitInvoiceToZatca(agencyId: string, invoiceId: string):
       || !agency.zatcaPrivateKey || !agency.zatcaCertificatePem) {
       return { submitted: false, status: 'skipped', reason: 'missing ZATCA credentials' };
     }
+    if (!agency.addressAr || agency.addressAr.trim().length < 5) {
+      return { submitted: false, status: 'failed', reason: 'seller address missing — update agency settings before ZATCA submission' };
+    }
 
     const [csid, secret, privateKeyPem] = await Promise.all([
       decrypt(agency.zatcaProductionCsid),

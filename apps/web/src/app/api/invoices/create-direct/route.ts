@@ -86,6 +86,9 @@ export async function POST(request: Request) {
     if (totalHalalas <= 0) {
       return NextResponse.json({ error: 'إجمالي الفاتورة يجب أن يكون أكبر من صفر' }, { status: 400 });
     }
+    if (Math.abs(subtotalHalalas + vatHalalas - totalHalalas) > 100) {
+      return NextResponse.json({ error: 'خطأ في تقريب المبالغ — الفرق يتجاوز الحد المسموح' }, { status: 400 });
+    }
 
     const idempKey = body.idempotencyKey ?? crypto.randomUUID();
     const result = await withIdempotency(idempKey, agencyId, 'directInvoice', () => db.transaction(async (tx: Tx) => {
