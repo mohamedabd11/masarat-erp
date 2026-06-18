@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { eq, and, lte, isNull, isNotNull, ne, inArray } from 'drizzle-orm';
 import { db } from '@/lib/db';
-import { invoices, journalEntries, journalLines } from '@/lib/schema';
+import { invoices, bookings, journalEntries, journalLines } from '@/lib/schema';
 import { verifyAuth, assertRole, ApiAuthError, BusinessError, ROLES_ACCOUNTANT_UP } from '@/lib/api-auth';
 import { logAudit } from '@/lib/audit';
 import { getNextJournalNumber } from '@/lib/invoice-counter';
@@ -39,6 +39,7 @@ export async function POST(request: Request) {
       id:              invoices.id,
       invoiceNumber:   invoices.invoiceNumber,
       subtotalHalalas: invoices.subtotalHalalas,
+      bookingId:       invoices.bookingId,
     })
       .from(invoices)
       .where(and(...conditions));
@@ -88,9 +89,16 @@ export async function POST(request: Request) {
           createdBy:          uid,
         });
 
+        let revenueAc = GL.revenuePrincipal;
+        if (inv.bookingId) {
+          const [bk] = await tx.select({ details: bookings.details })
+            .from(bookings).where(eq(bookings.id, inv.bookingId));
+          const details = (bk?.details ?? {}) as Record<string, unknown>;
+          if (details['revenueModel'] === 'agent') revenueAc = GL.revenueAgent;
+        }
         const lines = [
-          { ac: GL.deferredRevenue,  dr: amount, cr: 0 },
-          { ac: GL.revenuePrincipal, dr: 0,      cr: amount },
+          { ac: GL.deferredRevenue, dr: amount, cr: 0 },
+          { ac: revenueAc,          dr: 0,      cr: amount },
         ];
         for (let i = 0; i < lines.length; i++) {
           const l = lines[i]!;
