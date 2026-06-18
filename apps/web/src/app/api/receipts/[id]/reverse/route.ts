@@ -5,14 +5,14 @@ import { receiptVouchers, invoices, bookings, journalEntries, journalLines } fro
 import { verifyAuth, assertRole, ApiAuthError, BusinessError, ROLES_ADMIN_ONLY } from '@/lib/api-auth';
 import { getNextReceiptNumber, getNextJournalNumber } from '@/lib/invoice-counter';
 import { assertPeriodOpen } from '@/lib/period-lock';
+import { GL } from '@/lib/gl-accounts';
 
 const METHOD_ACCOUNT: Record<string, { code: string; ar: string; en: string }> = {
-  cash:          { code: '1100', ar: 'الصندوق النقدي', en: 'Cash' },
-  bank_transfer: { code: '1110', ar: 'البنك',           en: 'Bank' },
-  card:          { code: '1115', ar: 'نقاط البيع',      en: 'POS / Card' },
-  online:        { code: '1115', ar: 'نقاط البيع',      en: 'POS / Card' },
+  cash:          GL.cash,
+  bank_transfer: GL.bank,
+  card:          GL.posCard,
+  online:        GL.posCard,
 };
-const AC_DEPOSITS = { code: '2300', ar: 'ودائع العملاء', en: 'Customer Deposits' };
 
 export async function POST(
   request: Request,
@@ -47,8 +47,8 @@ export async function POST(
       const { amountHalalas, method, customerName, voucherNumber } = orig;
       // Use AR (1120) if the receipt was invoice-linked; Customer Deposits (2300) if standalone
       const originalCreditAc = orig.invoiceId
-        ? { code: '1120', ar: 'ذمم مدينة - عملاء', en: 'Accounts Receivable' }
-        : AC_DEPOSITS;
+        ? GL.receivable
+        : GL.customerDeposits;
       const paymentAc  = METHOD_ACCOUNT[method] ?? METHOD_ACCOUNT['cash']!;
       const revNumber  = await getNextReceiptNumber(agencyId, year, tx);
       const jeNumber   = await getNextJournalNumber(agencyId, year, tx);
@@ -100,17 +100,17 @@ export async function POST(
 
       // If the voucher was linked to an invoice, reduce paidHalalas and update status
       if (orig.invoiceId) {
-        const [inv] = await tx.select().from(invoices)
+        await tx.update(invoices)
+          .set({
+            paidHalalas: sql`GREATEST(0, ${invoices.paidHalalas} - ${amountHalalas})`,
+            status: sql`CASE
+              WHEN GREATEST(0, ${invoices.paidHalalas} - ${amountHalalas}) <= 0 THEN 'refunded'
+              WHEN GREATEST(0, ${invoices.paidHalalas} - ${amountHalalas}) < ${invoices.totalHalalas} THEN 'partial'
+              ELSE ${invoices.status}
+            END`,
+            updatedAt: now,
+          })
           .where(and(eq(invoices.id, orig.invoiceId), eq(invoices.agencyId, agencyId)));
-        if (inv) {
-          const newPaid = Math.max(0, (inv.paidHalalas ?? 0) - amountHalalas);
-          const newStatus = newPaid <= 0               ? 'refunded'
-            : newPaid < inv.totalHalalas               ? 'partial'
-            : inv.status;
-          await tx.update(invoices)
-            .set({ paidHalalas: newPaid, status: newStatus, updatedAt: now })
-            .where(eq(invoices.id, orig.invoiceId));
-        }
       }
 
       // Sync booking.paidHalalas if this receipt was linked to a booking

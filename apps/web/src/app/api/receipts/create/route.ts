@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { eq, and } from 'drizzle-orm';
+import { eq, and, sql } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { receiptVouchers, journalEntries, journalLines, invoices } from '@/lib/schema';
 import { verifyAuth, assertRole, ApiAuthError, BusinessError, ROLES_ACCOUNTANT_UP } from '@/lib/api-auth';
@@ -86,14 +86,18 @@ export async function POST(request: Request) {
         }
         creditAc = AC_RECEIVABLE;
 
-        const newPaid = inv.paidHalalas + amountHalalas;
-        await tx.update(invoices)
+        const [updatedInv] = await tx.update(invoices)
           .set({
-            paidHalalas: newPaid,
-            status:      newPaid >= inv.totalHalalas ? 'paid' : inv.status,
+            paidHalalas: sql`${invoices.paidHalalas} + ${amountHalalas}`,
+            status:      sql`CASE WHEN ${invoices.paidHalalas} + ${amountHalalas} >= ${invoices.totalHalalas} THEN 'paid' ELSE ${invoices.status} END`,
             updatedAt:   now,
           })
-          .where(eq(invoices.id, invoiceId));
+          .where(and(
+            eq(invoices.id, invoiceId),
+            sql`(${invoices.totalHalalas} - ${invoices.paidHalalas}) >= ${amountHalalas}`,
+          ))
+          .returning({ id: invoices.id });
+        if (!updatedInv) throw new BusinessError('تعارض متزامن — حاول مرة أخرى', 409);
       }
 
       await tx.insert(receiptVouchers).values({

@@ -21,7 +21,9 @@ export async function assertPeriodOpen(
   const year  = parseInt(parts[0] ?? '0', 10);
   const month = parseInt(parts[1] ?? '0', 10);
 
-  if (!year || !month) return; // malformed date — let the DB reject it
+  if (!Number.isFinite(year) || !Number.isFinite(month) || year < 2000 || month < 1 || month > 12) {
+    throw new BusinessError('تاريخ غير صالح — لا يمكن تحديد الفترة المحاسبية', 400);
+  }
 
   const [period] = await (tx as typeof DbType)
     .select({ isLocked: accountingPeriods.isLocked, notes: accountingPeriods.notes })
