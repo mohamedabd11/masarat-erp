@@ -38,7 +38,7 @@ export function StatsCard({
           <p className="text-[11px] font-bold uppercase tracking-widest text-slate-400 mb-2 truncate">
             {title}
           </p>
-          <p className="text-[28px] leading-none font-extrabold text-slate-900 tabular-nums mb-2 truncate">
+          <p className="text-2xl sm:text-[28px] leading-none font-extrabold text-slate-900 tabular-nums mb-2 break-words">
             {value}
           </p>
           {subtitle && (

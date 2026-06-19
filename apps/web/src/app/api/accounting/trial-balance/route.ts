@@ -2,13 +2,19 @@ import { NextResponse } from 'next/server';
 import { eq, and, sql } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { chartOfAccounts, journalLines, journalEntries } from '@/lib/schema';
-import { verifyAuth, assertRole, ApiAuthError, ROLES_ACCOUNTANT_UP } from '@/lib/api-auth';
+import { verifyAuth, assertRole, ApiAuthError, BusinessError, ROLES_ACCOUNTANT_UP } from '@/lib/api-auth';
 import { requireFeature } from '@/lib/feature-access';
 
 export async function GET(request: Request) {
   try {
     const { agencyId, role } = await verifyAuth(request);
     assertRole(role, [...ROLES_ACCOUNTANT_UP]);
+    // Platform super-admin has no agency context — agency-scoped books don't
+    // apply, so return an empty (balanced) sheet instead of a 500.
+    if (!agencyId) {
+      const asOf = new URL(request.url).searchParams.get('asOf') ?? new Date().toISOString().split('T')[0]!;
+      return NextResponse.json({ asOf, from: null, rows: [], grandTotalDebit: 0, grandTotalCredit: 0, isBalanced: true });
+    }
     await requireFeature(agencyId, 'financial_reports', db);
 
     const url   = new URL(request.url);
@@ -99,7 +105,7 @@ export async function GET(request: Request) {
       isBalanced,
     });
   } catch (err) {
-    if (err instanceof ApiAuthError) return NextResponse.json({ error: err.message }, { status: err.status });
+    if (err instanceof ApiAuthError || err instanceof BusinessError) return NextResponse.json({ error: err.message }, { status: err.status });
     console.error(JSON.stringify({ event: 'trial_balance_failed', error: (err as Error).message }));
     return NextResponse.json({ error: 'خطأ في الخادم' }, { status: 500 });
   }
