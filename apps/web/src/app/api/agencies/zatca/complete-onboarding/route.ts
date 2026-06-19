@@ -42,7 +42,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Missing compliance credentials — repeat step 1' }, { status: 400 });
     }
 
-    const env = (agency.zatcaEnvironment === 'production' ? 'production' : 'simulation') as const;
+    const env: 'production' | 'simulation' = agency.zatcaEnvironment === 'production' ? 'production' : 'simulation';
 
     const [complianceCsid, complianceSecret, privateKeyPem] = await Promise.all([
       decrypt(agency.zatcaComplianceCsid),
@@ -91,7 +91,7 @@ export async function POST(request: NextRequest) {
       const complianceResult = await checkCompliance(compliancePayload, complianceCsid, complianceSecret, env);
 
       if (complianceResult.validationResults?.status === 'ERROR') {
-        const errors = complianceResult.validationResults.errorMessages?.map(m => m.message).join('; ') ?? 'Unknown';
+        const errors = complianceResult.validationResults.errorMessages?.map((m: { message: string }) => m.message).join('; ') ?? 'Unknown';
         await db.update(agencies).set({
           zatcaErrorMessage: `Compliance check failed: ${errors}`,
         }).where(eq(agencies.id, agencyId));
