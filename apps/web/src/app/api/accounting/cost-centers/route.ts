@@ -41,15 +41,17 @@ export async function POST(request: Request) {
     }
 
     const id = crypto.randomUUID();
-    await db.insert(costCenters).values({
-      id,
-      agencyId,
-      code:     body.code.trim(),
-      nameAr:   body.nameAr.trim(),
-      nameEn:   body.nameEn  ?? null,
-      type,
-      parentId: body.parentId ?? null,
-      notes:    body.notes    ?? null,
+    await db.transaction(async (tx) => {
+      await tx.insert(costCenters).values({
+        id,
+        agencyId,
+        code:     body.code.trim(),
+        nameAr:   body.nameAr.trim(),
+        nameEn:   body.nameEn  ?? null,
+        type,
+        parentId: body.parentId ?? null,
+        notes:    body.notes    ?? null,
+      });
     });
 
     return NextResponse.json({ success: true, id });

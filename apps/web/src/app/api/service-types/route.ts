@@ -25,9 +25,11 @@ export async function POST(request: Request) {
     const body = await request.json() as { nameAr: string; nameEn?: string; icon?: string };
     if (!body.nameAr) return NextResponse.json({ error: 'الاسم مطلوب' }, { status: 400 });
     const id = crypto.randomUUID();
-    await db.insert(serviceTypes).values({
-      id, agencyId, nameAr: body.nameAr, nameEn: body.nameEn ?? body.nameAr,
-      icon: body.icon ?? 'layers',
+    await db.transaction(async (tx) => {
+      await tx.insert(serviceTypes).values({
+        id, agencyId, nameAr: body.nameAr, nameEn: body.nameEn ?? body.nameAr,
+        icon: body.icon ?? 'layers',
+      });
     });
     return NextResponse.json({ success: true, id });
   } catch (err) {

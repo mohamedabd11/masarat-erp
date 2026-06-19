@@ -601,3 +601,28 @@ BR-KSA-09 إلى BR-KSA-16: عنوان بائع فارغ = رفض من ZATCA gat
 ---
 
 *انتهى التدقيق الشامل — تم تنفيذ 22 إصلاح من 30 بند.*
+
+---
+
+## تحديث الجلسة (2026-06-19) — تفعيل RLS + تصدير التقارير
+
+### 4-a-1 (HIGH) ✅ — تفعيل RLS الفعلي
+- **اكتشاف جوهري:** المُطبِّق الفعلي للـ migrations هو `instrumentation.ts` (عند الإقلاع) لا ملفات drizzle (journal فيه 3 مدخلات فقط). كما أن التطبيق يتصل بدور **مالك الجداول** الذي يتجاوز RLS ما لم يُضَف `FORCE ROW LEVEL SECURITY`. لذا إزالة الـ bypass وحدها لا تُفعّل شيئاً.
+- **التنفيذ:**
+  - `instrumentation.ts` + `drizzle/0021_rls_enforcement.sql`: كتلة idempotent تُسقط `bypass_for_service_role`، تُنشئ سياسة `agency_isolation` (fail-open)، وتُفعّل `ENABLE + FORCE RLS` على كل جدول فيه `agency_id` (باستثناء `idempotency_keys` لأن عموده nullable). تعمل كعبارة واحدة all-or-nothing فلا يُقفَل أي جدول.
+  - `lib/tenant-context.ts` (جديد): AsyncLocalStorage يحمل agencyId للطلب.
+  - `lib/db.ts`: `db.transaction()` يحقن `set_config('app.current_agency_id', …)` تلقائياً عند وجود سياق.
+  - `lib/api-auth.ts`: `verifyAuth()` يربط السياق بعد التحقق من الوكالة.
+- **النتيجة:** fail-open آمن (لا كسر للـ 15 route النظامية/super-admin)، وعزل مفروض تلقائياً على كل routes الـ transaction المالية (43 route).
+
+### 4-g-1 (MED) — جزئي
+- تم تحويل مسارات الكتابة المالية/الرئيسية العارية (11 route: `exchange_rates`، `service_types`، `cost_centers`، `customers`، `suppliers`، `recurring_invoices`) لتمرّ عبر `db.transaction` فيُفرض RLS عليها.
+- المتبقي: ~25 route كتابة تشغيلية/HR (`employees`، `appointments`، `group_trips`، `pnr`، `quotes`، `documents`…) — كلها تفلتر يدوياً بـ agencyId ومحميّة fail-open؛ تُحوّل بنفس النمط المكوّن من سطر واحد بشكل تدريجي وآمن. (الكتابة على جدول `agencies` لا تستفيد من RLS لأنه بلا عمود agency_id.)
+
+### 5-a-2 (LOW) ✅ — تصدير CSV/Excel للتقارير
+- `reports/page.tsx`: زر التصدير العام أصبح يغطي كل التبويبات (الميزانية، التدفق النقدي، ربحية الحجوزات/الموردين، أعمار الموردين — إضافةً للموجود سابقاً) — CSV بترميز UTF-8 BOM متوافق مع Excel/العربية، بتعديل دالة واحدة.
+
+### 1-b-1 (MED) ✅ — مؤكد منفّذ
+- `fxNote` موجود في `supplier-payments/create` (السطر 156) ويُدرج في وصف القيد. لا حاجة لتغيير.
+
+**الإجمالي بعد الجلسة:** HIGH 8/8 ✅ · MED 13/14 (4-g-1 جزئي) · LOW 5/8. البناء أخضر (`next build` ينجح، `tsc` بلا أخطاء).

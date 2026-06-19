@@ -1544,44 +1544,97 @@ export default function ReportsPage() {
   const [showExport, setShowExport] = useState(false);
 
   function handleExportCSV() {
-    if (activeTab === 'trial') {
-      const today = new Date().toISOString().slice(0, 10);
-      apiFetch<{ rows?: { code: string; nameAr: string; totalDebit: number; totalCredit: number }[] }>(`/api/accounting/trial-balance?asOf=${today}`)
-        .then((d) => {
+    setShowExport(false);
+    const stamp = new Date().toISOString().slice(0, 10);
+    void (async () => {
+      try {
+        if (activeTab === 'overview') {
+          downloadCSV([
+            ['الشهر', 'الحجوزات', 'الإيرادات (ر.س)', 'الضريبة (ر.س)', 'الإجمالي (ر.س)'],
+            ...monthly.map(m => [m.nameAr, m.bookings, m.rev / 100, m.vat / 100, m.grandTotal / 100]),
+          ], `النظرة-العامة-${year}.csv`);
+        } else if (activeTab === 'trial') {
+          const d = await apiFetch<{ rows?: { code: string; nameAr: string; totalDebit: number; totalCredit: number }[] }>(`/api/accounting/trial-balance?asOf=${stamp}`);
           if (!d.rows) return;
           downloadCSV([
             ['الكود', 'الحساب', 'مدين', 'دائن'],
             ...d.rows.map(a => [a.code, a.nameAr, a.totalDebit / 100, a.totalCredit / 100]),
-          ], `ميزان-المراجعة-${today}.csv`);
-        })
-        .catch(() => {/* silent */ });
-      return;
-    } else if (activeTab === 'pl') {
-      alert(isAr ? 'استخدم زر "تصدير CSV" داخل قائمة الدخل' : 'Use the "Export CSV" button inside the Income Statement tab');
-    } else if (activeTab === 'vat') {
-      const from = new Date(vatRange.from + 'T00:00:00');
-      const to   = new Date(vatRange.to   + 'T23:59:59');
-      const filtered = vatInvoices.filter(inv => inv.createdAt >= from && inv.createdAt <= to);
-      downloadCSV([
-        ['رقم الفاتورة', 'التاريخ', 'مسجل ضريبياً', 'الوعاء الضريبي (ر.س)', 'ضريبة القيمة المضافة (ر.س)', 'الإجمالي (ر.س)'],
-        ...filtered.map(inv => [
-          inv.invoiceNumber,
-          inv.createdAt.toLocaleDateString('ar-SA'),
-          inv.isVatRegistered ? 'نعم' : 'لا',
-          inv.subtotalExclVat / 100,
-          inv.totalVat / 100,
-          inv.grandTotal / 100,
-        ]),
-      ], `الاقرار-الضريبي-${vatRange.from}-${vatRange.to}.csv`);
-    } else if (activeTab === 'overview') {
-      downloadCSV([
-        ['الشهر', 'الحجوزات', 'الإيرادات (ر.س)', 'الضريبة (ر.س)', 'الإجمالي (ر.س)'],
-        ...monthly.map(m => [m.nameAr, m.bookings, m.rev / 100, m.vat / 100, m.grandTotal / 100]),
-      ], `النظرة-العامة-${year}.csv`);
-    } else {
-      alert(isAr ? 'سيتوفر التصدير لهذا التقرير قريباً' : 'Export for this report coming soon');
-    }
-    setShowExport(false);
+          ], `ميزان-المراجعة-${stamp}.csv`);
+        } else if (activeTab === 'pl' || activeTab === 'ar') {
+          alert(isAr ? 'استخدم زر "تصدير CSV" داخل هذا التقرير' : 'Use the "Export CSV" button inside this report tab');
+        } else if (activeTab === 'vat') {
+          const from = new Date(vatRange.from + 'T00:00:00');
+          const to   = new Date(vatRange.to   + 'T23:59:59');
+          const filtered = vatInvoices.filter(inv => inv.createdAt >= from && inv.createdAt <= to);
+          downloadCSV([
+            ['رقم الفاتورة', 'التاريخ', 'مسجل ضريبياً', 'الوعاء الضريبي (ر.س)', 'ضريبة القيمة المضافة (ر.س)', 'الإجمالي (ر.س)'],
+            ...filtered.map(inv => [
+              inv.invoiceNumber,
+              inv.createdAt.toLocaleDateString('ar-SA'),
+              inv.isVatRegistered ? 'نعم' : 'لا',
+              inv.subtotalExclVat / 100,
+              inv.totalVat / 100,
+              inv.grandTotal / 100,
+            ]),
+          ], `الاقرار-الضريبي-${vatRange.from}-${vatRange.to}.csv`);
+        } else if (activeTab === 'bs') {
+          const label: Record<string, string> = { asset: 'أصول', liability: 'خصوم', equity: 'حقوق ملكية', revenue: 'إيرادات', expense: 'مصروفات' };
+          const rows = accounts.filter(a => a.balanceHalalas !== 0).sort((a, b) => a.code.localeCompare(b.code));
+          downloadCSV([
+            ['التصنيف', 'الكود', 'الحساب', 'الرصيد (ر.س)'],
+            ...rows.map(a => [label[a.type] ?? a.type, a.code, a.nameAr, a.balanceHalalas / 100]),
+          ], `الميزانية-العمومية-${stamp}.csv`);
+        } else if (activeTab === 'profit') {
+          downloadCSV([
+            ['الشهر', 'الحجوزات', 'الإيرادات (ر.س)', 'الضريبة (ر.س)'],
+            ...monthly.map(m => [m.nameAr, m.bookings, m.rev / 100, m.vat / 100]),
+            [],
+            ['الخدمة', 'عدد الحجوزات', 'النسبة %'],
+            ...typeMix.map(t => [t.nameAr, t.count, t.pct]),
+          ], `تحليل-الربحية-${year}.csv`);
+        } else if (activeTab === 'booking-profit') {
+          const d = await apiFetch<{ rows: { label?: string; groupKey?: string; bookingCount: number; totalRevenue: number; totalCost: number; totalProfit: number; marginPct: number }[] }>(`/api/reports/booking-profitability?groupBy=serviceType`);
+          downloadCSV([
+            ['البند', 'عدد الحجوزات', 'الإيراد (ر.س)', 'التكلفة (ر.س)', 'الربح (ر.س)', 'الهامش %'],
+            ...(d.rows ?? []).map(r => [r.label ?? r.groupKey ?? '', r.bookingCount, r.totalRevenue / 100, r.totalCost / 100, r.totalProfit / 100, r.marginPct]),
+          ], `ربحية-الحجوزات-${stamp}.csv`);
+        } else if (activeTab === 'supplier-profit') {
+          const d = await apiFetch<{ rows: { supplierName: string; paymentCount: number; bookingCount: number; totalRevenue: number; totalCost: number; totalProfit: number; marginPct: number }[] }>(`/api/reports/supplier-profitability`);
+          downloadCSV([
+            ['المورد', 'عدد المدفوعات', 'عدد الحجوزات', 'الإيراد (ر.س)', 'التكلفة (ر.س)', 'الربح (ر.س)', 'الهامش %'],
+            ...(d.rows ?? []).map(r => [r.supplierName, r.paymentCount, r.bookingCount, r.totalRevenue / 100, r.totalCost / 100, r.totalProfit / 100, r.marginPct]),
+          ], `ربحية-الموردين-${stamp}.csv`);
+        } else if (activeTab === 'ap') {
+          const d = await apiFetch<{ rows: { supplierName: string; current: number; days31_60: number; days61_90: number; days91plus: number; total: number }[] }>(`/api/reports/supplier-aging?asOf=${stamp}`);
+          downloadCSV([
+            ['المورد', 'جاري (ر.س)', '31-60 يوم', '61-90 يوم', '+91 يوم', 'الإجمالي (ر.س)'],
+            ...(d.rows ?? []).map(r => [r.supplierName, r.current / 100, r.days31_60 / 100, r.days61_90 / 100, r.days91plus / 100, r.total / 100]),
+          ], `اعمار-ذمم-الموردين-${stamp}.csv`);
+        } else if (activeTab === 'cashflow') {
+          const d = await apiFetch<{
+            operating: { netIncome: number; adjustments: { labelAr: string; amount: number }[]; total: number };
+            investing: { lines: { nameAr: string; amount: number }[]; total: number };
+            financing: { lines: { nameAr: string; amount: number }[]; total: number };
+            netCashChange: number;
+          }>(`/api/reports/cash-flow?from=${year}-01-01&to=${year}-12-31`);
+          const rows: (string | number)[][] = [['البند', 'المبلغ (ر.س)']];
+          rows.push(['— الأنشطة التشغيلية —', '']);
+          rows.push(['صافي الدخل', d.operating.netIncome / 100]);
+          for (const a of d.operating.adjustments) rows.push([a.labelAr, a.amount / 100]);
+          rows.push(['صافي النقد من التشغيل', d.operating.total / 100]);
+          rows.push(['— الأنشطة الاستثمارية —', '']);
+          for (const l of d.investing.lines) rows.push([l.nameAr, l.amount / 100]);
+          rows.push(['صافي النقد من الاستثمار', d.investing.total / 100]);
+          rows.push(['— الأنشطة التمويلية —', '']);
+          for (const l of d.financing.lines) rows.push([l.nameAr, l.amount / 100]);
+          rows.push(['صافي النقد من التمويل', d.financing.total / 100]);
+          rows.push(['صافي التغير في النقد', d.netCashChange / 100]);
+          downloadCSV(rows, `التدفق-النقدي-${year}.csv`);
+        }
+      } catch {
+        alert(isAr ? 'تعذّر تصدير التقرير' : 'Failed to export report');
+      }
+    })();
   }
 
   const tabs: { id: TabId; labelAr: string; labelEn: string; icon: ReactNode; badge?: string }[] = [

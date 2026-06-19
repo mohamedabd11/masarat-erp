@@ -72,24 +72,26 @@ export async function POST(request: Request) {
     const nextIssueAt = body.startDate; // first issue = start date itself
 
     const id = crypto.randomUUID();
-    await db.insert(recurringInvoices).values({
-      id,
-      agencyId,
-      title:           body.title.trim(),
-      frequency:       body.frequency,
-      startDate:       body.startDate,
-      endDate:         body.endDate       ?? null,
-      dayOfMonth,
-      nextIssueAt,
-      customerId:      body.customerId    ?? null,
-      buyerNameAr:     body.buyerNameAr   ?? null,
-      subtotalHalalas: body.subtotalHalalas,
-      vatHalalas:      body.vatHalalas    ?? 0,
-      totalHalalas:    body.totalHalalas  ?? body.subtotalHalalas,
-      items:           (body.items        ?? null) as never,
-      notes:           body.notes         ?? null,
-      paymentMethod:   body.paymentMethod ?? null,
-      createdBy:       uid,
+    await db.transaction(async (tx) => {
+      await tx.insert(recurringInvoices).values({
+        id,
+        agencyId,
+        title:           body.title.trim(),
+        frequency:       body.frequency,
+        startDate:       body.startDate,
+        endDate:         body.endDate       ?? null,
+        dayOfMonth,
+        nextIssueAt,
+        customerId:      body.customerId    ?? null,
+        buyerNameAr:     body.buyerNameAr   ?? null,
+        subtotalHalalas: body.subtotalHalalas,
+        vatHalalas:      body.vatHalalas    ?? 0,
+        totalHalalas:    body.totalHalalas  ?? body.subtotalHalalas,
+        items:           (body.items        ?? null) as never,
+        notes:           body.notes         ?? null,
+        paymentMethod:   body.paymentMethod ?? null,
+        createdBy:       uid,
+      });
     });
 
     await logAudit({ agencyId, userId: uid, action: 'create', resource: 'recurring_invoice', resourceId: id, after: { title: body.title } });

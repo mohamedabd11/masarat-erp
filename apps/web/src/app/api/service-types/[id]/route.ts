@@ -30,8 +30,10 @@ export async function PATCH(request: Request, { params }: { params: { id: string
     if (Object.keys(patch).length === 0) {
       return NextResponse.json({ error: 'لا توجد حقول قابلة للتعديل' }, { status: 400 });
     }
-    await db.update(serviceTypes).set(patch as Partial<typeof serviceTypes.$inferInsert>)
-      .where(and(eq(serviceTypes.id, params.id), eq(serviceTypes.agencyId, agencyId)));
+    await db.transaction(async (tx) => {
+      await tx.update(serviceTypes).set(patch as Partial<typeof serviceTypes.$inferInsert>)
+        .where(and(eq(serviceTypes.id, params.id), eq(serviceTypes.agencyId, agencyId)));
+    });
     return NextResponse.json({ success: true });
   } catch (err) {
     if (err instanceof ApiAuthError) return NextResponse.json({ error: err.message }, { status: err.status });
@@ -57,7 +59,9 @@ export async function DELETE(request: Request, { params }: { params: { id: strin
       );
     }
 
-    await db.delete(serviceTypes).where(and(eq(serviceTypes.id, params.id), eq(serviceTypes.agencyId, agencyId)));
+    await db.transaction(async (tx) => {
+      await tx.delete(serviceTypes).where(and(eq(serviceTypes.id, params.id), eq(serviceTypes.agencyId, agencyId)));
+    });
     return NextResponse.json({ success: true });
   } catch (err) {
     if (err instanceof ApiAuthError) return NextResponse.json({ error: err.message }, { status: err.status });
