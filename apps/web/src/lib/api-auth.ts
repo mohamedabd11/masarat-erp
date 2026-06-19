@@ -1,4 +1,5 @@
 import { ensureAdminApp } from './firebase-admin';
+import { setTenantContext } from './tenant-context';
 
 export interface AuthClaims {
   uid: string;
@@ -102,6 +103,11 @@ export async function verifyAuth(request: Request): Promise<AuthClaims> {
       }
     }
   }
+
+  // Bind the tenant context for the rest of this request so db.transaction()
+  // can activate RLS isolation. Super-admins (no agencyId) are left unbound →
+  // RLS stays fail-open, preserving their cross-agency access.
+  if (agencyId) setTenantContext(agencyId);
 
   return {
     uid:     decoded.uid,

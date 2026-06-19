@@ -548,6 +548,55 @@ export async function register() {
     `CREATE UNIQUE INDEX IF NOT EXISTS journal_entries_fx_reval_uq
        ON journal_entries(agency_id, source_id, date)
        WHERE source = 'fx_revaluation'`,
+
+    // ── 2026-06-19 — Activate Row-Level Security tenant isolation (4-a-1) ──────
+    // Real defense-in-depth: enforce agency isolation at the database, so a query
+    // that forgets its manual `WHERE agency_id` can no longer read or write
+    // another tenant's rows. The app connects as the table OWNER, which bypasses
+    // RLS unless FORCE ROW LEVEL SECURITY is set — so FORCE is required, and the
+    // old `bypass_for_service_role` PERMISSIVE policy (which negated all of RLS)
+    // is dropped here.
+    //
+    // The policy is FAIL-OPEN: when no `app.current_agency_id` is set (cron jobs,
+    // super-admin, auth/setup routes, and any not-yet-converted bare query) all
+    // rows are visible — preserving today's behaviour. When a context IS set
+    // (db.transaction within an authenticated request — see lib/db.ts +
+    // lib/tenant-context.ts) access is restricted to that agency.
+    //
+    // Data-driven over every public table carrying an agency_id, so present and
+    // future tenant tables are covered automatically. idempotency_keys is excluded
+    // because its agency_id is nullable (a strict equality policy would hide its
+    // NULL-agency rows and block context-scoped inserts). The whole block runs as
+    // one statement: if any table errors, the entire change rolls back, so a table
+    // can never be left RLS-forced without its policy (which would lock it out).
+    `DO $rls$
+      DECLARE t text;
+      BEGIN
+        FOR t IN
+          SELECT c.table_name
+          FROM information_schema.columns c
+          JOIN information_schema.tables tb
+            ON tb.table_schema = c.table_schema AND tb.table_name = c.table_name
+          WHERE c.table_schema = 'public'
+            AND c.column_name = 'agency_id'
+            AND tb.table_type = 'BASE TABLE'
+            AND c.table_name <> 'idempotency_keys'
+        LOOP
+          EXECUTE format('DROP POLICY IF EXISTS bypass_for_service_role ON public.%I', t);
+          EXECUTE format('DROP POLICY IF EXISTS agency_isolation ON public.%I', t);
+          EXECUTE format($pol$
+            CREATE POLICY agency_isolation ON public.%I AS PERMISSIVE FOR ALL
+            USING (
+              current_setting('app.current_agency_id', true) IS NULL
+              OR current_setting('app.current_agency_id', true) = ''
+              OR agency_id = current_setting('app.current_agency_id', true)
+            )
+          $pol$, t);
+          EXECUTE format('ALTER TABLE public.%I ENABLE ROW LEVEL SECURITY', t);
+          EXECUTE format('ALTER TABLE public.%I FORCE ROW LEVEL SECURITY', t);
+        END LOOP;
+      END
+    $rls$`,
   ];
 
   try {
