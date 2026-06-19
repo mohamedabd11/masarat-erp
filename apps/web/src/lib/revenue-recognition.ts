@@ -87,7 +87,7 @@ export async function recognizeDueRevenue(now: Date = new Date()): Promise<Reven
           createdBy:          'system',
         });
 
-        let revenueAc = GL.revenuePrincipal;
+        let revenueAc: { code: string; ar: string; en: string } = GL.revenuePrincipal;
         if (inv.bookingId) {
           const [bk] = await tx.select({ details: bookings.details })
             .from(bookings).where(eq(bookings.id, inv.bookingId));
