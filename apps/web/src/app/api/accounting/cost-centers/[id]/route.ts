@@ -20,8 +20,10 @@ export async function PATCH(request: Request, { params }: { params: { id: string
     for (const k of ['nameAr','nameEn','type','parentId','isActive','notes'] as const) {
       if (body[k] !== undefined) patch[k] = body[k];
     }
-    await db.update(costCenters).set(patch as Partial<typeof costCenters.$inferInsert>)
-      .where(and(eq(costCenters.id, params.id), eq(costCenters.agencyId, agencyId)));
+    await db.transaction(async (tx) => {
+      await tx.update(costCenters).set(patch as Partial<typeof costCenters.$inferInsert>)
+        .where(and(eq(costCenters.id, params.id), eq(costCenters.agencyId, agencyId)));
+    });
     return NextResponse.json({ success: true });
   } catch (err) {
     if (err instanceof ApiAuthError) return NextResponse.json({ error: err.message }, { status: err.status });
@@ -36,7 +38,9 @@ export async function DELETE(request: Request, { params }: { params: { id: strin
     const [existing] = await db.select().from(costCenters)
       .where(and(eq(costCenters.id, params.id), eq(costCenters.agencyId, agencyId)));
     if (!existing) return NextResponse.json({ error: 'مركز التكلفة غير موجود' }, { status: 404 });
-    await db.delete(costCenters).where(and(eq(costCenters.id, params.id), eq(costCenters.agencyId, agencyId)));
+    await db.transaction(async (tx) => {
+      await tx.delete(costCenters).where(and(eq(costCenters.id, params.id), eq(costCenters.agencyId, agencyId)));
+    });
     return NextResponse.json({ success: true });
   } catch (err) {
     if (err instanceof ApiAuthError) return NextResponse.json({ error: err.message }, { status: err.status });

@@ -13,7 +13,7 @@
  */
 import { eq, and, lte, isNull, isNotNull, ne } from 'drizzle-orm';
 import { db } from './db';
-import { invoices, journalEntries, journalLines } from './schema';
+import { invoices, bookings, journalEntries, journalLines } from './schema';
 import { getNextJournalNumber } from './invoice-counter';
 import { assertPeriodOpen } from './period-lock';
 import { GL } from './gl-accounts';
@@ -34,6 +34,7 @@ export async function recognizeDueRevenue(now: Date = new Date()): Promise<Reven
     agencyId:        invoices.agencyId,
     invoiceNumber:   invoices.invoiceNumber,
     subtotalHalalas: invoices.subtotalHalalas,
+    bookingId:       invoices.bookingId,
   })
     .from(invoices)
     .where(and(
@@ -86,9 +87,16 @@ export async function recognizeDueRevenue(now: Date = new Date()): Promise<Reven
           createdBy:          'system',
         });
 
+        let revenueAc: { code: string; ar: string; en: string } = GL.revenuePrincipal;
+        if (inv.bookingId) {
+          const [bk] = await tx.select({ details: bookings.details })
+            .from(bookings).where(eq(bookings.id, inv.bookingId));
+          const details = (bk?.details ?? {}) as Record<string, unknown>;
+          if (details['revenueModel'] === 'agent') revenueAc = GL.revenueAgent;
+        }
         const lines = [
-          { ac: GL.deferredRevenue,  dr: amount, cr: 0 },
-          { ac: GL.revenuePrincipal, dr: 0,      cr: amount },
+          { ac: GL.deferredRevenue, dr: amount, cr: 0 },
+          { ac: revenueAc,          dr: 0,      cr: amount },
         ];
         for (let i = 0; i < lines.length; i++) {
           const l = lines[i]!;

@@ -52,9 +52,11 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'تاريخ غير صالح' }, { status: 400 });
     }
     const id = crypto.randomUUID();
-    await db.insert(exchangeRates).values({
-      id, agencyId, fromCurrency: body.fromCurrency, toCurrency: body.toCurrency ?? 'SAR',
-      rate: Math.round(body.rate * 10000), effectiveDate: body.effectiveDate,
+    await db.transaction(async (tx) => {
+      await tx.insert(exchangeRates).values({
+        id, agencyId, fromCurrency: body.fromCurrency, toCurrency: body.toCurrency ?? 'SAR',
+        rate: Math.round(body.rate * 10000), effectiveDate: body.effectiveDate,
+      });
     });
     return NextResponse.json({ success: true, id });
   } catch (err) {

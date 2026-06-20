@@ -44,7 +44,9 @@ export async function POST(request: Request) {
     };
     if (!body.nameAr) return NextResponse.json({ error: 'الاسم مطلوب' }, { status: 400 });
     const id = crypto.randomUUID();
-    await db.insert(suppliers).values({ id, agencyId, nameAr: body.nameAr, nameEn: body.nameEn ?? null, type: body.type ?? null, phone: body.phone ?? null, email: body.email ?? null, vatNumber: body.vatNumber ?? null, notes: body.notes ?? null });
+    await db.transaction(async (tx) => {
+      await tx.insert(suppliers).values({ id, agencyId, nameAr: body.nameAr, nameEn: body.nameEn ?? null, type: body.type ?? null, phone: body.phone ?? null, email: body.email ?? null, vatNumber: body.vatNumber ?? null, notes: body.notes ?? null });
+    });
     return NextResponse.json({ success: true, id });
   } catch (err) {
     if (err instanceof ApiAuthError) return NextResponse.json({ error: err.message }, { status: err.status });

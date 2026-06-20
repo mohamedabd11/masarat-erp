@@ -1,3 +1,4 @@
+import { sql } from 'drizzle-orm';
 import { db } from './db';
 
 /**
@@ -10,9 +11,7 @@ export async function withAgencyContext<T>(
   callback: (tx: typeof db) => Promise<T>
 ): Promise<T> {
   return db.transaction(async (tx) => {
-    await tx.execute(
-      `SELECT set_config('app.current_agency_id', '${agencyId.replace(/'/g, "''")}', true)`
-    );
+    await tx.execute(sql`SELECT set_config('app.current_agency_id', ${agencyId}, true)`);
     return callback(tx as unknown as typeof db);
   });
 }

@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { eq, and, count } from 'drizzle-orm';
 import { db } from '@/lib/db';
+import { allowFinancialPurge } from '@/lib/financial-guard';
 import { bankAccounts, bankTransactions, journalEntries, journalLines } from '@/lib/schema';
 import { verifyAuth, assertRole, ApiAuthError, ROLES_ACCOUNTANT_UP } from '@/lib/api-auth';
 import { logAudit } from '@/lib/audit';
@@ -32,6 +33,7 @@ export async function DELETE(request: Request, { params }: { params: { id: strin
         .limit(1);
 
       if (je) {
+        await allowFinancialPurge(tx);
         await tx.delete(journalLines).where(and(eq(journalLines.entryId, je.id), eq(journalLines.agencyId, agencyId)));
         await tx.delete(journalEntries).where(and(eq(journalEntries.id, je.id), eq(journalEntries.agencyId, agencyId)));
       }

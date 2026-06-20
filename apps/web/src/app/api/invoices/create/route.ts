@@ -170,6 +170,9 @@ export async function POST(request: Request) {
         if (finalGrandTotal === 0) {
           throw new BusinessError('لا يمكن إصدار فاتورة بمبلغ صفر — يرجى تحديث سعر الحجز أولاً', 400);
         }
+        if (Math.abs(subtotalExclVat + totalVat - finalGrandTotal) > 100) {
+          throw new BusinessError('خطأ في تقريب المبالغ — الفرق يتجاوز الحد المسموح (1 ر.س)', 400);
+        }
 
         // ── 4b. Credit-limit guard + buyer VAT number snapshot ──────────────
         let buyerVatNumber: string | null = null;

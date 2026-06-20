@@ -9,6 +9,7 @@ import { validateJournalLines } from '@/lib/journal-validation';
 import { requireFeature } from '@/lib/feature-access';
 import { getNextJournalNumber } from '@/lib/invoice-counter';
 import { GL } from '@/lib/gl-accounts';
+import { logAudit } from '@/lib/audit';
 
 const DEFAULT_PAGE_SIZE = 100;
 const MAX_PAGE_SIZE     = 500;
@@ -141,6 +142,12 @@ export async function POST(request: Request) {
           })),
         );
       }
+    });
+
+    await logAudit({
+      agencyId, userId: uid, action: 'create', resource: 'journal_entry',
+      resourceId: id,
+      after: { date: body.date, source: body.source ?? 'manual', lineCount: lines.length, totalDebit: computedDebit },
     });
 
     return NextResponse.json({ success: true, id });

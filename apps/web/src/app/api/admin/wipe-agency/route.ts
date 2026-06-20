@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { eq } from 'drizzle-orm';
 import { ensureAdminApp } from '@/lib/firebase-admin';
+import { allowFinancialPurge } from '@/lib/financial-guard';
 import { db } from '@/lib/db';
 import {
   agencies, users, bookings, invoices, payments, receiptVouchers,
@@ -54,6 +55,7 @@ export async function POST(request: Request) {
     // FK constraints are checked at COMMIT time (after everything is deleted),
     // not after each individual statement.
     await db.transaction(async (tx) => {
+      await allowFinancialPurge(tx);
       await tx.delete(journalLines).where(eq(journalLines.agencyId, agencyId));
       await tx.delete(journalEntries).where(eq(journalEntries.agencyId, agencyId));
       await tx.delete(payments).where(eq(payments.agencyId, agencyId));

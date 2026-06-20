@@ -99,7 +99,7 @@ export async function POST(request: Request) {
       }
     }
     const id = crypto.randomUUID();
-    const [row] = await db.insert(customers).values({
+    const [row] = await db.transaction(async (tx) => tx.insert(customers).values({
       id, agencyId,
       nameAr:                body.nameAr.trim(),
       nameEn:                body.nameEn?.trim() ?? null,
@@ -112,7 +112,7 @@ export async function POST(request: Request) {
       notes:                 body.notes ?? null,
       openingBalanceHalalas: body.openingBalanceHalalas ?? 0,
       vatNumber,
-    }).returning();
+    }).returning());
     return NextResponse.json({ success: true, id, customer: row });
   } catch (err) {
     if (err instanceof ApiAuthError) return NextResponse.json({ error: err.message }, { status: err.status });

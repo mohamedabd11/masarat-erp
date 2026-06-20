@@ -336,8 +336,11 @@ export default function SettingsPage() {
   const [zatcaError,         setZatcaError]         = useState('');
 
   // ── Agency info (loaded from / saved to Firestore) ────────────────────
-  const [nameAr, setNameAr] = useState('مسارات للسياحة والسفر');
-  const [nameEn, setNameEn] = useState('Masarat Travel & Tourism');
+  const [nameAr, setNameAr] = useState('');
+  const [nameEn, setNameEn] = useState('');
+  // Gate the Save button until agency data has loaded, so a save can't overwrite
+  // real values with empty defaults during the initial fetch.
+  const [agencyLoaded, setAgencyLoaded] = useState(false);
   const [logoUrl, setLogoUrl] = useState('');
   const [logoUploading, setLogoUploading] = useState(false);
   const [logoError, setLogoError] = useState('');
@@ -424,23 +427,27 @@ export default function SettingsPage() {
     if (!agencyId) return;
 
     async function loadAgency() {
-      const { apiFetch } = await import('@/lib/api-client');
-      const data = await apiFetch<{ agency: Agency; users: User[] }>('/api/settings');
-      const d = data.agency;
-      if (d.nameAr)        setNameAr(d.nameAr);
-      if (d.nameEn)        setNameEn(d.nameEn);
-      if (d.logoUrl)       setLogoUrl(d.logoUrl);
-      setIsVatRegistered(d.isVatRegistered === true);
-      if (d.vatNumber)     setVatNumber(d.vatNumber);
-      if (d.crNumber)      setCrNumber(d.crNumber);
-      if (d.vatRate)       setVatRate(d.vatRate);
-      if (d.city)          setCity(d.city);
-      setContactEmail(d.contactEmail ?? '');
-      setContactPhone(d.contactPhone ?? '');
-      if (d.defaultQuoteTerms) setDefaultQuoteTerms(d.defaultQuoteTerms);
-      if (d.gosiEmployerRateSaudi != null) setGosiEmployerRateSaudi(d.gosiEmployerRateSaudi);
-      if (d.gosiEmployeeRateSaudi != null) setGosiEmployeeRateSaudi(d.gosiEmployeeRateSaudi);
-      if (d.gosiEmployerRateExpat  != null) setGosiEmployerRateExpat(d.gosiEmployerRateExpat);
+      try {
+        const { apiFetch } = await import('@/lib/api-client');
+        const data = await apiFetch<{ agency: Agency; users: User[] }>('/api/settings');
+        const d = data.agency;
+        if (d.nameAr)        setNameAr(d.nameAr);
+        if (d.nameEn)        setNameEn(d.nameEn);
+        if (d.logoUrl)       setLogoUrl(d.logoUrl);
+        setIsVatRegistered(d.isVatRegistered === true);
+        if (d.vatNumber)     setVatNumber(d.vatNumber);
+        if (d.crNumber)      setCrNumber(d.crNumber);
+        if (d.vatRate)       setVatRate(d.vatRate);
+        if (d.city)          setCity(d.city);
+        setContactEmail(d.contactEmail ?? '');
+        setContactPhone(d.contactPhone ?? '');
+        if (d.defaultQuoteTerms) setDefaultQuoteTerms(d.defaultQuoteTerms);
+        if (d.gosiEmployerRateSaudi != null) setGosiEmployerRateSaudi(d.gosiEmployerRateSaudi);
+        if (d.gosiEmployeeRateSaudi != null) setGosiEmployeeRateSaudi(d.gosiEmployeeRateSaudi);
+        if (d.gosiEmployerRateExpat  != null) setGosiEmployerRateExpat(d.gosiEmployerRateExpat);
+      } finally {
+        setAgencyLoaded(true);
+      }
     }
 
     void loadAgency();
@@ -792,7 +799,7 @@ export default function SettingsPage() {
   }
 
   async function handleSave() {
-    if (!user?.agencyId) return;
+    if (!user?.agencyId || !agencyLoaded) return;
     setSaving(true);
     setSaved(false);
     setSaveError('');
@@ -1363,7 +1370,7 @@ export default function SettingsPage() {
                     </span>
                   )}
                   {!saved && !saveError && <span />}
-                  <Button onClick={handleSave} loading={saving}>
+                  <Button onClick={handleSave} loading={saving} disabled={!agencyLoaded}>
                     {saving
                       ? (isAr ? 'جارٍ الحفظ...' : 'Saving...')
                       : (isAr ? 'حفظ التغييرات' : 'Save Changes')}

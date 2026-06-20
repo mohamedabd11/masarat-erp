@@ -258,10 +258,8 @@ export async function submitInvoiceToZatca(agencyId: string, invoiceId: string):
     if (!inv.isEInvoice || !inv.zatcaUuid || !inv.sellerVatNumber) {
       return { submitted: false, status: 'skipped', reason: 'not an e-invoice' };
     }
-    if (inv.type !== '388') {
-      // Credit/debit notes need the original invoice's hash linkage at
-      // submission time — deferred until that path is sandbox-validated.
-      return { submitted: false, status: 'skipped', reason: 'credit/debit note auto-submission not yet supported' };
+    if (inv.type !== '388' && inv.type !== '381' && inv.type !== '383') {
+      return { submitted: false, status: 'skipped', reason: 'unsupported invoice type' };
     }
     if (inv.zatcaStatus === 'cleared' || inv.zatcaStatus === 'reported' || inv.zatcaStatus === 'warning') {
       return { submitted: false, status: 'skipped', reason: 'already submitted' };
@@ -277,6 +275,9 @@ export async function submitInvoiceToZatca(agencyId: string, invoiceId: string):
       || !agency.zatcaPrivateKey || !agency.zatcaCertificatePem) {
       return { submitted: false, status: 'skipped', reason: 'missing ZATCA credentials' };
     }
+    if (!agency.addressAr || agency.addressAr.trim().length < 5) {
+      return { submitted: false, status: 'failed', reason: 'seller address missing — update agency settings before ZATCA submission' };
+    }
 
     const [csid, secret, privateKeyPem] = await Promise.all([
       decrypt(agency.zatcaProductionCsid),
@@ -284,6 +285,16 @@ export async function submitInvoiceToZatca(agencyId: string, invoiceId: string):
       decrypt(agency.zatcaPrivateKey),
     ]);
     const certificatePem = agency.zatcaCertificatePem;
+
+    // For credit/debit notes, fetch the original invoice for BillingReference
+    let originalInvoiceUuid: string | undefined;
+    let originalInvoiceNumber: string | undefined;
+    if ((inv.type === '381' || inv.type === '383') && inv.originalInvoiceId) {
+      const [origInv] = await db.select({ zatcaUuid: invoices.zatcaUuid, invoiceNumber: invoices.invoiceNumber })
+        .from(invoices).where(eq(invoices.id, inv.originalInvoiceId));
+      originalInvoiceUuid   = origInv?.zatcaUuid ?? undefined;
+      originalInvoiceNumber = origInv?.invoiceNumber ?? undefined;
+    }
 
     // Rebuild the UBL payload from the immutable invoice snapshot.
     const record = buildZatcaInvoiceRecord({
@@ -297,11 +308,13 @@ export async function submitInvoiceToZatca(agencyId: string, invoiceId: string):
       buyerName:       inv.buyerNameAr || inv.buyerNameEn || 'عميل نقدي',
       buyerVatNumber:  inv.buyerVatNumber ?? null,
       vatRatePercent:  agency.vatRate ?? 15,
-      invoiceTypeCode: '388',   // the type guard above lets only tax invoices through
+      invoiceTypeCode: inv.type as '388' | '381' | '383',
       subtotalHalalas: inv.subtotalHalalas,
       vatHalalas:      inv.vatHalalas,
       totalHalalas:    inv.totalHalalas,
       items:           parseStoredInvoiceItems(inv.items),
+      originalInvoiceUuid,
+      originalInvoiceNumber,
     });
 
     // ── Advance the chain atomically: lock the agency row, take PIH + next ICV,

@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { eq, and, sql } from 'drizzle-orm';
 import { db } from '@/lib/db';
-import { invoices, bookings, payments, journalEntries, journalLines, bookingLines, suppliers } from '@/lib/schema';
+import { invoices, bookings, payments, journalEntries, journalLines, bookingLines, suppliers, paymentPlans } from '@/lib/schema';
 import { verifyAuth, assertRole, ApiAuthError, BusinessError, ROLES_ACCOUNTANT_UP } from '@/lib/api-auth';
 import { withIdempotency, markIdempotencyComplete } from '@/lib/idempotency';
 import { getNextInvoiceNumber, getNextJournalNumber } from '@/lib/invoice-counter';
@@ -300,6 +300,15 @@ export async function POST(request: Request) {
               eq(bookingLines.bookingId, bookingId),
               eq(bookingLines.agencyId, agencyId),
               eq(bookingLines.status, 'active'),
+            ));
+
+          // Cancel any active payment plan — prevents orphaned pending installments
+          await tx.update(paymentPlans)
+            .set({ status: 'cancelled', updatedAt: now })
+            .where(and(
+              eq(paymentPlans.bookingId, bookingId),
+              eq(paymentPlans.agencyId, agencyId),
+              eq(paymentPlans.status, 'active'),
             ));
         } else {
           // Partial refund → decrement paidHalalas, booking stays active

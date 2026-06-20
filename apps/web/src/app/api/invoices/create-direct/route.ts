@@ -5,6 +5,7 @@ import { agencies, invoices, journalEntries, journalLines, customers } from '@/l
 import { buildZatcaInvoiceRecord, submitInvoiceToZatca } from '@/lib/zatca-einvoice';
 import { verifyAuth, assertRole, ApiAuthError, BusinessError, ROLES_ACCOUNTANT_UP } from '@/lib/api-auth';
 import { checkRateLimit, getClientIp, rateLimitHeaders } from '@/lib/rate-limit';
+import { withIdempotency, markIdempotencyComplete } from '@/lib/idempotency';
 import { getNextInvoiceNumber, getNextJournalNumber } from '@/lib/invoice-counter';
 import { assertPeriodOpen } from '@/lib/period-lock';
 import type { Tx } from '@/lib/db';
@@ -31,6 +32,7 @@ interface CreateDirectInvoiceBody {
   lines:         DirectInvoiceLine[];
   dueDate?:      string;
   notes?:        string;
+  idempotencyKey?: string;
 }
 
 export async function POST(request: Request) {
@@ -84,8 +86,12 @@ export async function POST(request: Request) {
     if (totalHalalas <= 0) {
       return NextResponse.json({ error: 'إجمالي الفاتورة يجب أن يكون أكبر من صفر' }, { status: 400 });
     }
+    if (Math.abs(subtotalHalalas + vatHalalas - totalHalalas) > 100) {
+      return NextResponse.json({ error: 'خطأ في تقريب المبالغ — الفرق يتجاوز الحد المسموح' }, { status: 400 });
+    }
 
-    const result = await db.transaction(async (tx: Tx) => {
+    const idempKey = body.idempotencyKey ?? crypto.randomUUID();
+    const result = await withIdempotency(idempKey, agencyId, 'directInvoice', () => db.transaction(async (tx: Tx) => {
       const now  = new Date();
       const year = now.getFullYear();
       await assertPeriodOpen(agencyId, today, tx);
@@ -205,8 +211,10 @@ export async function POST(request: Request) {
       }
       await tx.insert(journalLines).values(jLines);
 
+      await markIdempotencyComplete(tx, agencyId, 'directInvoice', idempKey, { invoiceId: invId, invoiceNumber });
+
       return { id: invId, invoiceNumber };
-    });
+    }));
 
     // Phase 2 clearance/reporting — internally gated on production onboarding
     // and never throws; failures are recorded on the invoice for retry.

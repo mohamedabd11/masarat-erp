@@ -3,6 +3,7 @@ import { eq, and, ne } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { bookings, invoices, bookingLines } from '@/lib/schema';
 import { verifyAuth, assertRole, ApiAuthError, ROLES_AGENT_UP } from '@/lib/api-auth';
+import { logAudit } from '@/lib/audit';
 
 const VALID_STATUSES = new Set(['draft', 'confirmed', 'completed', 'cancelled']);
 
@@ -55,7 +56,7 @@ export async function GET(request: Request, { params }: { params: { id: string }
 
 export async function PATCH(request: Request, { params }: { params: { id: string } }) {
   try {
-    const { agencyId, role } = await verifyAuth(request);
+    const { uid, agencyId, role } = await verifyAuth(request);
     assertRole(role, [...ROLES_AGENT_UP]);
     const body = await request.json() as Record<string, unknown>;
     const now  = new Date();
@@ -167,6 +168,13 @@ export async function PATCH(request: Request, { params }: { params: { id: string
             eq(bookingLines.status, 'active'),
           ));
       }
+    });
+
+    await logAudit({
+      agencyId, userId: uid, action: 'update', resource: 'booking',
+      resourceId: params.id,
+      before: { status: existing.status },
+      after: patch,
     });
 
     return NextResponse.json({ success: true });

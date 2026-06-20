@@ -22,8 +22,10 @@ export async function PATCH(request: Request, { params }: { params: { id: string
       }
       updates.effectiveDate = body.effectiveDate;
     }
-    await db.update(exchangeRates).set(updates as Partial<typeof exchangeRates.$inferInsert>)
-      .where(and(eq(exchangeRates.id, params.id), eq(exchangeRates.agencyId, agencyId)));
+    await db.transaction(async (tx) => {
+      await tx.update(exchangeRates).set(updates as Partial<typeof exchangeRates.$inferInsert>)
+        .where(and(eq(exchangeRates.id, params.id), eq(exchangeRates.agencyId, agencyId)));
+    });
     return NextResponse.json({ success: true });
   } catch (err) {
     if (err instanceof ApiAuthError) return NextResponse.json({ error: err.message }, { status: err.status });

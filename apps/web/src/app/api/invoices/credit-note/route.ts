@@ -193,20 +193,31 @@ export async function POST(request: Request) {
       // Standard reversal: Dr Revenue / Dr VAT Payable / Cr AR (or Customer Deposits)
       // COGS reversal (if original booked cost): Cr COGS (5000) / Dr AP (2000)
 
-      // IFRS 15.116: if the invoice was already paid the AR balance is zero — the
-      // credit note creates a refundable customer liability (2300 Customer Deposits)
-      // rather than a negative AR balance (1120).
-      const creditAc = (originalInvoice?.paidHalalas ?? 0) > 0
-        ? GL.customerDeposits
-        : AC_FALLBACK.receivable;
-
+      // IFRS 15.116: proportional split between AR (unpaid portion) and Customer
+      // Deposits (paid portion). A fully paid invoice credits 100% to deposits;
+      // a fully unpaid one credits 100% to AR.
       type JL = { id: string; entryId: string; agencyId: string; accountCode: string; accountNameAr: string; accountNameEn: string; debitHalalas: number; creditHalalas: number; sortOrder: number };
+
+      const origTotal = originalInvoice?.totalHalalas ?? 0;
+      const origPaid  = originalInvoice?.paidHalalas  ?? 0;
+      let depositsPortion = 0;
+      let arPortion       = total;
+      if (origTotal > 0) {
+        depositsPortion = Math.round(total * origPaid / origTotal);
+        arPortion       = total - depositsPortion;
+      }
 
       const jLines: JL[] = [
         { id: crypto.randomUUID(), entryId: jeId, agencyId, accountCode: revenueAc.code,    accountNameAr: revenueAc.ar,            accountNameEn: revenueAc.en,            debitHalalas: subtotal, creditHalalas: 0,     sortOrder: 1 },
         ...(vat > 0 ? [{ id: crypto.randomUUID(), entryId: jeId, agencyId, accountCode: AC_FALLBACK.vatPayable.code, accountNameAr: AC_FALLBACK.vatPayable.ar, accountNameEn: AC_FALLBACK.vatPayable.en, debitHalalas: vat, creditHalalas: 0, sortOrder: 2 } as JL] : []),
-        { id: crypto.randomUUID(), entryId: jeId, agencyId, accountCode: creditAc.code,     accountNameAr: creditAc.ar,             accountNameEn: creditAc.en,             debitHalalas: 0,        creditHalalas: total, sortOrder: 3 },
       ];
+      let sortIdx = jLines.length + 1;
+      if (arPortion > 0) {
+        jLines.push({ id: crypto.randomUUID(), entryId: jeId, agencyId, accountCode: AC_FALLBACK.receivable.code, accountNameAr: AC_FALLBACK.receivable.ar, accountNameEn: AC_FALLBACK.receivable.en, debitHalalas: 0, creditHalalas: arPortion, sortOrder: sortIdx++ });
+      }
+      if (depositsPortion > 0) {
+        jLines.push({ id: crypto.randomUUID(), entryId: jeId, agencyId, accountCode: GL.customerDeposits.code, accountNameAr: GL.customerDeposits.ar, accountNameEn: GL.customerDeposits.en, debitHalalas: 0, creditHalalas: depositsPortion, sortOrder: sortIdx++ });
+      }
 
       // Reverse COGS if the original invoice had a cost-of-services entry
       if (cogsDebit > 0) {

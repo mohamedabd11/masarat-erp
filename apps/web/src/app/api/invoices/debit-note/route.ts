@@ -4,6 +4,7 @@ import { db } from '@/lib/db';
 import { invoices, journalEntries, journalLines } from '@/lib/schema';
 import { verifyAuth, assertRole, ApiAuthError, BusinessError, ROLES_MANAGER_UP } from '@/lib/api-auth';
 import { logAudit } from '@/lib/audit';
+import { withIdempotency, markIdempotencyComplete } from '@/lib/idempotency';
 import { getNextInvoiceNumber, getNextJournalNumber, type InvoiceType } from '@/lib/invoice-counter';
 import { assertPeriodOpen } from '@/lib/period-lock';
 import { GL } from '@/lib/gl-accounts';
@@ -28,6 +29,7 @@ export async function POST(request: Request) {
       lines:              Array<{ descriptionAr: string; descriptionEn?: string; quantity: number; unitPriceHalalas: number }>;
       reason:             string;
       notes?:             string;
+      idempotencyKey?:    string;
     };
 
     if (!body.reason?.trim()) {
@@ -54,7 +56,8 @@ export async function POST(request: Request) {
       originalInvoice = orig;
     }
 
-    const result = await db.transaction(async (tx) => {
+    const idempKey = body.idempotencyKey ?? crypto.randomUUID();
+    const result = await withIdempotency(idempKey, agencyId, 'debitNote', () => db.transaction(async (tx) => {
       const now   = new Date();
       const year  = now.getFullYear();
       const today = now.toISOString().split('T')[0]!;
@@ -213,8 +216,10 @@ export async function POST(request: Request) {
 
       await tx.insert(journalLines).values(jLines);
 
+      await markIdempotencyComplete(tx, agencyId, 'debitNote', idempKey, { invoiceId: invId, invoiceNumber: invNum });
+
       return { invoiceId: invId, invoiceNumber: invNum };
-    });
+    }));
 
     await logAudit({
       agencyId, userId: uid, action: 'create', resource: 'debit_note', resourceId: result.invoiceId,
