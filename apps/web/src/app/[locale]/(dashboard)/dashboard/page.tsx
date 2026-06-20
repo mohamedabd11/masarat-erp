@@ -86,7 +86,9 @@ export default async function DashboardPage({ params }: { params: { locale: stri
               >
                 <div
                   className="w-12 h-12 rounded-xl flex items-center justify-center transition-all duration-200 group-hover:scale-110 group-hover:shadow-md"
-                  style={{ backgroundColor: svc.bg, color: svc.color }}
+                  // Translucent tint of the service colour — reads correctly in
+                  // both light and dark themes (no fixed pastel background).
+                  style={{ backgroundColor: `${svc.color}1f`, color: svc.color }}
                 >
                   <Icon size={22} />
                 </div>

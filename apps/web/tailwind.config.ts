@@ -76,10 +76,19 @@ const config: Config = {
           600: '#0284c7',
           700: '#0369a1',
         },
+        // Theme-aware neutral surfaces — backed by CSS variables that flip
+        // between light and dark via the `data-theme` attribute on <html>.
         surface: {
-          DEFAULT: '#ffffff',
-          muted:   '#f8fafc',
-          border:  '#e2e8f0',
+          DEFAULT:  'var(--surface)',
+          muted:    'var(--surface-muted)',
+          card:     'var(--surface-card)',
+          elevated: 'var(--surface-elevated)',
+          border:   'var(--surface-border)',
+        },
+        content: {
+          primary:   'var(--content-primary)',
+          secondary: 'var(--content-secondary)',
+          muted:     'var(--content-muted)',
         },
       },
       fontFamily: {

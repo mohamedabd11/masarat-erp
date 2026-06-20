@@ -7,6 +7,7 @@ import { useLocale } from 'next-intl';
 import { useAuth } from '@masarat/firebase';
 import { cn } from '@/lib/utils';
 import { MasaratLogo } from '@/components/ui/MasaratLogo';
+import { ThemeToggle } from '@/components/layout/ThemeToggle';
 import { useSubscription } from '@/providers/SubscriptionProvider';
 import { type FeatureKey } from '@/lib/plan-features';
 import { usePersistedState } from '@/hooks/usePersistedState';
@@ -221,10 +222,10 @@ export function Sidebar({ collapsed = false, onToggle, onClose }: SidebarProps) 
     <aside
       className={cn(
         'flex flex-col h-full border-e border-surface-border',
-        'transition-all duration-300 ease-in-out',
+        'transition-all duration-300 ease-in-out backdrop-blur-xl',
         collapsed ? 'w-16' : 'w-64',
       )}
-      style={{ background: 'linear-gradient(180deg, #f8faff 0%, #ffffff 120px)' }}
+      style={{ background: 'linear-gradient(180deg, var(--sidebar-from) 0%, var(--sidebar-to) 120px)' }}
     >
       {/* Logo */}
       <div className={cn(
@@ -346,6 +347,9 @@ export function Sidebar({ collapsed = false, onToggle, onClose }: SidebarProps) 
               {!collapsed && <span>{isAr ? item.labelAr : item.labelEn}</span>}
             </Link>
           ))}
+
+          {/* Theme switcher (system / light / dark) */}
+          <ThemeToggle collapsed={collapsed} />
 
           {onToggle && (
             <button
