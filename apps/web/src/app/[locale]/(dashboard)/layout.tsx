@@ -4,6 +4,7 @@ import type { ReactNode } from 'react';
 import { useState } from 'react';
 import { Sidebar } from '@/components/layout/Sidebar';
 import { Header } from '@/components/layout/Header';
+import { BottomNav } from '@/components/layout/BottomNav';
 import { TrialBanner } from '@/components/layout/TrialBanner';
 import { SubscriptionExpiredOverlay } from '@/components/layout/SubscriptionExpiredOverlay';
 import { SubscriptionProvider, useSubscription } from '@/providers/SubscriptionProvider';
@@ -52,11 +53,15 @@ function DashboardInner({ children }: { children: ReactNode }) {
         </div>
 
         <main className={cn('flex-1 overflow-y-auto print:overflow-visible', isExpired && 'pointer-events-none select-none')}>
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 py-6 print:p-0 print:max-w-none">
+          {/* Extra bottom padding on mobile clears the fixed bottom nav (+ safe area). */}
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 py-6 pb-24 lg:pb-6 print:p-0 print:max-w-none">
             {children}
           </div>
         </main>
       </div>
+
+      {/* Mobile bottom navigation — hidden on lg+ and when printing */}
+      {!isExpired && <BottomNav onMore={() => setMobileSidebarOpen(true)} />}
 
       {/* Full-screen lock when trial/subscription expired */}
       {isExpired && <SubscriptionExpiredOverlay />}
