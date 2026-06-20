@@ -7,6 +7,7 @@ import { apiFetch } from '@/lib/api-client';
 import { Card } from '@/components/ui/Card';
 import { Spinner } from '@/components/ui/Spinner';
 import { Input } from '@/components/ui/Input';
+import { MobileList, MobileListItem, MobileItemHeader, MobileItemFooter } from '@/components/ui/MobileList';
 import { TicketDrawer } from './TicketDrawer';
 import { cn } from '@/lib/utils';
 import {
@@ -236,7 +237,40 @@ export function TicketListClient({ locale }: Props) {
             )}
           </div>
         ) : (
-          <div className="overflow-x-auto">
+          <>
+          {/* Mobile cards */}
+          <MobileList>
+            {displayed.map(ticket => {
+              const isOrphan = ticket.reconciliationAttempts >= 20 && PENDING_STATUSES.has(ticket.status);
+              return (
+                <MobileListItem key={ticket.id} onClick={() => openDrawer(ticket)}>
+                  <MobileItemHeader>
+                    <span className="inline-flex items-center gap-1.5 min-w-0">
+                      <span className="font-mono text-xs font-semibold text-slate-900">{ticket.ticketNumber ?? '—'}</span>
+                      {isOrphan && <OrphanBadge isAr={isAr} />}
+                    </span>
+                    <StatusBadge status={ticket.status} isAr={isAr} />
+                  </MobileItemHeader>
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="text-sm font-semibold text-slate-900 truncate">{ticket.passengerName}</p>
+                    <span className="font-mono text-xs text-brand-700 flex-shrink-0">{ticket.pnrCode ?? '—'}</span>
+                  </div>
+                  <MobileItemFooter>
+                    <span className="inline-flex items-center gap-2">
+                      <ProviderBadge provider={ticket.issuingProvider} />
+                      {ticket.issuedAt && <span className="text-xs text-slate-400">{new Date(ticket.issuedAt).toLocaleDateString(isAr ? 'ar-SA' : 'en-US')}</span>}
+                    </span>
+                    <span className="text-sm font-semibold tabular-nums text-slate-900">
+                      {ticket.totalHalalas > 0 ? formatAmount(ticket.totalHalalas) : '—'}
+                    </span>
+                  </MobileItemFooter>
+                </MobileListItem>
+              );
+            })}
+          </MobileList>
+
+          {/* Desktop table */}
+          <div className="hidden sm:block overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-surface-border bg-slate-50/60 text-xs text-slate-500 font-medium">
@@ -290,6 +324,7 @@ export function TicketListClient({ locale }: Props) {
               </tbody>
             </table>
           </div>
+          </>
         )}
 
         {/* Footer count */}

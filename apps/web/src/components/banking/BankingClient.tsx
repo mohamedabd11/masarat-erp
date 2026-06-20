@@ -6,6 +6,7 @@ import { apiFetch } from '@/lib/api-client';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Spinner } from '@/components/ui/Spinner';
+import { MobileList, MobileListItem, MobileItemHeader, MobileItemFooter } from '@/components/ui/MobileList';
 import { formatCurrency, formatDate } from '@/lib/utils';
 import { cn } from '@/lib/utils';
 import {
@@ -646,7 +647,34 @@ export function BankingClient({ locale }: BankingClientProps) {
                     {isAr ? 'لا توجد حركات مالية' : 'No transactions'}
                   </div>
                 ) : (
-                  <div className="overflow-x-auto">
+                  <>
+                  {/* Mobile cards */}
+                  <MobileList>
+                    {filteredTxs.map(tx => {
+                      const m = TX_META[tx.type];
+                      return (
+                        <MobileListItem key={tx.id}>
+                          <MobileItemHeader>
+                            <p className="text-sm font-medium text-slate-800 truncate">{isAr ? tx.descAr : tx.descEn}</p>
+                            <span className={cn('text-sm font-bold tabular-nums font-mono flex-shrink-0', m.color)}>
+                              {m.sign > 0 ? '+' : '−'}{formatCurrency(tx.amountHalalas, fmtLocale)}
+                            </span>
+                          </MobileItemHeader>
+                          <MobileItemFooter>
+                            <span className="inline-flex items-center gap-2 text-xs text-slate-400">
+                              {formatDate(new Date(tx.date), fmtLocale)}
+                              <span className={cn('font-semibold', m.color)}>{isAr ? m.ar : m.en}</span>
+                              {tx.isReconciled && <span className="text-emerald-600 inline-flex items-center gap-0.5"><CheckCircle2 size={10} />{isAr ? 'مطابق' : 'Rec'}</span>}
+                            </span>
+                            {tx.reference && <span className="text-xs font-mono text-slate-400">{tx.reference}</span>}
+                          </MobileItemFooter>
+                        </MobileListItem>
+                      );
+                    })}
+                  </MobileList>
+
+                  {/* Desktop table */}
+                  <div className="hidden sm:block overflow-x-auto">
                     <table className="w-full">
                       <thead>
                         <tr className="bg-slate-50 border-b border-surface-border">
@@ -689,6 +717,7 @@ export function BankingClient({ locale }: BankingClientProps) {
                       </tbody>
                     </table>
                   </div>
+                  </>
                 )}
                 <div className="px-5 py-3 border-t border-surface-border flex items-center justify-between">
                   <span className="text-xs text-slate-400">{isAr ? `${filteredTxs.length} حركة` : `${filteredTxs.length} transactions`}</span>

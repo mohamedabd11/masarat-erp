@@ -7,6 +7,7 @@ import { Card, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Spinner } from '@/components/ui/Spinner';
 import { EmptyState } from '@/components/ui/EmptyState';
+import { MobileList, MobileListItem, MobileItemHeader, MobileItemFooter } from '@/components/ui/MobileList';
 import { formatCurrency, formatDate } from '@/lib/utils';
 import { cn } from '@/lib/utils';
 import {
@@ -618,7 +619,39 @@ export function ChequesClient({ locale }: { locale: string }) {
         />
       ) : (
         <Card padding="none">
-          <div className="overflow-x-auto">
+          {/* Mobile cards */}
+          <MobileList>
+            {filtered.map(cheque => {
+              const isIncoming = cheque.direction === 'incoming';
+              return (
+                <MobileListItem key={cheque.id}>
+                  <MobileItemHeader>
+                    <span className="text-sm font-mono font-semibold text-slate-900">{cheque.chequeNumber}</span>
+                    <span className={cn('text-sm font-bold tabular-nums', isIncoming ? 'text-emerald-700' : 'text-brand-700')}>
+                      {formatCurrency(cheque.amount, localeStr)}
+                    </span>
+                  </MobileItemHeader>
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="text-sm font-semibold text-slate-900 truncate">{cheque.partyName || '—'}</p>
+                    <span className="text-xs text-slate-400 flex-shrink-0">{cheque.bankName}</span>
+                  </div>
+                  <MobileItemFooter>
+                    <span className="inline-flex items-center gap-2">
+                      <span className={cn('inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium border',
+                        isIncoming ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-brand-50 text-brand-700 border-brand-200')}>
+                        {isIncoming ? (isAr ? 'وارد' : 'Incoming') : (isAr ? 'صادر' : 'Outgoing')}
+                      </span>
+                      {cheque.dueDate && <span className="text-xs text-slate-400">{isAr ? 'استحقاق ' : 'Due '}{formatDate(cheque.dueDate, localeStr)}</span>}
+                    </span>
+                    <StatusBadge cheque={cheque} isAr={isAr} onStatusChange={handleStatusChange} />
+                  </MobileItemFooter>
+                </MobileListItem>
+              );
+            })}
+          </MobileList>
+
+          {/* Desktop table */}
+          <div className="hidden sm:block overflow-x-auto">
             <table className="w-full">
               <thead>
                 <tr className="border-b border-surface-border bg-slate-50/50">

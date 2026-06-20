@@ -6,6 +6,7 @@ import { apiFetch } from '@/lib/api-client';
 import { Card } from '@/components/ui/Card';
 import { Spinner } from '@/components/ui/Spinner';
 import { Input } from '@/components/ui/Input';
+import { MobileList, MobileListItem, MobileItemHeader, MobileItemFooter } from '@/components/ui/MobileList';
 import { PnrDrawer } from './PnrDrawer';
 import { cn } from '@/lib/utils';
 import {
@@ -188,7 +189,43 @@ export function PnrListClient({ locale }: Props) {
             )}
           </div>
         ) : (
-          <div className="overflow-x-auto">
+          <>
+          {/* Mobile cards */}
+          <MobileList>
+            {displayed.map(pnr => {
+              const displayStatus = computeDisplayStatus(pnr);
+              const isExpiring = displayStatus === 'active' && pnr.expiresAt &&
+                new Date(pnr.expiresAt).getTime() - Date.now() < 24 * 60 * 60 * 1000;
+              return (
+                <MobileListItem key={pnr.id} onClick={() => openDrawer(pnr)}>
+                  <MobileItemHeader>
+                    <span className="inline-flex items-center gap-2 min-w-0">
+                      <span className="font-mono text-xs font-semibold text-slate-900">{pnr.pnrCode}</span>
+                      <GdsBadge gds={pnr.gds} />
+                    </span>
+                    <StatusBadge status={displayStatus} isAr={isAr} />
+                  </MobileItemHeader>
+                  <div className="flex items-center justify-between gap-2 text-sm">
+                    <span className="text-slate-700 truncate">
+                      {pnr.origin && pnr.destination ? <span className="font-medium">{pnr.origin} → {pnr.destination}</span> : '—'}
+                    </span>
+                    <span className="text-xs text-slate-400 flex-shrink-0">{pnr.passengerCount} {isAr ? 'راكب' : 'pax'}</span>
+                  </div>
+                  <MobileItemFooter>
+                    <span className="text-xs text-slate-400">{pnr.departureDate ? `${isAr ? 'مغادرة ' : 'Dep '}${pnr.departureDate}` : '—'}</span>
+                    {pnr.expiresAt && (
+                      <span className={cn('text-xs', isExpiring ? 'text-amber-600 font-medium' : 'text-slate-400')}>
+                        {isAr ? 'ينتهي ' : 'Exp '}{new Date(pnr.expiresAt).toLocaleDateString(isAr ? 'ar-SA' : 'en-US')}
+                      </span>
+                    )}
+                  </MobileItemFooter>
+                </MobileListItem>
+              );
+            })}
+          </MobileList>
+
+          {/* Desktop table */}
+          <div className="hidden sm:block overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-surface-border bg-slate-50/60 text-xs text-slate-500 font-medium">
@@ -241,6 +278,7 @@ export function PnrListClient({ locale }: Props) {
               </tbody>
             </table>
           </div>
+          </>
         )}
 
         {/* ── Footer count ── */}

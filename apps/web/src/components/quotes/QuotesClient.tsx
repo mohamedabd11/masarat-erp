@@ -261,6 +261,89 @@ function QuoteRow({ q, isAr, fmtLocale, locale, onStatusChange }: {
   );
 }
 
+// ─── QuoteMobileCard (expandable card for phones) ─────────────────────────────
+
+function QuoteMobileCard({ q, isAr, fmtLocale, locale, onStatusChange }: {
+  q: Quote; isAr: boolean; fmtLocale: string; locale: string;
+  onStatusChange: (id: string, status: QuoteStatus) => void;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const now = Date.now();
+  const expired = q.status === 'sent' && q.expiryDate < now;
+  const services = q.items.slice(0, 2).map(i => {
+    const st = SERVICE_TYPES.find(s => s.key === i.serviceType);
+    return i.customLabel || (isAr ? st?.ar : st?.en) || i.serviceType;
+  }).join(' + ') + (q.items.length > 2 ? ` +${q.items.length - 2}` : '');
+
+  return (
+    <div className="px-4 py-3.5">
+      <button onClick={() => setExpanded(v => !v)} className="w-full text-start flex flex-col gap-2">
+        <div className="flex items-center justify-between gap-2">
+          <span className="inline-flex items-center gap-1.5 min-w-0">
+            <span className="text-slate-400 flex-shrink-0">{expanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}</span>
+            <span className="font-mono text-xs font-bold text-brand-700">{q.quoteNumber}</span>
+            {expired && <span className="text-[10px] bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-full font-semibold">{isAr ? 'منتهي' : 'Expired'}</span>}
+          </span>
+          <span className="text-sm font-bold tabular-nums text-slate-900 flex-shrink-0">{formatCurrency(q.grandTotalHalalas, fmtLocale)}</span>
+        </div>
+        <div className="flex items-center justify-between gap-2">
+          <p className="text-sm font-semibold text-slate-900 truncate">{isAr ? q.customerNameAr : q.customerNameEn}</p>
+          <QuoteBadge status={expired ? 'expired' : q.status} isAr={isAr} />
+        </div>
+        {services && <p className="text-xs text-slate-400 truncate">{services}</p>}
+      </button>
+
+      {expanded && (
+        <div className="mt-3 pt-3 border-t border-surface-border space-y-3">
+          <div className="space-y-1.5">
+            {q.items.map((item, idx) => {
+              const st = SERVICE_TYPES.find(s => s.key === item.serviceType);
+              return (
+                <div key={idx} className="flex items-center justify-between gap-2 text-xs">
+                  <span className="text-slate-600 truncate">{item.customLabel || (isAr ? st?.ar : st?.en) || item.serviceType}{item.quantity > 1 ? ` ×${item.quantity}` : ''}</span>
+                  <span className="font-mono tabular-nums text-slate-700 flex-shrink-0">{formatCurrency(item.quantity * item.unitPriceSAR * 100, fmtLocale)}</span>
+                </div>
+              );
+            })}
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <button onClick={() => window.print()}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 text-xs font-medium text-slate-600">
+              <Printer size={12} /> {isAr ? 'طباعة' : 'Print'}
+            </button>
+            {q.status === 'draft' && (
+              <button onClick={() => onStatusChange(q.id, 'sent')}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-sky-600 text-white text-xs font-semibold">
+                <Send size={12} /> {isAr ? 'إرسال للعميل' : 'Send'}
+              </button>
+            )}
+            {q.status === 'sent' && (
+              <>
+                <button onClick={() => onStatusChange(q.id, 'accepted')}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 text-white text-xs font-semibold">
+                  <CheckCircle2 size={12} /> {isAr ? 'قَبِل' : 'Accept'}
+                </button>
+                <button onClick={() => onStatusChange(q.id, 'rejected')}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-red-100 text-red-700 text-xs font-semibold">
+                  <XCircle size={12} /> {isAr ? 'رفض' : 'Reject'}
+                </button>
+              </>
+            )}
+            {q.status === 'accepted' && (
+              <Link
+                href={`/${locale}/bookings/new?customerNameAr=${encodeURIComponent(q.customerNameAr)}&customerPhone=${encodeURIComponent(q.customerPhone ?? '')}&notes=${encodeURIComponent((isAr ? 'من عرض سعر ' : 'From quote ') + q.quoteNumber)}`}
+                onClick={() => onStatusChange(q.id, 'converted')}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-brand-600 text-white text-xs font-semibold">
+                <ArrowRight size={12} /> {isAr ? 'تحويل لحجز' : 'Convert'}
+              </Link>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── New Quote Modal ───────────────────────────────────────────────────────────
 
 function NewQuoteModal({ isAr, onClose, onSave }: {
@@ -725,7 +808,15 @@ export function QuotesClient({ locale }: QuotesClientProps) {
         />
       ) : (
         <Card padding="none">
-          <div className="overflow-x-auto">
+          {/* Mobile cards */}
+          <div className="sm:hidden divide-y divide-surface-border">
+            {filtered.map(q => (
+              <QuoteMobileCard key={q.id} q={q} isAr={isAr} fmtLocale={fmtLocale} locale={locale} onStatusChange={handleStatusChange} />
+            ))}
+          </div>
+
+          {/* Desktop table */}
+          <div className="hidden sm:block overflow-x-auto">
             <table className="w-full">
               <thead>
                 <tr className="border-b border-surface-border bg-slate-50/60">
