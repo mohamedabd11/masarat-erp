@@ -135,7 +135,7 @@ export function CreateDirectInvoiceModal({ onClose, onSuccess }: Props) {
       className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-end sm:items-center justify-center"
       onClick={e => { if (e.target === e.currentTarget) onClose(); }}
     >
-      <div className="bg-white w-full sm:max-w-xl sm:rounded-2xl rounded-t-2xl max-h-[94dvh] flex flex-col shadow-2xl">
+      <div className="bg-white w-full sm:max-w-xl sm:rounded-2xl rounded-t-2xl max-h-[94dvh] flex flex-col shadow-2xl animate-slide-up sm:animate-none">
 
         {/* Header */}
         <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100 flex-shrink-0">

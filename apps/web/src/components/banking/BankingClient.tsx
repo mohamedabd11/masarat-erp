@@ -218,7 +218,7 @@ function NewAccountModal({ isAr, onClose, onSave }: {
 
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50 backdrop-blur-sm p-0 sm:p-4">
-      <div className="bg-white rounded-t-2xl rounded-b-none sm:rounded-2xl shadow-2xl w-full sm:max-w-lg max-h-[92vh] overflow-y-auto">
+      <div className="bg-white animate-slide-up sm:animate-none rounded-t-2xl rounded-b-none sm:rounded-2xl shadow-2xl w-full sm:max-w-lg max-h-[92vh] overflow-y-auto">
         <div className="flex items-center justify-between px-6 py-4 border-b border-surface-border">
           <h2 className="text-lg font-bold text-slate-900 flex items-center gap-2">
             <Landmark size={20} className="text-brand-600" />
@@ -321,7 +321,7 @@ function TransferModal({ accounts, isAr, fmtLocale, onClose, onTransfer }: {
 
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50 backdrop-blur-sm p-0 sm:p-4">
-      <div className="bg-white rounded-t-2xl rounded-b-none sm:rounded-2xl shadow-2xl w-full sm:max-w-md max-h-[92vh] overflow-y-auto">
+      <div className="bg-white animate-slide-up sm:animate-none rounded-t-2xl rounded-b-none sm:rounded-2xl shadow-2xl w-full sm:max-w-md max-h-[92vh] overflow-y-auto">
         <div className="flex items-center justify-between px-6 py-4 border-b border-surface-border">
           <h2 className="text-lg font-bold text-slate-900 flex items-center gap-2">
             <ArrowLeftRight size={20} className="text-brand-600" />

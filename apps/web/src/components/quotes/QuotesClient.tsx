@@ -431,7 +431,7 @@ function NewQuoteModal({ isAr, onClose, onSave }: {
 
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50 backdrop-blur-sm p-0 sm:p-4">
-      <div className="bg-white rounded-t-2xl rounded-b-none sm:rounded-2xl shadow-2xl w-full sm:max-w-4xl max-h-[92vh] flex flex-col">
+      <div className="bg-white animate-slide-up sm:animate-none rounded-t-2xl rounded-b-none sm:rounded-2xl shadow-2xl w-full sm:max-w-4xl max-h-[92vh] flex flex-col">
 
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-surface-border">

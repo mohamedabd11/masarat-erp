@@ -100,6 +100,21 @@ const config: Config = {
       spacing: {
         'safe-bottom': 'env(safe-area-inset-bottom)',
       },
+      // ─── Subtle entrance motion (page content, empty states, sheets) ────────
+      keyframes: {
+        'fade-in': {
+          '0%':   { opacity: '0', transform: 'translateY(4px)' },
+          '100%': { opacity: '1', transform: 'translateY(0)' },
+        },
+        'slide-up': {
+          '0%':   { transform: 'translateY(100%)' },
+          '100%': { transform: 'translateY(0)' },
+        },
+      },
+      animation: {
+        'fade-in':  'fade-in 0.25s ease-out both',
+        'slide-up': 'slide-up 0.28s cubic-bezier(0.32, 0.72, 0, 1) both',
+      },
     },
   },
   plugins: [],
