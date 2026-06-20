@@ -6,6 +6,7 @@ import type { Booking } from '@/lib/schema';
 import { Card } from '@/components/ui/Card';
 import { Spinner } from '@/components/ui/Spinner';
 import { EmptyState } from '@/components/ui/EmptyState';
+import { MobileList, MobileListItem, MobileItemHeader, MobileItemFooter } from '@/components/ui/MobileList';
 import { formatCurrency, formatDate, formatCount } from '@/lib/utils';
 import { cn } from '@/lib/utils';
 import {
@@ -177,7 +178,34 @@ export function PaymentsClient({ locale }: PaymentsClientProps) {
           description={isAr ? 'جرب تغيير الفلتر' : 'Try changing the filter'} />
       ) : (
         <Card padding="none">
-          <div className="overflow-x-auto">
+          {/* Mobile cards */}
+          <MobileList>
+            {filtered.map(b => {
+              const name    = isAr ? (b.customerNameAr ?? '') : (b.customerNameEn ?? b.customerNameAr ?? '');
+              const paidAmt = b.paidHalalas;
+              const dueAmt  = Math.max(0, b.totalPriceHalalas - paidAmt);
+              const status  = paymentStatus(b);
+              return (
+                <MobileListItem key={b.id} href={`/${locale}/bookings/${b.id}`}>
+                  <MobileItemHeader>
+                    <span className="font-mono text-xs font-bold text-brand-700">{b.bookingNumber}</span>
+                    <PaymentStatusBadge status={status} isAr={isAr} />
+                  </MobileItemHeader>
+                  <p className="text-sm font-semibold text-slate-900 truncate">{name || '—'}</p>
+                  <MobileItemFooter>
+                    <span className="text-xs text-slate-400">{formatDate(b.createdAt as unknown as string, fmtLocale)}</span>
+                    <span className="inline-flex items-center gap-2">
+                      {paidAmt > 0 && <span className="text-xs font-semibold tabular-nums text-emerald-700">{formatCurrency(paidAmt, fmtLocale)}</span>}
+                      {dueAmt > 0 && <span className="text-sm font-bold tabular-nums text-red-600">{isAr ? 'مستحق ' : 'Due '}{formatCurrency(dueAmt, fmtLocale)}</span>}
+                    </span>
+                  </MobileItemFooter>
+                </MobileListItem>
+              );
+            })}
+          </MobileList>
+
+          {/* Desktop table */}
+          <div className="hidden sm:block overflow-x-auto">
             <table className="w-full">
               <thead>
                 <tr className="border-b border-surface-border bg-slate-50/60">

@@ -6,6 +6,7 @@ import { useAuth } from '@masarat/firebase';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Spinner } from '@/components/ui/Spinner';
+import { MobileList, MobileListItem, MobileItemHeader, MobileItemFooter } from '@/components/ui/MobileList';
 import { formatCurrency, formatDate } from '@/lib/utils';
 import { cn } from '@/lib/utils';
 import {
@@ -333,7 +334,52 @@ export function ReceiptVouchersClient() {
         </Card>
       ) : (
         <Card padding="none">
-          <div className="overflow-x-auto">
+          {/* Mobile cards */}
+          <MobileList>
+            {filtered.map(r => {
+              const date = r.date ? new Date(r.date) : null;
+              return (
+                <MobileListItem key={r.id} className={cn(r.isRefund && 'bg-red-50/30')}>
+                  <MobileItemHeader>
+                    <div className="flex items-center gap-1.5 flex-wrap min-w-0">
+                      <span className="text-xs font-mono text-slate-700 bg-slate-100 px-2 py-0.5 rounded">{r.voucherNumber}</span>
+                      {r.isRefund && <span className="text-[10px] font-bold text-red-600 bg-red-50 border border-red-200 px-1.5 py-0.5 rounded">{isAr ? 'عكس' : 'REV'}</span>}
+                      {r.kind === 'receipt' && !r.isRefund && <span className="text-[10px] font-bold text-amber-600 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded">{isAr ? 'مستقل' : 'RCPT'}</span>}
+                    </div>
+                    <span className={cn('text-sm font-bold font-mono tabular-nums flex-shrink-0', r.isRefund ? 'text-red-600' : 'text-emerald-700')}>
+                      {r.isRefund ? '−' : ''}{formatCurrency(r.amountHalalas, fmtLocale)}
+                    </span>
+                  </MobileItemHeader>
+                  <p className="text-sm font-semibold text-slate-900 truncate">{r.customerName}</p>
+                  <MobileItemFooter>
+                    <span className="inline-flex items-center gap-1.5 text-xs text-slate-500">
+                      {date ? formatDate(date, fmtLocale) : '—'}
+                      <span className="inline-flex items-center gap-1 text-slate-400">{methodIcon(r.method)}{methodLabel(r.method, isAr)}</span>
+                    </span>
+                    <span className="flex items-center gap-3">
+                      <Link href={`/${locale}/payments/${r.id}`} target="_blank" rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1 text-xs text-brand-600 font-medium">
+                        <Printer size={13} />{isAr ? 'طباعة' : 'Print'}
+                      </Link>
+                      {!r.isRefund && r.kind === 'payment' && r.invoiceId && r.bookingId && (
+                        <button onClick={() => setShowRefund(r)} className="inline-flex items-center gap-1 text-xs text-red-500 font-medium">
+                          <RotateCcw size={13} />{isAr ? 'استرداد' : 'Refund'}
+                        </button>
+                      )}
+                      {!r.isRefund && r.kind === 'receipt' && (
+                        <button onClick={() => setShowReverse(r)} className="inline-flex items-center gap-1 text-xs text-red-500 font-medium">
+                          <RotateCcw size={13} />{isAr ? 'عكس' : 'Reverse'}
+                        </button>
+                      )}
+                    </span>
+                  </MobileItemFooter>
+                </MobileListItem>
+              );
+            })}
+          </MobileList>
+
+          {/* Desktop table */}
+          <div className="hidden sm:block overflow-x-auto">
             <table className="w-full">
               <thead>
                 <tr className="bg-slate-50 border-b border-slate-200">

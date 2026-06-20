@@ -8,6 +8,7 @@ import type { Customer } from '@/lib/schema';
 import { Card } from '@/components/ui/Card';
 import { Spinner } from '@/components/ui/Spinner';
 import { EmptyState } from '@/components/ui/EmptyState';
+import { MobileList, MobileListItem, MobileItemHeader, MobileItemFooter } from '@/components/ui/MobileList';
 import { formatCurrency, formatCount } from '@/lib/utils';
 import { cn } from '@/lib/utils';
 import {
@@ -157,7 +158,38 @@ export function CustomersClient({ locale }: CustomersClientProps) {
           description={isAr ? 'أضف أول عميل للبدء' : 'Add your first customer to get started'} />
       ) : (
         <Card padding="none">
-          <div className="overflow-x-auto">
+          {/* Mobile cards */}
+          <MobileList>
+            {filtered.map(c => {
+              const name = isAr ? (c.nameAr ?? '') : (c.nameEn ?? c.nameAr ?? '');
+              return (
+                <MobileListItem key={c.id} href={`/${locale}/customers/${c.id}`}>
+                  <MobileItemHeader>
+                    <div className="flex items-center gap-3 min-w-0">
+                      <div className={cn('w-9 h-9 rounded-full flex items-center justify-center text-white text-xs font-bold flex-shrink-0', avatarColor(c.id))}>
+                        {initials(name || 'U')}
+                      </div>
+                      <p className="text-sm font-semibold text-slate-900 truncate">{name || '—'}</p>
+                    </div>
+                    <span className="text-sm font-bold tabular-nums text-slate-900 flex-shrink-0">
+                      {formatCurrency(c.totalSpentHalalas, fmtLocale)}
+                    </span>
+                  </MobileItemHeader>
+                  <MobileItemFooter>
+                    <span className="text-xs text-slate-400 inline-flex items-center gap-1.5">
+                      {c.phone ? <span dir="ltr">{c.phone}</span> : <span>{c.nationality ?? '—'}</span>}
+                    </span>
+                    <span className="text-xs text-slate-500">
+                      {formatCount(c.bookingCount, fmtLocale)} {isAr ? 'حجز' : 'bookings'}
+                    </span>
+                  </MobileItemFooter>
+                </MobileListItem>
+              );
+            })}
+          </MobileList>
+
+          {/* Desktop table */}
+          <div className="hidden sm:block overflow-x-auto">
             <table className="w-full">
               <thead>
                 <tr className="border-b border-surface-border bg-slate-50/60">
