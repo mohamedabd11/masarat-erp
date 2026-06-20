@@ -22,10 +22,7 @@ function DashboardInner({ children }: { children: ReactNode }) {
     <div className="flex h-screen overflow-hidden bg-surface-muted print:block print:h-auto print:overflow-visible">
       {/* Desktop Sidebar */}
       <div className="hidden lg:flex flex-shrink-0 print:hidden">
-        <Sidebar
-          collapsed={sidebarCollapsed}
-          onToggle={() => setSidebarCollapsed(v => !v)}
-        />
+        <Sidebar collapsed={sidebarCollapsed} />
       </div>
 
       {/* Mobile Sidebar Overlay */}
@@ -36,10 +33,7 @@ function DashboardInner({ children }: { children: ReactNode }) {
             onClick={() => setMobileSidebarOpen(false)}
           />
           <div className="relative z-50 flex-shrink-0">
-            <Sidebar
-              onToggle={() => setMobileSidebarOpen(false)}
-              onClose={() => setMobileSidebarOpen(false)}
-            />
+            <Sidebar onClose={() => setMobileSidebarOpen(false)} />
           </div>
         </div>
       )}
@@ -49,7 +43,11 @@ function DashboardInner({ children }: { children: ReactNode }) {
         {/* Trial banner + Header — hidden when printing */}
         <div className="print:hidden">
           <TrialBanner />
-          <Header onMenuToggle={() => setMobileSidebarOpen(v => !v)} />
+          <Header
+            onMenuToggle={() => setMobileSidebarOpen(v => !v)}
+            onSidebarToggle={() => setSidebarCollapsed(v => !v)}
+            sidebarCollapsed={sidebarCollapsed}
+          />
         </div>
 
         <main className={cn('flex-1 overflow-y-auto print:overflow-visible', isExpired && 'pointer-events-none select-none')}>
