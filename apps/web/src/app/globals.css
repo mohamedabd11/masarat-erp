@@ -19,6 +19,28 @@
   html[dir='ltr'] {
     font-family: var(--font-sans);
   }
+
+  body {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+  }
+
+  /* Remove the grey tap flash on touch devices for a native-app feel. */
+  * {
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  /* iOS Safari zooms the viewport when a focused form control has a font
+     smaller than 16px. Force ≥16px on phones so focusing any input no longer
+     jolts the layout. Components may still render smaller text on sm+ screens. */
+  @media (max-width: 639px) {
+    input,
+    select,
+    textarea {
+      font-size: 16px !important;
+    }
+  }
 }
 
 @layer utilities {

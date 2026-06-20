@@ -19,7 +19,7 @@ export function Card({ children, className, padding = 'md', shadow = true }: Car
     <div
       className={cn(
         'bg-white rounded-xl border border-surface-border',
-        shadow && 'shadow-sm',
+        shadow && 'shadow-card',
         paddings[padding],
         className
       )}
