@@ -97,9 +97,9 @@ export function ReceiptVoucherModal({
   ];
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">
       <div className="fixed inset-0 bg-black/50" onClick={onClose} />
-      <Card className="relative z-10 w-full max-w-md shadow-2xl overflow-y-auto max-h-[90vh]">
+      <Card className="relative z-10 w-full sm:max-w-md shadow-2xl rounded-t-2xl rounded-b-none sm:rounded-xl overflow-y-auto max-h-[92vh]">
 
         <div className="flex items-center justify-between mb-6">
           <div className="flex items-center gap-2">
