@@ -66,3 +66,32 @@
   `packages/database/migrations` غير المُطبَّق. يبقى التوحيد الكامل (اعتماد
   `instrumentation.ts` مرجعاً وحيداً وإزالة/تحييد ملفات 002 المتباعدة، أو إضافة خطوة
   `db:migrate` للديبلوي) بنداً قائماً يتطلب قراراً تشغيلياً + DB حية للتحقق.
+
+---
+
+## حالة الفروع والتنظيف (2026-06-20)
+
+`main` = الفرع الرئيسي الأحدث الشامل (دُمج فيه `eca24d6` + إصلاحات الجاهزية + أداء main).
+`NO1ST` مطابق لـ main تماماً، وهو **الفرع الافتراضي للمستودع حالياً**.
+
+**خطوتان يدويتان (تتطلبان صلاحيات الواجهة — غير متاحة للوكيل):**
+1. تغيير الفرع الافتراضي إلى `main` (GitHub → Settings → Branches).
+2. توجيه إنتاج Vercel إلى `main` (Vercel → Settings → Git → Production Branch).
+
+**8 فروع مدموجة 100% في main — آمنة للحذف** (تأكد ahead=0 لكلٍّ):
+```
+claude/erp-audit-readiness-t864g4
+claude/jolly-thompson-meq6bk
+claude/kind-hawking-5saBe
+claude/masarat-audit-remediation-chkt5v
+claude/masarat-erp-audit-plan-woi5wz
+claude/masarat-erp-audit-xqb87y
+claude/masarat-erp-production-review-0pve0
+claude/masarat-erp-review-WIlZX
+```
+(حذفها عبر `git push origin --delete <branch>` أو واجهة GitHub — صلاحية الحذف غير متاحة للوكيل: 403.)
+
+**11 فرعاً متوازياً (عمل أقدم غير مدموج) — أرشيف، لا تُحذف:** كلٌّ متأخّر عن main بـ
+71–90 كوميت بمعماريات بديلة؛ مزاياها الكبرى (GDS/PNR/booking_lines/PDF…) موجودة في main أصلاً.
+أبرزها: `erp-production-fixes-comprehensive`, `erp-audit-production-readiness-w2Lz3`,
+`bank-account-deletion-D7lzv`, `masarat-erp-review-7UUyH`, `masarat-phase-5-travel-ops-XU8us`.
