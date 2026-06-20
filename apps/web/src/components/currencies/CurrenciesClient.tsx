@@ -738,7 +738,7 @@ function ConverterTab({ rates, isAr }: ConverterTabProps) {
   }
 
   function formatNum(n: number, decimals = 4): string {
-    return new Intl.NumberFormat(isAr ? 'ar-SA' : 'en-US', {
+    return new Intl.NumberFormat(isAr ? 'ar-SA-u-nu-latn' : 'en-US', {
       minimumFractionDigits: 2,
       maximumFractionDigits: decimals,
     }).format(n);

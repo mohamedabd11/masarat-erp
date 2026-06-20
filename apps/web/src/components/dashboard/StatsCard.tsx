@@ -30,15 +30,15 @@ export function StatsCard({
 }: StatsCardProps) {
   return (
     <div className={cn(
-      'bg-white rounded-xl border border-slate-200 shadow-sm p-5',
+      'bg-white rounded-xl border border-slate-200 shadow-sm p-3.5 sm:p-5',
       'border-s-4', accentColor, className
     )}>
       <div className="flex items-start justify-between gap-3">
         <div className="flex-1 min-w-0">
-          <p className="text-[11px] font-bold uppercase tracking-widest text-slate-400 mb-2 truncate">
+          <p className="text-[11px] font-bold uppercase text-slate-400 mb-1.5 sm:mb-2 truncate">
             {title}
           </p>
-          <p className="text-2xl sm:text-[28px] leading-none font-extrabold text-slate-900 tabular-nums mb-2 break-words">
+          <p className="text-lg sm:text-2xl md:text-[28px] leading-tight font-extrabold text-slate-900 tabular-nums mb-1.5 sm:mb-2 break-words">
             {value}
           </p>
           {subtitle && (
@@ -58,8 +58,8 @@ export function StatsCard({
             </div>
           )}
         </div>
-        <div className={cn('p-3 rounded-xl flex-shrink-0', iconBg)}>
-          <Icon size={22} className={iconColor} strokeWidth={2} />
+        <div className={cn('p-2 sm:p-3 rounded-xl flex-shrink-0', iconBg)}>
+          <Icon size={20} className={iconColor} strokeWidth={2} />
         </div>
       </div>
     </div>

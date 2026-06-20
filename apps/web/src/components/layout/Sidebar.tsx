@@ -260,14 +260,14 @@ export function Sidebar({ collapsed = false, onToggle, onClose }: SidebarProps) 
                   type="button"
                   onClick={() => setExpandedGroups(prev => ({ ...prev, [group.key]: !expanded }))}
                   aria-expanded={expanded}
-                  className="flex-1 flex items-center gap-1.5 px-2 py-0.5 rounded text-[10px] font-semibold uppercase tracking-widest text-slate-400 hover:text-slate-600 hover:bg-slate-100 select-none transition-colors"
+                  className="flex-1 flex items-center gap-1.5 px-2 py-1 rounded-lg text-xs font-bold uppercase text-slate-500 hover:text-slate-700 hover:bg-slate-100 active:scale-[0.97] select-none transition-all duration-150"
                 >
                   <ChevronDown
-                    size={12}
+                    size={14}
                     className={cn('flex-shrink-0 transition-transform duration-200', !expanded && '-rotate-90')}
                   />
                   <span className="truncate">{isAr ? group.labelAr : group.labelEn}</span>
-                  <span className="text-slate-300 font-normal normal-case tracking-normal">
+                  <span className="text-slate-400 font-normal normal-case text-[11px]">
                     ({visibleItemCount(group)})
                   </span>
                 </button>

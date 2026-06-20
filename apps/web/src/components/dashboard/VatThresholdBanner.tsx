@@ -63,8 +63,8 @@ export function VatThresholdBanner() {
           <div className="flex justify-between text-[11px] font-medium">
             <span className={isMandatory ? 'text-red-600' : 'text-amber-600'}>
               {isAr
-                ? `${(data.rolling12MonthSar ?? 0).toLocaleString('ar-SA')} ر.س من أصل ${data.mandatoryThreshold.toLocaleString('ar-SA')} ر.س`
-                : `SAR ${(data.rolling12MonthSar ?? 0).toLocaleString()} of SAR ${data.mandatoryThreshold.toLocaleString()}`}
+                ? `${(data.rolling12MonthSar ?? 0).toLocaleString('en-US')} ر.س من أصل ${data.mandatoryThreshold.toLocaleString('en-US')} ر.س`
+                : `SAR ${(data.rolling12MonthSar ?? 0).toLocaleString('en-US')} of SAR ${data.mandatoryThreshold.toLocaleString('en-US')}`}
             </span>
             <span className={isMandatory ? 'text-red-600 font-bold' : 'text-amber-600'}>{pct}%</span>
           </div>

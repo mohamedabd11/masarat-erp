@@ -39,16 +39,16 @@ export function DashboardStats({ locale }: { locale: string }) {
 
   if (loading) {
     return (
-      <div className="grid grid-cols-2 xl:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 xl:grid-cols-4 gap-3 sm:gap-4">
         {[0, 1, 2, 3].map(i => (
-          <div key={i} className="animate-pulse h-28 bg-slate-100 rounded-xl border-s-4 border-slate-200" />
+          <div key={i} className="animate-pulse h-24 sm:h-28 bg-slate-100 rounded-xl border-s-4 border-slate-200" />
         ))}
       </div>
     );
   }
 
   return (
-    <div className="grid grid-cols-2 xl:grid-cols-4 gap-4">
+    <div className="grid grid-cols-2 xl:grid-cols-4 gap-3 sm:gap-4">
       {/*
        * Commission revenue (IFRS 15 agent model) — matches قائمة الدخل.
        * Subtitle shows gross bookings (حجم الأعمال) as a management indicator.
