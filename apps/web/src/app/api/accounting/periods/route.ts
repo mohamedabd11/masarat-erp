@@ -12,6 +12,7 @@
 import { NextResponse } from 'next/server';
 import { eq, and, ne, desc, sql } from 'drizzle-orm';
 import { db } from '@/lib/db';
+import { allowFinancialPurge } from '@/lib/financial-guard';
 import { accountingPeriods, journalEntries, journalLines } from '@/lib/schema';
 import { verifyAuth, assertRole, ApiAuthError, BusinessError, ROLES_ADMIN_ONLY } from '@/lib/api-auth';
 import { requireFeature } from '@/lib/feature-access';
@@ -223,8 +224,9 @@ export async function POST(request: Request) {
           ))
           .limit(1);
         if (closingJe) {
-          await tx.delete(journalLines).where(eq(journalLines.entryId, closingJe.id));
-          await tx.delete(journalEntries).where(eq(journalEntries.id, closingJe.id));
+          await allowFinancialPurge(tx);
+          await tx.delete(journalLines).where(and(eq(journalLines.entryId, closingJe.id), eq(journalLines.agencyId, agencyId)));
+          await tx.delete(journalEntries).where(and(eq(journalEntries.id, closingJe.id), eq(journalEntries.agencyId, agencyId)));
         }
       }
 

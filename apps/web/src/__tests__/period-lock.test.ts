@@ -132,21 +132,21 @@ describe('assertPeriodOpen', () => {
 
   // ── 7. Invalid date string → handles gracefully ───────────────────────────
 
-  it('يتجاهل تاريخاً مشوهاً (لا يرمي خطأ) لأن DB سيرفضه', async () => {
+  it('يرفض تاريخاً مشوهاً fail-closed (MED-1) دون استعلام DB', async () => {
     const mockDb = makeMockDb([]);
-    // Function should return early for malformed date without querying DB
+    // MED-1: a malformed date must NOT silently pass as "period open" — it
+    // fail-closes with a BusinessError before touching the DB.
     await expect(
       assertPeriodOpen('agency-1', 'not-a-date', mockDb as never)
-    ).resolves.toBeUndefined();
-    // DB limit should NOT have been called (early return)
+    ).rejects.toThrow('تاريخ غير صالح');
     expect(mockDb.limit).not.toHaveBeenCalled();
   });
 
-  it('يتجاهل تاريخاً فارغاً (سلسلة فارغة)', async () => {
+  it('يرفض تاريخاً فارغاً fail-closed (MED-1)', async () => {
     const mockDb = makeMockDb([]);
     await expect(
       assertPeriodOpen('agency-1', '', mockDb as never)
-    ).resolves.toBeUndefined();
+    ).rejects.toThrow('تاريخ غير صالح');
     expect(mockDb.limit).not.toHaveBeenCalled();
   });
 

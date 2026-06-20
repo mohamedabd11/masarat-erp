@@ -597,6 +597,68 @@ export async function register() {
         END LOOP;
       END
     $rls$`,
+
+    // ── 2026-06-20 — Financial-record immutability triggers (TRIG-1) ──────────
+    // A DB-level backstop so a posted journal entry can never be modified/deleted
+    // and an issued invoice / any payment can never be hard-deleted — corrections
+    // must go through reversing entries / credit notes. Previously these triggers
+    // lived only in packages/database/src/migrations/002_*.sql, which the runtime
+    // migrator (this file) does not apply and the deploy pipeline never runs, so
+    // they were never present on the live DB. The 002 version also referenced a
+    // non-existent journal_entries.status column; this one matches the real
+    // schema (journal_entries.is_posted boolean, invoices.status text).
+    //
+    // Legitimate maintenance paths that DO need to remove financial rows — agency
+    // teardown (admin/wipe-agency), year-end closing-entry replacement
+    // (accounting/periods) and bank-account removal (banking/accounts/[id]) — set
+    // a transaction-local bypass `app.allow_financial_purge='on'` before deleting.
+    `CREATE OR REPLACE FUNCTION prevent_posted_journal_mutation()
+       RETURNS TRIGGER AS $fn$
+       BEGIN
+         IF coalesce(current_setting('app.allow_financial_purge', true), '') = 'on' THEN
+           RETURN CASE WHEN TG_OP = 'DELETE' THEN OLD ELSE NEW END;
+         END IF;
+         IF OLD.is_posted THEN
+           RAISE EXCEPTION 'Cannot % a posted journal entry (%). Create a reversing entry instead.', lower(TG_OP), OLD.id;
+         END IF;
+         RETURN CASE WHEN TG_OP = 'DELETE' THEN OLD ELSE NEW END;
+       END;
+       $fn$ LANGUAGE plpgsql`,
+    `DROP TRIGGER IF EXISTS enforce_journal_immutability ON journal_entries`,
+    `CREATE TRIGGER enforce_journal_immutability
+       BEFORE UPDATE OR DELETE ON journal_entries
+       FOR EACH ROW EXECUTE FUNCTION prevent_posted_journal_mutation()`,
+
+    `CREATE OR REPLACE FUNCTION prevent_issued_invoice_deletion()
+       RETURNS TRIGGER AS $fn$
+       BEGIN
+         IF coalesce(current_setting('app.allow_financial_purge', true), '') = 'on' THEN
+           RETURN OLD;
+         END IF;
+         IF OLD.status <> 'draft' THEN
+           RAISE EXCEPTION 'Cannot delete a % invoice (%). Issue a credit note instead.', OLD.status, OLD.id;
+         END IF;
+         RETURN OLD;
+       END;
+       $fn$ LANGUAGE plpgsql`,
+    `DROP TRIGGER IF EXISTS enforce_invoice_immutability ON invoices`,
+    `CREATE TRIGGER enforce_invoice_immutability
+       BEFORE DELETE ON invoices
+       FOR EACH ROW EXECUTE FUNCTION prevent_issued_invoice_deletion()`,
+
+    `CREATE OR REPLACE FUNCTION prevent_payment_deletion()
+       RETURNS TRIGGER AS $fn$
+       BEGIN
+         IF coalesce(current_setting('app.allow_financial_purge', true), '') = 'on' THEN
+           RETURN OLD;
+         END IF;
+         RAISE EXCEPTION 'Payments are append-only and cannot be deleted (%). Record a refund/reversal instead.', OLD.id;
+       END;
+       $fn$ LANGUAGE plpgsql`,
+    `DROP TRIGGER IF EXISTS enforce_payment_immutability ON payments`,
+    `CREATE TRIGGER enforce_payment_immutability
+       BEFORE DELETE ON payments
+       FOR EACH ROW EXECUTE FUNCTION prevent_payment_deletion()`,
   ];
 
   try {
