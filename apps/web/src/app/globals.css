@@ -41,6 +41,16 @@
       font-size: 16px !important;
     }
   }
+
+  /* Arabic letterforms are cursive and connected — positive letter-spacing
+     breaks the joins and hurts legibility. Neutralise the `tracking-*`
+     utilities (used for Latin uppercase eyebrow labels) whenever the document
+     is RTL. Higher specificity than the utility class, so no !important. */
+  html[dir='rtl'] .tracking-wide,
+  html[dir='rtl'] .tracking-wider,
+  html[dir='rtl'] .tracking-widest {
+    letter-spacing: 0;
+  }
 }
 
 @layer utilities {
