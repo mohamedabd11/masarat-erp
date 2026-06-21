@@ -128,6 +128,10 @@ async function executeCreateInvoice(
     const pricing = booking['pricing'] as Record<string, number>;
     const totalAmount = pricing['totalAmount'];
     const vatAmount = pricing['vatAmount'];
+    // إلزامي لبناء إجماليات الفاتورة — مفقودها يعني حجزاً مشوّهاً لا يجوز فوترته.
+    if (totalAmount === undefined || vatAmount === undefined) {
+      throw new Error(`بيانات تسعير الحجز ${bookingId} ناقصة (totalAmount/vatAmount)`);
+    }
 
     // ── وثيقة الفاتورة ────────────────────────────────────────────────────
     const invoiceData = {
@@ -251,17 +255,27 @@ function buildTransactionInput(
   receivingAccountCode: string
 ): TransactionInput {
   const pricing = booking['pricing'] as Record<string, number>;
-  const revenueModel = pricing['revenueModel'] as string;
+  // revenueModel نصّي مخزَّن ضمن خريطة التسعير — اقرأه كـ unknown ثم حوّله نصاً.
+  const revenueModel = (pricing as Record<string, unknown>)['revenueModel'] as string;
+
+  // حقول التسعير الرقمية إلزامية لبناء القيد — مفقودها يعني حجزاً مشوّهاً لا يجوز فوترته.
+  const num = (key: string): number => {
+    const v = pricing[key];
+    if (v === undefined) {
+      throw new Error(`حقل التسعير '${key}' مفقود في الحجز ${booking['id']}`);
+    }
+    return v;
+  };
 
   if (revenueModel === 'agent') {
     const input: AgentPaymentReceivedInput = {
       phase: 'agent_payment_received',
       bookingType: booking['type'],
       isInternational: booking['flightDetails']?.isInternational ?? false,
-      costPrice: pricing['totalCost'],         // بالهللات (مخزَّن هكذا في Firestore)
-      serviceFee: pricing['serviceFee'],
+      costPrice: num('totalCost'),         // بالهللات (مخزَّن هكذا في Firestore)
+      serviceFee: num('serviceFee'),
       serviceFeeVatCategory: 'S',
-      serviceFeeVatAmount: calculateVat(pricing['serviceFee'], 0.15),
+      serviceFeeVatAmount: calculateVat(num('serviceFee'), 0.15),
       receivingAccountCode,
       bookingRef: booking['id'],
       customerName: booking['customerName']?.ar ?? '',
@@ -270,13 +284,13 @@ function buildTransactionInput(
   }
 
   // Principal model
-  const sellingExclVat = pricing['subtotal'];
+  const sellingExclVat = num('subtotal');
   const input: PrincipalPaymentReceivedInput = {
     phase: 'principal_payment_received',
     bookingType: booking['type'],
     sellingPriceExclVat: sellingExclVat,
-    vatAmount: pricing['vatAmount'],
-    totalAmount: pricing['totalAmount'],
+    vatAmount: num('vatAmount'),
+    totalAmount: num('totalAmount'),
     vatCategory: 'S',
     receivingAccountCode,
     bookingRef: booking['id'],

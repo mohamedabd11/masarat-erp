@@ -176,6 +176,7 @@ CREATE TABLE IF NOT EXISTS invoices (
   buyer_phone        TEXT,
   buyer_email        TEXT,
   buyer_national_id  TEXT,
+  buyer_vat_number   TEXT,
   subtotal_halalas   INTEGER NOT NULL DEFAULT 0,
   vat_halalas        INTEGER NOT NULL DEFAULT 0,
   total_halalas      INTEGER NOT NULL DEFAULT 0,

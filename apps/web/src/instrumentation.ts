@@ -659,6 +659,18 @@ export async function register() {
     `CREATE TRIGGER enforce_payment_immutability
        BEFORE DELETE ON payments
        FOR EACH ROW EXECUTE FUNCTION prevent_payment_deletion()`,
+
+    // ── B2B VAT number capture (drizzle/0019_b2b_vat_numbers) — mirrored here
+    // because instrumentation.ts is the only schema-sync that runs against the
+    // live DATABASE_URL (drizzle-kit migrate/push are not run against it).
+    // Missing customers.vat_number breaks the credit-limit read, and missing
+    // invoices.buyer_vat_number breaks the INSERT in every invoice-issuing route
+    // (create, create-direct, credit-note, debit-note, refunds/process) —
+    // surfacing as a generic 500 "خطأ في الخادم" on "إصدار فاتورة". Idempotent:
+    // ADD COLUMN IF NOT EXISTS is a no-op where the column already exists (e.g.
+    // DBs migrated through drizzle 0019).
+    `ALTER TABLE customers ADD COLUMN IF NOT EXISTS vat_number TEXT`,
+    `ALTER TABLE invoices  ADD COLUMN IF NOT EXISTS buyer_vat_number TEXT`,
   ];
 
   try {

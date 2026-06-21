@@ -7,6 +7,7 @@ import { getNextReceiptNumber, getNextJournalNumber } from '@/lib/invoice-counte
 import { assertPeriodOpen } from '@/lib/period-lock';
 import { logAudit } from '@/lib/audit';
 import { checkRateLimit, getClientIp, rateLimitHeaders } from '@/lib/rate-limit';
+import { withIdempotency, markIdempotencyComplete } from '@/lib/idempotency';
 import { GL } from '@/lib/gl-accounts';
 
 interface StandaloneReceiptBody {
@@ -22,6 +23,7 @@ interface StandaloneReceiptBody {
   // and updates that invoice's paid amount/status. When omitted, the receipt is a
   // future deposit credited to 2300 Customer Deposits.
   invoiceId?:      string;
+  idempotencyKey?: string;
 }
 
 const METHOD_ACCOUNT: Record<string, { code: string; ar: string; en: string }> = {
@@ -48,6 +50,7 @@ export async function POST(request: Request) {
 
     const body = await request.json() as StandaloneReceiptBody;
     const { customerNameAr, customerNameEn, amountHalalas, paymentMethod, description, reference, notes, invoiceId } = body;
+    const idempKey = body.idempotencyKey ?? crypto.randomUUID();
 
     if (!customerNameAr || !paymentMethod) {
       return NextResponse.json({ error: 'بيانات مطلوبة ناقصة' }, { status: 400 });
@@ -56,7 +59,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'مبلغ الدفعة غير صالح' }, { status: 400 });
     }
 
-    const result = await db.transaction(async (tx) => {
+    const result = await withIdempotency(idempKey, agencyId, 'createReceipt', async () => db.transaction(async (tx) => {
       const now   = new Date();
       const year  = now.getFullYear();
       const today = now.toISOString().split('T')[0]!;
@@ -133,8 +136,12 @@ export async function POST(request: Request) {
         { id: crypto.randomUUID(), entryId: jeId, agencyId, accountCode: creditAc.code, accountNameAr: creditAc.ar, accountNameEn: creditAc.en, debitHalalas: 0, creditHalalas: amountHalalas, sortOrder: 2 },
       ]);
 
+      // Finalize idempotency inside the tx so commit-and-claim is atomic: a retry
+      // after a crash replays the stored result instead of posting a second receipt.
+      await markIdempotencyComplete(tx, agencyId, 'createReceipt', idempKey, { id: voucherId, voucherNumber });
+
       return { id: voucherId, voucherNumber };
-    });
+    }));
 
     await logAudit({
       agencyId, userId: uid, action: 'create', resource: 'receipt_voucher',

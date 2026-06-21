@@ -67,7 +67,7 @@ export default function NewCustomerPage() {
     setSubmitting(true);
     setServerError('');
     try {
-      const result = await apiFetch<{ id: string }>('/api/customers', {
+      const result = await apiFetch<{ id: string; warning?: string; warningMessage?: string }>('/api/customers', {
         method: 'POST',
         body: JSON.stringify({
           nameAr:         data.nameAr,
@@ -83,6 +83,9 @@ export default function NewCustomerPage() {
           openingBalanceHalalas: Math.round((data.openingBalanceSar ?? 0) * 100),
         }),
       });
+      // OPS-1: non-blocking notice — the customer is created either way; we only
+      // flag that another customer already carries the same VAT number.
+      if (result.warningMessage) window.alert(result.warningMessage);
       router.push(`/${locale}/customers/${result.id}`);
     } catch {
       setServerError(isAr ? 'حدث خطأ أثناء الحفظ، حاول مرة أخرى' : 'Error saving, please try again');

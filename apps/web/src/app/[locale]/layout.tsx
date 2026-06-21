@@ -8,6 +8,7 @@ import { locales, type Locale } from '@/i18n';
 import { FirebaseProvider } from '@/providers/FirebaseProvider';
 import { AuthProvider } from '@/providers/AuthProvider';
 import { DirectionProvider } from '@/providers/DirectionProvider';
+import { ThemeProvider, themeInitScript } from '@/providers/ThemeProvider';
 
 const tajawal = Tajawal({ subsets: ['arabic'], weight: ['300', '400', '500', '700'], display: 'swap', variable: '--font-arabic' });
 const inter   = Inter({ subsets: ['latin'], weight: ['300', '400', '500', '600', '700'], display: 'swap', variable: '--font-sans' });
@@ -33,15 +34,20 @@ export default async function LocaleLayout({ children, params: { locale } }: Loc
 
   return (
     <html lang={locale} dir={dir} suppressHydrationWarning className={`${tajawal.variable} ${inter.variable}`}>
-      <body className="antialiased bg-surface-muted text-slate-900 min-h-screen">
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: themeInitScript }} />
+      </head>
+      <body className="antialiased bg-surface-muted text-content-primary min-h-screen">
         <NextIntlClientProvider messages={messages}>
-          <FirebaseProvider>
-            <DirectionProvider locale={locale}>
-              <AuthProvider>
-                {children}
-              </AuthProvider>
-            </DirectionProvider>
-          </FirebaseProvider>
+          <ThemeProvider>
+            <FirebaseProvider>
+              <DirectionProvider locale={locale}>
+                <AuthProvider>
+                  {children}
+                </AuthProvider>
+              </DirectionProvider>
+            </FirebaseProvider>
+          </ThemeProvider>
         </NextIntlClientProvider>
       </body>
     </html>

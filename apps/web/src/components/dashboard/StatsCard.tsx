@@ -30,19 +30,21 @@ export function StatsCard({
 }: StatsCardProps) {
   return (
     <div className={cn(
-      'bg-white rounded-xl border border-slate-200 shadow-sm p-3.5 sm:p-5',
-      'border-s-4', accentColor, className
+      'bg-surface-card rounded-xl border border-surface-border shadow-card p-3.5 sm:p-5',
+      'border-s-4', accentColor,
+      'transition-all duration-200 hover:-translate-y-0.5 hover:shadow-card-hover kpi-glow',
+      className
     )}>
       <div className="flex items-start justify-between gap-3">
         <div className="flex-1 min-w-0">
-          <p className="text-[11px] font-bold uppercase text-slate-400 mb-1.5 sm:mb-2 truncate">
+          <p className="text-[11px] font-bold uppercase text-content-muted mb-1.5 sm:mb-2 truncate">
             {title}
           </p>
-          <p className="text-lg sm:text-2xl md:text-[28px] leading-tight font-extrabold text-slate-900 tabular-nums mb-1.5 sm:mb-2 break-words">
+          <p className="text-lg sm:text-2xl md:text-[28px] leading-tight font-extrabold text-content-primary tabular-nums mb-1.5 sm:mb-2 break-words">
             {value}
           </p>
           {subtitle && (
-            <p className="text-xs text-slate-500 truncate">{subtitle}</p>
+            <p className="text-xs text-content-secondary truncate">{subtitle}</p>
           )}
           {trend && (
             <div className={cn(

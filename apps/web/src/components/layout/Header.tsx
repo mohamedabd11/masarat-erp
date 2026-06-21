@@ -4,17 +4,20 @@ import { useTranslations, useLocale } from 'next-intl';
 import { useAuth } from '@masarat/firebase';
 import { LanguageSwitcher } from './LanguageSwitcher';
 import { cn } from '@/lib/utils';
-import { Search, Menu, LogOut, User, X } from 'lucide-react';
+import { Search, Menu, LogOut, User, X, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
 import { useState, useRef, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { NotificationBell } from './NotificationBell';
 
 interface HeaderProps {
   onMenuToggle?: () => void;
+  /** Collapses/expands the desktop sidebar. */
+  onSidebarToggle?: () => void;
+  sidebarCollapsed?: boolean;
   className?: string;
 }
 
-export function Header({ onMenuToggle, className }: HeaderProps) {
+export function Header({ onMenuToggle, onSidebarToggle, sidebarCollapsed, className }: HeaderProps) {
   const t = useTranslations();
   const locale = useLocale();
   const { user, signOut } = useAuth();
@@ -75,13 +78,26 @@ export function Header({ onMenuToggle, className }: HeaderProps) {
         className
       )}
     >
-      {/* Mobile menu toggle */}
+      {/* Mobile menu toggle — opens the navigation drawer */}
       <button
         onClick={onMenuToggle}
-        className="lg:hidden p-2 rounded-lg text-slate-500 hover:bg-slate-100 hover:text-slate-700 transition-colors"
+        aria-label={locale === 'ar' ? 'القائمة' : 'Menu'}
+        className="lg:hidden p-2 rounded-lg text-content-secondary hover:bg-surface-elevated hover:text-content-primary transition-colors"
       >
         <Menu size={20} />
       </button>
+
+      {/* Desktop sidebar collapse toggle */}
+      {onSidebarToggle && (
+        <button
+          onClick={onSidebarToggle}
+          aria-label={locale === 'ar' ? (sidebarCollapsed ? 'توسيع القائمة' : 'طي القائمة') : (sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar')}
+          title={locale === 'ar' ? (sidebarCollapsed ? 'توسيع القائمة' : 'طي القائمة') : (sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar')}
+          className="hidden lg:inline-flex p-2 rounded-lg text-content-secondary hover:bg-surface-elevated hover:text-content-primary transition-colors"
+        >
+          {sidebarCollapsed ? <PanelLeftOpen size={20} /> : <PanelLeftClose size={20} />}
+        </button>
+      )}
 
       {/* Search — icon button that expands to input */}
       <div ref={wrapRef} className="relative flex items-center">

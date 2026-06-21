@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { useLocale } from 'next-intl';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -44,6 +44,9 @@ export function ReceiptVoucherModal({
   const [recordId,       setRecordId]       = useState<string | null>(null);
   const [receiptNumber,  setReceiptNumber]  = useState('');
   const [amountHalalas,  setAmountHalalas]  = useState(0);
+  // Stable idempotency key for this form session — makes a network retry of the
+  // same receipt a no-op on the server instead of posting a duplicate voucher.
+  const idempotencyKeyRef = useRef(crypto.randomUUID());
 
   const {
     register,
@@ -75,6 +78,7 @@ export function ReceiptVoucherModal({
           description:    data.description,
           reference:      data.reference,
           notes:          data.notes,
+          idempotencyKey: idempotencyKeyRef.current,
         }),
       });
 

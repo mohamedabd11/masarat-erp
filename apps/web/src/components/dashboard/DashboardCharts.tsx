@@ -9,6 +9,7 @@ import {
 } from 'recharts';
 import { Card, CardHeader, CardTitle } from '@/components/ui/Card';
 import { formatCurrency } from '@/lib/utils';
+import { useTheme } from '@/providers/ThemeProvider';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -45,8 +46,8 @@ function RevenueTooltip({ active, payload, label, isAr }: {
   if (!active || !payload?.length) return null;
   const loc = isAr ? 'ar-SA' : 'en-SA';
   return (
-    <div className="bg-white border border-slate-200 rounded-xl shadow-lg px-4 py-2.5 text-sm">
-      <p className="font-semibold text-slate-700 mb-0.5">{label}</p>
+    <div className="bg-surface-elevated border border-surface-border rounded-xl shadow-lg px-4 py-2.5 text-sm">
+      <p className="font-semibold text-content-primary mb-0.5">{label}</p>
       <p className="text-brand-600 font-bold">{formatCurrency((payload[0]?.value ?? 0) * 100, loc)}</p>
     </div>
   );
@@ -56,9 +57,21 @@ function RevenueTooltip({ active, payload, label, isAr }: {
 
 export function DashboardCharts({ locale }: { locale: string }) {
   const { user } = useAuth();
+  const { resolved } = useTheme();
+  const isDark = resolved === 'dark';
   const isAr  = locale === 'ar';
   const loc2  = isAr ? 'ar-SA' : 'en-SA';
   const months = isAr ? MONTHS_AR : MONTHS_EN;
+
+  // Theme-aware chart palette (Recharts needs concrete values, not CSS vars).
+  const axisTick     = isDark ? '#64748b' : '#94a3b8';
+  const barColor     = isDark ? '#3b82f6' : '#0ea5e9';
+  const cursorFill   = isDark ? 'rgba(148, 163, 184, 0.08)' : '#f1f5f9';
+  const barGlow      = isDark ? 'drop-shadow(0 0 6px rgba(59, 130, 246, 0.5))' : undefined;
+  const legendColor  = isDark ? '#94a3b8' : '#64748b';
+  const pieTooltip   = isDark
+    ? { fontSize: 12, borderRadius: 10, border: '1px solid rgba(255,255,255,0.08)', background: '#1e2a3a', color: '#e2e8f0' }
+    : { fontSize: 12, borderRadius: 10, border: '1px solid #e2e8f0', background: '#ffffff', color: '#0f172a' };
 
   const [revenue,  setRevenue]  = useState<MonthPoint[]>([]);
   const [types,    setTypes]    = useState<TypePoint[]>([]);
@@ -155,12 +168,12 @@ export function DashboardCharts({ locale }: { locale: string }) {
               <BarChart data={revenue} barSize={28} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
                 <XAxis
                   dataKey="month"
-                  tick={{ fontSize: 11, fill: '#94a3b8', fontFamily: 'inherit' }}
+                  tick={{ fontSize: 11, fill: axisTick, fontFamily: 'inherit' }}
                   axisLine={false}
                   tickLine={false}
                 />
                 <YAxis
-                  tick={{ fontSize: 10, fill: '#94a3b8', fontFamily: 'inherit' }}
+                  tick={{ fontSize: 10, fill: axisTick, fontFamily: 'inherit' }}
                   axisLine={false}
                   tickLine={false}
                   tickFormatter={v => v >= 1000 ? `${(v / 1000).toFixed(0)}k` : String(v)}
@@ -168,9 +181,9 @@ export function DashboardCharts({ locale }: { locale: string }) {
                 />
                 <Tooltip
                   content={<RevenueTooltip isAr={isAr} />}
-                  cursor={{ fill: '#f1f5f9', radius: 6 }}
+                  cursor={{ fill: cursorFill, radius: 6 }}
                 />
-                <Bar dataKey="revenue" fill="#0ea5e9" radius={[6, 6, 0, 0]} />
+                <Bar dataKey="revenue" fill={barColor} radius={[6, 6, 0, 0]} style={{ filter: barGlow }} />
               </BarChart>
             </ResponsiveContainer>
           </div>
@@ -211,12 +224,10 @@ export function DashboardCharts({ locale }: { locale: string }) {
                   iconType="circle"
                   iconSize={8}
                   formatter={(value: string) => (
-                    <span style={{ fontSize: 11, color: '#64748b' }}>{value}</span>
+                    <span style={{ fontSize: 11, color: legendColor }}>{value}</span>
                   )}
                 />
-                <Tooltip
-                  contentStyle={{ fontSize: 12, borderRadius: 10, border: '1px solid #e2e8f0' }}
-                />
+                <Tooltip contentStyle={pieTooltip} itemStyle={{ color: pieTooltip.color }} />
               </PieChart>
             </ResponsiveContainer>
           </div>

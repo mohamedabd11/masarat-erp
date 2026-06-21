@@ -69,7 +69,7 @@ export function BottomNav({ onMore }: BottomNavProps) {
       className={cn(
         'lg:hidden print:hidden',
         'fixed bottom-0 inset-x-0 z-30',
-        'bg-white/95 backdrop-blur-md border-t border-surface-border',
+        'glass-surface backdrop-blur-md border-t border-surface-border',
         'pb-safe-bottom',
       )}
     >
@@ -84,7 +84,7 @@ export function BottomNav({ onMore }: BottomNavProps) {
             className={cn(
               'flex flex-col items-center justify-center -mt-5',
               'w-14 h-14 rounded-2xl bg-brand-600 text-white',
-              'shadow-card-hover ring-4 ring-white',
+              'shadow-card-hover ring-4 ring-surface-card',
               'hover:bg-brand-700 active:scale-95 transition-all',
             )}
           >
