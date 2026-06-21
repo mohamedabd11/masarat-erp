@@ -64,7 +64,7 @@ type Tab = 'agency' | 'users' | 'modules' | 'zatca' | 'billing' | 'service_types
 
 const ALL_TABS: Array<{ key: Tab; ar: string; en: string; icon: React.ReactNode; vatOnly?: boolean }> = [
   { key: 'agency',        ar: 'بيانات الوكالة',  en: 'Agency Info',    icon: <Building2 size={16} /> },
-  { key: 'users',         ar: 'المستخدمون',       en: 'Users',          icon: <Users size={16} /> },
+  { key: 'users',         ar: 'إدارة المستخدمين', en: 'Users',          icon: <Users size={16} /> },
   { key: 'modules',       ar: 'الوحدات',          en: 'Modules',        icon: <Package size={16} /> },
   { key: 'service_types', ar: 'أنواع الخدمات',    en: 'Service Types',  icon: <Layers size={16} /> },
   { key: 'zatca',         ar: 'ZATCA',            en: 'ZATCA',          icon: <Shield size={16} />, vatOnly: true },
@@ -1400,7 +1400,7 @@ export default function SettingsPage() {
           {activeTab === 'users' && (
             <Card>
               <CardHeader>
-                <CardTitle>{isAr ? 'المستخدمون' : 'Users'}</CardTitle>
+                <CardTitle>{isAr ? 'إدارة المستخدمين' : 'User Management'}</CardTitle>
                 <Button size="sm" onClick={() => setShowInviteModal(true)}>
                   <UserPlus size={14} />
                   {isAr ? 'دعوة مستخدم' : 'Invite User'}
@@ -1477,7 +1477,7 @@ export default function SettingsPage() {
                 <p className="text-sm text-amber-800 flex items-start gap-2">
                   <AlertTriangle size={16} className="flex-shrink-0 mt-0.5 text-amber-600" />
                   {isAr
-                    ? 'الوحدات تحدّد خطوط الأعمال التي تعمل بها الوكالة. تعطيل وحدة يُخفي قسمها من القائمة الجانبية لكل المستخدمين فوراً. (صلاحيات كل موظف تُدار من تبويب المستخدمون).'
+                    ? 'الوحدات تحدّد خطوط الأعمال التي تعمل بها الوكالة. تعطيل وحدة يُخفي قسمها من القائمة الجانبية لكل المستخدمين فوراً. (صلاحيات كل موظف تُدار من تبويب إدارة المستخدمين).'
                     : "Modules define the business lines your agency works in. Disabling one immediately hides its section from everyone's sidebar. (Per-user access is managed in the Users tab.)"}
                 </p>
               </Card>
