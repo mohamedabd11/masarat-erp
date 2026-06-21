@@ -99,6 +99,19 @@ export async function POST(request: Request) {
       }
     }
     const id = crypto.randomUUID();
+
+    // OPS-1: surface (do NOT block) a duplicate VAT number within the agency — a
+    // 15-digit KSA VAT registration should normally map to a single customer
+    // record. Empty/absent VAT numbers (B2C walk-ins) are never flagged.
+    let duplicateVatWarning = false;
+    if (vatNumber) {
+      const [dup] = await db.select({ id: customers.id })
+        .from(customers)
+        .where(and(eq(customers.agencyId, agencyId), eq(customers.vatNumber, vatNumber)))
+        .limit(1);
+      duplicateVatWarning = !!dup;
+    }
+
     const [row] = await db.transaction(async (tx) => tx.insert(customers).values({
       id, agencyId,
       nameAr:                body.nameAr.trim(),
@@ -113,7 +126,14 @@ export async function POST(request: Request) {
       openingBalanceHalalas: body.openingBalanceHalalas ?? 0,
       vatNumber,
     }).returning());
-    return NextResponse.json({ success: true, id, customer: row });
+    return NextResponse.json({
+      success: true,
+      id,
+      customer: row,
+      ...(duplicateVatWarning
+        ? { warning: 'duplicate_vat_number', warningMessage: 'تنبيه: يوجد عميل آخر بنفس الرقم الضريبي' }
+        : {}),
+    });
   } catch (err) {
     if (err instanceof ApiAuthError) return NextResponse.json({ error: err.message }, { status: err.status });
     return NextResponse.json({ error: 'خطأ في الخادم' }, { status: 500 });
