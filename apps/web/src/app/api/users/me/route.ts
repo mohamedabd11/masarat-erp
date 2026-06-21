@@ -13,6 +13,7 @@ const SAFE_USER_COLS = {
   nameAr:    users.nameAr,
   nameEn:    users.nameEn,
   role:      users.role,
+  permissions: users.permissions,
   isActive:  users.isActive,
   createdAt: users.createdAt,
   updatedAt: users.updatedAt,

@@ -671,6 +671,17 @@ export async function register() {
     // DBs migrated through drizzle 0019).
     `ALTER TABLE customers ADD COLUMN IF NOT EXISTS vat_number TEXT`,
     `ALTER TABLE invoices  ADD COLUMN IF NOT EXISTS buyer_vat_number TEXT`,
+
+    // ── 2026-06-21 — Per-user section permissions + agency module toggles ──────
+    // users.permissions     : JSON array of feature keys a non-admin user may
+    //   reach. NULL = full access (backward-compatible for every existing user).
+    //   Read in verifyAuth (lib/api-auth.ts) to gate each API route by section;
+    //   owner/admin ignore it. drizzle/0020_user_permissions.sql mirrors this.
+    // agencies.enabled_modules: JSON array of business-line module ids the agency
+    //   has switched on (NULL = all enabled). Drives the service-line items shown
+    //   in the sidebar and the modules tab in settings.
+    `ALTER TABLE users    ADD COLUMN IF NOT EXISTS permissions     TEXT`,
+    `ALTER TABLE agencies ADD COLUMN IF NOT EXISTS enabled_modules TEXT`,
   ];
 
   try {

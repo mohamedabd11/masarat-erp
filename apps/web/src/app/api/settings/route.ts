@@ -4,6 +4,7 @@ import { db } from '@/lib/db';
 import { agencies, users } from '@/lib/schema';
 import { verifyAuth, assertRole, ApiAuthError, ROLES_MANAGER_UP, ROLES_ADMIN_ONLY } from '@/lib/api-auth';
 import { encrypt } from '@/lib/crypto';
+import { sanitizeEnabledModules } from '@/lib/user-permissions';
 
 export async function GET(request: Request) {
   try {
@@ -54,6 +55,8 @@ export async function PATCH(request: Request) {
       vatRate: number; defaultCurrency: string; logoUrl: string;
       city: string; contactEmail: string; contactPhone: string; contactHours: string;
       defaultQuoteTerms: string;
+      // Business-line modules enabled for this agency (string[] of module ids)
+      enabledModules: string[];
       // GOSI rates (basis points × 100; e.g. 1200 = 12.00%)
       gosiEmployerRateSaudi: number; gosiEmployeeRateSaudi: number; gosiEmployerRateExpat: number;
       // SMTP — only admin/owner may change
@@ -115,6 +118,12 @@ export async function PATCH(request: Request) {
     const patch: Record<string, unknown> = { updatedAt: new Date() };
     for (const k of ALLOWED) {
       if (body[k] !== undefined) patch[k] = body[k];
+    }
+
+    // Business-line modules — validated against the known catalog (core modules
+    // are always kept). Stored as a JSON string.
+    if (body.enabledModules !== undefined) {
+      patch['enabledModules'] = JSON.stringify(sanitizeEnabledModules(body.enabledModules));
     }
 
     // Encrypt the SMTP password at rest (AES-256-GCM). Empty string clears it.

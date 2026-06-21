@@ -1,12 +1,14 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { Input } from '@/components/ui/Input';
 import { Button } from '@/components/ui/Button';
 import { cn } from '@/lib/utils';
+import { presetFeatures, type FeatureKey } from '@/lib/user-permissions';
+import { PermissionsPicker } from '@/components/settings/PermissionsPicker';
 import {
   X, UserPlus, Mail, User, Phone, Shield,
   CheckCircle2, Copy, Check,
@@ -48,6 +50,7 @@ export function InviteUserModal({ isAr, onClose, onDone }: InviteUserModalProps)
   const [setupLink, setSetupLink] = useState('');
   const [copied, setCopied]       = useState(false);
   const [serverError, setServerError] = useState('');
+  const [permissions, setPermissions] = useState<FeatureKey[]>(() => presetFeatures('agent'));
 
   const {
     register,
@@ -62,6 +65,12 @@ export function InviteUserModal({ isAr, onClose, onDone }: InviteUserModalProps)
 
   const selectedRole = watch('role');
 
+  // Re-fill the permission checkboxes from the role preset whenever the role
+  // changes (the admin can then trim them). Admin = full access (no picker).
+  useEffect(() => {
+    setPermissions(presetFeatures(selectedRole));
+  }, [selectedRole]);
+
   async function onSubmit(values: FormValues) {
     setServerError('');
     try {
@@ -72,7 +81,10 @@ export function InviteUserModal({ isAr, onClose, onDone }: InviteUserModalProps)
       const resp = await fetch('/api/auth/invite', {
         method:  'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body:    JSON.stringify(values),
+        body:    JSON.stringify({
+          ...values,
+          permissions: values.role === 'admin' ? undefined : permissions,
+        }),
       });
       const data = await resp.json() as { userId?: string; setupLink?: string; error?: string };
 
@@ -267,6 +279,32 @@ export function InviteUserModal({ isAr, onClose, onDone }: InviteUserModalProps)
                     </button>
                   ))}
                 </div>
+              </div>
+
+              {/* Section permissions */}
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-2">
+                  <div className="flex items-center gap-1.5">
+                    <Shield size={14} className="text-slate-400" />
+                    {isAr ? 'الأقسام المتاحة لهذا المستخدم' : 'Sections this user can access'}
+                  </div>
+                </label>
+                {selectedRole === 'admin' ? (
+                  <div className="rounded-xl bg-brand-50 border border-brand-200 px-4 py-3 text-sm text-brand-700">
+                    {isAr
+                      ? 'المدير لديه صلاحية كاملة على كل الأقسام.'
+                      : 'An admin has full access to every section.'}
+                  </div>
+                ) : (
+                  <>
+                    <p className="text-xs text-slate-400 mb-2">
+                      {isAr
+                        ? 'اختر الأقسام التي يصل إليها هذا المستخدم. القالب مُعبّأ حسب الدور ويمكنك تعديله.'
+                        : 'Pick the sections this user can reach. Pre-filled from the role — adjust freely.'}
+                    </p>
+                    <PermissionsPicker isAr={isAr} selected={permissions} onChange={setPermissions} />
+                  </>
+                )}
               </div>
 
               {serverError && (

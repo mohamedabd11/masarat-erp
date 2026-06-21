@@ -51,6 +51,8 @@ interface NavItem {
   labelAr: string;
   labelEn: string;
   feature?: FeatureKey;
+  /** Agency business-line module that must be enabled for this item to show. */
+  moduleId?: string;
 }
 
 interface NavGroup {
@@ -67,15 +69,15 @@ const SERVICES_GROUP: NavGroup = {
   items: [
     { key: 'all_orders', href: '/bookings',  icon: <ClipboardList size={18} />, labelAr: 'كل الحجوزات',   labelEn: 'All Bookings',  feature: 'bookings' },
     { key: 'quotes',     href: '/quotes',    icon: <Send size={18} />,          labelAr: 'عروض الأسعار',  labelEn: 'Quotations',    feature: 'quotes' },
-    { key: 'flights',    href: '/flights',   icon: <Plane size={18} />,         labelAr: 'طيران',         labelEn: 'Flights',       feature: 'tickets' },
+    { key: 'flights',    href: '/flights',   icon: <Plane size={18} />,         labelAr: 'طيران',         labelEn: 'Flights',       feature: 'tickets',  moduleId: 'flights' },
     { key: 'pnr',        href: '/pnr',       icon: <FileSearch size={18} />,    labelAr: 'سجلات PNR',     labelEn: 'PNR Records',   feature: 'pnr' },
     { key: 'tickets',    href: '/tickets',   icon: <Ticket size={18} />,        labelAr: 'التذاكر',       labelEn: 'Tickets',       feature: 'tickets' },
-    { key: 'hotels',     href: '/hotels',    icon: <Building2 size={18} />,     labelAr: 'فنادق',         labelEn: 'Hotels',        feature: 'bookings' },
-    { key: 'packages',   href: '/packages',  icon: <Package size={18} />,       labelAr: 'باقات سياحية',  labelEn: 'Packages',      feature: 'bookings' },
-    { key: 'umrah',      href: '/umrah',        icon: <Moon size={18} />,        labelAr: 'عمرة وحج',         labelEn: 'Umrah & Hajj',   feature: 'bookings' },
+    { key: 'hotels',     href: '/hotels',    icon: <Building2 size={18} />,     labelAr: 'فنادق',         labelEn: 'Hotels',        feature: 'bookings', moduleId: 'hotels' },
+    { key: 'packages',   href: '/packages',  icon: <Package size={18} />,       labelAr: 'باقات سياحية',  labelEn: 'Packages',      feature: 'bookings', moduleId: 'packages' },
+    { key: 'umrah',      href: '/umrah',        icon: <Moon size={18} />,        labelAr: 'عمرة وحج',         labelEn: 'Umrah & Hajj',   feature: 'bookings', moduleId: 'umrah' },
     { key: 'group_trips', href: '/group-trips', icon: <UsersRound size={18} />, labelAr: 'رحلات المجموعات',  labelEn: 'Group Trips',    feature: 'bookings' },
-    { key: 'insurance',  href: '/insurance', icon: <Shield size={18} />,        labelAr: 'تأمين',         labelEn: 'Insurance',     feature: 'bookings' },
-    { key: 'visas',      href: '/visas',     icon: <Stamp size={18} />,         labelAr: 'تأشيرات',       labelEn: 'Visas',         feature: 'bookings' },
+    { key: 'insurance',  href: '/insurance', icon: <Shield size={18} />,        labelAr: 'تأمين',         labelEn: 'Insurance',     feature: 'bookings', moduleId: 'insurance' },
+    { key: 'visas',      href: '/visas',     icon: <Stamp size={18} />,         labelAr: 'تأشيرات',       labelEn: 'Visas',         feature: 'bookings', moduleId: 'visas' },
   ],
 };
 
@@ -134,7 +136,7 @@ export function Sidebar({ collapsed = false, onClose }: SidebarProps) {
   const isAr = locale === 'ar';
   const { user } = useAuth();
   const agencyId = user?.agencyId ?? null;
-  const { canAccess } = useSubscription();
+  const { canAccess, moduleEnabled } = useSubscription();
   const [customTypes, setCustomTypes] = useState<CustomServiceType[]>([]);
   const [expandedGroups, setExpandedGroups] = usePersistedState('masarat:sidebar:groups', DEFAULT_EXPANDED_GROUPS);
 
@@ -181,14 +183,20 @@ export function Sidebar({ collapsed = false, onClose }: SidebarProps) {
 
   // Item count shown next to a collapsed group's header, after feature-gating
   // (and including dynamic custom service types for the Services group).
+  function itemVisible(item: NavItem): boolean {
+    if (item.feature && !canAccess(item.feature)) return false;
+    if (item.moduleId && !moduleEnabled(item.moduleId)) return false;
+    return true;
+  }
+
   function visibleItemCount(group: NavGroup): number {
-    const base = group.items.filter(item => !item.feature || canAccess(item.feature)).length;
+    const base = group.items.filter(itemVisible).length;
     return group.key === 'services' ? base + customTypes.length : base;
   }
 
   function NavLink({ item, active }: { item: NavItem; active: boolean }) {
-    // If admin disabled this feature for the agency, hide the item entirely
-    if (item.feature && !canAccess(item.feature)) return null;
+    // Hidden when the agency disabled the feature, or the business-line module is off.
+    if (!itemVisible(item)) return null;
 
     return (
       <Link

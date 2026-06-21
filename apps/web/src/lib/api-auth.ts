@@ -1,10 +1,13 @@
 import { ensureAdminApp } from './firebase-admin';
 import { setTenantContext } from './tenant-context';
+import { featureForPath, userHasFeature, parsePermissions, type FeatureKey } from './user-permissions';
 
 export interface AuthClaims {
   uid: string;
   agencyId: string;
   role: string;
+  /** Section-level grants. null = full access (legacy users + admins). */
+  permissions: FeatureKey[] | null;
 }
 
 export class ApiAuthError extends Error {
@@ -76,18 +79,26 @@ export async function verifyAuth(request: Request): Promise<AuthClaims> {
   //   • The lookup itself THROWS (DB unreachable, import failure)
   //     → FAIL OPEN, but log a degraded-path alert, so a transient infra blip
   //       cannot lock every tenant out of the system.
+  // Effective permissions for this user. Stays null (= full access, fail-open) if
+  // the lookup below fails or the route is reached by a super-admin.
+  let permissions: FeatureKey[] | null = null;
+
   if (agencyId && !isSuperAdmin) {
     let ag: { isActive: boolean | null; subscriptionStatus: string | null } | undefined;
+    let userRow: { permissions: string | null; isActive: boolean | null } | undefined;
     let lookupSucceeded = false;
     try {
       const { db } = await import('./db');
-      const { agencies } = await import('./schema');
+      const { agencies, users } = await import('./schema');
       const { eq } = await import('drizzle-orm');
-      [ag] = await db
-        .select({ isActive: agencies.isActive, subscriptionStatus: agencies.subscriptionStatus })
-        .from(agencies)
-        .where(eq(agencies.id, agencyId))
-        .limit(1);
+      const [agRes, userRes] = await Promise.all([
+        db.select({ isActive: agencies.isActive, subscriptionStatus: agencies.subscriptionStatus })
+          .from(agencies).where(eq(agencies.id, agencyId)).limit(1),
+        db.select({ permissions: users.permissions, isActive: users.isActive })
+          .from(users).where(eq(users.id, decoded.uid)).limit(1),
+      ]);
+      ag = agRes[0];
+      userRow = userRes[0];
       lookupSucceeded = true;
     } catch (err) {
       // Infrastructure error — fail open, but surface it so the swallow path is
@@ -101,6 +112,12 @@ export async function verifyAuth(request: Request): Promise<AuthClaims> {
       if (ag.isActive === false || ag.subscriptionStatus === 'suspended' || ag.subscriptionStatus === 'expired') {
         throw new ApiAuthError('حساب الوكالة موقوف أو انتهى اشتراكه — يرجى التواصل مع الدعم', 403);
       }
+      // A deactivated user keeps a valid Firebase token until it expires; block
+      // them here so disabling a user takes effect on the next request.
+      if (userRow && userRow.isActive === false) {
+        throw new ApiAuthError('تم تعطيل حسابك — يرجى التواصل مع مدير الوكالة', 403);
+      }
+      permissions = parsePermissions(userRow?.permissions ?? null);
     }
   }
 
@@ -109,10 +126,25 @@ export async function verifyAuth(request: Request): Promise<AuthClaims> {
   // RLS stays fail-open, preserving their cross-agency access.
   if (agencyId) setTenantContext(agencyId);
 
+  const role = (decoded['role'] as string) ?? (isSuperAdmin ? 'owner' : 'agent');
+
+  // ── Section-level authorization gate ──
+  // Map this request's path to the feature it belongs to and deny access (403)
+  // if the user lacks it. Super-admins bypass; common/infra routes resolve to a
+  // null feature and stay open. This is the central enforcement point — every
+  // protected route calls verifyAuth, so no route can silently skip the check.
+  if (agencyId && !isSuperAdmin) {
+    const { feature } = featureForPath(new URL(request.url).pathname);
+    if (feature && !userHasFeature(role, permissions, feature)) {
+      throw new ApiAuthError('ليس لديك صلاحية للوصول لهذا القسم', 403);
+    }
+  }
+
   return {
     uid:     decoded.uid,
     agencyId: agencyId ?? '',
-    role:    (decoded['role'] as string) ?? (isSuperAdmin ? 'owner' : 'agent'),
+    role,
+    permissions,
   };
 }
 

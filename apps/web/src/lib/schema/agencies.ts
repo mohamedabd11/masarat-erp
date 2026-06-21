@@ -21,6 +21,9 @@ export const agencies = pgTable('agencies', {
   subscriptionStartsAt: timestamp('subscription_starts_at', { withTimezone: true }),
   subscriptionEndDate:  timestamp('subscription_end_date', { withTimezone: true }),
   maxUsers:             integer('max_users').notNull().default(5),         // user seat limit
+  // JSON array of business-line module ids enabled for this agency (NULL = all).
+  // Drives the service-line items in the sidebar and the settings → modules tab.
+  enabledModules:       text('enabled_modules'),
   isActive:             boolean('is_active').notNull().default(true),
   // contact for support
   contactEmail:         text('contact_email'),

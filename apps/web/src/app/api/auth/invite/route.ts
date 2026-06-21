@@ -4,6 +4,7 @@ import { db } from '@/lib/db';
 import { agencies, users } from '@/lib/schema';
 import { eq, count } from 'drizzle-orm';
 import { checkRateLimit, getClientIp } from '@/lib/rate-limit';
+import { sanitizePermissions, presetFeatures } from '@/lib/user-permissions';
 
 const EMAIL_RE  = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 const MAX_NAME  = 100;
@@ -11,11 +12,12 @@ const MAX_EMAIL = 254;
 type UserRole = 'admin' | 'agent' | 'accountant' | 'viewer';
 
 interface InviteUserRequest {
-  email:   string;
-  nameAr:  string;
-  nameEn?: string;
-  mobile?: string;
-  role:    UserRole;
+  email:        string;
+  nameAr:       string;
+  nameEn?:      string;
+  mobile?:      string;
+  role:         UserRole;
+  permissions?: string[];   // section-level grants (ignored for admin = full access)
 }
 
 export async function POST(request: Request) {
@@ -104,17 +106,28 @@ export async function POST(request: Request) {
     const dbRole = role === 'admin' ? 'admin' : 'staff';
     await auth.setCustomUserClaims(userRecord.uid, { agencyId: callerAgency, role });
 
+    // Section-level permissions. Admins get full access (null). For other roles,
+    // use the admin's explicit selection, falling back to the role preset.
+    const permissions = role === 'admin'
+      ? null
+      : JSON.stringify(
+          body.permissions !== undefined
+            ? sanitizePermissions(body.permissions)
+            : presetFeatures(role),
+        );
+
     const setupLink = await auth.generatePasswordResetLink(email);
 
     await db.insert(users).values({
-      id:        userRecord.uid,
-      agencyId:  callerAgency,
+      id:          userRecord.uid,
+      agencyId:    callerAgency,
       email,
-      nameAr:    nameAr.trim(),
-      nameEn:    nameEn?.trim() || nameAr.trim(),
-      role:      dbRole,
-      isActive:  true,
-      invitedBy: callerUid,
+      nameAr:      nameAr.trim(),
+      nameEn:      nameEn?.trim() || nameAr.trim(),
+      role:        dbRole,
+      permissions,
+      isActive:    true,
+      invitedBy:   callerUid,
     });
 
     return NextResponse.json({ userId: userRecord.uid, setupLink });

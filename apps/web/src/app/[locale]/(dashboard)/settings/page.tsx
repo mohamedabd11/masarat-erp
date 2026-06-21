@@ -50,6 +50,8 @@ import {
   Activity,
 } from 'lucide-react';
 import { InviteUserModal } from '@/components/settings/InviteUserModal';
+import { EditUserModal } from '@/components/settings/EditUserModal';
+import { parseEnabledModules, moduleEnabled as moduleEnabledFn } from '@/lib/user-permissions';
 import { useSubscription } from '@/providers/SubscriptionProvider';
 import { MessageCircle, CheckCircle } from 'lucide-react';
 import { FEATURE_LABEL } from '@/lib/plan-features';
@@ -379,6 +381,7 @@ export default function SettingsPage() {
   const [agencyUsers, setAgencyUsers]     = useState<User[]>([]);
   const [loadingUsers, setLoadingUsers]   = useState(false);
   const [showInviteModal, setShowInviteModal] = useState(false);
+  const [editingUser, setEditingUser]     = useState<User | null>(null);
 
   // ── Billing usage stats ─────────────────────────────────────────────────
   const [usersCount, setUsersCount]       = useState<number | null>(null);
@@ -445,6 +448,8 @@ export default function SettingsPage() {
         if (d.gosiEmployerRateSaudi != null) setGosiEmployerRateSaudi(d.gosiEmployerRateSaudi);
         if (d.gosiEmployeeRateSaudi != null) setGosiEmployeeRateSaudi(d.gosiEmployeeRateSaudi);
         if (d.gosiEmployerRateExpat  != null) setGosiEmployerRateExpat(d.gosiEmployerRateExpat);
+        const enabled = parseEnabledModules(d.enabledModules ?? null);
+        setModules(prev => prev.map(m => ({ ...m, enabled: m.core ? true : moduleEnabledFn(enabled, m.id) })));
       } finally {
         setAgencyLoaded(true);
       }
@@ -717,10 +722,21 @@ export default function SettingsPage() {
     }
   }
 
-  function toggleModule(id: string) {
-    setModules((prev: Module[]) =>
-      prev.map((m: Module) => (m.id === id && !m.core ? { ...m, enabled: !m.enabled } : m)),
-    );
+  async function toggleModule(id: string) {
+    const target = modules.find(m => m.id === id);
+    if (!target || target.core) return;
+
+    const prev = modules;
+    const next = modules.map(m => (m.id === id ? { ...m, enabled: !m.enabled } : m));
+    setModules(next);   // optimistic
+
+    try {
+      const enabledIds = next.filter(m => m.enabled || m.core).map(m => m.id);
+      const { apiFetch } = await import('@/lib/api-client');
+      await apiFetch('/api/settings', { method: 'PATCH', body: JSON.stringify({ enabledModules: enabledIds }) });
+    } catch {
+      setModules(prev);   // revert on failure
+    }
   }
 
   function handleLogoSelect(file: File) {
@@ -1430,6 +1446,11 @@ export default function SettingsPage() {
                           {u.isActive
                             ? <CheckCircle2 size={16} className="text-emerald-500 flex-shrink-0" />
                             : <XCircle     size={16} className="text-slate-300   flex-shrink-0" />}
+                          {isAdmin && (
+                            <Button size="sm" variant="outline" onClick={() => setEditingUser(u)}>
+                              {isAr ? 'الصلاحيات' : 'Permissions'}
+                            </Button>
+                          )}
                         </div>
                       </div>
                     );
@@ -1456,8 +1477,8 @@ export default function SettingsPage() {
                 <p className="text-sm text-amber-800 flex items-start gap-2">
                   <AlertTriangle size={16} className="flex-shrink-0 mt-0.5 text-amber-600" />
                   {isAr
-                    ? 'تفعيل الوحدات أو تعطيلها يؤثر فوراً على القائمة الجانبية وصلاحيات جميع المستخدمين.'
-                    : 'Enabling or disabling modules immediately affects the sidebar and all user permissions.'}
+                    ? 'الوحدات تحدّد خطوط الأعمال التي تعمل بها الوكالة. تعطيل وحدة يُخفي قسمها من القائمة الجانبية لكل المستخدمين فوراً. (صلاحيات كل موظف تُدار من تبويب المستخدمون).'
+                    : "Modules define the business lines your agency works in. Disabling one immediately hides its section from everyone's sidebar. (Per-user access is managed in the Users tab.)"}
                 </p>
               </Card>
 
@@ -2788,6 +2809,19 @@ export default function SettingsPage() {
         isAr={isAr}
         onClose={() => setShowInviteModal(false)}
         onDone={() => setShowInviteModal(false)}
+      />
+    )}
+
+    {editingUser && (
+      <EditUserModal
+        isAr={isAr}
+        user={editingUser}
+        isSelf={user?.uid === editingUser.id}
+        onClose={() => setEditingUser(null)}
+        onSaved={(updated) => {
+          setAgencyUsers(prev => prev.map(u => (u.id === updated.id ? { ...u, ...updated } : u)));
+          setEditingUser(null);
+        }}
       />
     )}
     </>

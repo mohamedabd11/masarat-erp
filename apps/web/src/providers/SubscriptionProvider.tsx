@@ -3,6 +3,7 @@
 import { createContext, useContext, useState, useEffect, useCallback, type ReactNode } from 'react';
 import { useAuth } from '@masarat/firebase';
 import type { FeatureKey } from '@/lib/plan-features';
+import { userHasFeature, parsePermissions, parseEnabledModules, moduleEnabled as moduleEnabledFn } from '@/lib/user-permissions';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -28,6 +29,7 @@ interface SubscriptionContextValue {
   isLifetime:    boolean;
   isLoading:     boolean;
   canAccess:     (feature: FeatureKey) => boolean;
+  moduleEnabled: (moduleId: string) => boolean;
 }
 
 const SubscriptionContext = createContext<SubscriptionContextValue>({
@@ -40,6 +42,7 @@ const SubscriptionContext = createContext<SubscriptionContextValue>({
   isLifetime:    false,
   isLoading:     true,
   canAccess:     () => true,
+  moduleEnabled: () => true,
 });
 
 export function useSubscription() {
@@ -63,6 +66,9 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
   const [daysRemaining, setDaysRemaining] = useState<number | null>(null);
   const [isLoading,     setIsLoading]     = useState(true);
   const [revokedSet,    setRevokedSet]    = useState<Set<string>>(new Set());
+  const [userRole,      setUserRole]      = useState<string>('');
+  const [userPerms,     setUserPerms]     = useState<FeatureKey[] | null>(null);
+  const [enabledModules, setEnabledModules] = useState<string[] | null>(null);
 
   const isSuperAdmin = user?.email === SUPER_ADMIN_EMAIL;
 
@@ -80,7 +86,9 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
             nameEn?: string;
             trialEndDate?: string;
             maxUsers?: number;
-          }
+            enabledModules?: string | null;
+          };
+          user?: { role?: string; permissions?: string | null } | null;
         }>('/api/settings'),
         apiFetch<{ overrides: FeatureOverride[] }>('/api/agencies/my-features'),
       ]);
@@ -108,6 +116,11 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
 
         setStatus(effective);
         setDaysRemaining(trialDaysLeft !== null ? Math.max(0, trialDaysLeft) : null);
+
+        setEnabledModules(parseEnabledModules(agency.enabledModules ?? null));
+        const me = settingsData.value.user;
+        setUserRole(me?.role ?? '');
+        setUserPerms(parsePermissions(me?.permissions ?? null));
       } else {
         // On error default to trial (fail open — avoids locking out on network issues)
         setStatus('trial');
@@ -145,13 +158,20 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
     if (isExpired) return false;
     // Admin-disabled feature for this agency
     if (revokedSet.has(feature)) return false;
+    // Section-level permission for this specific user
+    if (!userHasFeature(userRole, userPerms, feature)) return false;
     return true;
+  }
+
+  function moduleEnabled(moduleId: string): boolean {
+    if (isLoading || isSuperAdmin) return true;
+    return moduleEnabledFn(enabledModules, moduleId);
   }
 
   return (
     <SubscriptionContext.Provider value={{
       status, plan, agencyName, maxUsers, daysRemaining,
-      isExpired, isLifetime, isLoading, canAccess,
+      isExpired, isLifetime, isLoading, canAccess, moduleEnabled,
     }}>
       {children}
     </SubscriptionContext.Provider>
