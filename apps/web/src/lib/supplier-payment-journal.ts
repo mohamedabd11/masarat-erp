@@ -82,6 +82,20 @@ export function buildSupplierPaymentJournalLines(input: SupplierPaymentJournalIn
   return assertBalanced(lines);
 }
 
+/**
+ * The amount posted to the AP control account (2000) by these lines — i.e. the
+ * portion of the disbursement that actually clears a supplier payable (booked
+ * SAR), excluding any FX difference (5900/4900) and recoverable input VAT (1230).
+ *
+ * The supplier subledger (suppliers.balanceHalalas) MUST move by exactly this
+ * amount so it stays reconciled with GL control account 2000 — never by the
+ * FX-adjusted cash actually paid (IAS 21: the exchange difference is P&L, not a
+ * change in the obligation).
+ */
+export function apClearedHalalas(lines: SupplierPaymentLine[]): number {
+  return lines.reduce((s, l) => s + (l.code === GL.payableSupplier.code ? l.dr : 0), 0);
+}
+
 function assertBalanced(lines: SupplierPaymentLine[]): SupplierPaymentLine[] {
   const dr = lines.reduce((s, l) => s + l.dr, 0);
   const cr = lines.reduce((s, l) => s + l.cr, 0);

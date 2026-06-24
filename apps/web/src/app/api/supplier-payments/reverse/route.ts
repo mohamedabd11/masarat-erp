@@ -122,11 +122,19 @@ export async function POST(request: Request) {
         throw new BusinessError('سند الصرف مُعكوس بالفعل', 409);
       }
 
-      // Restore supplier balance if the original payment was linked to a supplier
+      // Restore the supplier subledger by the SAME amount the original payment
+      // cleared from AP 2000 (the booked SAR), mirroring create — never the
+      // FX-adjusted cash (IAS 21). Falls back to the stored amount for legacy
+      // payments that have no journal to read.
       if (orig.supplierId) {
-        await tx.update(suppliers)
-          .set({ balanceHalalas: sql`${suppliers.balanceHalalas} + ${amountHalalas}`, updatedAt: now })
-          .where(and(eq(suppliers.id, orig.supplierId), eq(suppliers.agencyId, agencyId)));
+        const apCode = SUPPLIER_PAYMENT_EXPENSE_ACCOUNT['supplier']!.code;
+        const apCleared = origJLines.reduce((s, l) => s + (l.accountCode === apCode ? l.debitHalalas : 0), 0);
+        const restoreHalalas = origJLines.length > 0 ? apCleared : amountHalalas;
+        if (restoreHalalas > 0) {
+          await tx.update(suppliers)
+            .set({ balanceHalalas: sql`${suppliers.balanceHalalas} + ${restoreHalalas}`, updatedAt: now })
+            .where(and(eq(suppliers.id, orig.supplierId), eq(suppliers.agencyId, agencyId)));
+        }
       }
 
       return { id: reversalId, reversalVoucherNumber };

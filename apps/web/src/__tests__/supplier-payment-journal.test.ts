@@ -6,7 +6,7 @@
  * accounts and stays balanced (Σdr === Σcr).
  */
 import { describe, it, expect } from 'vitest';
-import { buildSupplierPaymentJournalLines, type SupplierPaymentLine } from '@/lib/supplier-payment-journal';
+import { buildSupplierPaymentJournalLines, apClearedHalalas, type SupplierPaymentLine } from '@/lib/supplier-payment-journal';
 import { GL, SUPPLIER_PAYMENT_EXPENSE_ACCOUNT, PAYMENT_METHOD_ACCOUNT } from '@/lib/gl-accounts';
 
 const sum  = (ls: SupplierPaymentLine[], k: 'dr' | 'cr') => ls.reduce((s, l) => s + l[k], 0);
@@ -85,6 +85,41 @@ describe('buildSupplierPaymentJournalLines — VAT takes precedence over FX', ()
     expect(drOf(lines, GL.fxLoss.code)).toBe(0);
     expect(crOf(lines, GL.fxGain.code)).toBe(0);
     expect(balanced(lines)).toBe(true);
+  });
+});
+
+describe('apClearedHalalas — supplier subledger ≡ AP 2000 control (IAS 21)', () => {
+  it('plain payment: cleared = full amount (= cash)', () => {
+    const lines = buildSupplierPaymentJournalLines({
+      expenseAccount: supplierAc, paymentAccount: bankAc,
+      resolvedAmountHalalas: 5_000_00, vatAmountHalalas: 0, expenseDebitHalalas: 5_000_00,
+    });
+    expect(apClearedHalalas(lines)).toBe(5_000_00);
+  });
+
+  it('FX loss: cleared = BOOKED SAR (1000), NOT the cash paid (1050) — FX diff stays in P&L', () => {
+    const lines = buildSupplierPaymentJournalLines({
+      expenseAccount: supplierAc, paymentAccount: bankAc,
+      resolvedAmountHalalas: 1_050_00, vatAmountHalalas: 0, expenseDebitHalalas: 1_000_00,
+    });
+    expect(apClearedHalalas(lines)).toBe(1_000_00);   // the fix: subledger moves by 1000
+    expect(apClearedHalalas(lines)).not.toBe(1_050_00);
+  });
+
+  it('FX gain: cleared = BOOKED SAR (1000), NOT the cash paid (970)', () => {
+    const lines = buildSupplierPaymentJournalLines({
+      expenseAccount: supplierAc, paymentAccount: bankAc,
+      resolvedAmountHalalas: 970_00, vatAmountHalalas: 0, expenseDebitHalalas: 1_000_00,
+    });
+    expect(apClearedHalalas(lines)).toBe(1_000_00);
+  });
+
+  it('non-supplier expense (rent): nothing posted to AP 2000 → cleared = 0', () => {
+    const lines = buildSupplierPaymentJournalLines({
+      expenseAccount: rentAc, paymentAccount: bankAc,
+      resolvedAmountHalalas: 1_000_00, vatAmountHalalas: 0, expenseDebitHalalas: 1_000_00,
+    });
+    expect(apClearedHalalas(lines)).toBe(0);
   });
 });
 

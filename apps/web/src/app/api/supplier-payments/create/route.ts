@@ -9,7 +9,7 @@ import { withIdempotency, markIdempotencyComplete } from '@/lib/idempotency';
 import { logAudit } from '@/lib/audit';
 import { lookupFxRate, fxToHalalas } from '@/lib/fx';
 import { SUPPLIER_PAYMENT_EXPENSE_ACCOUNT, PAYMENT_METHOD_ACCOUNT } from '@/lib/gl-accounts';
-import { buildSupplierPaymentJournalLines } from '@/lib/supplier-payment-journal';
+import { buildSupplierPaymentJournalLines, apClearedHalalas } from '@/lib/supplier-payment-journal';
 import type { Tx } from '@/lib/db';
 
 interface SupplierPaymentBody {
@@ -117,15 +117,13 @@ export async function POST(request: Request) {
         createdBy:       uid,
       });
 
-      // Decrease supplier balance if a supplierId was provided (positive = we owe them)
-      if (supplierId) {
-        await tx.update(suppliers)
-          .set({ balanceHalalas: sql`${suppliers.balanceHalalas} - ${resolvedAmountHalalas}`, updatedAt: now })
-          .where(and(eq(suppliers.id, supplierId), eq(suppliers.agencyId, agencyId)));
-      }
+      // Supplier subledger is updated AFTER the journal is built, by the exact
+      // amount posted to AP 2000 — see below (keeps subledger ≡ GL control).
 
-      // FX gain/loss (IFRS 9): if fxOriginalHalalas supplied, the expense is
-      // debited at the original booked SAR and the difference splits to FX 5900/4900.
+      // FX gain/loss (IAS 21): a foreign-currency payable is a monetary item.
+      // The expense/payable is debited at the ORIGINAL booked SAR; the settlement
+      // exchange difference is recognised in P&L (5900 loss / 4900 gain) and does
+      // NOT change the obligation — so it must stay OUT of the supplier subledger.
       const expenseDebit = (fxOriginalHalalas != null && fxOriginalHalalas > 0)
         ? fxOriginalHalalas
         : resolvedAmountHalalas;
@@ -149,20 +147,35 @@ export async function POST(request: Request) {
       });
 
       // Balanced GL lines (Input-VAT split / FX gain·loss·none) — see
-      // buildSupplierPaymentJournalLines. Materialise into journal_lines rows.
-      const jLines = buildSupplierPaymentJournalLines({
+      // buildSupplierPaymentJournalLines.
+      const built = buildSupplierPaymentJournalLines({
         expenseAccount:       expenseAc,
         paymentAccount:       paymentAc,
         resolvedAmountHalalas,
         vatAmountHalalas:     vatAmount,
         expenseDebitHalalas:  expenseDebit,
-      }).map((l, i) => ({
+      });
+      const jLines = built.map((l, i) => ({
         id: crypto.randomUUID(), entryId: jeId, agencyId,
         accountCode: l.code, accountNameAr: l.ar, accountNameEn: l.en,
         debitHalalas: l.dr, creditHalalas: l.cr, sortOrder: i + 1,
       }));
 
       await tx.insert(journalLines).values(jLines);
+
+      // Decrease the supplier subledger by EXACTLY what was posted to AP 2000 —
+      // the booked SAR that clears the payable, never the FX-adjusted cash
+      // (IAS 21) nor the recoverable input-VAT portion. Keeps
+      // suppliers.balanceHalalas reconciled with GL control account 2000.
+      if (supplierId) {
+        const apCleared = apClearedHalalas(built);
+        if (apCleared > 0) {
+          await tx.update(suppliers)
+            .set({ balanceHalalas: sql`${suppliers.balanceHalalas} - ${apCleared}`, updatedAt: now })
+            .where(and(eq(suppliers.id, supplierId), eq(suppliers.agencyId, agencyId)));
+        }
+      }
+
       await markIdempotencyComplete(tx, agencyId, 'supplierPayment', idempKey, { id: spId, voucherNumber });
 
       return { id: spId, voucherNumber, resolvedAmountHalalas, appliedFxRate, appliedFxRateDate };
