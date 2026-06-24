@@ -8,7 +8,8 @@ import { assertPeriodOpen } from '@/lib/period-lock';
 import { withIdempotency, markIdempotencyComplete } from '@/lib/idempotency';
 import { logAudit } from '@/lib/audit';
 import { lookupFxRate, fxToHalalas } from '@/lib/fx';
-import { GL, SUPPLIER_PAYMENT_EXPENSE_ACCOUNT, PAYMENT_METHOD_ACCOUNT } from '@/lib/gl-accounts';
+import { SUPPLIER_PAYMENT_EXPENSE_ACCOUNT, PAYMENT_METHOD_ACCOUNT } from '@/lib/gl-accounts';
+import { buildSupplierPaymentJournalLines } from '@/lib/supplier-payment-journal';
 import type { Tx } from '@/lib/db';
 
 interface SupplierPaymentBody {
@@ -34,11 +35,8 @@ interface SupplierPaymentBody {
 // Debit (expense) and credit (payment-method) account maps are centralized in
 // gl-accounts.ts (L7) so create + reverse share one source of truth. See
 // SUPPLIER_PAYMENT_EXPENSE_ACCOUNT for the per-category posting rationale.
-
-// FX differences post to dedicated 5900 (loss) / 4900 (gain) accounts —
-// NEVER to 6100 (Salary Expense).
-const AC_FX_LOSS = GL.fxLoss;
-const AC_FX_GAIN = GL.fxGain;
+// The balanced GL lines (Input-VAT split / FX gain·loss·none) are built by
+// buildSupplierPaymentJournalLines (lib/supplier-payment-journal).
 
 export async function POST(request: Request) {
   try {
@@ -126,11 +124,11 @@ export async function POST(request: Request) {
           .where(and(eq(suppliers.id, supplierId), eq(suppliers.agencyId, agencyId)));
       }
 
-      // FX gain/loss (IFRS 9): if fxOriginalHalalas supplied, post difference to 6100
+      // FX gain/loss (IFRS 9): if fxOriginalHalalas supplied, the expense is
+      // debited at the original booked SAR and the difference splits to FX 5900/4900.
       const expenseDebit = (fxOriginalHalalas != null && fxOriginalHalalas > 0)
         ? fxOriginalHalalas
         : resolvedAmountHalalas;
-      const fxDiff = resolvedAmountHalalas - expenseDebit; // >0 = loss, <0 = gain
 
       const fxNote = foreignCurrency
         ? ` (${foreignCurrency}${foreignAmountMinor != null ? ' ' + (foreignAmountMinor / 100).toFixed(2) : ''}${appliedFxRate ? ' @ ' + appliedFxRate.toFixed(4) : ''})`
@@ -150,45 +148,21 @@ export async function POST(request: Request) {
         createdBy:          uid,
       });
 
-      type JLine = { id: string; entryId: string; agencyId: string; accountCode: string; accountNameAr: string; accountNameEn: string; debitHalalas: number; creditHalalas: number; sortOrder: number };
-      let lines: JLine[];
+      // Balanced GL lines (Input-VAT split / FX gain·loss·none) — see
+      // buildSupplierPaymentJournalLines. Materialise into journal_lines rows.
+      const jLines = buildSupplierPaymentJournalLines({
+        expenseAccount:       expenseAc,
+        paymentAccount:       paymentAc,
+        resolvedAmountHalalas,
+        vatAmountHalalas:     vatAmount,
+        expenseDebitHalalas:  expenseDebit,
+      }).map((l, i) => ({
+        id: crypto.randomUUID(), entryId: jeId, agencyId,
+        accountCode: l.code, accountNameAr: l.ar, accountNameEn: l.en,
+        debitHalalas: l.dr, creditHalalas: l.cr, sortOrder: i + 1,
+      }));
 
-      // Input VAT split (GL 1230): whenever a VAT portion is supplied — for ANY
-      // expense category (supplier cost, rent, marketing, utilities…) — the debit
-      // is split into net expense + recoverable input VAT, with the full amount
-      // credited to cash/bank. This lets VAT-registered agencies reclaim input tax
-      // from ZATCA on overheads instead of burying it in the expense. Mutually
-      // exclusive with the FX-difference legs (VAT is only supplied on SAR purchases).
-      if (vatAmount > 0 && vatAmount < resolvedAmountHalalas) {
-        const netAmount = resolvedAmountHalalas - vatAmount;
-        lines = [
-          { id: crypto.randomUUID(), entryId: jeId, agencyId, accountCode: expenseAc.code, accountNameAr: expenseAc.ar, accountNameEn: expenseAc.en, debitHalalas: netAmount, creditHalalas: 0, sortOrder: 1 },
-          { id: crypto.randomUUID(), entryId: jeId, agencyId, accountCode: GL.inputVat.code, accountNameAr: GL.inputVat.ar, accountNameEn: GL.inputVat.en, debitHalalas: vatAmount, creditHalalas: 0, sortOrder: 2 },
-          { id: crypto.randomUUID(), entryId: jeId, agencyId, accountCode: paymentAc.code, accountNameAr: paymentAc.ar, accountNameEn: paymentAc.en, debitHalalas: 0, creditHalalas: resolvedAmountHalalas, sortOrder: 3 },
-        ];
-        await tx.insert(journalLines).values(lines);
-        await markIdempotencyComplete(tx, agencyId, 'supplierPayment', idempKey, { id: spId, voucherNumber });
-        return { id: spId, voucherNumber, resolvedAmountHalalas, appliedFxRate, appliedFxRateDate };
-      }
-
-      // Build journal lines with optional FX leg
-      lines = [
-        { id: crypto.randomUUID(), entryId: jeId, agencyId, accountCode: expenseAc.code, accountNameAr: expenseAc.ar, accountNameEn: expenseAc.en, debitHalalas: expenseDebit, creditHalalas: 0, sortOrder: 1 },
-      ];
-
-      if (fxDiff > 0) {
-        // FX Loss: paid more SAR than originally booked — Dr FX Loss (5900)
-        lines.push({ id: crypto.randomUUID(), entryId: jeId, agencyId, accountCode: AC_FX_LOSS.code, accountNameAr: AC_FX_LOSS.ar, accountNameEn: AC_FX_LOSS.en, debitHalalas: fxDiff, creditHalalas: 0, sortOrder: 2 });
-        lines.push({ id: crypto.randomUUID(), entryId: jeId, agencyId, accountCode: paymentAc.code, accountNameAr: paymentAc.ar, accountNameEn: paymentAc.en, debitHalalas: 0, creditHalalas: resolvedAmountHalalas, sortOrder: 3 });
-      } else if (fxDiff < 0) {
-        // FX Gain: paid less SAR than originally booked — Cr FX Gain (4900)
-        lines.push({ id: crypto.randomUUID(), entryId: jeId, agencyId, accountCode: paymentAc.code, accountNameAr: paymentAc.ar, accountNameEn: paymentAc.en, debitHalalas: 0, creditHalalas: resolvedAmountHalalas, sortOrder: 2 });
-        lines.push({ id: crypto.randomUUID(), entryId: jeId, agencyId, accountCode: AC_FX_GAIN.code, accountNameAr: AC_FX_GAIN.ar, accountNameEn: AC_FX_GAIN.en, debitHalalas: 0, creditHalalas: -fxDiff, sortOrder: 3 });
-      } else {
-        lines.push({ id: crypto.randomUUID(), entryId: jeId, agencyId, accountCode: paymentAc.code, accountNameAr: paymentAc.ar, accountNameEn: paymentAc.en, debitHalalas: 0, creditHalalas: resolvedAmountHalalas, sortOrder: 2 });
-      }
-
-      await tx.insert(journalLines).values(lines);
+      await tx.insert(journalLines).values(jLines);
       await markIdempotencyComplete(tx, agencyId, 'supplierPayment', idempKey, { id: spId, voucherNumber });
 
       return { id: spId, voucherNumber, resolvedAmountHalalas, appliedFxRate, appliedFxRateDate };
