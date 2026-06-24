@@ -6,16 +6,9 @@ import { verifyAuth, assertRole, ApiAuthError, BusinessError, ROLES_ACCOUNTANT_U
 import { withIdempotency, markIdempotencyComplete } from '@/lib/idempotency';
 import { getNextReceiptNumber, getNextJournalNumber } from '@/lib/invoice-counter';
 import { assertPeriodOpen } from '@/lib/period-lock';
+import { buildCustomerReceiptLines } from '@/lib/payment-journal';
 
 type RouteCtx = { params: { id: string; installmentId: string } };
-
-const METHOD_ACCOUNT: Record<string, { code: string; ar: string; en: string }> = {
-  cash:          { code: '1100', ar: 'الصندوق النقدي', en: 'Cash' },
-  bank_transfer: { code: '1110', ar: 'البنك',           en: 'Bank' },
-  card:          { code: '1115', ar: 'نقاط البيع',      en: 'POS / Card' },
-  online:        { code: '1115', ar: 'نقاط البيع',      en: 'POS / Card' },
-};
-const AC_RECEIVABLE = { code: '1120', ar: 'ذمم مدينة - عملاء', en: 'Accounts Receivable' };
 
 export async function POST(req: Request, { params }: RouteCtx) {
   try {
@@ -83,7 +76,6 @@ export async function POST(req: Request, { params }: RouteCtx) {
         const jeNumber      = await getNextJournalNumber(agencyId, year, tx);
         const paymentId     = crypto.randomUUID();
         const jeId          = crypto.randomUUID();
-        const cashAc        = METHOD_ACCOUNT[paymentMethod] ?? METHOD_ACCOUNT['bank_transfer']!;
 
         // ── 4. Insert payment record ──────────────────────────────────────────
         await tx.insert(payments).values({
@@ -118,10 +110,13 @@ export async function POST(req: Request, { params }: RouteCtx) {
           createdBy:          uid,
         });
 
-        await tx.insert(journalLines).values([
-          { id: crypto.randomUUID(), entryId: jeId, agencyId, accountCode: cashAc.code, accountNameAr: cashAc.ar, accountNameEn: cashAc.en, debitHalalas: amountHalalas, creditHalalas: 0, sortOrder: 1 },
-          { id: crypto.randomUUID(), entryId: jeId, agencyId, accountCode: AC_RECEIVABLE.code, accountNameAr: AC_RECEIVABLE.ar, accountNameEn: AC_RECEIVABLE.en, debitHalalas: 0, creditHalalas: amountHalalas, sortOrder: 2 },
-        ]);
+        await tx.insert(journalLines).values(
+          buildCustomerReceiptLines(amountHalalas, paymentMethod).map((l, i) => ({
+            id: crypto.randomUUID(), entryId: jeId, agencyId,
+            accountCode: l.code, accountNameAr: l.ar, accountNameEn: l.en,
+            debitHalalas: l.dr, creditHalalas: l.cr, sortOrder: i + 1,
+          })),
+        );
 
         // ── 6. Update invoice (atomic, race-safe) ─────────────────────────────
         const [updatedInv] = await tx.update(invoices)
