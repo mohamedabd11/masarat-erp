@@ -25,14 +25,15 @@ import { drizzle } from 'drizzle-orm/neon-http';
 import { eq } from 'drizzle-orm';
 
 import {
-  users, customers, suppliers, bookings, bookingLines,
+  users, customers, suppliers, bookings, bookingLines, chartOfAccounts,
   invoices, journalEntries, journalLines, payments, supplierPayments,
   type BookingLine,
 } from '../src/lib/schema';
 import { buildJournalLinesFromBookingLines } from '../src/lib/invoice-journal';
 import { buildCustomerReceiptLines, buildRevenueRecognitionLines } from '../src/lib/payment-journal';
 import { buildRefundJournalLines } from '../src/lib/refund-journal';
-import { buildSupplierPaymentJournalLines } from '../src/lib/supplier-payment-journal';
+import { buildSupplierPaymentJournalLines, apClearedHalalas } from '../src/lib/supplier-payment-journal';
+import { DEFAULT_COA } from '../src/lib/default-coa';
 
 // ─── الإعداد ──────────────────────────────────────────────────────────────────
 
@@ -74,13 +75,14 @@ type Line = { code: string; ar: string; en: string; dr: number; cr: number };
 async function postJournal(args: {
   agencyId: string; id: string; date: string; descAr: string;
   source: string; sourceId: string; serviceType?: string; lines: Line[];
+  entryNumber?: string;   // override the auto counter (for stable, non-colliding ids)
 }) {
   const totalDr = args.lines.reduce((s, l) => s + l.dr, 0);
   const totalCr = args.lines.reduce((s, l) => s + l.cr, 0);
   if (totalDr !== totalCr) throw new Error(`قيد غير متوازن (${args.descAr}): ${totalDr} ≠ ${totalCr}`);
 
   await db.insert(journalEntries).values({
-    id: args.id, agencyId: args.agencyId, entryNumber: jeNo(), date: args.date,
+    id: args.id, agencyId: args.agencyId, entryNumber: args.entryNumber ?? jeNo(), date: args.date,
     descriptionAr: args.descAr, source: args.source, sourceId: args.sourceId,
     serviceType: args.serviceType ?? null, isPosted: true,
     totalDebitHalalas: totalDr, totalCreditHalalas: totalCr, createdBy: 'seed',
@@ -146,6 +148,23 @@ async function main() {
   const agencyId = u.agencyId;
   console.log(`  ✓ الوكالة: ${agencyId}`);
 
+  // ── ضمان اكتمال دليل الحسابات ───────────────────────────────────────────────
+  // الوكالات المُنشأة قبل إضافة رموز كـ 3201 (إيراد مؤجل) و5900 (فروق صرف) تفتقدها،
+  // فيختفي أي قيد عليها من ميزان المراجعة. نُدرج المجموعة الكاملة (idempotent) حتى
+  // تُطابق التقاريرُ القيودَ فوراً عند إعادة التشغيل — دون انتظار نشر جديد.
+  await db.insert(chartOfAccounts).values(
+    DEFAULT_COA.map((ac) => ({
+      id: `${agencyId}-coa-${ac.code}`, agencyId, code: ac.code,
+      nameAr: ac.nameAr, nameEn: ac.nameEn, type: ac.type, isSystem: true, level: 1,
+    })),
+  ).onConflictDoNothing({ target: [chartOfAccounts.agencyId, chartOfAccounts.code] });
+
+  // دفتر الموردين الفرعي: يُبنى من المعاملات (لا أرصدة اعتباطية) ليطابق حساب
+  // المراقبة 2000 في الأستاذ. نتتبّع رصيد كل مورد ثم نكتبه قيمةً مطلقة في النهاية
+  // (idempotent: إعادة التشغيل تُعيد نفس القيمة بدل أن تُراكم).
+  const supBal = new Map<string, number>();
+  const addAP = (sid: string, amt: number) => supBal.set(sid, (supBal.get(sid) ?? 0) + amt);
+
   // ── العملاء والموردون ──────────────────────────────────────────────────────
   const custB2C = 'demo-cust-b2c';
   const custB2B = 'demo-cust-b2b';
@@ -158,11 +177,25 @@ async function main() {
   const supAir = 'demo-sup-airline';
   const supHotel = 'demo-sup-hotel';
   await db.insert(suppliers).values([
-    { id: supAir,   agencyId, nameAr: 'الخطوط الجوية (تجريبي)', type: 'airline', balanceHalalas: SAR(8000), isActive: true },
-    { id: supHotel, agencyId, nameAr: 'فندق مكة (تجريبي)',      type: 'hotel',   balanceHalalas: SAR(3300), isActive: true },
+    { id: supAir,   agencyId, nameAr: 'الخطوط الجوية (تجريبي)', type: 'airline', balanceHalalas: 0, isActive: true },
+    { id: supHotel, agencyId, nameAr: 'فندق مكة (تجريبي)',      type: 'hotel',   balanceHalalas: 0, isActive: true },
   ]).onConflictDoNothing();
 
   const toJL = (ls: { code: string; ar: string; en: string; dr: number; cr: number }[]) => ls as Line[];
+
+  // ── رصيد افتتاحي للمورد (واقعي) ──────────────────────────────────────────────
+  // الوكالة بدأت وهي تحتفظ بـ 8000 ر.س نقداً محصّلة من العملاء مستحقة للخطوط الجوية
+  // (Dr نقدية / Cr ذمم دائنة موردون). قيد متوازن يجعل دفعة المورد لاحقاً منطقية،
+  // ويُبقي الدفتر الفرعي مطابقاً للأستاذ.
+  const AIRLINE_OPENING = SAR(8000);
+  await postJournal({ agencyId, id: 'demo-je-opening-ap', date: addDays(-90),
+    descAr: 'رصيد افتتاحي — مستحق الخطوط الجوية', source: 'manual', sourceId: 'demo-opening',
+    entryNumber: 'DEMO-JE-0000', // ثابت خارج تسلسل DEMO-JE-#### حتى لا يصطدم بإعادة التشغيل
+    lines: [
+      { code: '1100', ar: 'النقدية', en: 'Cash', dr: AIRLINE_OPENING, cr: 0 },
+      { code: '2000', ar: 'ذمم دائنة - موردون', en: 'Accounts Payable - Suppliers', dr: 0, cr: AIRLINE_OPENING },
+    ] });
+  addAP(supAir, AIRLINE_OPENING);
 
   // ════════════════════════════════════════════════════════════════════════
   // (1) طيران (وكيل) — فاتورة مدفوعة بالكامل
@@ -189,6 +222,7 @@ async function main() {
       isEInvoice: true, journalEntryId: jeId, createdBy: 'seed',
       items: [{ description: 'تذكرة الرياض ⇄ القاهرة', quantity: 1, unitPriceHalalas: SAR(1600), vatHalalas: SAR(15), totalHalalas: total }],
     }).onConflictDoNothing();
+    addAP(supAir, line.totalCostHalalas); // الفوترة تُضيف تكلفة المورد لـ AP (يطابق دائن 2000)
 
     // دفعة كاملة — القيد أولاً ثم الدفعة (FK)
     const payId = 'demo-pay-flight', jePay = 'demo-je-pay-flight';
@@ -226,6 +260,7 @@ async function main() {
       journalEntryId: jeId, createdBy: 'seed',
       items: [{ description: 'باقة سياحية — إسطنبول', quantity: 1, unitPriceHalalas: SAR(10000), vatHalalas: SAR(1500), totalHalalas: total }],
     }).onConflictDoNothing();
+    addAP(supHotel, line.totalCostHalalas);
 
     // قسط 1 (مقدّمة)
     await postJournal({ agencyId, id: 'demo-je-pkg-pay1', date: addDays(-20), descAr: `دفعة مقدّمة — ${invId}`,
@@ -270,6 +305,7 @@ async function main() {
       deferredUntil: addDays(30), journalEntryId: jeId, createdBy: 'seed',
       items: [{ description: 'برنامج عمرة', quantity: 1, unitPriceHalalas: SAR(5000), vatHalalas: 0, totalHalalas: total }],
     }).onConflictDoNothing();
+    addAP(supHotel, line.totalCostHalalas);
 
     // دفعة كاملة — القيد أولاً ثم الدفعة
     await postJournal({ agencyId, id: 'demo-je-umrah-pay', date: today, descAr: `استلام دفعة عمرة — ${invId}`,
@@ -327,6 +363,9 @@ async function main() {
       issueDate: today, status: 'issued', isEInvoice: true, originalInvoiceId: origInvId,
       journalEntryId: jeId, createdBy: 'seed', notes: 'استرداد جزئي تجريبي',
     }).onConflictDoNothing();
+    // الاسترداد يستردّ تكلفة المورد (مدين 2000) ⇒ يُنقص AP الخطوط الجوية بنفس القدر.
+    const refundApDebit = refundLines.filter(l => l.code === '2000').reduce((s, l) => s + l.dr, 0);
+    addAP(supAir, -refundApDebit);
   }
 
   // ════════════════════════════════════════════════════════════════════════
@@ -347,6 +386,7 @@ async function main() {
       voucherNumber: pvNo(), expenseCategory: 'supplier', date: today, status: 'completed',
       journalEntryId: jeId, createdBy: 'seed',
     }).onConflictDoNothing();
+    addAP(supAir, -apClearedHalalas(built)); // الدفع يُنقص AP بما رُحّل لحساب 2000
   }
 
   // ════════════════════════════════════════════════════════════════════════
@@ -368,12 +408,21 @@ async function main() {
       voucherNumber: pvNo(), expenseCategory: 'supplier', reference: 'USD @ 3.78', date: today,
       status: 'completed', journalEntryId: jeId, createdBy: 'seed',
     }).onConflictDoNothing();
-    // ملاحظة: دفتر المورد ينقص بـ bookedSAR (3300) — لا paidSAR — والفرق (60) في 5900 خسائر صرف
+    // دفتر المورد ينقص بـ bookedSAR (3300) — لا paidSAR — والفرق (60) في 5900 خسائر صرف (IAS 21)
+    addAP(supHotel, -apClearedHalalas(built));
   }
+
+  // ── كتابة أرصدة الموردين كقيمة مطلقة (idempotent) ────────────────────────────
+  // الرصيد النهائي مُشتقّ بالكامل من القيود أعلاه فيطابق حساب المراقبة 2000.
+  for (const [sid, bal] of supBal) {
+    await db.update(suppliers).set({ balanceHalalas: bal, updatedAt: new Date() }).where(eq(suppliers.id, sid));
+  }
+  const subledgerTotal = [...supBal.values()].reduce((s, b) => s + b, 0);
 
   console.log('\n✅ تمت زراعة البيانات التجريبية بنجاح. سجّل الدخول لتراها:');
   console.log('   • حجوزات: طيران (مدفوع) · باقة (مدفوعة على قسطين) · عمرة (إيراد مؤجل) · حجز غير مفوتر');
   console.log('   • فواتير + قيود متوازنة · استرداد جزئي (مذكرة دائنة) · دفعتا مورد (ريال + عملة أجنبية)');
+  console.log(`   • دفتر الموردين الفرعي = ${(subledgerTotal / 100).toFixed(2)} ر.س (مطابق لحساب المراقبة 2000)`);
   console.log('   • قارن: ميزان المراجعة، قائمة الدخل، الذمم المدينة/الدائنة، الإيراد المؤجل، الداش بورد.\n');
 }
 
