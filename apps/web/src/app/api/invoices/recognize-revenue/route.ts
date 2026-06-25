@@ -6,7 +6,7 @@ import { verifyAuth, assertRole, ApiAuthError, BusinessError, ROLES_ACCOUNTANT_U
 import { logAudit } from '@/lib/audit';
 import { getNextJournalNumber } from '@/lib/invoice-counter';
 import { assertPeriodOpen } from '@/lib/period-lock';
-import { GL } from '@/lib/gl-accounts';
+import { buildRevenueRecognitionLines } from '@/lib/payment-journal';
 
 // POST { invoiceIds?: string[] }
 // Recognises deferred travel revenue once the service has been delivered:
@@ -89,26 +89,24 @@ export async function POST(request: Request) {
           createdBy:          uid,
         });
 
-        let revenueAc: { code: string; ar: string; en: string } = GL.revenuePrincipal;
+        // Agent-model deferrals recognise to 4000 (agency fee), principal to 4100.
+        let revenueModel = 'principal';
         if (inv.bookingId) {
           const [bk] = await tx.select({ details: bookings.details })
             .from(bookings).where(eq(bookings.id, inv.bookingId));
           const details = (bk?.details ?? {}) as Record<string, unknown>;
-          if (details['revenueModel'] === 'agent') revenueAc = GL.revenueAgent;
+          if (details['revenueModel'] === 'agent') revenueModel = 'agent';
         }
-        const lines = [
-          { ac: GL.deferredRevenue, dr: amount, cr: 0 },
-          { ac: revenueAc,          dr: 0,      cr: amount },
-        ];
-        for (let i = 0; i < lines.length; i++) {
-          const l = lines[i]!;
+        const recLines = buildRevenueRecognitionLines(amount, revenueModel);
+        for (let i = 0; i < recLines.length; i++) {
+          const l = recLines[i]!;
           await tx.insert(journalLines).values({
             id:            crypto.randomUUID(),
             entryId:       jeId,
             agencyId,
-            accountCode:   l.ac.code,
-            accountNameAr: l.ac.ar,
-            accountNameEn: l.ac.en,
+            accountCode:   l.code,
+            accountNameAr: l.ar,
+            accountNameEn: l.en,
             debitHalalas:  l.dr,
             creditHalalas: l.cr,
             sortOrder:     i + 1,

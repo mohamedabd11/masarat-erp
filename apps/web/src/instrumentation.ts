@@ -16,6 +16,12 @@ export async function register() {
 
   if (!process.env.DATABASE_URL) return;
 
+  // Canonical chart of accounts — single source of truth shared with
+  // api/auth/register and api/auth/sync. Used below to backfill any missing
+  // default account for EVERY agency on boot.
+  const { DEFAULT_COA } = await import('@/lib/default-coa');
+  const sqlStr = (s: string) => s.replace(/'/g, "''"); // escape single quotes for SQL literals
+
   const migrations: string[] = [
     // ── 2025-05 ────────────────────────────────────────────────────────────
     // cheques was created without bank_account_id; add it to existing tables.
@@ -682,6 +688,23 @@ export async function register() {
     //   in the sidebar and the modules tab in settings.
     `ALTER TABLE users    ADD COLUMN IF NOT EXISTS permissions     TEXT`,
     `ALTER TABLE agencies ADD COLUMN IF NOT EXISTS enabled_modules TEXT`,
+
+    // ── 2026-06-25 — Backfill the COMPLETE default chart of accounts ──────────
+    // Root cause of an unbalanced trial balance: agencies created before a code
+    // existed (3201 deferred revenue, 5900 FX loss, 8399 rounding, GOSI/EOSB, …)
+    // never received it. A journal posted to a code absent from chart_of_accounts
+    // is silently dropped by the trial-balance report (it iterates the COA), so
+    // the books appeared off by exactly the missing accounts' net. The previous
+    // per-account backfills (1230, 8399) only patched two codes. This generates an
+    // idempotent INSERT…ON CONFLICT DO NOTHING for every canonical account, so all
+    // present AND future agencies converge on the full set on every boot. The
+    // deterministic id (agency_id || '-coa-CODE') mirrors the existing 8399 row.
+    ...DEFAULT_COA.map((ac) =>
+      `INSERT INTO chart_of_accounts (id, agency_id, code, name_ar, name_en, type, is_system, allow_direct_entry, level, created_at, updated_at)
+         SELECT a.id || '-coa-${ac.code}', a.id, '${ac.code}', '${sqlStr(ac.nameAr)}', '${sqlStr(ac.nameEn)}', '${ac.type}', true, true, 1, NOW(), NOW()
+         FROM agencies a
+         ON CONFLICT (agency_id, code) DO NOTHING`,
+    ),
   ];
 
   try {

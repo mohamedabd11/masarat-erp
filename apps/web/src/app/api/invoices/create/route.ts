@@ -9,19 +9,9 @@ import { checkRateLimit, getClientIp, rateLimitHeaders } from '@/lib/rate-limit'
 import { withIdempotency, markIdempotencyComplete } from '@/lib/idempotency';
 import { getNextInvoiceNumber, getNextJournalNumber } from '@/lib/invoice-counter';
 import { assertPeriodOpen } from '@/lib/period-lock';
-import { GL } from '@/lib/gl-accounts';
 import { buildZatcaInvoiceRecord, submitInvoiceToZatca, inferZatcaExemptionReason } from '@/lib/zatca-einvoice';
+import { buildInvoiceJournalLines, buildJournalLinesFromBookingLines } from '@/lib/invoice-journal';
 import type { ZatcaVatCategory, ZatcaExemptionReason } from '@masarat/zatca';
-
-const AC = {
-  receivable:       GL.receivable,
-  payableSupplier:  GL.payableSupplier,
-  vatPayable:       GL.vatPayable,
-  revenueAgent:     GL.revenueAgent,
-  revenuePrincipal: GL.revenuePrincipal,
-  costOfServices:   GL.costOfServices,
-  deferredRevenue:  GL.deferredRevenue,
-};
 
 // Service types whose revenue is deferred until the trip is delivered (IFRS 15).
 const DEFERRABLE_SERVICE_TYPES = new Set(['umrah', 'hajj', 'package', 'packages']);
@@ -508,113 +498,6 @@ function buildInvoiceItemsFromLines(
   });
 }
 
-// ─── buildJournalLinesFromBookingLines ────────────────────────────────────────
-// Produces a balanced double-entry journal from booking_lines.
-// Lines are split by revenueModel (agent vs principal); each group gets its
-// own GL treatment. A single Dr Receivables covers all lines combined.
-//
-// Agent lines:
-//   Dr AR (cost + fee + VAT)
-//   Cr AP Supplier (cost)
-//   Cr Revenue Agent (fee = price_excl_vat − cost)
-//   Cr VAT Payable (if VAT registered)
-//
-// Principal lines:
-//   Dr AR (revenue + VAT)
-//   Cr Revenue Principal (price_excl_vat)
-//   Cr VAT Payable (if VAT registered)
-//   Dr COGS / Cr AP Supplier (if cost > 0)
-function buildJournalLinesFromBookingLines(
-  lines: BookingLine[],
-  isVatRegistered: boolean,
-  deferRevenue: boolean,
-): Array<{ code: string; ar: string; en: string; dr: number; cr: number }> {
-  const ln = (ac: { code: string; ar: string; en: string }, dr: number, cr: number) =>
-    ({ code: ac.code, ar: ac.ar, en: ac.en, dr, cr });
-
-  const revenueAccount = deferRevenue ? AC.deferredRevenue : AC.revenuePrincipal;
-  const agentLines     = lines.filter(l => l.revenueModel === 'agent');
-  const principalLines = lines.filter(l => l.revenueModel !== 'agent');
-
-  const totalReceivable = lines.reduce((s, l) => {
-    return s + l.totalPriceExclVatHalalas + (isVatRegistered ? l.vatHalalas : 0);
-  }, 0);
-
-  const result: Array<{ code: string; ar: string; en: string; dr: number; cr: number }> = [];
-  result.push(ln(AC.receivable, totalReceivable, 0));
-
-  if (agentLines.length > 0) {
-    const totalCost    = agentLines.reduce((s, l) => s + l.totalCostHalalas, 0);
-    // Agency fee = customer price excl VAT minus what we pay the supplier
-    const totalFee     = agentLines.reduce((s, l) => s + Math.max(0, l.totalPriceExclVatHalalas - l.totalCostHalalas), 0);
-    const totalLineVat = isVatRegistered ? agentLines.reduce((s, l) => s + l.vatHalalas, 0) : 0;
-    if (totalCost    > 0) result.push(ln(AC.payableSupplier, 0, totalCost));
-    if (totalFee     > 0) result.push(ln(AC.revenueAgent, 0, totalFee));
-    if (totalLineVat > 0) result.push(ln(AC.vatPayable, 0, totalLineVat));
-  }
-
-  if (principalLines.length > 0) {
-    const totalRevenue = principalLines.reduce((s, l) => s + l.totalPriceExclVatHalalas, 0);
-    const totalLineVat = isVatRegistered ? principalLines.reduce((s, l) => s + l.vatHalalas, 0) : 0;
-    const totalCost    = principalLines.reduce((s, l) => s + l.totalCostHalalas, 0);
-    if (totalRevenue > 0) result.push(ln(revenueAccount, 0, totalRevenue));
-    if (totalLineVat > 0) result.push(ln(AC.vatPayable, 0, totalLineVat));
-    if (totalCost    > 0) {
-      result.push(ln(AC.costOfServices, totalCost, 0));
-      result.push(ln(AC.payableSupplier, 0, totalCost));
-    }
-  }
-
-  // Rounding residual: ensure Dr = Cr by adjusting the last credit line
-  const totalDr = result.reduce((s, l) => s + l.dr, 0);
-  const totalCr = result.reduce((s, l) => s + l.cr, 0);
-  if (totalDr !== totalCr) {
-    const lastCr = [...result].reverse().find(l => l.cr > 0);
-    if (lastCr) lastCr.cr += totalDr - totalCr;
-  }
-
-  return result;
-}
-
-function buildInvoiceJournalLines(
-  revenueModel: string,
-  isVatRegistered: boolean,
-  grandTotal: number,
-  totalCost: number,
-  serviceFee: number,
-  vatAmount: number,
-  subtotalExclVat: number,
-  deferRevenue = false,
-): Array<{ code: string; ar: string; en: string; dr: number; cr: number }> {
-  if (grandTotal === 0) return [];
-  const ar = (ac: { code: string; ar: string; en: string }, dr: number, cr: number) => ({ code: ac.code, ar: ac.ar, en: ac.en, dr, cr });
-
-  // IFRS 15: future-dated travel packages credit deferred revenue (3201) instead
-  // of recognising travel-services revenue (4100) at issuance.
-  const revenueAccount = deferRevenue ? AC.deferredRevenue : AC.revenuePrincipal;
-
-  if (revenueModel === 'agent') {
-    const hasBreakdown = totalCost > 0 || serviceFee > 0;
-    if (hasBreakdown) {
-      const lines = [ar(AC.receivable, grandTotal, 0), ar(AC.payableSupplier, 0, totalCost), ar(AC.revenueAgent, 0, serviceFee)];
-      if (isVatRegistered && vatAmount > 0) lines.push(ar(AC.vatPayable, 0, vatAmount));
-      return lines;
-    }
-    if (isVatRegistered && vatAmount > 0) {
-      return [ar(AC.receivable, grandTotal, 0), ar(AC.revenueAgent, 0, grandTotal - vatAmount), ar(AC.vatPayable, 0, vatAmount)];
-    }
-    return [ar(AC.receivable, grandTotal, 0), ar(AC.revenueAgent, 0, grandTotal)];
-  }
-
-  // Principal model: Dr AR / Cr Revenue (or Deferred Revenue) / Cr VAT
-  //                + Dr COGS / Cr AP (if cost known)
-  const revenueLines = isVatRegistered && vatAmount > 0
-    ? [ar(AC.receivable, grandTotal, 0), ar(revenueAccount, 0, subtotalExclVat), ar(AC.vatPayable, 0, vatAmount)]
-    : [ar(AC.receivable, grandTotal, 0), ar(revenueAccount, 0, grandTotal)];
-
-  if (totalCost > 0) {
-    revenueLines.push(ar(AC.costOfServices, totalCost, 0));
-    revenueLines.push(ar(AC.payableSupplier, 0, totalCost));
-  }
-  return revenueLines;
-}
+// Journal builders now live in `lib/invoice-journal.ts` (extracted for unit
+// testing + a guaranteed Σdr === Σcr balance). See buildJournalLinesFromBookingLines
+// and buildInvoiceJournalLines imported at the top of this file.

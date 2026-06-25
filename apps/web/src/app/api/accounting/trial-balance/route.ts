@@ -39,6 +39,8 @@ export async function GET(request: Request) {
     const movements = await db
       .select({
         accountCode: journalLines.accountCode,
+        nameAr:      sql<string | null>`max(${journalLines.accountNameAr})`,
+        nameEn:      sql<string | null>`max(${journalLines.accountNameEn})`,
         totalDebit:  sql<number>`cast(coalesce(sum(${journalLines.debitHalalas}),0)  as int)`,
         totalCredit: sql<number>`cast(coalesce(sum(${journalLines.creditHalalas}),0) as int)`,
       })
@@ -47,9 +49,9 @@ export async function GET(request: Request) {
       .where(and(...conditions))
       .groupBy(journalLines.accountCode);
 
-    const movMap = new Map<string, { debit: number; credit: number }>();
+    const movMap = new Map<string, { debit: number; credit: number; nameAr: string | null; nameEn: string | null }>();
     for (const m of movements) {
-      movMap.set(m.accountCode, { debit: Number(m.totalDebit), credit: Number(m.totalCredit) });
+      movMap.set(m.accountCode, { debit: Number(m.totalDebit), credit: Number(m.totalCredit), nameAr: m.nameAr, nameEn: m.nameEn });
     }
 
     // ── 3. Build trial balance rows ───────────────────────────────────────────
@@ -91,6 +93,43 @@ export async function GET(request: Request) {
         };
       })
       .filter(r => r.totalDebit !== 0 || r.totalCredit !== 0 || r.balance !== 0);
+
+    // Defense-in-depth: surface any account that has journal movements but no
+    // chart-of-accounts row (e.g. a code added to a journal before the COA caught
+    // up). Without this they were dropped entirely, making the trial balance
+    // appear unbalanced by exactly their net. Classify by code prefix; 3201/3202
+    // are deferred revenue (liability) in substance even without a COA row.
+    const coaCodes = new Set(accounts.map(a => a.code));
+    const classifyType = (code: string): typeof accounts[number]['type'] => {
+      if (code.startsWith('1')) return 'asset';
+      if (code.startsWith('2')) return 'liability';
+      if (code === '3201' || code === '3202') return 'liability';
+      if (code.startsWith('3')) return 'equity';
+      if (code.startsWith('4')) return 'revenue';
+      return 'expense'; // 5xxx / 6xxx / 8xxx
+    };
+    for (const [code, mov] of movMap) {
+      if (coaCodes.has(code)) continue;
+      if (mov.debit === 0 && mov.credit === 0) continue;
+      const type = classifyType(code);
+      const isDebitNormal = type === 'asset' || type === 'expense';
+      rows.push({
+        code,
+        nameAr:       mov.nameAr ?? `حساب غير معرّف (${code})`,
+        nameEn:       mov.nameEn ?? null,
+        type,
+        level:        1,
+        openDebit:    0,
+        openCredit:   0,
+        periodDebit:  mov.debit,
+        periodCredit: mov.credit,
+        totalDebit:   mov.debit,
+        totalCredit:  mov.credit,
+        balance:      isDebitNormal ? mov.debit - mov.credit : mov.credit - mov.debit,
+        isDebitNormal,
+      });
+    }
+    rows.sort((a, b) => a.code.localeCompare(b.code));
 
     const grandTotalDebit  = rows.reduce((s, r) => s + r.totalDebit,  0);
     const grandTotalCredit = rows.reduce((s, r) => s + r.totalCredit, 0);
