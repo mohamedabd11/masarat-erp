@@ -377,5 +377,11 @@ async function main() {
 
 main().catch((err) => {
   console.error('\n✗ فشلت الزراعة:', err instanceof Error ? err.message : err);
+  // خطأ PostgreSQL الحقيقي (مثل "column ... does not exist") يكون في cause
+  const cause = (err as { cause?: unknown })?.cause;
+  if (cause) {
+    const cm = cause instanceof Error ? cause.message : String(cause);
+    console.error('  ↳ السبب الجذري (PostgreSQL):', cm);
+  }
   process.exit(1);
 });
