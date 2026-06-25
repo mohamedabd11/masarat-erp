@@ -177,6 +177,11 @@ async function main() {
       customerId: custB2C, customerNameAr: 'عميل تجريبي — فردي', line });
 
     const invId = 'demo-inv-flight', jeId = 'demo-je-inv-flight';
+    // أدرج القيد أولاً (قبل الفاتورة — FK constraint)
+    await postJournal({ agencyId, id: jeId, date: today, descAr: `فاتورة ${invId} — حجز طيران`,
+      source: 'invoice', sourceId: invId, serviceType: 'flight',
+      lines: toJL(buildJournalLinesFromBookingLines([line], true, false)) });
+    // ثم الفاتورة
     await db.insert(invoices).values({
       id: invId, agencyId, invoiceNumber: invNo(), type: '388', bookingId: bId, customerId: custB2C,
       buyerNameAr: 'عميل تجريبي — فردي', subtotalHalalas: SAR(1600), vatHalalas: SAR(15),
@@ -184,19 +189,16 @@ async function main() {
       isEInvoice: true, journalEntryId: jeId, createdBy: 'seed',
       items: [{ description: 'تذكرة الرياض ⇄ القاهرة', quantity: 1, unitPriceHalalas: SAR(1600), vatHalalas: SAR(15), totalHalalas: total }],
     }).onConflictDoNothing();
-    await postJournal({ agencyId, id: jeId, date: today, descAr: `فاتورة ${invId} — حجز طيران`,
-      source: 'invoice', sourceId: invId, serviceType: 'flight',
-      lines: toJL(buildJournalLinesFromBookingLines([line], true, false)) });
 
-    // دفعة كاملة
+    // دفعة كاملة — القيد أولاً ثم الدفعة (FK)
     const payId = 'demo-pay-flight', jePay = 'demo-je-pay-flight';
+    await postJournal({ agencyId, id: jePay, date: today, descAr: `استلام دفعة — ${invId}`,
+      source: 'payment', sourceId: payId, lines: toJL(buildCustomerReceiptLines(total, 'bank_transfer')) });
     await db.insert(payments).values({
       id: payId, agencyId, invoiceId: invId, bookingId: bId, customerId: custB2C,
       customerName: 'عميل تجريبي — فردي', amountHalalas: total, method: 'bank_transfer',
       voucherNumber: rctNo(), date: today, journalEntryId: jePay, createdBy: 'seed',
     }).onConflictDoNothing();
-    await postJournal({ agencyId, id: jePay, date: today, descAr: `استلام دفعة — ${invId}`,
-      source: 'payment', sourceId: payId, lines: toJL(buildCustomerReceiptLines(total, 'bank_transfer')) });
   }
 
   // ════════════════════════════════════════════════════════════════════════
@@ -213,6 +215,9 @@ async function main() {
 
     const invId = 'demo-inv-package', jeId = 'demo-je-inv-package';
     const firstPay = SAR(5000), secondPay = total - firstPay;
+    await postJournal({ agencyId, id: jeId, date: today, descAr: `فاتورة ${invId} — باقة`,
+      source: 'invoice', sourceId: invId, serviceType: 'package',
+      lines: toJL(buildJournalLinesFromBookingLines([line], true, false)) });
     await db.insert(invoices).values({
       id: invId, agencyId, invoiceNumber: invNo(), type: '388', bookingId: bId, customerId: custB2B,
       buyerNameAr: 'شركة تجريبية — اعتباري', buyerVatNumber: '310123456700003',
@@ -221,27 +226,24 @@ async function main() {
       journalEntryId: jeId, createdBy: 'seed',
       items: [{ description: 'باقة سياحية — إسطنبول', quantity: 1, unitPriceHalalas: SAR(10000), vatHalalas: SAR(1500), totalHalalas: total }],
     }).onConflictDoNothing();
-    await postJournal({ agencyId, id: jeId, date: today, descAr: `فاتورة ${invId} — باقة`,
-      source: 'invoice', sourceId: invId, serviceType: 'package',
-      lines: toJL(buildJournalLinesFromBookingLines([line], true, false)) });
 
     // قسط 1 (مقدّمة)
+    await postJournal({ agencyId, id: 'demo-je-pkg-pay1', date: addDays(-20), descAr: `دفعة مقدّمة — ${invId}`,
+      source: 'payment', sourceId: 'demo-pay-pkg-1', lines: toJL(buildCustomerReceiptLines(firstPay, 'cash')) });
     await db.insert(payments).values({
       id: 'demo-pay-pkg-1', agencyId, invoiceId: invId, bookingId: bId, customerId: custB2B,
       customerName: 'شركة تجريبية — اعتباري', amountHalalas: firstPay, method: 'cash',
       voucherNumber: rctNo(), date: addDays(-20), journalEntryId: 'demo-je-pkg-pay1', createdBy: 'seed',
     }).onConflictDoNothing();
-    await postJournal({ agencyId, id: 'demo-je-pkg-pay1', date: addDays(-20), descAr: `دفعة مقدّمة — ${invId}`,
-      source: 'payment', sourceId: 'demo-pay-pkg-1', lines: toJL(buildCustomerReceiptLines(firstPay, 'cash')) });
 
     // قسط 2 (الباقي عند الموعد)
+    await postJournal({ agencyId, id: 'demo-je-pkg-pay2', date: today, descAr: `سداد الباقي — ${invId}`,
+      source: 'payment', sourceId: 'demo-pay-pkg-2', lines: toJL(buildCustomerReceiptLines(secondPay, 'bank_transfer')) });
     await db.insert(payments).values({
       id: 'demo-pay-pkg-2', agencyId, invoiceId: invId, bookingId: bId, customerId: custB2B,
       customerName: 'شركة تجريبية — اعتباري', amountHalalas: secondPay, method: 'bank_transfer',
       voucherNumber: rctNo(), date: today, journalEntryId: 'demo-je-pkg-pay2', createdBy: 'seed',
     }).onConflictDoNothing();
-    await postJournal({ agencyId, id: 'demo-je-pkg-pay2', date: today, descAr: `سداد الباقي — ${invId}`,
-      source: 'payment', sourceId: 'demo-pay-pkg-2', lines: toJL(buildCustomerReceiptLines(secondPay, 'bank_transfer')) });
   }
 
   // ════════════════════════════════════════════════════════════════════════
@@ -257,6 +259,10 @@ async function main() {
       customerId: custB2C, customerNameAr: 'عميل تجريبي — فردي', line, details: { travelDate: addDays(30) } });
 
     const invId = 'demo-inv-umrah', jeId = 'demo-je-inv-umrah';
+    // deferRevenue=true → الإيراد يُقيَّد في 3201 (إيراد مؤجل) لا 4100 — القيد أولاً ثم الفاتورة
+    await postJournal({ agencyId, id: jeId, date: today, descAr: `فاتورة ${invId} — عمرة (إيراد مؤجل)`,
+      source: 'invoice', sourceId: invId, serviceType: 'umrah',
+      lines: toJL(buildJournalLinesFromBookingLines([line], true, true)) });
     await db.insert(invoices).values({
       id: invId, agencyId, invoiceNumber: invNo(), type: '388', bookingId: bId, customerId: custB2C,
       buyerNameAr: 'عميل تجريبي — فردي', subtotalHalalas: SAR(5000), vatHalalas: 0, totalHalalas: total,
@@ -264,19 +270,15 @@ async function main() {
       deferredUntil: addDays(30), journalEntryId: jeId, createdBy: 'seed',
       items: [{ description: 'برنامج عمرة', quantity: 1, unitPriceHalalas: SAR(5000), vatHalalas: 0, totalHalalas: total }],
     }).onConflictDoNothing();
-    // deferRevenue=true → الإيراد يُقيَّد في 3201 (إيراد مؤجل) لا 4100
-    await postJournal({ agencyId, id: jeId, date: today, descAr: `فاتورة ${invId} — عمرة (إيراد مؤجل)`,
-      source: 'invoice', sourceId: invId, serviceType: 'umrah',
-      lines: toJL(buildJournalLinesFromBookingLines([line], true, true)) });
 
-    // دفعة كاملة
+    // دفعة كاملة — القيد أولاً ثم الدفعة
+    await postJournal({ agencyId, id: 'demo-je-umrah-pay', date: today, descAr: `استلام دفعة عمرة — ${invId}`,
+      source: 'payment', sourceId: 'demo-pay-umrah', lines: toJL(buildCustomerReceiptLines(total, 'cash')) });
     await db.insert(payments).values({
       id: 'demo-pay-umrah', agencyId, invoiceId: invId, bookingId: bId, customerId: custB2C,
       customerName: 'عميل تجريبي — فردي', amountHalalas: total, method: 'cash',
       voucherNumber: rctNo(), date: today, journalEntryId: 'demo-je-umrah-pay', createdBy: 'seed',
     }).onConflictDoNothing();
-    await postJournal({ agencyId, id: 'demo-je-umrah-pay', date: today, descAr: `استلام دفعة عمرة — ${invId}`,
-      source: 'payment', sourceId: 'demo-pay-umrah', lines: toJL(buildCustomerReceiptLines(total, 'cash')) });
   }
 
   // ════════════════════════════════════════════════════════════════════════
@@ -315,6 +317,9 @@ async function main() {
       refundAmountHalalas: refundCash, cancellationFeeHalalas: cancelFee + cancelFeeVat, isEInvoice: true,
     });
 
+    await postJournal({ agencyId, id: jeId, date: today, descAr: `مذكرة دائنة ${cnId} — استرداد جزئي`,
+      source: 'receipt', sourceId: cnId,
+      lines: refundLines.map(l => ({ code: l.code, ar: l.ar, en: l.en, dr: l.dr, cr: l.cr })) });
     await db.insert(invoices).values({
       id: cnId, agencyId, invoiceNumber: invNo(), type: '381', bookingId: 'demo-bk-flight',
       customerId: custB2C, buyerNameAr: 'عميل تجريبي — فردي', subtotalHalalas: SAR(1200) - Math.round(SAR(1200) * 15 / 1615),
@@ -322,9 +327,6 @@ async function main() {
       issueDate: today, status: 'issued', isEInvoice: true, originalInvoiceId: origInvId,
       journalEntryId: jeId, createdBy: 'seed', notes: 'استرداد جزئي تجريبي',
     }).onConflictDoNothing();
-    await postJournal({ agencyId, id: jeId, date: today, descAr: `مذكرة دائنة ${cnId} — استرداد جزئي`,
-      source: 'receipt', sourceId: cnId,
-      lines: refundLines.map(l => ({ code: l.code, ar: l.ar, en: l.en, dr: l.dr, cr: l.cr })) });
   }
 
   // ════════════════════════════════════════════════════════════════════════
@@ -337,14 +339,14 @@ async function main() {
       paymentAccount: { code: '1110', ar: 'البنك', en: 'Bank' },
       resolvedAmountHalalas: SAR(5000), vatAmountHalalas: 0, expenseDebitHalalas: SAR(5000),
     });
+    await postJournal({ agencyId, id: jeId, date: today, descAr: `سند صرف — تسوية الخطوط الجوية`,
+      source: 'payment', sourceId: spId, lines: toJL(built) });
     await db.insert(supplierPayments).values({
       id: spId, agencyId, supplierId: supAir, supplierName: 'الخطوط الجوية (تجريبي)',
       payeeName: 'الخطوط الجوية (تجريبي)', amountHalalas: SAR(5000), method: 'bank_transfer',
       voucherNumber: pvNo(), expenseCategory: 'supplier', date: today, status: 'completed',
       journalEntryId: jeId, createdBy: 'seed',
     }).onConflictDoNothing();
-    await postJournal({ agencyId, id: jeId, date: today, descAr: `سند صرف — تسوية الخطوط الجوية`,
-      source: 'payment', sourceId: spId, lines: toJL(built) });
   }
 
   // ════════════════════════════════════════════════════════════════════════
@@ -358,14 +360,14 @@ async function main() {
       paymentAccount: { code: '1110', ar: 'البنك', en: 'Bank' },
       resolvedAmountHalalas: paidSAR, vatAmountHalalas: 0, expenseDebitHalalas: bookedSAR,
     });
+    await postJournal({ agencyId, id: jeId, date: today, descAr: `سند صرف (USD) — فندق مكة (فرق صرف)`,
+      source: 'payment', sourceId: spId, lines: toJL(built) });
     await db.insert(supplierPayments).values({
       id: spId, agencyId, supplierId: supHotel, supplierName: 'فندق مكة (تجريبي)',
       payeeName: 'فندق مكة (تجريبي)', amountHalalas: paidSAR, method: 'bank_transfer',
       voucherNumber: pvNo(), expenseCategory: 'supplier', reference: 'USD @ 3.78', date: today,
       status: 'completed', journalEntryId: jeId, createdBy: 'seed',
     }).onConflictDoNothing();
-    await postJournal({ agencyId, id: jeId, date: today, descAr: `سند صرف (USD) — فندق مكة (فرق صرف)`,
-      source: 'payment', sourceId: spId, lines: toJL(built) });
     // ملاحظة: دفتر المورد ينقص بـ bookedSAR (3300) — لا paidSAR — والفرق (60) في 5900 خسائر صرف
   }
 
