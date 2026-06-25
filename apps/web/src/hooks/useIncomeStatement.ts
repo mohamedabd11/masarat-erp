@@ -90,16 +90,24 @@ export function useIncomeStatement(): IncomeStatementData {
             const nameAr = line.accountNameAr ?? code;
             const nameEn = line.accountNameEn ?? code;
             const c = code.charAt(0);
-            if (c === '4' && credit > 0) {
+            // Revenue (4xxx) is credit-normal → net = credits − debits. A refund /
+            // credit-note debits the revenue account to REVERSE it; counting only
+            // the credit side (the previous bug) overstated revenue and made the
+            // income statement disagree with the balance sheet. Expenses (5xxx /
+            // 6xxx) are debit-normal → net = debits − credits.
+            if (c === '4') {
               const ex = rev.get(code);
-              rev.set(code, { code, nameAr, nameEn, halalas: (ex?.halalas ?? 0) + credit });
-            }
-            if (c === '5' && debit > 0) {
+              rev.set(code, { code, nameAr, nameEn, halalas: (ex?.halalas ?? 0) + credit - debit });
+            } else if (c === '5' || c === '6') {
               const ex = exp.get(code);
-              exp.set(code, { code, nameAr, nameEn, halalas: (ex?.halalas ?? 0) + debit });
+              exp.set(code, { code, nameAr, nameEn, halalas: (ex?.halalas ?? 0) + debit - credit });
             }
           }
         }
+        // Drop accounts that net to zero (e.g. fully reversed) so they don't show
+        // as empty lines.
+        for (const [k, v] of rev) if (v.halalas === 0) rev.delete(k);
+        for (const [k, v] of exp) if (v.halalas === 0) exp.delete(k);
         setRevenueMap(rev);
         setExpenseMap(exp);
       })
