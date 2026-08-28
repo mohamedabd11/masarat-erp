@@ -1,3 +1,4 @@
+import { sql } from 'drizzle-orm';
 import { pgTable, text, integer, bigint, boolean, timestamp, uniqueIndex, index } from 'drizzle-orm/pg-core';
 import { agencies } from './agencies';
 
@@ -51,6 +52,9 @@ export const journalEntries = pgTable('journal_entries', {
   index('idx_je_agency_source').on(t.agencyId, t.source),
   index('idx_je_source_id').on(t.agencyId, t.sourceId),
   uniqueIndex('journal_entries_agency_number_uq').on(t.agencyId, t.entryNumber),
+  uniqueIndex('journal_entries_fx_reval_uq')
+    .on(t.agencyId, t.sourceId, t.date)
+    .where(sql`${t.source} = 'fx_revaluation'`),
 ]);
 
 export type JournalEntry    = typeof journalEntries.$inferSelect;

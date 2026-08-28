@@ -1,4 +1,5 @@
-import { pgTable, text, integer, bigint, timestamp, uniqueIndex, jsonb } from 'drizzle-orm/pg-core';
+import { sql } from 'drizzle-orm';
+import { pgTable, text, integer, bigint, timestamp, index, uniqueIndex, jsonb } from 'drizzle-orm/pg-core';
 import { agencies } from './agencies';
 import { bookings } from './bookings';
 import { customers } from './customers';
@@ -55,6 +56,11 @@ export const pnrRecords = pgTable('pnr_records', {
   updatedAt:      timestamp('updated_at').notNull().defaultNow(),
 }, (t) => ({
   agencyPnrUq: uniqueIndex('pnr_agency_code_uq').on(t.agencyId, t.pnrCode),
+  expiryIdx: index('idx_pnr_expiry')
+    .on(t.status, t.expiresAt)
+    .where(sql`${t.deletedAt} IS NULL`),
+  agencyCreatedIdx: index('idx_pnr_agency_created').on(t.agencyId, t.createdAt.desc()),
+  agencyStatusIdx: index('idx_pnr_agency_status').on(t.agencyId, t.status),
 }));
 
 export type PnrRecord    = typeof pnrRecords.$inferSelect;
