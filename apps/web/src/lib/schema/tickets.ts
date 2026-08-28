@@ -1,3 +1,4 @@
+import { sql } from 'drizzle-orm';
 import { pgTable, text, integer, bigint, timestamp, index, uniqueIndex, jsonb } from 'drizzle-orm/pg-core';
 import { agencies } from './agencies';
 import { pnrRecords } from './pnr';
@@ -67,6 +68,9 @@ export const tickets = pgTable('tickets', {
   statusIdx:      index('tickets_status_idx').on(t.status),
   // NULL values are NULLS DISTINCT in PostgreSQL — multiple pending rows allowed
   ticketNumberUq: uniqueIndex('tickets_number_uq').on(t.agencyId, t.ticketNumber),
+  activePassengerUq: uniqueIndex('tickets_active_passenger_uq')
+    .on(t.agencyId, t.pnrId, t.passengerName)
+    .where(sql`${t.status} IN ('active', 'pending')`),
 }));
 
 /**

@@ -23,7 +23,9 @@ export const employees = pgTable('employees', {
   glAccountId:      text('gl_account_id'),
   createdAt:        timestamp('created_at').notNull().defaultNow(),
   updatedAt:        timestamp('updated_at').notNull().defaultNow(),
-});
+}, (t) => ({
+  agencyEmployeeNumberUq: uniqueIndex('employees_agency_number_uq').on(t.agencyId, t.employeeNumber),
+}));
 
 export type Employee    = typeof employees.$inferSelect;
 export type NewEmployee = typeof employees.$inferInsert;

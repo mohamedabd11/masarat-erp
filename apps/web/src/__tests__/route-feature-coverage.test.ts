@@ -34,7 +34,10 @@ describe('route → feature coverage (central permission gate)', () => {
 
     const unmatched: string[] = [];
     for (const file of files) {
-      const rel = file.slice(API_ROOT.length + 1).replace(/\/route\.ts$/, '');
+      const rel = file
+        .slice(API_ROOT.length + 1)
+        .replaceAll('\\', '/')
+        .replace(/\/route\.ts$/, '');
       if (!featureForPath('/api/' + rel).matched) unmatched.push(rel);
     }
 

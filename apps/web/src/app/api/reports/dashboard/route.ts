@@ -72,26 +72,6 @@ export async function GET(request: Request) {
       ))
       .groupBy(bookings.serviceType);
 
-    // ── VAT invoice list for the year (VAT-return tab filters by sub-range) ──────
-    const vatRows = await db
-      .select({
-        id:              invoices.id,
-        invoiceNumber:   invoices.invoiceNumber,
-        subtotalHalalas: invoices.subtotalHalalas,
-        vatHalalas:      invoices.vatHalalas,
-        totalHalalas:    invoices.totalHalalas,
-        status:          invoices.status,
-        createdAt:       invoices.createdAt,
-      })
-      .from(invoices)
-      .where(and(
-        eq(invoices.agencyId, agencyId),
-        ne(invoices.status, 'cancelled'),
-        sql`${invoices.createdAt} >= ${yearStart}`,
-        sql`${invoices.createdAt} <  ${yearEnd}`,
-      ))
-      .orderBy(invoices.createdAt);
-
     return NextResponse.json({
       year,
       monthly: monthlyRaw.map((r) => ({
@@ -107,7 +87,6 @@ export async function GET(request: Request) {
         count: Number(r.cnt),
         rev:   Number(r.rev),
       })),
-      vatInvoices: vatRows,
     });
   } catch (err) {
     if (err instanceof ApiAuthError || err instanceof BusinessError) {

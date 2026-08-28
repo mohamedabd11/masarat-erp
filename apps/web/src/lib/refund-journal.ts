@@ -86,6 +86,16 @@ export function buildRefundJournalLines(input: RefundJournalInput): RefundJourna
   const cancelledTotal = input.cancelledTotalHalalas ?? (refundAmountHalalas + cancellationFeeHalalas);
   const reversalRatio  = cancelledTotal / denom;
 
+  if (!Number.isInteger(originalTotalHalalas) || originalTotalHalalas <= 0) {
+    throw new BusinessError('إجمالي الفاتورة غير صالح للاسترداد', 400);
+  }
+  if (cancelledTotal > originalTotalHalalas) {
+    throw new BusinessError('قيمة الجزء الملغى تتجاوز إجمالي الفاتورة', 400);
+  }
+  if (refundAmountHalalas + cancellationFeeHalalas > paidHalalas) {
+    throw new BusinessError('مبلغ الاسترداد ورسوم الإلغاء يتجاوزان المبلغ المدفوع', 400);
+  }
+
   // VAT: reverse VAT on the cancelled portion EXCEPT the retained fee's VAT, which
   // stays in 2200 (the fee is still a taxable supply). The non-cancelled portion's
   // VAT also stays untouched.
@@ -102,31 +112,29 @@ export function buildRefundJournalLines(input: RefundJournalInput): RefundJourna
   }
 
   // ── Legacy fallback: no original journal to mirror ───────────────────────────
-  // Reproduces the pre-CRIT-10 behaviour verbatim so refunds on legacy invoices
-  // (no journalEntryId) post exactly as before — single revenue account from the
-  // booking's revenueModel, VAT prorated by refundRatio, COGS from the legacy
-  // costPriceHalalas aggregate.
+  // Legacy invoices have no original journal to mirror. Use their stored totals
+  // and aggregate cost while preserving the same Bank/Fee/AR split as the
+  // line-based path. This is especially important for a partially-paid full
+  // cancellation, where the open AR must be written off as well.
   if (originalLines.length === 0) {
     const fb        = input.fallback ?? { revenueModel: 'principal', costPriceHalalas: 0 };
     const revAc     = fb.revenueModel === 'agent' ? GL.revenueAgent : GL.revenuePrincipal;
-    const refundRatio    = refundAmountHalalas / denom;
-    const refundVat      = Math.round(originalVatHalalas * refundRatio);
-    const refundSubtotal = refundAmountHalalas - refundVat;
+    const originalRevenue = Math.max(0, originalTotalHalalas - originalVatHalalas);
+    const revenueReversal = Math.round(originalRevenue * reversalRatio);
 
-    const lines: RefundJournalLine[] = refundVat > 0
-      ? [{ ...revAc, dr: refundSubtotal, cr: 0 }, { ...GL.vatPayable, dr: refundVat, cr: 0 }, { ...GL.bank, dr: 0, cr: refundAmountHalalas }]
-      : [{ ...revAc, dr: refundAmountHalalas, cr: 0 }, { ...GL.bank, dr: 0, cr: refundAmountHalalas }];
+    const lines: RefundJournalLine[] = [];
+    if (revenueReversal > 0) lines.push({ ...revAc, dr: revenueReversal, cr: 0 });
+    if (vatRev > 0)          lines.push({ ...GL.vatPayable, dr: vatRev, cr: 0 });
+    if (refundAmountHalalas > 0) lines.push({ ...GL.bank, dr: 0, cr: refundAmountHalalas });
+    if (cancelFeeNet > 0)         lines.push({ ...GL.cancellationFee, dr: 0, cr: cancelFeeNet });
+    if (arVoid > 0)               lines.push({ ...GL.receivable, dr: 0, cr: arVoid });
 
-    if (cancellationFeeHalalas > 0) {
-      lines.push({ code: revAc.code, ar: 'رسوم إلغاء — مقتطعة من الحجز', en: 'Cancellation Fee Withheld', dr: cancelFeeNet, cr: 0 });
-      lines.push({ ...GL.cancellationFee, dr: 0, cr: cancelFeeNet });
-    }
-    const refundCost = Math.round((fb.costPriceHalalas ?? 0) * refundRatio);
+    const refundCost = Math.round((fb.costPriceHalalas ?? 0) * reversalRatio);
     if (refundCost > 0) {
       lines.push({ ...GL.payableSupplier, dr: refundCost, cr: 0 });
       lines.push({ ...GL.costOfServices,  dr: 0, cr: refundCost });
     }
-    return assertBalanced(lines);
+    return reconcileRounding(lines);
   }
 
   // ── Line-based reversal (the correct path) ───────────────────────────────────

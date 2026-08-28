@@ -4,6 +4,8 @@ import { db } from '@/lib/db';
 import { invoices, supplierPayments, agencies, bookings, journalLines, journalEntries } from '@/lib/schema';
 import { verifyAuth, assertRole, ApiAuthError, ROLES_ACCOUNTANT_UP } from '@/lib/api-auth';
 import { requireFeature } from '@/lib/feature-access';
+import { validateReportRange } from '@/lib/report-dates';
+import { calculateVatControlMovements } from '@/lib/vat-control';
 
 /**
  * VAT Return Report (إقرار ضريبة القيمة المضافة)
@@ -28,9 +30,9 @@ export async function GET(request: Request) {
     if (!from || !to) {
       return NextResponse.json({ error: 'from و to مطلوبان (YYYY-MM-DD)' }, { status: 400 });
     }
-    const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
-    if (!ISO_DATE.test(from) || !ISO_DATE.test(to)) {
-      return NextResponse.json({ error: 'صيغة التاريخ يجب أن تكون YYYY-MM-DD' }, { status: 400 });
+    const range = validateReportRange(from, to);
+    if (!range.valid) {
+      return NextResponse.json({ error: range.error }, { status: 400 });
     }
 
     // Verify agency is VAT-registered
@@ -140,7 +142,8 @@ export async function GET(request: Request) {
     // because those include cancellation reversals which are NOT reclaimable input VAT.
     const inputVatRows = await db
       .select({
-        inputVat: sql<number>`cast(coalesce(sum(${journalLines.debitHalalas}), 0) as int)`,
+        debit:  sql<number>`cast(coalesce(sum(${journalLines.debitHalalas}), 0) as bigint)`,
+        credit: sql<number>`cast(coalesce(sum(${journalLines.creditHalalas}), 0) as bigint)`,
       })
       .from(journalLines)
       .innerJoin(journalEntries, eq(journalLines.entryId, journalEntries.id))
@@ -149,12 +152,9 @@ export async function GET(request: Request) {
         eq(journalEntries.isPosted, true),
         ne(journalEntries.source, 'closing'),
         sql`${journalLines.accountCode} = '1230'`,
-        sql`${journalLines.debitHalalas} > 0`,
         sql`${journalEntries.date} >= ${from}`,
         sql`${journalEntries.date} <= ${to}`,
       ));
-
-    const inputVat = Number(inputVatRows[0]?.inputVat ?? 0);
 
     // ── Authoritative Output VAT from the GL (account 2200) ───────────────────
     // The number FILED to ZATCA must equal VAT Payable in the ledger, not the sum
@@ -164,7 +164,8 @@ export async function GET(request: Request) {
     // (which debit 2200) net automatically. Mirrors balance-sheet/trial-balance.
     const outputVatGlRows = await db
       .select({
-        netCredit: sql<number>`cast(coalesce(sum(${journalLines.creditHalalas} - ${journalLines.debitHalalas}), 0) as bigint)`,
+        debit:  sql<number>`cast(coalesce(sum(${journalLines.debitHalalas}), 0) as bigint)`,
+        credit: sql<number>`cast(coalesce(sum(${journalLines.creditHalalas}), 0) as bigint)`,
       })
       .from(journalLines)
       .innerJoin(journalEntries, eq(journalLines.entryId, journalEntries.id))
@@ -177,12 +178,19 @@ export async function GET(request: Request) {
         sql`${journalEntries.date} <= ${to}`,
       ));
 
-    const outputVatGl = Number(outputVatGlRows[0]?.netCredit ?? 0);
+    const control = calculateVatControlMovements({
+      outputDebit:  Number(outputVatGlRows[0]?.debit ?? 0),
+      outputCredit: Number(outputVatGlRows[0]?.credit ?? 0),
+      inputDebit:   Number(inputVatRows[0]?.debit ?? 0),
+      inputCredit:  Number(inputVatRows[0]?.credit ?? 0),
+    });
+    const outputVatGl = control.outputVat;
+    const inputVat = control.inputVat;
 
     // ── Summary ───────────────────────────────────────────────────────────────
     // Authoritative figures come from the GL; the invoice-derived breakdown above
     // is retained for display only.
-    const netVatPayable = outputVatGl - inputVat;
+    const netVatPayable = control.netVatPayable;
     const netVatDue     = netVatPayable;
 
     return NextResponse.json({

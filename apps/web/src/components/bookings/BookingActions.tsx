@@ -132,6 +132,7 @@ export function BookingActions({
           invoiceId={invoiceId}
           agencyId={agencyId}
           paidAmountHalalas={paid}
+          cancelledTotalHalalas={grandTotalHalalas}
           onClose={() => setShowRefund(false)}
           onSuccess={() => {
             setPaid(0);

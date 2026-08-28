@@ -25,6 +25,7 @@
     "@masarat/firebase": "workspace:*",
     "@masarat/zatca": "workspace:*",
     "@neondatabase/serverless": "^1.1.0",
+    "@sentry/core": "^8.0.0",
     "@sentry/nextjs": "^8.0.0",
     "@vercel/blob": "^2.4.0",
     "clsx": "^2.1.1",

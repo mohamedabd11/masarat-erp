@@ -8,7 +8,7 @@ import { Spinner } from '@/components/ui/Spinner';
 import { formatCurrency, formatCount } from '@/lib/utils';
 import { cn } from '@/lib/utils';
 import { apiFetch } from '@/lib/api-client';
-import { useReportsData, type MonthlyRow, type TypeMixRow, type VatInvoice } from '@/hooks/useReportsData';
+import { useReportsData, type MonthlyRow, type TypeMixRow } from '@/hooks/useReportsData';
 import { useChartOfAccounts, type ChartAccountWithBalance as ChartAccount } from '@/hooks/useChartOfAccounts';
 import { useIncomeStatement } from '@/hooks/useIncomeStatement';
 import { ArAgingTab } from '@/components/reports/ArAgingTab';
@@ -19,7 +19,7 @@ import {
   FileText, CheckCircle2, AlertCircle, Printer,
   ChevronDown, ChevronRight, Receipt, Wallet,
   Building2, Scale, ListTree, Stamp, Calendar,
-  PieChart, Users, X, Send, ChevronLeft,
+  PieChart, Users, ChevronLeft,
 } from 'lucide-react';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -27,6 +27,27 @@ import {
 interface VatDateRange {
   from: string;
   to: string;
+}
+
+interface VatReturnData {
+  period: { from: string; to: string };
+  sales: { count: number; netAmount: number; vatAmount: number; grossAmount: number };
+  creditNotes: { count: number; netAmount: number; vatAmount: number };
+  purchases: { count: number; netAmount: number; vatAmount: number };
+  summary: {
+    standardRatedSales: number;
+    zeroRatedSales: number;
+    exemptSales: number;
+    outputVat: number;
+    inputVat: number;
+    netVatPayable: number;
+  };
+  reconciliation: {
+    outputVatFromInvoices: number;
+    outputVatFromGl: number;
+    difference: number;
+    reconciled: boolean;
+  };
 }
 
 interface TrialAccount {
@@ -43,11 +64,13 @@ interface TrialAccount {
 
 
 
+const VAT_REPORT_YEAR = new Date().getUTCFullYear();
 const VAT_QUICK_PERIODS: { id: string; labelAr: string; labelEn: string; from: string; to: string }[] = [
-  { id: 'q1', labelAr: 'ر١ 2026', labelEn: 'Q1 2026', from: '2026-01-01', to: '2026-03-31' },
-  { id: 'q2', labelAr: 'ر٢ 2026', labelEn: 'Q2 2026', from: '2026-04-01', to: '2026-06-30' },
-  { id: 'h1', labelAr: 'ن١ 2026', labelEn: 'H1 2026', from: '2026-01-01', to: '2026-06-30' },
-  { id: 'fy', labelAr: 'سنوي 2026', labelEn: 'FY 2026', from: '2026-01-01', to: '2026-12-31' },
+  { id: 'q1', labelAr: `ر١ ${VAT_REPORT_YEAR}`, labelEn: `Q1 ${VAT_REPORT_YEAR}`, from: `${VAT_REPORT_YEAR}-01-01`, to: `${VAT_REPORT_YEAR}-03-31` },
+  { id: 'q2', labelAr: `ر٢ ${VAT_REPORT_YEAR}`, labelEn: `Q2 ${VAT_REPORT_YEAR}`, from: `${VAT_REPORT_YEAR}-04-01`, to: `${VAT_REPORT_YEAR}-06-30` },
+  { id: 'q3', labelAr: `ر٣ ${VAT_REPORT_YEAR}`, labelEn: `Q3 ${VAT_REPORT_YEAR}`, from: `${VAT_REPORT_YEAR}-07-01`, to: `${VAT_REPORT_YEAR}-09-30` },
+  { id: 'q4', labelAr: `ر٤ ${VAT_REPORT_YEAR}`, labelEn: `Q4 ${VAT_REPORT_YEAR}`, from: `${VAT_REPORT_YEAR}-10-01`, to: `${VAT_REPORT_YEAR}-12-31` },
+  { id: 'fy', labelAr: `سنوي ${VAT_REPORT_YEAR}`, labelEn: `FY ${VAT_REPORT_YEAR}`, from: `${VAT_REPORT_YEAR}-01-01`, to: `${VAT_REPORT_YEAR}-12-31` },
 ];
 
 // ─── CSV Export Helper ────────────────────────────────────────────────────────
@@ -496,44 +519,111 @@ function IncomeStatementTab({ isAr, fmtLocale }: { isAr: boolean; fmtLocale: str
   );
 }
 
+interface VATBoxDef {
+  box: string;
+  labelAr: string;
+  labelEn: string;
+  noteAr: string;
+  noteEn: string;
+  base: number;
+  vat: number;
+  rate?: '15%' | '0%' | 'exempt' | 'reverse';
+  highlight: 'output' | 'input' | 'net-due';
+}
+
+const VAT_RATE_BADGES: Record<string, string> = {
+  '15%': 'bg-red-100 text-red-700',
+  '0%': 'bg-sky-100 text-sky-700',
+  exempt: 'bg-slate-100 text-slate-500',
+};
+
+function VATBoxRow({ box, isAr, fmtLocale }: { box: VATBoxDef; isAr: boolean; fmtLocale: string }) {
+  const rateBadge = box.rate ? (VAT_RATE_BADGES[box.rate] ?? '') : '';
+  const dotColor = box.highlight === 'output' ? 'bg-brand-600' : box.highlight === 'input' ? 'bg-sky-600' : 'bg-emerald-600';
+  return (
+    <div className="border-b border-slate-100 last:border-0 p-4">
+      <div className="flex items-start gap-3">
+        <span className={cn('w-8 h-8 rounded-full flex items-center justify-center text-xs font-black flex-shrink-0 mt-0.5 text-white', dotColor)}>{box.box}</span>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-start gap-2 flex-wrap mb-0.5">
+            <p className="text-sm font-semibold text-slate-900 flex-1">{isAr ? box.labelAr : box.labelEn}</p>
+            {box.rate ? <span className={cn('text-[10px] font-bold px-2 py-0.5 rounded-full flex-shrink-0', rateBadge)}>{box.rate}</span> : null}
+          </div>
+          <p className="text-[11px] text-slate-400 leading-relaxed mb-2">{isAr ? box.noteAr : box.noteEn}</p>
+          <div className="flex items-center gap-6 pt-2 border-t border-slate-100">
+            <div>
+              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wide mb-0.5">{isAr ? 'الوعاء الضريبي' : 'Tax Base'}</p>
+              <p className="text-sm font-mono tabular-nums font-semibold text-slate-700">{box.base !== 0 ? formatCurrency(box.base, fmtLocale) : <span className="text-slate-300">—</span>}</p>
+            </div>
+            <div>
+              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wide mb-0.5">{isAr ? 'مبلغ الضريبة' : 'VAT Amount'}</p>
+              <p className={cn('text-sm font-mono tabular-nums font-bold', box.box === '13' ? 'text-emerald-700 text-base' : 'text-slate-900')}>
+                {box.vat !== 0 ? formatCurrency(box.vat, fmtLocale) : <span className="text-slate-300">—</span>}
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function VATSection({ title, boxes, accentBg, accentBorder, isAr, fmtLocale }: {
+  title: string;
+  boxes: VATBoxDef[];
+  accentBg: string;
+  accentBorder: string;
+  isAr: boolean;
+  fmtLocale: string;
+}) {
+  return (
+    <div className={cn('rounded-xl border overflow-hidden', accentBorder)}>
+      <div className={cn('px-5 py-3', accentBg)}><h3 className="text-xs font-black uppercase tracking-widest text-slate-700">{title}</h3></div>
+      {boxes.map((box) => <VATBoxRow key={box.box} box={box} isAr={isAr} fmtLocale={fmtLocale} />)}
+    </div>
+  );
+}
+
 // ─── VAT Return Tab ───────────────────────────────────────────────────────────
 
-function VATReturnTab({ vatInvoices, loadingVat, isAr, fmtLocale, vatRange, onVatRangeChange }: {
-  vatInvoices: VatInvoice[]; loadingVat: boolean;
+function VATReturnTab({ isAr, fmtLocale, vatRange, onVatRangeChange }: {
   isAr: boolean; fmtLocale: string;
   vatRange: VatDateRange; onVatRangeChange: (r: VatDateRange) => void;
 }) {
-  const { standardBase, standardVat, zeroBase, totalBase, totalVat, netVat } = useMemo(() => {
-    const from = new Date(vatRange.from + 'T00:00:00');
-    const to   = new Date(vatRange.to   + 'T23:59:59');
-    const filtered = vatInvoices.filter(inv => inv.createdAt >= from && inv.createdAt <= to);
-    const registered    = filtered.filter(inv => inv.isVatRegistered);
-    const nonRegistered = filtered.filter(inv => !inv.isVatRegistered);
-    const standardBase = registered.reduce((s, inv) => s + inv.subtotalExclVat, 0);
-    const standardVat  = registered.reduce((s, inv) => s + inv.totalVat, 0);
-    const zeroBase     = nonRegistered.reduce((s, inv) => s + inv.subtotalExclVat, 0);
-    const totalBase    = standardBase + zeroBase;
-    const totalVat     = standardVat;
-    const netVat       = standardVat;
-    return { standardBase, standardVat, zeroBase, totalBase, totalVat, netVat };
-  }, [vatInvoices, vatRange]);
+  const [data, setData] = useState<VatReturnData | null>(null);
+  const [loadingVat, setLoadingVat] = useState(true);
+  const [vatError, setVatError] = useState('');
 
-  const [showSubmitModal, setShowSubmitModal] = useState(false);
-  const [submitted, setSubmitted]             = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    setLoadingVat(true);
+    setVatError('');
+    apiFetch<VatReturnData & { error?: string }>(`/api/reports/vat-return?from=${vatRange.from}&to=${vatRange.to}`)
+      .then((response) => {
+        if (cancelled) return;
+        if (response.error) throw new Error(response.error);
+        setData(response);
+      })
+      .catch((error: unknown) => {
+        if (!cancelled) {
+          setData(null);
+          setVatError(error instanceof Error ? error.message : (isAr ? 'تعذّر تحميل التقرير' : 'Failed to load report'));
+        }
+      })
+      .finally(() => { if (!cancelled) setLoadingVat(false); });
+    return () => { cancelled = true; };
+  }, [vatRange.from, vatRange.to, isAr]);
+
+  const standardBase = data?.summary.standardRatedSales ?? 0;
+  const standardVat = data?.summary.outputVat ?? 0;
+  const zeroBase = data?.summary.zeroRatedSales ?? 0;
+  const exemptBase = data?.summary.exemptSales ?? 0;
+  const inputVat = data?.summary.inputVat ?? 0;
+  const totalBase = standardBase + zeroBase + exemptBase;
+  const totalVat = standardVat;
+  const netVat = data?.summary.netVatPayable ?? 0;
 
   const activePreset = VAT_QUICK_PERIODS.find(p => p.from === vatRange.from && p.to === vatRange.to);
-
-  interface VATBoxDef {
-    box: string;
-    labelAr: string;
-    labelEn: string;
-    noteAr: string;
-    noteEn: string;
-    base: number;
-    vat: number;
-    rate?: '15%' | '0%' | 'exempt' | 'reverse';
-    highlight: 'output' | 'input' | 'net-due';
-  }
 
   const vatBoxes: VATBoxDef[] = [
     { box: '1', highlight: 'output', rate: '15%',
@@ -560,6 +650,12 @@ function VATReturnTab({ vatInvoices, loadingVat, isAr, fmtLocale, vatRange, onVa
       noteAr: 'مجموع ضريبة المخرجات',
       noteEn: 'Sum of output VAT',
       base: 0, vat: totalVat },
+    { box: '7', highlight: 'input',
+      labelAr: 'ضريبة المدخلات القابلة للاسترداد',
+      labelEn: 'Deductible Input VAT',
+      noteAr: 'صافي حركة حساب ضريبة المدخلات 1230 بعد العكس',
+      noteEn: 'Net movement on input VAT account 1230 after reversals',
+      base: 0, vat: inputVat },
     { box: '13', highlight: 'net-due',
       labelAr: 'صافي الضريبة المستحقة',
       labelEn: 'Net VAT Due',
@@ -569,64 +665,12 @@ function VATReturnTab({ vatInvoices, loadingVat, isAr, fmtLocale, vatRange, onVa
   ];
 
   const outputBoxes = vatBoxes.filter(b => b.highlight === 'output');
+  const inputBoxes  = vatBoxes.filter(b => b.highlight === 'input');
   const netBoxes    = vatBoxes.filter(b => b.highlight === 'net-due');
 
-  const rateBadgeMap: Record<string, string> = {
-    '15%':    'bg-red-100 text-red-700',
-    '0%':     'bg-sky-100 text-sky-700',
-    'exempt': 'bg-slate-100 text-slate-500',
-  };
-
-  function BoxRow({ b }: { b: VATBoxDef }) {
-    const rateBadge = b.rate ? (rateBadgeMap[b.rate] ?? '') : '';
-    const dotColor  = b.highlight === 'output' ? 'bg-brand-600' : 'bg-emerald-600';
-    return (
-      <div className="border-b border-slate-100 last:border-0 p-4">
-        <div className="flex items-start gap-3">
-          <span className={cn('w-8 h-8 rounded-full flex items-center justify-center text-xs font-black flex-shrink-0 mt-0.5 text-white', dotColor)}>
-            {b.box}
-          </span>
-          <div className="flex-1 min-w-0">
-            <div className="flex items-start gap-2 flex-wrap mb-0.5">
-              <p className="text-sm font-semibold text-slate-900 flex-1">{isAr ? b.labelAr : b.labelEn}</p>
-              {b.rate && <span className={cn('text-[10px] font-bold px-2 py-0.5 rounded-full flex-shrink-0', rateBadge)}>{b.rate}</span>}
-            </div>
-            <p className="text-[11px] text-slate-400 leading-relaxed mb-2">{isAr ? b.noteAr : b.noteEn}</p>
-            <div className="flex items-center gap-6 pt-2 border-t border-slate-100">
-              <div>
-                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wide mb-0.5">{isAr ? 'الوعاء الضريبي' : 'Tax Base'}</p>
-                <p className="text-sm font-mono tabular-nums font-semibold text-slate-700">
-                  {b.base > 0 ? formatCurrency(b.base, fmtLocale) : <span className="text-slate-300">—</span>}
-                </p>
-              </div>
-              <div>
-                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wide mb-0.5">{isAr ? 'مبلغ الضريبة' : 'VAT Amount'}</p>
-                <p className={cn('text-sm font-mono tabular-nums font-bold',
-                  b.box === '13' ? 'text-emerald-700 text-base' : 'text-slate-900')}>
-                  {b.vat > 0 ? formatCurrency(b.vat, fmtLocale) : <span className="text-slate-300">—</span>}
-                </p>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  function Section({ title, boxes, accentBg, accentBorder }: {
-    title: string; boxes: VATBoxDef[]; accentBg: string; accentBorder: string;
-  }) {
-    return (
-      <div className={cn('rounded-xl border overflow-hidden', accentBorder)}>
-        <div className={cn('px-5 py-3', accentBg)}>
-          <h3 className="text-xs font-black uppercase tracking-widest text-slate-700">{title}</h3>
-        </div>
-        {boxes.map(b => <BoxRow key={b.box} b={b} />)}
-      </div>
-    );
-  }
-
   if (loadingVat) return <LoadingPane />;
+  if (vatError) return <Card><p className="text-red-600 text-sm py-6 text-center">{vatError}</p></Card>;
+  if (!data) return null;
 
   return (
     <div className="space-y-6">
@@ -636,7 +680,7 @@ function VATReturnTab({ vatInvoices, loadingVat, isAr, fmtLocale, vatRange, onVa
           <Stamp size={20} />
           <div>
             <p className="font-black text-base">{isAr ? 'إقرار ضريبة القيمة المضافة' : 'VAT Return — ZATCA'}</p>
-            <p className="text-xs text-brand-600">{isAr ? 'متوافق مع هيئة الزكاة والضريبة والجمارك' : 'Compliant with Saudi ZATCA requirements'}</p>
+            <p className="text-xs text-brand-600">{isAr ? 'مسودة مراجعة من دفتر الحسابات' : 'Ledger-based review draft'}</p>
           </div>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -666,11 +710,27 @@ function VATReturnTab({ vatInvoices, loadingVat, isAr, fmtLocale, vatRange, onVa
         </div>
       </div>
 
-      <Section title={isAr ? 'القسم الأول — المبيعات وضريبة المخرجات' : 'Part I — Sales & Output VAT'}
-        boxes={outputBoxes} accentBg="bg-brand-50" accentBorder="border-brand-200" />
+      {!data.reconciliation.reconciled && (
+        <div className="flex items-start gap-3 px-4 py-3 bg-amber-50 border border-amber-300 rounded-xl text-sm text-amber-800">
+          <AlertCircle size={18} className="flex-shrink-0 mt-0.5" />
+          <div>
+            <p className="font-bold">{isAr ? 'يوجد فرق يحتاج مراجعة قبل اعتماد الإقرار' : 'A difference requires review before filing'}</p>
+            <p className="text-xs mt-0.5">
+              {isAr ? 'الفرق بين الفواتير ودفتر الحسابات: ' : 'Invoice-to-ledger difference: '}
+              {formatCurrency(data.reconciliation.difference, fmtLocale)}
+            </p>
+          </div>
+        </div>
+      )}
 
-      <Section title={isAr ? 'القسم الثاني — صافي الضريبة المستحقة' : 'Part II — Net VAT Due'}
-        boxes={netBoxes} accentBg="bg-emerald-50" accentBorder="border-emerald-200" />
+      <VATSection title={isAr ? 'القسم الأول — المبيعات وضريبة المخرجات' : 'Part I — Sales & Output VAT'}
+        boxes={outputBoxes} accentBg="bg-brand-50" accentBorder="border-brand-200" isAr={isAr} fmtLocale={fmtLocale} />
+
+      <VATSection title={isAr ? 'القسم الثاني — المشتريات وضريبة المدخلات' : 'Part II — Purchases & Input VAT'}
+        boxes={inputBoxes} accentBg="bg-sky-50" accentBorder="border-sky-200" isAr={isAr} fmtLocale={fmtLocale} />
+
+      <VATSection title={isAr ? 'القسم الثالث — صافي الضريبة المستحقة' : 'Part III — Net VAT Due'}
+        boxes={netBoxes} accentBg="bg-emerald-50" accentBorder="border-emerald-200" isAr={isAr} fmtLocale={fmtLocale} />
 
       {/* Summary + submit */}
       <Card>
@@ -688,6 +748,10 @@ function VATReturnTab({ vatInvoices, loadingVat, isAr, fmtLocale, vatRange, onVa
             <span className="text-slate-600">{isAr ? 'إمدادات بالسعر الصفري' : 'Zero-Rated Supplies'}</span>
             <span className="font-bold font-mono tabular-nums text-slate-700">{formatCurrency(zeroBase, fmtLocale)}</span>
           </div>
+          <div className="flex items-center justify-between text-sm border-b border-slate-100 pb-3">
+            <span className="text-slate-600">{isAr ? 'صافي ضريبة المدخلات' : 'Net Input VAT'}</span>
+            <span className="font-bold font-mono tabular-nums text-sky-700">{formatCurrency(inputVat, fmtLocale)}</span>
+          </div>
           <div className="flex items-center justify-between pt-1">
             <span className="text-base font-black text-slate-900">{isAr ? 'صافي الضريبة المستحقة' : 'Net VAT Payable'}</span>
             <span className="text-xl font-black text-emerald-700 tabular-nums font-mono">
@@ -696,71 +760,15 @@ function VATReturnTab({ vatInvoices, loadingVat, isAr, fmtLocale, vatRange, onVa
           </div>
         </div>
 
-        {submitted ? (
-          <div className="mt-5 flex items-center gap-3 px-4 py-3 bg-emerald-50 border border-emerald-200 rounded-xl">
-            <CheckCircle2 size={20} className="text-emerald-600 flex-shrink-0" />
-            <div>
-              <p className="text-sm font-bold text-emerald-700">{isAr ? 'تم تقديم الإقرار بنجاح' : 'VAT Return submitted successfully'}</p>
-              <p className="text-xs text-emerald-600">{isAr ? 'سيتم الربط بهيئة الزكاة عند التفعيل' : 'Will sync with ZATCA portal when activated'}</p>
-            </div>
-          </div>
-        ) : (
-          <button onClick={() => setShowSubmitModal(true)}
-            className="mt-5 w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-brand-600 text-white text-sm font-bold hover:bg-brand-700 transition-colors shadow-sm">
-            <Send size={16} />
-            {isAr ? 'تقديم الإقرار الضريبي' : 'Submit VAT Return'}
-          </button>
-        )}
-        <p className="text-[10px] text-center text-slate-400 mt-2">
-          {isAr ? 'سيتم ربط هذا القسم مع بوابة ZATCA عند تفعيل خاصية الإرسال الإلكتروني' : 'Will connect to ZATCA portal when e-filing is enabled'}
-        </p>
-      </Card>
-
-      {/* Submit modal */}
-      {showSubmitModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md">
-            <div className="flex items-center justify-between px-6 py-4 border-b border-surface-border">
-              <h2 className="text-lg font-bold text-slate-900 flex items-center gap-2">
-                <Stamp size={20} className="text-brand-600" />
-                {isAr ? 'تأكيد تقديم الإقرار الضريبي' : 'Confirm VAT Return Submission'}
-              </h2>
-              <button onClick={() => setShowSubmitModal(false)} className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-500"><X size={18} /></button>
-            </div>
-            <div className="p-6 space-y-4">
-              <div className="bg-amber-50 border border-amber-200 rounded-xl p-4">
-                <p className="text-sm font-bold text-amber-700 mb-1">{isAr ? 'تحقق قبل التقديم' : 'Verify before submitting'}</p>
-                <p className="text-xs text-amber-600">{isAr ? 'تأكد من مراجعة جميع الخانات والأرقام قبل تقديم الإقرار' : 'Please review all boxes and amounts before submitting to ZATCA'}</p>
-              </div>
-              <div className="space-y-2 bg-slate-50 rounded-xl p-4">
-                <div className="flex justify-between text-sm">
-                  <span className="text-slate-500">{isAr ? 'الفترة الضريبية' : 'Tax Period'}</span>
-                  <span className="font-semibold text-slate-900">{vatRange.from} → {vatRange.to}</span>
-                </div>
-                <div className="flex justify-between text-sm">
-                  <span className="text-slate-500">{isAr ? 'إجمالي ضريبة المخرجات' : 'Output VAT'}</span>
-                  <span className="font-semibold text-red-700">{formatCurrency(standardVat, fmtLocale)}</span>
-                </div>
-                <div className="flex justify-between text-sm font-bold border-t border-slate-200 pt-2 mt-2">
-                  <span className="text-slate-900">{isAr ? 'صافي الضريبة المستحقة' : 'Net VAT Due'}</span>
-                  <span className="text-brand-700 text-base">{formatCurrency(netVat, fmtLocale)}</span>
-                </div>
-              </div>
-            </div>
-            <div className="px-6 py-4 border-t border-surface-border flex gap-3">
-              <button onClick={() => setShowSubmitModal(false)}
-                className="flex-1 px-4 py-2.5 rounded-xl border border-slate-200 text-sm font-medium text-slate-600 hover:bg-slate-50 transition-colors">
-                {isAr ? 'مراجعة الإقرار' : 'Review Return'}
-              </button>
-              <button onClick={() => { setShowSubmitModal(false); setSubmitted(true); }}
-                className="flex-1 px-4 py-2.5 rounded-xl bg-brand-600 text-white text-sm font-bold hover:bg-brand-700 transition-colors flex items-center justify-center gap-2">
-                <Send size={15} />
-                {isAr ? 'تأكيد التقديم' : 'Confirm Submission'}
-              </button>
-            </div>
-          </div>
+        <div className="mt-5 flex items-start gap-3 px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl">
+          <AlertCircle size={18} className="text-slate-500 flex-shrink-0 mt-0.5" />
+          <p className="text-xs text-slate-600">
+            {isAr
+              ? 'هذه مسودة مراجعة مبنية على دفتر الحسابات. لا ترسل أي بيانات إلى هيئة الزكاة تلقائياً، ويجب اعتمادها من المحاسب قبل التقديم.'
+              : 'This is a ledger-based review draft. It does not submit anything to ZATCA and must be approved by the accountant before filing.'}
+          </p>
         </div>
-      )}
+      </Card>
     </div>
   );
 }
@@ -1422,6 +1430,7 @@ interface SupplierAgingRow {
   days31_60:    number;
   days61_90:    number;
   days91plus:   number;
+  unallocated:  number;
   total:        number;
 }
 
@@ -1430,7 +1439,17 @@ interface AgingTotals {
   days31_60:  number;
   days61_90:  number;
   days91plus: number;
+  unallocated: number;
   total:      number;
+}
+
+interface SupplierAgingReconciliation {
+  supplierBalanceTotal: number;
+  apGlBalance: number;
+  difference: number;
+  reconciled: boolean;
+  balanceSnapshotDate: string;
+  historicalSnapshotAvailable: boolean;
 }
 
 function SupplierAgingTab({ isAr, fmtLocale }: { isAr: boolean; fmtLocale: string }) {
@@ -1438,18 +1457,21 @@ function SupplierAgingTab({ isAr, fmtLocale }: { isAr: boolean; fmtLocale: strin
   const [asOf,    setAsOf]    = useState(today);
   const [rows,    setRows]    = useState<SupplierAgingRow[]>([]);
   const [totals,  setTotals]  = useState<AgingTotals | null>(null);
+  const [reconciliation, setReconciliation] = useState<SupplierAgingReconciliation | null>(null);
   const [loading, setLoading] = useState(false);
   const [err,     setErr]     = useState('');
 
   function load() {
     setLoading(true);
     setErr('');
-    apiFetch<{ rows: SupplierAgingRow[]; totals: AgingTotals }>(`/api/reports/supplier-aging?asOf=${asOf}`)
+    apiFetch<{ rows: SupplierAgingRow[]; totals: AgingTotals; reconciliation: SupplierAgingReconciliation; error?: string }>(`/api/reports/supplier-aging?asOf=${asOf}`)
       .then((d) => {
+        if (d.error) throw new Error(d.error);
         setRows(d.rows ?? []);
         setTotals(d.totals ?? null);
+        setReconciliation(d.reconciliation ?? null);
       })
-      .catch(() => setErr(isAr ? 'تعذّر تحميل البيانات' : 'Failed to load data'))
+      .catch((error: unknown) => setErr(error instanceof Error ? error.message : (isAr ? 'تعذّر تحميل البيانات' : 'Failed to load data')))
       .finally(() => setLoading(false));
   }
 
@@ -1461,7 +1483,7 @@ function SupplierAgingTab({ isAr, fmtLocale }: { isAr: boolean; fmtLocale: strin
         <div className="flex items-end gap-3">
           <div>
             <label className="text-xs font-medium text-slate-600 block mb-1">{isAr ? 'كما في تاريخ' : 'As of Date'}</label>
-            <input type="date" value={asOf} onChange={e => setAsOf(e.target.value)}
+            <input type="date" value={asOf} max={today} onChange={e => setAsOf(e.target.value)}
               className="rounded-lg border border-slate-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
           </div>
           <button onClick={load} disabled={loading}
@@ -1473,6 +1495,30 @@ function SupplierAgingTab({ isAr, fmtLocale }: { isAr: boolean; fmtLocale: strin
 
       {err    && <Card><p className="text-red-600 text-sm py-4 text-center">{err}</p></Card>}
       {loading && <LoadingPane />}
+
+      {!loading && reconciliation && (
+        <div className={`flex items-start gap-3 px-4 py-3 rounded-xl border text-sm ${reconciliation.reconciled ? 'bg-emerald-50 border-emerald-300 text-emerald-800' : 'bg-amber-50 border-amber-300 text-amber-800'}`}>
+          {reconciliation.reconciled ? <CheckCircle2 size={18} className="mt-0.5 flex-shrink-0" /> : <AlertCircle size={18} className="mt-0.5 flex-shrink-0" />}
+          <div>
+            <p className="font-bold">
+              {reconciliation.reconciled
+                ? (isAr ? 'تفاصيل الموردين مطابقة لدفتر الحسابات' : 'Supplier detail reconciles to the general ledger')
+                : (isAr ? 'يوجد فرق يحتاج مراجعة في ذمم الموردين' : 'Supplier payables require reconciliation review')}
+            </p>
+            <p className="text-xs mt-0.5">
+              {isAr ? 'رصيد الحساب 2000: ' : 'GL 2000 balance: '}{formatCurrency(reconciliation.apGlBalance, fmtLocale)}
+              {' · '}{isAr ? 'الفرق: ' : 'Difference: '}{formatCurrency(reconciliation.difference, fmtLocale)}
+            </p>
+            {!reconciliation.historicalSnapshotAvailable && (
+              <p className="text-xs mt-1 font-semibold">
+                {isAr
+                  ? `أرصدة الموردين التفصيلية محفوظة بتاريخ ${reconciliation.balanceSnapshotDate}؛ التاريخ السابق تقريبي حتى إضافة سجل تاريخي للمورد.`
+                  : `Supplier detail is snapshotted at ${reconciliation.balanceSnapshotDate}; prior-date detail is approximate until supplier history is added.`}
+              </p>
+            )}
+          </div>
+        </div>
+      )}
 
       {!loading && rows.length === 0 && !err && (
         <Card><p className="text-sm text-slate-400 text-center py-10">{isAr ? 'لا توجد ذمم دائنة مستحقة' : 'No outstanding AP balances'}</p></Card>
@@ -1489,6 +1535,7 @@ function SupplierAgingTab({ isAr, fmtLocale }: { isAr: boolean; fmtLocale: strin
                   <th className="py-3 px-3 text-end">{isAr ? '31-60 يوم' : '31-60 days'}</th>
                   <th className="py-3 px-3 text-end">{isAr ? '61-90 يوم' : '61-90 days'}</th>
                   <th className="py-3 px-3 text-end">{isAr ? '+90 يوم' : '90+ days'}</th>
+                  <th className="py-3 px-3 text-end">{isAr ? 'غير موزع' : 'Unallocated'}</th>
                   <th className="py-3 ps-3 text-end">{isAr ? 'الإجمالي' : 'Total'}</th>
                 </tr>
               </thead>
@@ -1500,6 +1547,7 @@ function SupplierAgingTab({ isAr, fmtLocale }: { isAr: boolean; fmtLocale: strin
                     <td className="py-3 px-3 text-end tabular-nums">{r.days31_60  > 0 ? <span className="text-amber-600 font-medium">{formatCurrency(r.days31_60,  fmtLocale)}</span> : '—'}</td>
                     <td className="py-3 px-3 text-end tabular-nums">{r.days61_90  > 0 ? <span className="text-orange-600 font-medium">{formatCurrency(r.days61_90,  fmtLocale)}</span> : '—'}</td>
                     <td className="py-3 px-3 text-end tabular-nums">{r.days91plus > 0 ? <span className="text-red-600 font-bold">{formatCurrency(r.days91plus, fmtLocale)}</span> : '—'}</td>
+                    <td className="py-3 px-3 text-end tabular-nums">{r.unallocated > 0 ? <span className="text-purple-600 font-bold">{formatCurrency(r.unallocated, fmtLocale)}</span> : '—'}</td>
                     <td className="py-3 ps-3 text-end font-bold text-slate-900 tabular-nums">{formatCurrency(r.total, fmtLocale)}</td>
                   </tr>
                 ))}
@@ -1512,6 +1560,7 @@ function SupplierAgingTab({ isAr, fmtLocale }: { isAr: boolean; fmtLocale: strin
                     <td className="py-3 px-3 text-end text-amber-600 tabular-nums">{formatCurrency(totals.days31_60,  fmtLocale)}</td>
                     <td className="py-3 px-3 text-end text-orange-600 tabular-nums">{formatCurrency(totals.days61_90,  fmtLocale)}</td>
                     <td className="py-3 px-3 text-end text-red-600 tabular-nums">{formatCurrency(totals.days91plus, fmtLocale)}</td>
+                    <td className="py-3 px-3 text-end text-purple-600 tabular-nums">{formatCurrency(totals.unallocated, fmtLocale)}</td>
                     <td className="py-3 ps-3 text-end text-slate-900 tabular-nums">{formatCurrency(totals.total,      fmtLocale)}</td>
                   </tr>
                 </tfoot>
@@ -1536,11 +1585,11 @@ export default function ReportsPage() {
   const { user } = useAuth();
   const agencyId = (user?.agencyId as string | undefined) ?? null;
 
-  const { monthly, typeMix, vatInvoices, loading: loadingReports, year, setYear } = useReportsData(agencyId);
+  const { monthly, typeMix, loading: loadingReports, year, setYear } = useReportsData(agencyId);
   const { accounts, loading: loadingAccounts } = useChartOfAccounts();
 
   const [activeTab, setActiveTab]   = useState<TabId>('overview');
-  const [vatRange, setVatRange]     = useState<VatDateRange>({ from: '2026-01-01', to: '2026-06-30' });
+  const [vatRange, setVatRange]     = useState<VatDateRange>(() => ({ from: `${VAT_REPORT_YEAR}-01-01`, to: new Date().toISOString().slice(0, 10) }));
   const [showExport, setShowExport] = useState(false);
 
   function handleExportCSV() {
@@ -1563,19 +1612,14 @@ export default function ReportsPage() {
         } else if (activeTab === 'pl' || activeTab === 'ar') {
           alert(isAr ? 'استخدم زر "تصدير CSV" داخل هذا التقرير' : 'Use the "Export CSV" button inside this report tab');
         } else if (activeTab === 'vat') {
-          const from = new Date(vatRange.from + 'T00:00:00');
-          const to   = new Date(vatRange.to   + 'T23:59:59');
-          const filtered = vatInvoices.filter(inv => inv.createdAt >= from && inv.createdAt <= to);
+          const d = await apiFetch<VatReturnData>(`/api/reports/vat-return?from=${vatRange.from}&to=${vatRange.to}`);
           downloadCSV([
-            ['رقم الفاتورة', 'التاريخ', 'مسجل ضريبياً', 'الوعاء الضريبي (ر.س)', 'ضريبة القيمة المضافة (ر.س)', 'الإجمالي (ر.س)'],
-            ...filtered.map(inv => [
-              inv.invoiceNumber,
-              inv.createdAt.toLocaleDateString('ar-SA'),
-              inv.isVatRegistered ? 'نعم' : 'لا',
-              inv.subtotalExclVat / 100,
-              inv.totalVat / 100,
-              inv.grandTotal / 100,
-            ]),
+            ['البند', 'الوعاء الضريبي (ر.س)', 'الضريبة (ر.س)'],
+            ['إمدادات بالنسبة الأساسية', d.summary.standardRatedSales / 100, d.summary.outputVat / 100],
+            ['إمدادات صفرية', d.summary.zeroRatedSales / 100, 0],
+            ['ضريبة المدخلات', 0, d.summary.inputVat / 100],
+            ['صافي الضريبة المستحقة', 0, d.summary.netVatPayable / 100],
+            ['فرق المطابقة مع الفواتير', 0, d.reconciliation.difference / 100],
           ], `الاقرار-الضريبي-${vatRange.from}-${vatRange.to}.csv`);
         } else if (activeTab === 'bs') {
           const label: Record<string, string> = { asset: 'أصول', liability: 'خصوم', equity: 'حقوق ملكية', revenue: 'إيرادات', expense: 'مصروفات' };
@@ -1605,10 +1649,10 @@ export default function ReportsPage() {
             ...(d.rows ?? []).map(r => [r.supplierName, r.paymentCount, r.bookingCount, r.totalRevenue / 100, r.totalCost / 100, r.totalProfit / 100, r.marginPct]),
           ], `ربحية-الموردين-${stamp}.csv`);
         } else if (activeTab === 'ap') {
-          const d = await apiFetch<{ rows: { supplierName: string; current: number; days31_60: number; days61_90: number; days91plus: number; total: number }[] }>(`/api/reports/supplier-aging?asOf=${stamp}`);
+          const d = await apiFetch<{ rows: { supplierName: string; current: number; days31_60: number; days61_90: number; days91plus: number; unallocated: number; total: number }[] }>(`/api/reports/supplier-aging?asOf=${stamp}`);
           downloadCSV([
-            ['المورد', 'جاري (ر.س)', '31-60 يوم', '61-90 يوم', '+91 يوم', 'الإجمالي (ر.س)'],
-            ...(d.rows ?? []).map(r => [r.supplierName, r.current / 100, r.days31_60 / 100, r.days61_90 / 100, r.days91plus / 100, r.total / 100]),
+            ['المورد', 'جاري (ر.س)', '31-60 يوم', '61-90 يوم', '+91 يوم', 'غير موزع', 'الإجمالي (ر.س)'],
+            ...(d.rows ?? []).map(r => [r.supplierName, r.current / 100, r.days31_60 / 100, r.days61_90 / 100, r.days91plus / 100, r.unallocated / 100, r.total / 100]),
           ], `اعمار-ذمم-الموردين-${stamp}.csv`);
         } else if (activeTab === 'cashflow') {
           const d = await apiFetch<{
@@ -1761,8 +1805,7 @@ export default function ReportsPage() {
           <CashFlowTab isAr={isAr} fmtLocale={fmtLocale} />
         )}
         {activeTab === 'vat' && (
-          <VATReturnTab vatInvoices={vatInvoices} loadingVat={loadingReports}
-            isAr={isAr} fmtLocale={fmtLocale} vatRange={vatRange} onVatRangeChange={setVatRange} />
+          <VATReturnTab isAr={isAr} fmtLocale={fmtLocale} vatRange={vatRange} onVatRangeChange={setVatRange} />
         )}
       </div>
     </div>

@@ -160,6 +160,22 @@ describe('buildRefundJournalLines — legacy fallback (no original journal)', ()
     expect(crOf(lines, '5000')).toBe(3_000_00);
     expect(sum(lines, 'dr')).toBe(sum(lines, 'cr'));
   });
+
+  it('writes off open AR and fully reverses aggregate cost on a full cancellation', () => {
+    const fullCancellation = buildRefundJournalLines({
+      originalLines: [],
+      originalTotalHalalas: 11_500_00, originalVatHalalas: 1_500_00, paidHalalas: 5_750_00,
+      refundAmountHalalas: 5_250_00, cancellationFeeHalalas: 500_00,
+      cancelledTotalHalalas: 11_500_00, isEInvoice: true,
+      fallback: { revenueModel: 'principal', costPriceHalalas: 6_000_00 },
+    });
+
+    expect(crOf(fullCancellation, '1120')).toBe(5_750_00);
+    expect(drOf(fullCancellation, '2000')).toBe(6_000_00);
+    expect(crOf(fullCancellation, '5000')).toBe(6_000_00);
+    expect(crOf(fullCancellation, '4200')).toBeGreaterThan(0);
+    expect(sum(fullCancellation, 'dr')).toBe(sum(fullCancellation, 'cr'));
+  });
 });
 
 describe('buildRefundJournalLines — guards', () => {
@@ -169,5 +185,14 @@ describe('buildRefundJournalLines — guards', () => {
       originalTotalHalalas: 11_500_00, originalVatHalalas: 1_500_00, paidHalalas: 11_500_00,
       refundAmountHalalas: 2_000_00, cancellationFeeHalalas: 0, cancelledTotalHalalas: 1_000_00, isEInvoice: true,
     })).toThrow();
+  });
+
+  it('throws when the cancelled portion exceeds the original invoice', () => {
+    expect(() => buildRefundJournalLines({
+      originalLines: originalInvoice({ principalRev: 10_000_00, vat: 1_500_00 }),
+      originalTotalHalalas: 11_500_00, originalVatHalalas: 1_500_00, paidHalalas: 11_500_00,
+      refundAmountHalalas: 1_000_00, cancellationFeeHalalas: 0,
+      cancelledTotalHalalas: 11_500_01, isEInvoice: true,
+    })).toThrow(/تتجاوز إجمالي الفاتورة/);
   });
 });

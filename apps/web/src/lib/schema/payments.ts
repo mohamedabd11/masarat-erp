@@ -1,3 +1,4 @@
+import { sql } from 'drizzle-orm';
 import { pgTable, text, bigint, timestamp, index, uniqueIndex } from 'drizzle-orm/pg-core';
 import { agencies } from './agencies';
 import { invoices } from './invoices';
@@ -58,6 +59,9 @@ export const receiptVouchers = pgTable('receipt_vouchers', {
   index('idx_receipt_vouchers_invoice').on(t.invoiceId),
   index('idx_receipt_vouchers_agency_date').on(t.agencyId, t.date),
   uniqueIndex('receipt_vouchers_agency_voucher_uq').on(t.agencyId, t.voucherNumber),
+  uniqueIndex('receipt_vouchers_reversal_uq')
+    .on(t.originalVoucherId)
+    .where(sql`${t.originalVoucherId} IS NOT NULL`),
 ]);
 
 export type ReceiptVoucher    = typeof receiptVouchers.$inferSelect;

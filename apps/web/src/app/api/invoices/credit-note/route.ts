@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { eq, and, ne, sql } from 'drizzle-orm';
 import { db } from '@/lib/db';
-import { invoices, journalEntries, journalLines } from '@/lib/schema';
+import { invoices, journalEntries, journalLines, bookingLines, suppliers } from '@/lib/schema';
 import { verifyAuth, assertRole, ApiAuthError, BusinessError, ROLES_MANAGER_UP } from '@/lib/api-auth';
 import { withIdempotency, markIdempotencyComplete } from '@/lib/idempotency';
 import { logAudit } from '@/lib/audit';
@@ -9,14 +9,14 @@ import { getNextInvoiceNumber, getNextJournalNumber, type InvoiceType } from '@/
 import { assertPeriodOpen } from '@/lib/period-lock';
 import { GL } from '@/lib/gl-accounts';
 import { buildZatcaInvoiceRecord, parseStoredInvoiceItems } from '@/lib/zatca-einvoice';
+import { buildCreditNoteJournalLines } from '@/lib/credit-note-journal';
+import { allocateProRata } from '@/lib/supplier-aging';
 
 // Fallback accounts when no original invoice GL is available
 const AC_FALLBACK = {
   receivable: GL.receivable,
   revenue:    GL.revenuePrincipal,
   vatPayable: GL.vatPayable,
-  cogs:       GL.costOfServices,
-  apSupplier: GL.payableSupplier,
 };
 
 export async function POST(request: Request) {
@@ -94,40 +94,18 @@ export async function POST(request: Request) {
       const vat      = body.vatHalalas ?? 0;
       const total    = body.totalHalalas ?? subtotal + vat;
 
-      // ── Resolve GL accounts from original invoice's journal ───────────────
-      // When we have the original invoice's journal entry, mirror its accounts
-      // so the credit note perfectly reverses the same lines (IFRS 15 / ZATCA).
-      type AccLine = { code: string; ar: string; en: string };
-      let revenueAc: AccLine = AC_FALLBACK.revenue;
-      let cogsDebit = 0;
-      let cogsAc: AccLine = AC_FALLBACK.cogs;
-      let apAc: AccLine   = AC_FALLBACK.apSupplier;
-
-      if (originalInvoice?.journalEntryId) {
-        const origLines = await tx.select().from(journalLines)
-          .where(eq(journalLines.entryId, originalInvoice.journalEntryId));
-
-        // Revenue line: the Cr line(s) that are NOT AR, NOT VAT, NOT COGS
-        const revLine = origLines.find(l =>
-          l.creditHalalas > 0 &&
-          l.accountCode !== '1120' &&
-          l.accountCode !== '2200' &&
-          l.accountCode !== '5000' &&
-          l.accountCode !== '2000',
-        );
-        if (revLine) {
-          revenueAc = { code: revLine.accountCode, ar: revLine.accountNameAr ?? '', en: revLine.accountNameEn ?? revLine.accountNameAr ?? '' };
-        }
-
-        // COGS line: Dr 5000 in original → reverse it (Cr 5000, Dr AP)
-        const cogsLine = origLines.find(l => l.accountCode === '5000' && l.debitHalalas > 0);
-        if (cogsLine && cogsLine.debitHalalas > 0) {
-          cogsDebit = cogsLine.debitHalalas;
-          // Find the matching AP credit line in the original
-          const apLine = origLines.find(l => l.accountCode === '2000' && l.creditHalalas > 0);
-          if (apLine) apAc = { code: apLine.accountCode, ar: apLine.accountNameAr ?? '', en: apLine.accountNameEn ?? apLine.accountNameAr ?? '' };
-        }
-      }
+      // Mirror every account in the original invoice. This preserves mixed
+      // agent/principal invoices, supplier AP, COGS and deferred revenue instead
+      // of forcing the whole note through one guessed revenue account.
+      const originalJournalLines = originalInvoice?.journalEntryId
+        ? await tx.select({
+            accountCode:   journalLines.accountCode,
+            accountNameAr: journalLines.accountNameAr,
+            accountNameEn: journalLines.accountNameEn,
+            debitHalalas:  journalLines.debitHalalas,
+            creditHalalas: journalLines.creditHalalas,
+          }).from(journalLines).where(eq(journalLines.entryId, originalInvoice.journalEntryId))
+        : [];
 
       // ── ZATCA e-invoice record (type 381) ──────────────────────────────────
       // Built from the original invoice's seller snapshot; standalone notes
@@ -198,32 +176,25 @@ export async function POST(request: Request) {
       // a fully unpaid one credits 100% to AR.
       type JL = { id: string; entryId: string; agencyId: string; accountCode: string; accountNameAr: string; accountNameEn: string; debitHalalas: number; creditHalalas: number; sortOrder: number };
 
-      const origTotal = originalInvoice?.totalHalalas ?? 0;
-      const origPaid  = originalInvoice?.paidHalalas  ?? 0;
-      let depositsPortion = 0;
-      let arPortion       = total;
-      if (origTotal > 0) {
-        depositsPortion = Math.round(total * origPaid / origTotal);
-        arPortion       = total - depositsPortion;
-      }
+      const builtLines = originalInvoice && originalJournalLines.length > 0
+        ? buildCreditNoteJournalLines({
+            originalLines: originalJournalLines,
+            originalTotalHalalas: originalInvoice.totalHalalas,
+            originalPaidHalalas: originalInvoice.paidHalalas,
+            creditNoteTotalHalalas: total,
+            creditNoteVatHalalas: vat,
+          })
+        : [
+            { ...AC_FALLBACK.revenue, dr: subtotal, cr: 0 },
+            ...(vat > 0 ? [{ ...AC_FALLBACK.vatPayable, dr: vat, cr: 0 }] : []),
+            { ...AC_FALLBACK.receivable, dr: 0, cr: total },
+          ];
 
-      const jLines: JL[] = [
-        { id: crypto.randomUUID(), entryId: jeId, agencyId, accountCode: revenueAc.code,    accountNameAr: revenueAc.ar,            accountNameEn: revenueAc.en,            debitHalalas: subtotal, creditHalalas: 0,     sortOrder: 1 },
-        ...(vat > 0 ? [{ id: crypto.randomUUID(), entryId: jeId, agencyId, accountCode: AC_FALLBACK.vatPayable.code, accountNameAr: AC_FALLBACK.vatPayable.ar, accountNameEn: AC_FALLBACK.vatPayable.en, debitHalalas: vat, creditHalalas: 0, sortOrder: 2 } as JL] : []),
-      ];
-      let sortIdx = jLines.length + 1;
-      if (arPortion > 0) {
-        jLines.push({ id: crypto.randomUUID(), entryId: jeId, agencyId, accountCode: AC_FALLBACK.receivable.code, accountNameAr: AC_FALLBACK.receivable.ar, accountNameEn: AC_FALLBACK.receivable.en, debitHalalas: 0, creditHalalas: arPortion, sortOrder: sortIdx++ });
-      }
-      if (depositsPortion > 0) {
-        jLines.push({ id: crypto.randomUUID(), entryId: jeId, agencyId, accountCode: GL.customerDeposits.code, accountNameAr: GL.customerDeposits.ar, accountNameEn: GL.customerDeposits.en, debitHalalas: 0, creditHalalas: depositsPortion, sortOrder: sortIdx++ });
-      }
-
-      // Reverse COGS if the original invoice had a cost-of-services entry
-      if (cogsDebit > 0) {
-        jLines.push({ id: crypto.randomUUID(), entryId: jeId, agencyId, accountCode: apAc.code,           accountNameAr: apAc.ar,               accountNameEn: apAc.en,               debitHalalas: cogsDebit, creditHalalas: 0,        sortOrder: jLines.length + 1 });
-        jLines.push({ id: crypto.randomUUID(), entryId: jeId, agencyId, accountCode: cogsAc.code,         accountNameAr: cogsAc.ar,             accountNameEn: cogsAc.en,             debitHalalas: 0,         creditHalalas: cogsDebit, sortOrder: jLines.length + 1 });
-      }
+      const jLines: JL[] = builtLines.map((line, index) => ({
+        id: crypto.randomUUID(), entryId: jeId, agencyId,
+        accountCode: line.code, accountNameAr: line.ar, accountNameEn: line.en,
+        debitHalalas: line.dr, creditHalalas: line.cr, sortOrder: index + 1,
+      }));
 
       const totalDr = jLines.reduce((s, l) => s + l.debitHalalas,  0);
       const totalCr = jLines.reduce((s, l) => s + l.creditHalalas, 0);
@@ -249,6 +220,35 @@ export async function POST(request: Request) {
       });
 
       await tx.insert(journalLines).values(jLines);
+
+      // Keep the supplier subledger aligned with the exact AP debit posted by the
+      // credit note. Allocate the control movement across the original booking's
+      // suppliers without per-line rounding drift. A negative supplier balance is
+      // valid here: it represents a recoverable amount after an already-paid cost
+      // is credited by the supplier.
+      const apReversal = jLines
+        .filter((line) => line.accountCode === GL.payableSupplier.code)
+        .reduce((sum, line) => sum + line.debitHalalas, 0);
+      if (apReversal > 0 && originalInvoice?.bookingId) {
+        const costLines = await tx.select({
+          supplierId: bookingLines.supplierId,
+          totalCostHalalas: bookingLines.totalCostHalalas,
+        }).from(bookingLines).where(and(
+          eq(bookingLines.bookingId, originalInvoice.bookingId),
+          eq(bookingLines.agencyId, agencyId),
+        ));
+        const weights = new Map<string, number>();
+        for (const costLine of costLines) {
+          if (costLine.supplierId && costLine.totalCostHalalas > 0) {
+            weights.set(costLine.supplierId, (weights.get(costLine.supplierId) ?? 0) + costLine.totalCostHalalas);
+          }
+        }
+        for (const [supplierId, amount] of allocateProRata(apReversal, weights)) {
+          await tx.update(suppliers)
+            .set({ balanceHalalas: sql`${suppliers.balanceHalalas} - ${amount}`, updatedAt: now })
+            .where(and(eq(suppliers.id, supplierId), eq(suppliers.agencyId, agencyId)));
+        }
+      }
 
       // HIGH-1: once cumulative credit notes fully credit the original invoice,
       // mark it 'credit_noted' so it stops counting as outstanding AR / against the

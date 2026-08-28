@@ -1,4 +1,5 @@
-import { pgTable, text, boolean, bigint, timestamp, index } from 'drizzle-orm/pg-core';
+import { sql } from 'drizzle-orm';
+import { pgTable, text, boolean, bigint, timestamp, index, uniqueIndex } from 'drizzle-orm/pg-core';
 import { agencies } from './agencies';
 
 export const suppliers = pgTable('suppliers', {
@@ -18,6 +19,9 @@ export const suppliers = pgTable('suppliers', {
   updatedAt:       timestamp('updated_at').notNull().defaultNow(),
 }, (t) => [
   index('idx_suppliers_agency').on(t.agencyId),
+  uniqueIndex('suppliers_agency_vat_uq')
+    .on(t.agencyId, t.vatNumber)
+    .where(sql`${t.vatNumber} IS NOT NULL AND ${t.vatNumber} <> ''`),
 ]);
 
 export type Supplier    = typeof suppliers.$inferSelect;

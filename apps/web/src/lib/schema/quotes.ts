@@ -1,3 +1,4 @@
+import { sql } from 'drizzle-orm';
 import { pgTable, text, bigint, timestamp, jsonb, uniqueIndex } from 'drizzle-orm/pg-core';
 import { agencies } from './agencies';
 import { customers } from './customers';
@@ -21,6 +22,9 @@ export const quotes = pgTable('quotes', {
   updatedAt:            timestamp('updated_at').notNull().defaultNow(),
 }, (t) => ({
   agencyQuoteNumberUq: uniqueIndex('quotes_agency_number_uq').on(t.agencyId, t.quoteNumber),
+  convertedBookingUq: uniqueIndex('quotes_converted_booking_uq')
+    .on(t.convertedToBookingId)
+    .where(sql`${t.convertedToBookingId} IS NOT NULL`),
 }));
 
 export type Quote    = typeof quotes.$inferSelect;

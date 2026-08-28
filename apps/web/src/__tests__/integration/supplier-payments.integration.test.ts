@@ -238,8 +238,8 @@ beforeEach(async () => {
   if (SKIP_IF_NO_DB) return;
   // Clean transactional data between tests (keep the agency).
   await sql(`DELETE FROM journal_lines      WHERE agency_id = '${AGENCY_ID}'`);
-  await sql(`DELETE FROM journal_entries    WHERE agency_id = '${AGENCY_ID}'`);
   await sql(`DELETE FROM supplier_payments  WHERE agency_id = '${AGENCY_ID}'`);
+  await sql(`DELETE FROM journal_entries    WHERE agency_id = '${AGENCY_ID}'`);
   await sql(`DELETE FROM suppliers          WHERE agency_id = '${AGENCY_ID}'`);
   await sql(`DELETE FROM idempotency_keys   WHERE agency_id = '${AGENCY_ID}'`);
 });
@@ -247,8 +247,8 @@ beforeEach(async () => {
 afterAll(async () => {
   if (SKIP_IF_NO_DB) return;
   await sql(`DELETE FROM journal_lines      WHERE agency_id = '${AGENCY_ID}'`);
-  await sql(`DELETE FROM journal_entries    WHERE agency_id = '${AGENCY_ID}'`);
   await sql(`DELETE FROM supplier_payments  WHERE agency_id = '${AGENCY_ID}'`);
+  await sql(`DELETE FROM journal_entries    WHERE agency_id = '${AGENCY_ID}'`);
   await sql(`DELETE FROM suppliers          WHERE agency_id = '${AGENCY_ID}'`);
   await sql(`DELETE FROM idempotency_keys   WHERE agency_id = '${AGENCY_ID}'`);
   await sql(`DELETE FROM agency_counters    WHERE agency_id = '${AGENCY_ID}'`);
