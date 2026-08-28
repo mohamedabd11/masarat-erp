@@ -14,8 +14,8 @@
  * Bucketing is by `daysOverdue = asOf - COALESCE(dueDate, issueDate)`:
  *   <= 0 current | 1–30 | 31–60 | 61–90 | > 90.
  */
-import { eq, and, ne, inArray, sql } from 'drizzle-orm';
-import { invoices, customers, journalLines, journalEntries } from '@/lib/schema';
+import { eq, and, ne, inArray, lte, sql } from 'drizzle-orm';
+import { invoices, customers, journalLines, journalEntries, chartOfAccounts } from '@/lib/schema';
 import type { DB } from '@/lib/db';
 
 // ── Types ──────────────────────────────────────────────────────────────────────
@@ -142,6 +142,7 @@ async function customerDrilldown(
       eq(invoices.customerId, filterCust),
       inArray(invoices.type, [...AGING_DOC_TYPES]),
       inArray(invoices.status, ['issued', 'partial']),
+      lte(invoices.issueDate, asOfStr),
       sql`${invoices.totalHalalas} > ${invoices.paidHalalas}`,
     ));
 
@@ -230,6 +231,7 @@ async function agencyRollup(
       eq(invoices.agencyId, agencyId),
       inArray(invoices.type, [...AGING_DOC_TYPES]),
       inArray(invoices.status, ['issued', 'partial']),
+      lte(invoices.issueDate, asOfStr),
       sql`${invoices.totalHalalas} > ${invoices.paidHalalas}`,
     ))
     .groupBy(groupKey, invoices.customerId);
@@ -280,11 +282,17 @@ async function agencyRollup(
     ));
   const glReceivableBalance = Number(arGlRows[0]?.netDebit ?? 0);
 
+  const [openingRow] = await db
+    .select({ opening: chartOfAccounts.openingBalanceHalalas })
+    .from(chartOfAccounts)
+    .where(and(eq(chartOfAccounts.agencyId, agencyId), eq(chartOfAccounts.code, '1120')));
+  const glReceivableWithOpening = glReceivableBalance + Number(openingRow?.opening ?? 0);
+
   const reconciliation: AgingReconciliation = {
     agingTotalOutstanding: summary.totalOutstanding,
-    glReceivableBalance,
-    difference:            glReceivableBalance - summary.totalOutstanding,
-    reconciled:            glReceivableBalance === summary.totalOutstanding,
+    glReceivableBalance:   glReceivableWithOpening,
+    difference:            glReceivableWithOpening - summary.totalOutstanding,
+    reconciled:            glReceivableWithOpening === summary.totalOutstanding,
   };
 
   return { summary, customers: customerList, reconciliation };

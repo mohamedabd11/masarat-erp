@@ -9,6 +9,8 @@ import { assertPeriodOpen } from '@/lib/period-lock';
 import { buildRefundJournalLines } from '@/lib/refund-journal';
 import { validateRefundPolicy } from '@/lib/refund-policy';
 import { buildZatcaInvoiceRecord } from '@/lib/zatca-einvoice';
+import { allocateProRata } from '@/lib/supplier-aging';
+import { GL } from '@/lib/gl-accounts';
 
 interface RefundBody {
   bookingId:              string;
@@ -97,7 +99,6 @@ export async function POST(request: Request) {
 
         // Fraction of the invoice being unwound (defaults to refund + retained fee).
         const cancelledTotal = refundPolicy.cancelledTotalHalalas;
-        const reversalRatio  = cancelledTotal / originalTotal;
 
         // ── 4. Counters + IDs ───────────────────────────────────────────────
         const now  = new Date();
@@ -277,9 +278,8 @@ export async function POST(request: Request) {
 
         // Decrement supplier subledger balances to mirror the AP (2000) reversal
         // posted above, keeping suppliers.balanceHalalas consistent with GL 2000.
-        // Read the still-active lines BEFORE the cascade cancels them. The AP was
-        // reversed pro-rated by reversalRatio, so decrement each supplier by the
-        // same fraction of its line cost.
+        // Read the still-active lines BEFORE the cascade cancels them, then split
+        // the exact AP control-account debit across their suppliers.
         const activeLines = await tx.select({ supplierId: bookingLines.supplierId, totalCostHalalas: bookingLines.totalCostHalalas })
           .from(bookingLines)
           .where(and(
@@ -287,16 +287,18 @@ export async function POST(request: Request) {
             eq(bookingLines.agencyId, agencyId),
             eq(bookingLines.status, 'active'),
           ));
-        const apBySupplier = new Map<string, number>();
+        const supplierWeights = new Map<string, number>();
         for (const l of activeLines) {
           if (l.supplierId && l.totalCostHalalas > 0) {
-            const dec = Math.round(l.totalCostHalalas * reversalRatio);
-            if (dec > 0) apBySupplier.set(l.supplierId, (apBySupplier.get(l.supplierId) ?? 0) + dec);
+            supplierWeights.set(l.supplierId, (supplierWeights.get(l.supplierId) ?? 0) + l.totalCostHalalas);
           }
         }
-        for (const [sid, amt] of apBySupplier) {
+        const apReversal = jLines
+          .filter((line) => line.code === GL.payableSupplier.code)
+          .reduce((sum, line) => sum + line.dr, 0);
+        for (const [sid, amt] of allocateProRata(apReversal, supplierWeights)) {
           await tx.update(suppliers)
-            .set({ balanceHalalas: sql`GREATEST(0, ${suppliers.balanceHalalas} - ${amt})`, updatedAt: now })
+            .set({ balanceHalalas: sql`${suppliers.balanceHalalas} - ${amt}`, updatedAt: now })
             .where(and(eq(suppliers.id, sid), eq(suppliers.agencyId, agencyId)));
         }
 

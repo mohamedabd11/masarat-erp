@@ -17,20 +17,10 @@ interface ServerType {
   count: number;
   rev:   number;
 }
-interface ServerVatInvoice {
-  id:              string;
-  invoiceNumber:   string;
-  subtotalHalalas: number;
-  vatHalalas:      number;
-  totalHalalas:    number;
-  status:          string;
-  createdAt:       string;
-}
 interface DashboardResponse {
   year:        number;
   monthly:     ServerMonthly[];
   typeMix:     ServerType[];
-  vatInvoices: ServerVatInvoice[];
 }
 
 export interface MonthlyRow {
@@ -56,20 +46,9 @@ export interface TypeMixRow {
   dot:    string;
 }
 
-export interface VatInvoice {
-  id:              string;
-  invoiceNumber:   string;
-  isVatRegistered: boolean;
-  grandTotal:      number;
-  subtotalExclVat: number;
-  totalVat:        number;
-  createdAt:       Date;
-}
-
 export interface ReportsData {
   monthly:     MonthlyRow[];
   typeMix:     TypeMixRow[];
-  vatInvoices: VatInvoice[];
   loading:     boolean;
   year:        number;
   setYear:     (y: number) => void;
@@ -92,7 +71,7 @@ const TYPE_META: Record<string, { nameAr: string; nameEn: string; color: string;
 
 export function useReportsData(agencyId: string | null): ReportsData {
   const [year, setYear] = useState(new Date().getFullYear());
-  const [data, setData] = useState<DashboardResponse>({ year: new Date().getFullYear(), monthly: [], typeMix: [], vatInvoices: [] });
+  const [data, setData] = useState<DashboardResponse>({ year: new Date().getFullYear(), monthly: [], typeMix: [] });
   const [loading, setLoading] = useState(true);
 
   // Re-fetch whenever the agency or selected year changes. Aggregation now happens
@@ -104,7 +83,7 @@ export function useReportsData(agencyId: string | null): ReportsData {
 
     apiFetch<DashboardResponse>(`/api/reports/dashboard?year=${year}`)
       .then((res) => { if (!cancelled) setData(res); })
-      .catch(() => { if (!cancelled) setData({ year, monthly: [], typeMix: [], vatInvoices: [] }); })
+      .catch(() => { if (!cancelled) setData({ year, monthly: [], typeMix: [] }); })
       .finally(() => { if (!cancelled) setLoading(false); });
 
     return () => { cancelled = true; };
@@ -144,18 +123,5 @@ export function useReportsData(agencyId: string | null): ReportsData {
       });
   }, [data.typeMix]);
 
-  const vatInvoices = useMemo<VatInvoice[]>(() =>
-    data.vatInvoices.map(inv => ({
-      id:              inv.id,
-      invoiceNumber:   inv.invoiceNumber,
-      // An invoice is VAT-applicable when it has a non-zero VAT amount
-      isVatRegistered: (inv.vatHalalas ?? 0) > 0,
-      grandTotal:      inv.totalHalalas,
-      subtotalExclVat: inv.subtotalHalalas,
-      totalVat:        inv.vatHalalas,
-      createdAt:       new Date(inv.createdAt),
-    })),
-  [data.vatInvoices]);
-
-  return { monthly, typeMix, vatInvoices, loading, year, setYear };
+  return { monthly, typeMix, loading, year, setYear };
 }

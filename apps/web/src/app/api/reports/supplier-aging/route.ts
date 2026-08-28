@@ -2,23 +2,31 @@
  * GET /api/reports/supplier-aging?asOf=YYYY-MM-DD
  *
  * Supplier Accounts Payable Aging Report.
- * Uses suppliers.balance_halalas (positive = agency owes supplier) and
- * buckets payments by age from the asOf date.
+ * Uses suppliers.balance_halalas (positive = agency owes supplier) and assigns
+ * the open balance to invoice obligations by FIFO settlement. Payment dates are
+ * not obligation dates and must never be used as the age basis.
  *
  * Buckets: Current (0-30d), 31-60d, 61-90d, 90+d
  */
 import { NextResponse } from 'next/server';
-import { eq, and, ne, lte, sql } from 'drizzle-orm';
+import { eq, and, ne, lte, inArray, isNotNull, sql } from 'drizzle-orm';
 import { db } from '@/lib/db';
-import { suppliers, supplierPayments, journalLines, journalEntries } from '@/lib/schema';
-import { verifyAuth, ApiAuthError } from '@/lib/api-auth';
+import { suppliers, bookingLines, invoices, journalLines, journalEntries, chartOfAccounts } from '@/lib/schema';
+import { verifyAuth, assertRole, ApiAuthError, ROLES_ACCOUNTANT_UP } from '@/lib/api-auth';
+import { allocateSupplierBalanceByAge, type SupplierObligation } from '@/lib/supplier-aging';
+import { isStrictIsoDate, todayIsoDate } from '@/lib/report-dates';
 
 export async function GET(request: Request) {
   try {
-    const { agencyId } = await verifyAuth(request);
+    const { agencyId, role } = await verifyAuth(request);
+    assertRole(role, [...ROLES_ACCOUNTANT_UP]);
     const url   = new URL(request.url);
-    const asOf  = url.searchParams.get('asOf') ?? new Date().toISOString().slice(0, 10);
-    const asOfDate = new Date(asOf + 'T23:59:59');
+    const asOf  = url.searchParams.get('asOf') ?? todayIsoDate();
+    if (!isStrictIsoDate(asOf)) {
+      return NextResponse.json({ error: 'asOf يجب أن يكون تاريخاً صحيحاً بصيغة YYYY-MM-DD' }, { status: 400 });
+    }
+    const balanceSnapshotDate = todayIsoDate();
+    const historicalSnapshotAvailable = asOf === balanceSnapshotDate;
 
     // ── Reconcile the subledger to the GL control account (2000) ──────────────
     // suppliers.balanceHalalas is maintained at invoice time (CRIT-9) and on
@@ -36,7 +44,11 @@ export async function GET(request: Request) {
         sql`${journalLines.accountCode} = '2000'`,
         lte(sql`${journalEntries.date}`, sql`${asOf}`),
       ));
-    const apGlBalance = Number(apGlRows[0]?.netCredit ?? 0);
+    const [openingRow] = await db
+      .select({ opening: chartOfAccounts.openingBalanceHalalas })
+      .from(chartOfAccounts)
+      .where(and(eq(chartOfAccounts.agencyId, agencyId), eq(chartOfAccounts.code, '2000')));
+    const apGlBalance = Number(apGlRows[0]?.netCredit ?? 0) + Number(openingRow?.opening ?? 0);
 
     const supBalRows = await db
       .select({ total: sql<number>`cast(coalesce(sum(${suppliers.balanceHalalas}), 0) as bigint)` })
@@ -48,80 +60,70 @@ export async function GET(request: Request) {
       supplierBalanceTotal,
       apGlBalance,
       difference: apGlBalance - supplierBalanceTotal,
-      reconciled: apGlBalance === supplierBalanceTotal,
+      reconciled: historicalSnapshotAvailable && apGlBalance === supplierBalanceTotal,
+      balanceSnapshotDate,
+      historicalSnapshotAvailable,
     };
 
-    // Load all active suppliers with outstanding balance
+    // Inactive suppliers may still have a payable. Never hide a real liability
+    // merely because the supplier master record was deactivated.
     const allSuppliers = await db
       .select()
       .from(suppliers)
       .where(and(
         eq(suppliers.agencyId, agencyId),
-        eq(suppliers.isActive, true),
         sql`${suppliers.balanceHalalas} > 0`,
       ));
 
     if (allSuppliers.length === 0) {
-      return NextResponse.json({ asOf, rows: [], totals: { current: 0, days31_60: 0, days61_90: 0, days91plus: 0, total: 0 }, reconciliation });
+      return NextResponse.json({ asOf, rows: [], totals: { current: 0, days31_60: 0, days61_90: 0, days91plus: 0, unallocated: 0, total: 0 }, reconciliation });
     }
 
-    // For each supplier, bucket their unpaid/outstanding payments by date
-    const supplierIds = allSuppliers.map(s => s.id);
-
-    const payments = await db
+    // Build the dated AP-obligation lots from original invoices and their
+    // supplier-attributed booking lines. Credit notes/refunds reduce the current
+    // supplier balance; FIFO allocation below leaves that balance on the newest
+    // remaining lots.
+    const obligationRows = await db
       .select({
-        supplierId:    supplierPayments.supplierId,
-        amountHalalas: supplierPayments.amountHalalas,
-        date:          supplierPayments.date,
-        status:        supplierPayments.status,
+        supplierId:    bookingLines.supplierId,
+        date:          invoices.issueDate,
+        amountHalalas: sql<number>`cast(coalesce(sum(${bookingLines.totalCostHalalas}), 0) as bigint)`,
       })
-      .from(supplierPayments)
+      .from(bookingLines)
+      .innerJoin(invoices, and(
+        eq(invoices.bookingId, bookingLines.bookingId),
+        eq(invoices.agencyId, agencyId),
+      ))
       .where(and(
-        eq(supplierPayments.agencyId, agencyId),
-        eq(supplierPayments.status, 'completed'),
-        // Compare as plain text — ISO YYYY-MM-DD sorts chronologically, and the
-        // ::date cast defeated idx_supplier_payments_agency_date (B2).
-        lte(supplierPayments.date, asOf),
-      ));
+        eq(bookingLines.agencyId, agencyId),
+        isNotNull(bookingLines.supplierId),
+        inArray(invoices.type, ['380', '388']),
+        lte(invoices.issueDate, asOf),
+        sql`${bookingLines.totalCostHalalas} > 0`,
+      ))
+      .groupBy(bookingLines.supplierId, invoices.issueDate);
 
-    // Build a map: supplierId → payments array
-    const payMap = new Map<string, { amountHalalas: number; daysAgo: number }[]>();
-    for (const p of payments) {
-      if (!p.supplierId || !supplierIds.includes(p.supplierId)) continue;
-      const payDate  = new Date(p.date + 'T00:00:00');
-      const daysAgo  = Math.floor((asOfDate.getTime() - payDate.getTime()) / 86_400_000);
-      if (!payMap.has(p.supplierId)) payMap.set(p.supplierId, []);
-      payMap.get(p.supplierId)!.push({ amountHalalas: p.amountHalalas, daysAgo });
+    const obligationMap = new Map<string, SupplierObligation[]>();
+    for (const obligation of obligationRows) {
+      if (!obligation.supplierId) continue;
+      const existing = obligationMap.get(obligation.supplierId) ?? [];
+      existing.push({ date: obligation.date, amountHalalas: Number(obligation.amountHalalas) });
+      obligationMap.set(obligation.supplierId, existing);
     }
 
     const rows = allSuppliers.map(s => {
-      const pmts = payMap.get(s.id) ?? [];
-      // Use supplier.balanceHalalas as total outstanding; distribute across buckets by payment age
-      const balance = s.balanceHalalas;
-      let allocated  = 0;
-      const buckets  = { current: 0, days31_60: 0, days61_90: 0, days91plus: 0 };
-
-      // Sort payments oldest first for FIFO aging
-      const sorted = [...pmts].sort((a, b) => b.daysAgo - a.daysAgo);
-      for (const p of sorted) {
-        const remaining = Math.min(p.amountHalalas, balance - allocated);
-        if (remaining <= 0) break;
-        if (p.daysAgo <= 30)       buckets.current     += remaining;
-        else if (p.daysAgo <= 60)  buckets.days31_60   += remaining;
-        else if (p.daysAgo <= 90)  buckets.days61_90   += remaining;
-        else                       buckets.days91plus  += remaining;
-        allocated += remaining;
-      }
-      // Any unallocated balance goes to current
-      const unallocated = balance - allocated;
-      if (unallocated > 0) buckets.current += unallocated;
+      const buckets = allocateSupplierBalanceByAge(
+        s.balanceHalalas,
+        obligationMap.get(s.id) ?? [],
+        asOf,
+      );
 
       return {
         supplierId:   s.id,
         supplierName: s.nameAr,
         supplierType: s.type ?? '',
         ...buckets,
-        total: balance,
+        total: buckets.total,
       };
     }).filter(r => r.total > 0);
 
@@ -131,9 +133,10 @@ export async function GET(request: Request) {
         days31_60:  acc.days31_60  + r.days31_60,
         days61_90:  acc.days61_90  + r.days61_90,
         days91plus: acc.days91plus + r.days91plus,
+        unallocated: acc.unallocated + r.unallocated,
         total:      acc.total      + r.total,
       }),
-      { current: 0, days31_60: 0, days61_90: 0, days91plus: 0, total: 0 },
+      { current: 0, days31_60: 0, days61_90: 0, days91plus: 0, unallocated: 0, total: 0 },
     );
 
     return NextResponse.json({ asOf, rows, totals, reconciliation });
