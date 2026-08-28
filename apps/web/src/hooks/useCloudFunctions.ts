@@ -41,6 +41,7 @@ export interface ProcessRefundRequest {
   agencyId: string;
   refundAmountHalalas: number;
   cancellationFeeHalalas: number;
+  cancelledTotalHalalas?: number;
   reason: string;
 }
 
@@ -185,6 +186,7 @@ export function useProcessRefund() {
           originalInvoiceId: req.invoiceId,
           refundAmountHalalas: req.refundAmountHalalas,
           cancellationFeeHalalas: req.cancellationFeeHalalas,
+          cancelledTotalHalalas: req.cancelledTotalHalalas,
           reason: req.reason,
           idempotencyKey: crypto.randomUUID(),
         });

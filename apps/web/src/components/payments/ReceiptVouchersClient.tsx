@@ -152,21 +152,24 @@ export function ReceiptVouchersClient() {
     ]).then(([pmtData, rctData]) => {
       if (cancelled) return;
 
-      const paymentRows: VoucherRow[] = pmtData.payments.map(p => ({
-        id:            p.id,
-        kind:          'payment',
-        voucherNumber: p.receiptNumber ?? p.id.slice(-8).toUpperCase(),
-        date:          p.createdAt,
-        customerName:  isAr
-          ? (p.customerNameAr || p.customerNameEn || '—')
-          : (p.customerNameEn || p.customerNameAr || '—'),
-        method:        p.paymentMethod,
-        amountHalalas: p.amountHalalas,
-        invoiceNumber: p.invoiceNumber,
-        invoiceId:     p.invoiceId,
-        bookingId:     p.bookingId,
-        isRefund:      false,
-      }));
+      const paymentRows: VoucherRow[] = pmtData.payments.map(p => {
+        const isRefund = p.amountHalalas < 0;
+        return {
+          id:            p.id,
+          kind:          'payment',
+          voucherNumber: p.receiptNumber ?? p.id.slice(-8).toUpperCase(),
+          date:          p.createdAt,
+          customerName:  isAr
+            ? (p.customerNameAr || p.customerNameEn || '—')
+            : (p.customerNameEn || p.customerNameAr || '—'),
+          method:        p.paymentMethod,
+          amountHalalas: Math.abs(p.amountHalalas),
+          invoiceNumber: p.invoiceNumber,
+          invoiceId:     p.invoiceId,
+          bookingId:     p.bookingId,
+          isRefund,
+        };
+      });
 
       const receiptRows: VoucherRow[] = rctData.receipts.map(r => ({
         id:            r.id,

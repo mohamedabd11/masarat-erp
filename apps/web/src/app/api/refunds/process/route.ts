@@ -7,6 +7,7 @@ import { withIdempotency, markIdempotencyComplete } from '@/lib/idempotency';
 import { getNextInvoiceNumber, getNextJournalNumber } from '@/lib/invoice-counter';
 import { assertPeriodOpen } from '@/lib/period-lock';
 import { buildRefundJournalLines } from '@/lib/refund-journal';
+import { validateRefundPolicy } from '@/lib/refund-policy';
 import { buildZatcaInvoiceRecord } from '@/lib/zatca-einvoice';
 
 interface RefundBody {
@@ -63,9 +64,6 @@ export async function POST(request: Request) {
           and(eq(invoices.id, originalInvoiceId), eq(invoices.agencyId, agencyId)),
         );
         if (!invoice) throw new BusinessError(`الفاتورة ${originalInvoiceId} غير موجودة`, 404);
-        if (invoice.status === 'cancelled') throw new BusinessError('الفاتورة ملغاة بالفعل', 400);
-        if (invoice.status === 'refunded')  throw new BusinessError('تم استرداد هذه الفاتورة بالفعل', 400);
-
         const [booking] = await tx.select().from(bookings).where(
           and(eq(bookings.id, bookingId), eq(bookings.agencyId, agencyId)),
         );
@@ -73,23 +71,32 @@ export async function POST(request: Request) {
         if (booking.status === 'cancelled') throw new BusinessError('الحجز ملغى بالفعل', 400);
 
         // ── 2. Validate ────────────────────────────────────────────────────
-        if (refundAmountHalalas + cancellationFeeHalalas > invoice.paidHalalas) {
-          throw new BusinessError(
-            `المجموع (${(refundAmountHalalas + cancellationFeeHalalas) / 100} ر.س) يتجاوز المدفوع (${invoice.paidHalalas / 100} ر.س)`,
-            400,
-          );
-        }
+        const refundPolicy = validateRefundPolicy({
+          bookingId,
+          invoiceBookingId: invoice.bookingId,
+          invoiceType: invoice.type,
+          invoiceStatus: invoice.status,
+          originalTotalHalalas: invoice.totalHalalas,
+          paidHalalas: invoice.paidHalalas,
+          refundAmountHalalas,
+          cancellationFeeHalalas,
+          requestedCancelledTotalHalalas: body.cancelledTotalHalalas,
+        });
 
         // ── 3. Calculate refund-document amounts (credit-note invoice + ZATCA) ─
         // These describe the customer-facing refund document. The GL journal is
         // built separately in step 5 by reversing the ORIGINAL invoice's lines.
         const originalTotal  = invoice.totalHalalas > 0 ? invoice.totalHalalas : 1;
-        const refundRatio    = refundAmountHalalas / originalTotal;
-        const refundVat      = Math.round(invoice.vatHalalas * refundRatio);
-        const refundSubtotal = refundAmountHalalas - refundVat;
+        // A partially-paid full cancellation credits the whole cancelled supply
+        // (less the retained fee), not only the cash returned. The difference is
+        // the open AR written off by the GL entry.
+        const creditNoteTotal    = refundPolicy.creditNoteTotalHalalas;
+        const creditNoteRatio    = creditNoteTotal / originalTotal;
+        const creditNoteVat      = Math.round(invoice.vatHalalas * creditNoteRatio);
+        const creditNoteSubtotal = creditNoteTotal - creditNoteVat;
 
         // Fraction of the invoice being unwound (defaults to refund + retained fee).
-        const cancelledTotal = body.cancelledTotalHalalas ?? (refundAmountHalalas + cancellationFeeHalalas);
+        const cancelledTotal = refundPolicy.cancelledTotalHalalas;
         const reversalRatio  = cancelledTotal / originalTotal;
 
         // ── 4. Counters + IDs ───────────────────────────────────────────────
@@ -132,13 +139,13 @@ export async function POST(request: Request) {
           paidHalalas:            invoice.paidHalalas,
           refundAmountHalalas,
           cancellationFeeHalalas,
-          cancelledTotalHalalas:  body.cancelledTotalHalalas,
+          cancelledTotalHalalas:  cancelledTotal,
           isEInvoice:             invoice.isEInvoice,
           fallback:               { revenueModel: fallbackModel, costPriceHalalas: booking.costPriceHalalas ?? 0 },
         });
 
         // ── ZATCA e-invoice record for the refund credit note (type 381) ────
-        // refundSubtotal + refundVat = refundAmountHalalas by construction;
+        // subtotal + VAT = the credited supply value by construction;
         // never block the refund over the QR.
         let zatcaRecord: ReturnType<typeof buildZatcaInvoiceRecord> | null = null;
         if (invoice.isEInvoice && invoice.sellerVatNumber && invoice.sellerNameAr) {
@@ -155,9 +162,9 @@ export async function POST(request: Request) {
               buyerVatNumber:        invoice.buyerVatNumber,
               vatRatePercent:        15,
               invoiceTypeCode:       '381',
-              subtotalHalalas:       refundSubtotal,
-              vatHalalas:            refundVat,
-              totalHalalas:          refundAmountHalalas,
+              subtotalHalalas:       creditNoteSubtotal,
+              vatHalalas:            creditNoteVat,
+              totalHalalas:          creditNoteTotal,
               originalInvoiceUuid:   invoice.zatcaUuid,
               originalInvoiceNumber: invoice.invoiceNumber,
             });
@@ -180,14 +187,15 @@ export async function POST(request: Request) {
           buyerNameAr:     invoice.buyerNameAr,
           buyerNameEn:     invoice.buyerNameEn,
           buyerVatNumber:  invoice.buyerVatNumber,
-          subtotalHalalas: refundSubtotal,
-          vatHalalas:      refundVat,
-          totalHalalas:    refundAmountHalalas,
-          paidHalalas:     refundAmountHalalas,
+          subtotalHalalas: creditNoteSubtotal,
+          vatHalalas:      creditNoteVat,
+          totalHalalas:    creditNoteTotal,
+          paidHalalas:     creditNoteTotal,
           issueDate:       today,
           status:          'issued',
           isEInvoice:      invoice.isEInvoice,
           journalEntryId:  jeId,
+          originalInvoiceId,
           zatcaUuid:       zatcaRecord?.uuid ?? crypto.randomUUID(),
           zatcaQr:         zatcaRecord?.qr ?? null,
           createdBy:       uid,
@@ -235,29 +243,37 @@ export async function POST(request: Request) {
           });
         }
 
-        // Update original invoice atomically: decrement paidHalalas ONLY if the
-        // current DB balance still covers this refund + retained fee. This guards
+        // Update original invoice atomically: consume BOTH the cash returned and
+        // the retained cancellation fee from the amount paid against the original
+        // travel service. The fee is reclassified to account 4200 above; leaving it
+        // in paidHalalas would make the same funds refundable a second time and
+        // would keep a fully-cancelled booking active whenever a fee was retained.
+        // The current DB balance must still cover the whole claim. This guards
         // against a concurrent refund (different idempotency key) double-spending
         // the same paid amount (lost update). 0 rows → another refund won the race
         // → the whole transaction rolls back (no double credit note / cash-out).
         const refundClaim = await tx.update(invoices)
           .set({
-            paidHalalas: sql`${invoices.paidHalalas} - ${refundAmountHalalas}`,
-            status: sql`CASE
-              WHEN ${invoices.paidHalalas} - ${refundAmountHalalas} <= 0 THEN 'refunded'
-              WHEN ${invoices.paidHalalas} - ${refundAmountHalalas} < ${invoices.totalHalalas} THEN 'partial'
-              ELSE 'issued' END`,
+            paidHalalas: sql`${invoices.paidHalalas} - ${refundPolicy.claimedPaidHalalas}`,
+            status: refundPolicy.isFullCancellation
+              ? 'refunded'
+              : sql`CASE
+                  WHEN ${invoices.paidHalalas} - ${refundPolicy.claimedPaidHalalas} <= 0 THEN 'issued'
+                  WHEN ${invoices.paidHalalas} - ${refundPolicy.claimedPaidHalalas} < ${invoices.totalHalalas} THEN 'partial'
+                  ELSE 'paid' END`,
             updatedAt: now,
           } as never)
           .where(and(
             eq(invoices.id, originalInvoiceId),
-            sql`${invoices.paidHalalas} >= ${refundAmountHalalas + cancellationFeeHalalas}`,
+            eq(invoices.agencyId, agencyId),
+            sql`${invoices.status} IN ('issued','partial','paid')`,
+            sql`${invoices.paidHalalas} >= ${refundPolicy.claimedPaidHalalas}`,
           ))
           .returning({ paidHalalas: invoices.paidHalalas });
         if (refundClaim.length === 0) {
           throw new BusinessError('تعذّر تنفيذ الاسترداد — قد يكون استرداد آخر نُفّذ في نفس الوقت، حاول مجدداً', 409);
         }
-        const isFullyRefunded = (refundClaim[0]!.paidHalalas ?? 0) <= 0;
+        const isFullCancellation = refundPolicy.isFullCancellation;
 
         // Decrement supplier subledger balances to mirror the AP (2000) reversal
         // posted above, keeping suppliers.balanceHalalas consistent with GL 2000.
@@ -285,7 +301,7 @@ export async function POST(request: Request) {
         }
 
         // Sync booking.paidHalalas to reflect the refund
-        if (isFullyRefunded) {
+        if (isFullCancellation) {
           // Full refund → cancel booking + zero out paid amount
           await tx.update(bookings)
             .set({ status: 'cancelled', paidHalalas: 0, updatedAt: now })
@@ -311,10 +327,11 @@ export async function POST(request: Request) {
               eq(paymentPlans.status, 'active'),
             ));
         } else {
-          // Partial refund → decrement paidHalalas, booking stays active
+          // Partial refund → consume the refunded cash AND the reclassified fee
+          // from the booking's travel-service payments; booking stays active.
           await tx.update(bookings)
             .set({
-              paidHalalas: sql`GREATEST(0, ${bookings.paidHalalas} - ${refundAmountHalalas})`,
+              paidHalalas: sql`GREATEST(0, ${bookings.paidHalalas} - ${refundPolicy.claimedPaidHalalas})`,
               updatedAt: now,
             })
             .where(and(eq(bookings.id, bookingId), eq(bookings.agencyId, agencyId)));

@@ -28,6 +28,8 @@ interface ProcessRefundModalProps {
   invoiceId: string;
   agencyId: string;
   paidAmountHalalas: number;
+  /** Set when this action cancels the whole invoice, including unpaid AR. */
+  cancelledTotalHalalas?: number;
   onClose: () => void;
   onSuccess?: () => void;
 }
@@ -37,6 +39,7 @@ export function ProcessRefundModal({
   invoiceId,
   agencyId,
   paidAmountHalalas,
+  cancelledTotalHalalas,
   onClose,
   onSuccess,
 }: ProcessRefundModalProps) {
@@ -63,6 +66,10 @@ export function ProcessRefundModal({
   const refundAmountSAR = watch('refundAmountSAR') || 0;
   const cancellationFeeSAR = watch('cancellationFeeSAR') || 0;
   const netRefundSAR = Math.max(0, refundAmountSAR - cancellationFeeSAR);
+  const creditNoteSAR = Math.max(
+    0,
+    (cancelledTotalHalalas !== undefined ? cancelledTotalHalalas / 100 : refundAmountSAR) - cancellationFeeSAR,
+  );
 
   async function onSubmit(data: RefundFormData) {
     if (!confirmed) { setConfirmed(true); return; }
@@ -75,6 +82,7 @@ export function ProcessRefundModal({
         agencyId,
         refundAmountHalalas: grossHalalas - feeHalalas,
         cancellationFeeHalalas: feeHalalas,
+        cancelledTotalHalalas,
         reason: data.reason,
       });
       setSuccess(true);
@@ -106,8 +114,12 @@ export function ProcessRefundModal({
           <AlertTriangle size={16} className="text-red-600 flex-shrink-0 mt-0.5" />
           <p className="text-sm text-red-700">
             {isAr
-              ? 'هذا الإجراء لا يمكن التراجع عنه. سيتم إلغاء الحجز وإصدار إشعار دائن.'
-              : 'This action cannot be undone. The booking will be cancelled and a credit note issued.'}
+              ? cancelledTotalHalalas !== undefined
+                ? 'هذا الإجراء لا يمكن التراجع عنه. سيتم إلغاء الحجز بالكامل وإصدار إشعار دائن.'
+                : 'هذا الإجراء لا يمكن التراجع عنه. سيتم رد المبلغ المحدد وإصدار إشعار دائن، وسيبقى الحجز فعالاً.'
+              : cancelledTotalHalalas !== undefined
+                ? 'This action cannot be undone. The booking will be fully cancelled and a credit note issued.'
+                : 'This action cannot be undone. The selected amount will be refunded and the booking will remain active.'}
           </p>
         </div>
 
@@ -152,9 +164,15 @@ export function ProcessRefundModal({
                 <span>- {formatCurrency(Math.round(cancellationFeeSAR * 100), isAr ? 'ar-SA' : 'en-SA')}</span>
               </div>
               <div className="flex justify-between font-bold text-slate-900 border-t border-slate-200 pt-2">
-                <span>{isAr ? 'مبلغ الإشعار الدائن' : 'Credit Note Amount'}</span>
+                <span>{isAr ? 'المبلغ النقدي المسترد' : 'Cash Refund'}</span>
                 <span className="text-emerald-600">{formatCurrency(Math.round(netRefundSAR * 100), isAr ? 'ar-SA' : 'en-SA')}</span>
               </div>
+              {Math.round(creditNoteSAR * 100) !== Math.round(netRefundSAR * 100) && (
+                <div className="flex justify-between text-sm font-semibold text-slate-700 mt-2 pt-2 border-t border-slate-200">
+                  <span>{isAr ? 'قيمة الإشعار الدائن' : 'Credit Note Amount'}</span>
+                  <span>{formatCurrency(Math.round(creditNoteSAR * 100), isAr ? 'ar-SA' : 'en-SA')}</span>
+                </div>
+              )}
             </div>
 
             <div className="space-y-1">
