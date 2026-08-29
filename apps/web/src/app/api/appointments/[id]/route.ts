@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { eq, and } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { appointments } from '@/lib/schema';
-import { verifyAuth, ApiAuthError } from '@/lib/api-auth';
+import { verifyAuth, assertRole, ApiAuthError, ROLES_AGENT_UP } from '@/lib/api-auth';
 import { logAudit } from '@/lib/audit';
 
 const VALID_STATUSES = new Set(['scheduled', 'completed', 'cancelled', 'noshow']);
@@ -22,7 +22,8 @@ export async function GET(request: Request, { params }: { params: { id: string }
 
 export async function PATCH(request: Request, { params }: { params: { id: string } }) {
   try {
-    const { uid, agencyId } = await verifyAuth(request);
+    const { uid, agencyId, role } = await verifyAuth(request);
+    assertRole(role, [...ROLES_AGENT_UP]);
     const body = await request.json() as Partial<{
       title: string; scheduledAt: string; type: string; status: string;
       customerId: string; customerName: string; assignedTo: string;
@@ -60,7 +61,8 @@ export async function PATCH(request: Request, { params }: { params: { id: string
 
 export async function DELETE(request: Request, { params }: { params: { id: string } }) {
   try {
-    const { uid, agencyId } = await verifyAuth(request);
+    const { uid, agencyId, role } = await verifyAuth(request);
+    assertRole(role, [...ROLES_AGENT_UP]);
     const [existing] = await db.select().from(appointments)
       .where(and(eq(appointments.id, params.id), eq(appointments.agencyId, agencyId)));
     if (!existing) return NextResponse.json({ error: 'الموعد غير موجود' }, { status: 404 });

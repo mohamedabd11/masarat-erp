@@ -6,7 +6,7 @@ export interface AuthClaims {
   uid: string;
   agencyId: string;
   role: string;
-  /** Section-level grants. null = full access (legacy users + admins). */
+  /** Section-level grants. null = role preset for legacy users; admins bypass. */
   permissions: FeatureKey[] | null;
 }
 
@@ -72,53 +72,48 @@ export async function verifyAuth(request: Request): Promise<AuthClaims> {
   const isSuperAdmin = !!superAdminEmail && decoded.email === superAdminEmail;
   if (!agencyId && !isSuperAdmin) throw new ApiAuthError('يجب تسجيل الدخول أولاً', 401);
 
-  // Block suspended / expired / deactivated agencies from all API access.
-  // Super-admin is exempt. We distinguish two failure modes:
-  //   • The lookup SUCCEEDS but the row is missing or inactive/suspended/expired
-  //     → FAIL CLOSED (the agency was deleted/disabled; deny access).
-  //   • The lookup itself THROWS (DB unreachable, import failure)
-  //     → FAIL OPEN, but log a degraded-path alert, so a transient infra blip
-  //       cannot lock every tenant out of the system.
-  // Effective permissions for this user. Stays null (= full access, fail-open) if
-  // the lookup below fails or the route is reached by a super-admin.
+  // Block suspended / expired / deactivated agencies and users from all API
+  // access. Authorization is fail-closed: if the database cannot confirm the
+  // account, the request is rejected with 503 instead of receiving legacy full
+  // access. Super-admin remains exempt from tenant account lookups.
   let permissions: FeatureKey[] | null = null;
 
   if (agencyId && !isSuperAdmin) {
     let ag: { isActive: boolean | null; subscriptionStatus: string | null } | undefined;
-    let userRow: { permissions: string | null; isActive: boolean | null } | undefined;
-    let lookupSucceeded = false;
+    let userRow: { agencyId: string; permissions: string | null; isActive: boolean | null } | undefined;
     try {
       const { db } = await import('./db');
       const { agencies, users } = await import('./schema');
-      const { eq } = await import('drizzle-orm');
+      const { and, eq } = await import('drizzle-orm');
       const [agRes, userRes] = await Promise.all([
         db.select({ isActive: agencies.isActive, subscriptionStatus: agencies.subscriptionStatus })
           .from(agencies).where(eq(agencies.id, agencyId)).limit(1),
-        db.select({ permissions: users.permissions, isActive: users.isActive })
-          .from(users).where(eq(users.id, decoded.uid)).limit(1),
+        db.select({ agencyId: users.agencyId, permissions: users.permissions, isActive: users.isActive })
+          .from(users)
+          .where(and(eq(users.id, decoded.uid), eq(users.agencyId, agencyId)))
+          .limit(1),
       ]);
       ag = agRes[0];
       userRow = userRes[0];
-      lookupSucceeded = true;
     } catch (err) {
-      // Infrastructure error — fail open, but surface it so the swallow path is
-      // observable rather than silent.
-      console.error(JSON.stringify({ event: 'agency_status_check_degraded', agencyId, error: String(err) }));
+      console.error(JSON.stringify({ event: 'authorization_lookup_failed', agencyId, error: String(err) }));
+      throw new ApiAuthError('تعذر التحقق من صلاحية الحساب مؤقتاً', 503);
     }
-    if (lookupSucceeded) {
-      if (!ag) {
-        throw new ApiAuthError('حساب الوكالة غير موجود — يرجى التواصل مع الدعم', 403);
-      }
-      if (ag.isActive === false || ag.subscriptionStatus === 'suspended' || ag.subscriptionStatus === 'expired') {
-        throw new ApiAuthError('حساب الوكالة موقوف أو انتهى اشتراكه — يرجى التواصل مع الدعم', 403);
-      }
-      // A deactivated user keeps a valid Firebase token until it expires; block
-      // them here so disabling a user takes effect on the next request.
-      if (userRow && userRow.isActive === false) {
-        throw new ApiAuthError('تم تعطيل حسابك — يرجى التواصل مع مدير الوكالة', 403);
-      }
-      permissions = parsePermissions(userRow?.permissions ?? null);
+    if (!ag) {
+      throw new ApiAuthError('حساب الوكالة غير موجود — يرجى التواصل مع الدعم', 403);
     }
+    if (ag.isActive === false || ag.subscriptionStatus === 'suspended' || ag.subscriptionStatus === 'expired') {
+      throw new ApiAuthError('حساب الوكالة موقوف أو انتهى اشتراكه — يرجى التواصل مع الدعم', 403);
+    }
+    if (!userRow) {
+      throw new ApiAuthError('حساب المستخدم غير موجود في هذه الوكالة — يرجى التواصل مع المدير', 403);
+    }
+    // A deactivated user keeps a valid Firebase token until it expires; block
+    // them here so disabling a user takes effect on the next request.
+    if (userRow.isActive === false) {
+      throw new ApiAuthError('تم تعطيل حسابك — يرجى التواصل مع مدير الوكالة', 403);
+    }
+    permissions = parsePermissions(userRow.permissions);
   }
 
   // Bind the tenant context for the rest of this request so db.transaction()

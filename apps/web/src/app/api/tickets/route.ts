@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { eq, and, inArray, isNull, desc, count, getTableColumns } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { tickets, ticketCoupons, pnrRecords } from '@/lib/schema';
-import { verifyAuth, ApiAuthError } from '@/lib/api-auth';
+import { verifyAuth, assertRole, ApiAuthError, ROLES_AGENT_UP } from '@/lib/api-auth';
 import { logAudit } from '@/lib/audit';
 import { logTravelEvent } from '@/lib/travel-event-log';
 import { logProviderSync } from '@/lib/provider-sync-log';
@@ -68,7 +68,8 @@ export async function GET(request: Request) {
 //
 export async function POST(request: Request) {
   try {
-    const { uid, agencyId } = await verifyAuth(request);
+    const { uid, agencyId, role } = await verifyAuth(request);
+    assertRole(role, [...ROLES_AGENT_UP]);
     const body = await request.json() as {
       pnrId:          string;
       credentialId:   string;
@@ -175,7 +176,7 @@ export async function POST(request: Request) {
       // Provider failed — mark ticket void so it doesn't appear in reconciliation
       await db.update(tickets)
         .set({ status: 'void', updatedAt: new Date() })
-        .where(eq(tickets.id, ticketId));
+        .where(and(eq(tickets.id, ticketId), eq(tickets.agencyId, agencyId)));
 
       const errorMsg = (providerErr as Error).message;
       logProviderSync({ agencyId, provider: providerCode, operation: 'issue_ticket', status: 'failed', referenceId: ticketId, errorMessage: errorMsg, durationMs: Date.now() - t0 });
@@ -194,7 +195,7 @@ export async function POST(request: Request) {
     if (!issuedTicket) {
       await db.update(tickets)
         .set({ status: 'void', updatedAt: new Date() })
-        .where(eq(tickets.id, ticketId));
+        .where(and(eq(tickets.id, ticketId), eq(tickets.agencyId, agencyId)));
 
       logProviderSync({ agencyId, provider: providerCode, operation: 'issue_ticket', status: 'failed', referenceId: ticketId, errorMessage: `passenger not found in provider response: ${body.passengerName}`, durationMs });
       void logTravelEvent({ agencyId, eventType: 'ticket_issue_failed', provider: providerCode, resourceId: ticketId, resourceType: 'ticket', actorId: uid, payload: { reason: 'passenger_not_in_response', pnrCode: pnr.pnrCode } });
@@ -219,7 +220,7 @@ export async function POST(request: Request) {
         taxHalalas:   issuedTicket.taxHalalas   ?? body.taxHalalas   ?? pnr.taxHalalas,
         totalHalalas: issuedTicket.totalHalalas ?? body.totalHalalas ?? pnr.totalHalalas,
         updatedAt:    new Date(),
-      }).where(eq(tickets.id, ticketId));
+      }).where(and(eq(tickets.id, ticketId), eq(tickets.agencyId, agencyId)));
 
       // 3b. Create coupons (one per flight segment)
       const segments = pnr.segments ?? [];
@@ -237,7 +238,7 @@ export async function POST(request: Request) {
       // 3c. Mark PNR as ticketed
       await tx.update(pnrRecords)
         .set({ status: 'ticketed', updatedAt: new Date() })
-        .where(eq(pnrRecords.id, body.pnrId));
+        .where(and(eq(pnrRecords.id, body.pnrId), eq(pnrRecords.agencyId, agencyId)));
     });
 
     // ── Post-commit side effects ─────────────────────────────────────────────

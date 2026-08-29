@@ -10,7 +10,7 @@
  *
  * Model:
  *   • A user's `permissions` column is a JSON array of FeatureKey, or NULL.
- *   • NULL  → full access (every legacy user + admins stay unrestricted).
+ *   • NULL  → the role's least-privilege preset (legacy compatibility).
  *   • owner / admin role → always full access, regardless of the column.
  *   • COMMON_FEATURES are always allowed (app shell: dashboard / settings / help).
  *   • Otherwise the user may reach a feature only if it is in their array.
@@ -89,15 +89,15 @@ export function presetFeatures(role: string): FeatureKey[] {
 
 // ─── Parsing / validation ───────────────────────────────────────────────────────
 
-/** Parse the stored JSON column. NULL/invalid → null (= full access). */
+/** Parse the stored JSON column. NULL keeps legacy access; malformed data denies. */
 export function parsePermissions(raw: string | null | undefined): FeatureKey[] | null {
   if (raw == null) return null;
   try {
     const arr = JSON.parse(raw) as unknown;
-    if (!Array.isArray(arr)) return null;
+    if (!Array.isArray(arr)) return [];
     return arr.filter((k): k is FeatureKey => typeof k === 'string' && isAssignableFeature(k));
   } catch {
-    return null;
+    return [];
   }
 }
 
@@ -120,7 +120,7 @@ export function userHasFeature(
 ): boolean {
   if (roleHasFullAccess(role)) return true;
   if (COMMON_FEATURES.has(feature)) return true;
-  if (permissions === null) return true;          // unrestricted (legacy / NULL)
+  if (permissions === null) return presetFeatures(role ?? '').includes(feature);
   return permissions.includes(feature);
 }
 
