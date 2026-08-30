@@ -65,7 +65,7 @@ describe('POST /api/customers', () => {
     mockVerifyAuth.mockResolvedValue({ agencyId: 'agency-1', role: 'owner' });
   });
 
-  it('creates a name-only customer and stores the missing phone as null', async () => {
+  it('creates a name-only customer when the form sends optional fields as null', async () => {
     let insertedValues: Record<string, unknown> | undefined;
     mockTransaction.mockImplementation(async (callback) => callback({
       insert: () => ({
@@ -79,7 +79,16 @@ describe('POST /api/customers', () => {
     const response = await POST(new Request('http://localhost/api/customers', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ nameAr: 'حساب تجريبي' }),
+      body: JSON.stringify({
+        nameAr: 'حساب تجريبي',
+        phone: null,
+        email: null,
+        nationalId: null,
+        passportNumber: null,
+        dateOfBirth: null,
+        vatNumber: null,
+        notes: null,
+      }),
     }));
 
     expect(response.status).toBe(200);
