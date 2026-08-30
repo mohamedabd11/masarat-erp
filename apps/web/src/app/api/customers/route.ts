@@ -136,6 +136,21 @@ export async function POST(request: Request) {
     });
   } catch (err) {
     if (err instanceof ApiAuthError) return NextResponse.json({ error: err.message }, { status: err.status });
+    const cause = err instanceof Error
+      ? (err as Error & { cause?: unknown }).cause
+      : undefined;
+    const databaseError = cause && typeof cause === 'object'
+      ? cause as Record<string, unknown>
+      : undefined;
+    console.error(JSON.stringify({
+      event:      'customer_create_failed',
+      errorName:  err instanceof Error ? err.name : typeof err,
+      code:       typeof databaseError?.['code'] === 'string' ? databaseError['code'] : undefined,
+      table:      typeof databaseError?.['table'] === 'string' ? databaseError['table'] : undefined,
+      column:     typeof databaseError?.['column'] === 'string' ? databaseError['column'] : undefined,
+      constraint: typeof databaseError?.['constraint'] === 'string' ? databaseError['constraint'] : undefined,
+      routine:    typeof databaseError?.['routine'] === 'string' ? databaseError['routine'] : undefined,
+    }));
     return NextResponse.json({ error: 'خطأ في الخادم' }, { status: 500 });
   }
 }
