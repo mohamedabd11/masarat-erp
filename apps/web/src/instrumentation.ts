@@ -12,9 +12,22 @@ export async function register() {
   if (process.env.NEXT_RUNTIME !== 'nodejs') return;
 
   const { validateEnv } = await import('@/lib/env-validate');
+  const { getAdminDatabaseUrl } = await import('@/lib/admin-database-url');
   validateEnv();
 
-  if (!process.env.DATABASE_URL) return;
+  if (process.env.SENTRY_DSN) {
+    const { init } = await import('@sentry/nextjs');
+    init({ dsn: process.env.SENTRY_DSN, tracesSampleRate: 0.1 });
+  }
+
+  const adminDatabaseUrl = getAdminDatabaseUrl();
+  if (!adminDatabaseUrl) {
+    console.error(JSON.stringify({
+      event: 'db_migrations_skipped',
+      reason: 'ADMIN_DATABASE_URL is required outside local development',
+    }));
+    return;
+  }
 
   // Canonical chart of accounts — single source of truth shared with
   // api/auth/register and api/auth/sync. Used below to backfill any missing
@@ -709,7 +722,7 @@ export async function register() {
 
   try {
     const { neon } = await import('@neondatabase/serverless');
-    const sql = neon(process.env.DATABASE_URL);
+    const sql = neon(adminDatabaseUrl);
     let failed = 0;
     for (const stmt of migrations) {
       try {
@@ -726,8 +739,4 @@ export async function register() {
     console.error(JSON.stringify({ event: 'db_migrations_failed', error: String(err) }));
   }
 
-  if (process.env.SENTRY_DSN) {
-    const { init } = await import('@sentry/nextjs');
-    init({ dsn: process.env.SENTRY_DSN, tracesSampleRate: 0.1 });
-  }
 }
