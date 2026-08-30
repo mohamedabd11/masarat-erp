@@ -5,7 +5,6 @@ import { useLocale } from 'next-intl';
 import { useRouter } from 'next/navigation';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { z } from 'zod';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Card, CardHeader, CardTitle } from '@/components/ui/Card';
@@ -14,27 +13,7 @@ import { ArrowRight, ArrowLeft, UserPlus, Building2, User } from 'lucide-react';
 import { useAuth } from '@masarat/firebase';
 import { apiFetch } from '@/lib/api-client';
 import { COUNTRIES } from '@/lib/countries';
-
-// ─── Schema ───────────────────────────────────────────────────────────────────
-
-const schema = z.object({
-  type:                z.enum(['individual', 'company']).default('individual'),
-  nameAr:              z.string().min(2, 'الاسم يجب أن يكون حرفين على الأقل'),
-  nameEn:              z.string().optional(),
-  phone:               z.string().min(9, 'رقم الهاتف يجب أن يكون 9 أرقام على الأقل'),
-  email:               z.string().email('البريد الإلكتروني غير صالح').optional().or(z.literal('')),
-  gender:              z.enum(['male', 'female']).optional(),
-  nationality:         z.string().default('SA'),
-  nationalId:          z.string().regex(/^\d{10}$/, 'رقم الهوية يجب أن يكون 10 أرقام').optional().or(z.literal('')),
-  passportNumber:      z.string().optional(),
-  passportExpiry:      z.string().optional(),
-  dateOfBirth:         z.string().optional(),
-  vatNumber:           z.string().regex(/^3\d{14}$/, 'الرقم الضريبي يجب أن يكون 15 خانة ويبدأ بـ 3').optional().or(z.literal('')),
-  notes:               z.string().optional(),
-  openingBalanceSar:   z.coerce.number().min(0).optional(),
-});
-
-type FormData = z.infer<typeof schema>;
+import { customerFormSchema, type CustomerFormData } from './customer-form-schema';
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
@@ -54,15 +33,15 @@ export default function NewCustomerPage() {
     watch,
     setValue,
     formState: { errors },
-  } = useForm<FormData>({
-    resolver: zodResolver(schema),
+  } = useForm<CustomerFormData>({
+    resolver: zodResolver(customerFormSchema),
     defaultValues: { type: 'individual', nationality: isAr ? 'السعودية' : 'Saudi Arabia', gender: 'male' },
   });
 
   const customerType = watch('type');
   const isCompany    = customerType === 'company';
 
-  async function onSubmit(data: FormData) {
+  async function onSubmit(data: CustomerFormData) {
     if (!user) return;
     setSubmitting(true);
     setServerError('');
@@ -72,7 +51,7 @@ export default function NewCustomerPage() {
         body: JSON.stringify({
           nameAr:         data.nameAr,
           nameEn:         data.nameEn || data.nameAr,
-          phone:          data.phone,
+          phone:          data.phone || null,
           email:          data.email || null,
           nationality:    data.nationality,
           nationalId:     data.nationalId || null,
@@ -87,8 +66,12 @@ export default function NewCustomerPage() {
       // flag that another customer already carries the same VAT number.
       if (result.warningMessage) window.alert(result.warningMessage);
       router.push(`/${locale}/customers/${result.id}`);
-    } catch {
-      setServerError(isAr ? 'حدث خطأ أثناء الحفظ، حاول مرة أخرى' : 'Error saving, please try again');
+    } catch (error) {
+      setServerError(
+        error instanceof Error && error.message
+          ? error.message
+          : (isAr ? 'حدث خطأ أثناء الحفظ، حاول مرة أخرى' : 'Error saving, please try again'),
+      );
       setSubmitting(false);
     }
   }
@@ -212,10 +195,9 @@ export default function NewCustomerPage() {
             {/* Contact */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <Input
-                label={isAr ? 'رقم الهاتف *' : 'Phone *'}
+                label={isAr ? 'رقم الهاتف' : 'Phone'}
                 type="tel"
-                required
-                placeholder="05xxxxxxxx"
+                placeholder={isAr ? 'اختياري' : 'Optional'}
                 dir="ltr"
                 error={errors.phone?.message}
                 {...register('phone')}
