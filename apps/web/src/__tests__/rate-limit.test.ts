@@ -1,5 +1,11 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { afterEach, describe, it, expect, beforeEach, vi } from 'vitest';
 import { checkRateLimit, rateLimitHeaders, getClientIp, RATE_LIMITS } from '@/lib/rate-limit';
+
+afterEach(() => {
+  vi.unstubAllEnvs();
+  vi.unstubAllGlobals();
+  vi.restoreAllMocks();
+});
 
 // ─── RATE_LIMITS config ───────────────────────────────────────────────────────
 
@@ -82,6 +88,52 @@ describe('checkRateLimit (in-memory)', () => {
     const b = await checkRateLimit(id2, 'invite');
     expect(a.success).toBe(false);
     expect(b.success).toBe(true);
+  });
+});
+
+// ─── checkRateLimit — distributed provider failure ──────────────────────────
+
+describe('checkRateLimit (distributed provider)', () => {
+  beforeEach(() => {
+    vi.stubEnv('UPSTASH_REDIS_REST_URL', 'https://redis.example.test');
+    vi.stubEnv('UPSTASH_REDIS_REST_TOKEN', 'test-token');
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
+  });
+
+  it('uses the isolated in-memory fallback when the provider fails in Preview', async () => {
+    vi.stubEnv('NODE_ENV', 'production');
+    vi.stubEnv('VERCEL_ENV', 'preview');
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('fetch failed')));
+
+    const result = await checkRateLimit(`preview-${crypto.randomUUID()}`, 'financial');
+
+    expect(result.success).toBe(true);
+    expect(result.remaining).toBe(19);
+  });
+
+  it('fails closed when the provider fails in real production', async () => {
+    vi.stubEnv('NODE_ENV', 'production');
+    vi.stubEnv('VERCEL_ENV', 'production');
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('fetch failed')));
+
+    await expect(
+      checkRateLimit(`production-${crypto.randomUUID()}`, 'financial'),
+    ).rejects.toThrow('Distributed rate limiting is temporarily unavailable');
+  });
+
+  it('rejects a malformed provider response instead of trusting it in production', async () => {
+    vi.stubEnv('NODE_ENV', 'production');
+    vi.stubEnv('VERCEL_ENV', 'production');
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: vi.fn().mockResolvedValue([{ result: 'not-a-number' }, {}, { result: 60 }]),
+    }));
+
+    await expect(
+      checkRateLimit(`malformed-${crypto.randomUUID()}`, 'financial'),
+    ).rejects.toThrow('Distributed rate limiting is temporarily unavailable');
   });
 });
 
