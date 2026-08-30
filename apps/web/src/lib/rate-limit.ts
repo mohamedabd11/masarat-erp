@@ -28,6 +28,27 @@ interface WindowEntry {
 
 const memoryStore = new Map<string, WindowEntry>();
 
+function allowsMemoryFallback(): boolean {
+  // Vercel previews are optimized builds, so NODE_ENV is "production" there
+  // even though they are isolated, non-production environments.
+  return (
+    process.env.NODE_ENV !== 'production' ||
+    process.env.VERCEL_ENV === 'preview' ||
+    process.env.VERCEL_ENV === 'development'
+  );
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+export class RateLimitUnavailableError extends Error {
+  constructor() {
+    super('Distributed rate limiting is temporarily unavailable');
+    this.name = 'RateLimitUnavailableError';
+  }
+}
+
 // Warn once at startup if no distributed store is configured. The in-memory
 // fallback is per-instance and resets on cold start, so it is NOT an effective
 // rate limit in serverless/multi-instance deployments.
@@ -79,9 +100,29 @@ export async function checkRateLimit(
 ): Promise<RateLimitResult> {
   const config = RATE_LIMITS[type];
 
-  // في الإنتاج: استخدم Upstash Redis
+  // Use the distributed limiter whenever it is configured. Preview deployments
+  // may fall back to the per-instance limiter if the shared Preview credential
+  // is stale or the provider is temporarily unreachable; real production must
+  // still fail closed so financial/auth mutations never become unprotected.
   if (process.env['UPSTASH_REDIS_REST_URL'] && process.env['UPSTASH_REDIS_REST_TOKEN']) {
-    return checkRedisRateLimit(identifier, type, config);
+    try {
+      return await checkRedisRateLimit(identifier, type, config);
+    } catch (error) {
+      if (!allowsMemoryFallback()) {
+        console.error(JSON.stringify({
+          event: 'rate_limit_provider_unavailable',
+          error: errorMessage(error),
+        }));
+        throw new RateLimitUnavailableError();
+      }
+
+      console.warn(JSON.stringify({
+        event: 'rate_limit_degraded',
+        reason: 'distributed limiter unavailable — using in-memory fallback outside production',
+        error: errorMessage(error),
+      }));
+      return checkMemoryRateLimit(identifier, type, config);
+    }
   }
 
   // Fail closed in production: the in-memory fallback resets on every serverless
@@ -89,13 +130,18 @@ export async function checkRateLimit(
   // register / financial routes. Requiring a distributed store mirrors how
   // CRON_SECRET and ENCRYPTION_KEY fail closed. Evaluated per-call (not at module
   // load) so `next build` — which runs with NODE_ENV=production — is unaffected.
-  if (process.env.NODE_ENV === 'production') {
-    throw new Error(
-      'UPSTASH_REDIS_REST_URL/TOKEN are required in production — the in-memory rate limiter is ineffective in serverless and must not be used',
-    );
+  if (!allowsMemoryFallback()) {
+    throw new RateLimitUnavailableError();
   }
 
-  // In-memory (development only)
+  if (process.env.NODE_ENV === 'production') {
+    console.warn(JSON.stringify({
+      event: 'rate_limit_degraded',
+      reason: 'distributed limiter is not configured — using in-memory fallback in Vercel Preview',
+    }));
+  }
+
+  // In-memory (local development or isolated Vercel Preview only)
   return checkMemoryRateLimit(identifier, type, config);
 }
 
@@ -149,7 +195,16 @@ async function checkRedisRateLimit(
     ]),
   });
 
-  const [incrResult, , ttlResult] = await response.json() as [
+  if (!response.ok) {
+    throw new Error(`distributed limiter returned HTTP ${response.status}`);
+  }
+
+  const payload = await response.json() as unknown;
+  if (!Array.isArray(payload) || payload.length < 3) {
+    throw new Error('distributed limiter returned an invalid pipeline response');
+  }
+
+  const [incrResult, , ttlResult] = payload as [
     { result: number },
     unknown,
     { result: number }
@@ -158,11 +213,15 @@ async function checkRedisRateLimit(
   const count = incrResult.result;
   const ttl = ttlResult.result;
 
+  if (!Number.isFinite(count) || !Number.isFinite(ttl)) {
+    throw new Error('distributed limiter returned invalid counter values');
+  }
+
   return {
     success: count <= config.limit,
     limit: config.limit,
     remaining: Math.max(0, config.limit - count),
-    resetAt: new Date(Date.now() + ttl * 1000),
+    resetAt: new Date(Date.now() + Math.max(1, ttl) * 1000),
   };
 }
 
