@@ -13,6 +13,7 @@ const {
   mockVerifyAuth,
   mockAssertRole,
   mockCheckRateLimit,
+  mockAgencySelect,
   mockTransaction,
   inserted,
   ApiAuthError,
@@ -20,6 +21,7 @@ const {
   mockVerifyAuth: vi.fn(),
   mockAssertRole: vi.fn(),
   mockCheckRateLimit: vi.fn(),
+  mockAgencySelect: vi.fn(),
   mockTransaction: vi.fn(),
   inserted: new Map<string, unknown[]>(),
   ApiAuthError: class extends Error {
@@ -52,13 +54,21 @@ vi.mock('@/lib/invoice-counter', () => ({
 vi.mock('@/lib/audit', () => ({ logAudit: vi.fn().mockResolvedValue(undefined) }));
 
 vi.mock('@/lib/schema', () => ({
+  agencies: { id: 'agency_id', isVatRegistered: 'is_vat_registered', vatRate: 'vat_rate' },
   bookings: { table: 'bookings' },
   bookingLines: { table: 'bookingLines' },
   bookingPassengers: { table: 'bookingPassengers' },
   VAT_RATE_BPS: { S: 1500, Z: 0, E: 0, O: 0 },
 }));
 
-vi.mock('@/lib/db', () => ({ db: { transaction: mockTransaction } }));
+vi.mock('drizzle-orm', () => ({ eq: vi.fn() }));
+
+vi.mock('@/lib/db', () => ({
+  db: {
+    select: () => ({ from: () => ({ where: mockAgencySelect }) }),
+    transaction: mockTransaction,
+  },
+}));
 
 import { POST } from '@/app/api/bookings/create/route';
 
@@ -69,6 +79,7 @@ describe('POST /api/bookings/create', () => {
     mockVerifyAuth.mockResolvedValue({ uid: 'user-1', agencyId: 'agency-1', role: 'owner' });
     mockAssertRole.mockReturnValue(undefined);
     mockCheckRateLimit.mockResolvedValue({ success: true });
+    mockAgencySelect.mockResolvedValue([{ isVatRegistered: false, vatRate: 0 }]);
     mockTransaction.mockImplementation(async (callback) => callback({
       insert: (table: { table: string }) => ({
         values: async (values: unknown) => {
@@ -129,5 +140,72 @@ describe('POST /api/bookings/create', () => {
     expect(inserted.get('bookingPassengers')?.[0]).toMatchObject({
       nameAr: 'مسافر تجريبي', type: 'ADT', gender: 'M', passportNumber: 'T1234567',
     });
+  });
+
+  it('keeps VAT out of agent profit and stores the selected tax rate', async () => {
+    mockAgencySelect.mockResolvedValue([{ isVatRegistered: true, vatRate: 15 }]);
+    const response = await POST(new Request('http://localhost/api/bookings/create', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        type: 'flight',
+        customerName: { ar: 'عميل ضريبي', en: 'VAT Customer' },
+        customerPhone: '0500000000',
+        pricing: {
+          revenueModel: 'agent',
+          totalCost: 100_000,
+          serviceFee: 10_000,
+          vatAmount: 1_500,
+          totalAmount: 111_500,
+          vatCategory: 'S',
+          vatRateBps: 1_500,
+          currency: 'SAR',
+        },
+        details: {},
+      }),
+    }));
+
+    expect(response.status).toBe(200);
+    expect(inserted.get('bookings')?.[0]).toMatchObject({
+      totalPriceHalalas: 111_500,
+      costPriceHalalas: 100_000,
+      profitHalalas: 10_000,
+    });
+    expect(inserted.get('bookingLines')?.[0]).toMatchObject({
+      totalCostHalalas: 100_000,
+      totalPriceExclVatHalalas: 110_000,
+      vatHalalas: 1_500,
+      vatRateBps: 1_500,
+      revenueModel: 'agent',
+    });
+  });
+
+  it('rejects a VAT amount that does not match the agent fee and tax rate', async () => {
+    mockAgencySelect.mockResolvedValue([{ isVatRegistered: true, vatRate: 15 }]);
+    const response = await POST(new Request('http://localhost/api/bookings/create', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        type: 'flight',
+        customerName: { ar: 'عميل ضريبي' },
+        customerPhone: '0500000000',
+        pricing: {
+          revenueModel: 'agent',
+          totalCost: 100_000,
+          serviceFee: 10_000,
+          vatAmount: 15_000,
+          totalAmount: 125_000,
+          vatCategory: 'S',
+          vatRateBps: 1_500,
+        },
+        details: {},
+      }),
+    }));
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toMatchObject({
+      error: 'مبلغ الضريبة لا يطابق نموذج الإيراد ومعدل الضريبة',
+    });
+    expect(mockTransaction).not.toHaveBeenCalled();
   });
 });

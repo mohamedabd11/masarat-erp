@@ -620,6 +620,8 @@ function NewBookingContent() {
             revenueModel: data.revenueModel, currency: 'SAR',
             totalCost: costH, serviceFee: feeH, vatAmount: vatH,
             totalAmount: totalH, commission: feeH,
+            vatCategory: agencyIsVatRegistered ? 'S' : 'O',
+            vatRateBps: agencyIsVatRegistered ? Math.round(agencyVatRate * 100) : 0,
           },
           supplierName:  data.supplierName ?? '',
           supplierRef:   data.supplierRef  ?? '',

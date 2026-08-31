@@ -11,6 +11,7 @@ import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Badge } from '@/components/ui/Badge';
 import { cn } from '@/lib/utils';
+import { validateVatSettings, vatSettingsIssueMessage } from '@/lib/vat-settings';
 import {
   Building2,
   Users,
@@ -816,6 +817,12 @@ export default function SettingsPage() {
 
   async function handleSave() {
     if (!user?.agencyId || !agencyLoaded) return;
+    const vatIssue = validateVatSettings({ isVatRegistered, vatNumber, vatRate: isVatRegistered ? vatRate : 0 });
+    if (vatIssue) {
+      setSaved(false);
+      setSaveError(vatSettingsIssueMessage(vatIssue, isAr));
+      return;
+    }
     setSaving(true);
     setSaved(false);
     setSaveError('');
