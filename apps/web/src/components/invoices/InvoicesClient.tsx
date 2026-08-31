@@ -43,16 +43,20 @@ export function InvoicesClient({ locale }: InvoicesClientProps) {
   const [filter,      setFilter]      = useState<StatusFilter>('all');
   const [showCreate,  setShowCreate]  = useState(false);
   const [summary,     setSummary]     = useState<InvoiceSummary | null>(null);
+  const [loadError,   setLoadError]   = useState(false);
+  const [reloadKey,   setReloadKey]   = useState(0);
 
   useEffect(() => {
     if (!user?.agencyId) { setLoading(false); return; }
     let cancelled = false;
+    setLoading(true);
+    setLoadError(false);
     apiFetch<{ invoices: Invoice[]; summary?: InvoiceSummary }>('/api/invoices')
       .then(d => { if (!cancelled) { setInvoices(d.invoices); setSummary(d.summary ?? null); } })
-      .catch(() => {})
+      .catch(() => { if (!cancelled) setLoadError(true); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [user?.agencyId]);
+  }, [user?.agencyId, reloadKey]);
 
   const now = Date.now();
 
@@ -113,6 +117,29 @@ export function InvoicesClient({ locale }: InvoicesClientProps) {
   }
 
   if (loading) return <div className="flex items-center justify-center py-24"><Spinner size="lg" /></div>;
+
+  if (loadError) {
+    return (
+      <Card>
+        <div className="flex flex-col items-center justify-center py-16 text-center">
+          <AlertCircle size={42} className="mb-4 text-red-500" />
+          <h2 className="text-lg font-bold text-slate-900">
+            {isAr ? 'تعذّر تحميل الفواتير' : 'Could not load invoices'}
+          </h2>
+          <p className="mt-1 max-w-md text-sm text-slate-500">
+            {isAr ? 'لم تُعرض أرقام بديلة حتى لا تبدو البيانات المالية خالية بالخطأ.' : 'No fallback totals are shown, so financial data is not mistaken for an empty account.'}
+          </p>
+          <button
+            type="button"
+            onClick={() => setReloadKey(key => key + 1)}
+            className="mt-5 rounded-xl bg-brand-600 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-brand-700"
+          >
+            {isAr ? 'إعادة المحاولة' : 'Try again'}
+          </button>
+        </div>
+      </Card>
+    );
+  }
 
   return (
     <div className="space-y-5">
@@ -296,14 +323,9 @@ export function InvoicesClient({ locale }: InvoicesClientProps) {
       {showCreate && (
         <CreateDirectInvoiceModal
           onClose={() => setShowCreate(false)}
-          onSuccess={(invoiceId, invoiceNumber) => {
+          onSuccess={() => {
             setShowCreate(false);
-            // Reload invoices list to show the new one
-            if (user?.agencyId) {
-              apiFetch<{ invoices: Invoice[]; summary?: InvoiceSummary }>('/api/invoices')
-                .then(d => { setInvoices(d.invoices); setSummary(d.summary ?? null); })
-                .catch(() => {});
-            }
+            setReloadKey(key => key + 1);
           }}
         />
       )}
