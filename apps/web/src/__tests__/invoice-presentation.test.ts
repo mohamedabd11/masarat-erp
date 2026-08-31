@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { invoiceOutstanding, signedInvoiceTotal, summarizeInvoiceDocuments } from '@/lib/invoice-presentation';
+import { invoiceOutstanding, signedInvoiceTotal, summarizeInvoiceDocuments, vatCategoryLabel } from '@/lib/invoice-presentation';
 
 describe('invoice presentation after refunds', () => {
   const original = {
@@ -19,5 +19,14 @@ describe('invoice presentation after refunds', () => {
     expect(invoiceOutstanding(original)).toBe(0);
     expect(invoiceOutstanding(creditNote)).toBe(0);
     expect(summarizeInvoiceDocuments([original, creditNote]).totalOutstanding).toBe(0);
+  });
+});
+
+describe('VAT category presentation', () => {
+  it('distinguishes outside-scope, zero-rated, and exempt lines', () => {
+    expect(vatCategoryLabel('O', true)).toBe('خارج النطاق');
+    expect(vatCategoryLabel('Z', true)).toBe('صفرية');
+    expect(vatCategoryLabel('E', true)).toBe('معفى');
+    expect(vatCategoryLabel('O', false)).toBe('Outside scope');
   });
 });

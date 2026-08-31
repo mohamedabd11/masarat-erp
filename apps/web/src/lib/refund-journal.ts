@@ -24,6 +24,7 @@
  */
 import { GL } from './gl-accounts';
 import { BusinessError } from './api-auth';
+import { calculateRefundTax } from './refund-tax';
 
 export interface OriginalJournalLine {
   accountCode:   string;
@@ -54,6 +55,8 @@ export interface RefundJournalInput {
   cancelledTotalHalalas?: number;
   /** Whether the original invoice is a VAT e-invoice (drives fee VAT). */
   isEInvoice:             boolean;
+  /** Statutory VAT rate captured on the booking line: 1500 = 15%. */
+  vatRateBps?:            number;
   /** Used ONLY when `originalLines` is empty (legacy invoices with no journal). */
   fallback?: { revenueModel: 'agent' | 'principal'; costPriceHalalas: number };
 }
@@ -96,13 +99,19 @@ export function buildRefundJournalLines(input: RefundJournalInput): RefundJourna
     throw new BusinessError('مبلغ الاسترداد ورسوم الإلغاء يتجاوزان المبلغ المدفوع', 400);
   }
 
-  // VAT: reverse VAT on the cancelled portion EXCEPT the retained fee's VAT, which
-  // stays in 2200 (the fee is still a taxable supply). The non-cancelled portion's
-  // VAT also stays untouched.
-  const cancelFeeVat    = isEInvoice ? Math.round(originalVatHalalas * cancellationFeeHalalas / denom) : 0;
-  const cancelFeeNet    = cancellationFeeHalalas - cancelFeeVat;
-  const vatReversalBase = cancelledTotal - cancellationFeeHalalas;
-  const vatRev          = Math.round(originalVatHalalas * vatReversalBase / denom);
+  // VAT on a retained cancellation fee is extracted using the statutory rate,
+  // not the invoice-wide effective ratio. This matters for agent invoices where
+  // the supplier pass-through is outside the agency's VAT base.
+  const refundTax = calculateRefundTax({
+    originalTotalHalalas,
+    originalVatHalalas,
+    cancelledTotalHalalas: cancelledTotal,
+    cancellationFeeHalalas,
+    isEInvoice,
+    vatRateBps: input.vatRateBps ?? (isEInvoice ? 1500 : 0),
+  });
+  const cancelFeeNet = refundTax.cancellationFeeNetHalalas;
+  const vatRev = refundTax.creditNoteVatHalalas;
 
   // Open (unpaid) AR being written off = cancelled value minus the cash returned
   // and the retained fee. Zero in the common case (cancel only what was paid).

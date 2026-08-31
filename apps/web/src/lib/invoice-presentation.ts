@@ -5,6 +5,16 @@ export interface InvoicePresentationInput {
   paidHalalas: number;
 }
 
+export function vatCategoryLabel(category: string | null | undefined, isAr: boolean): string {
+  switch (category) {
+    case 'O': return isAr ? 'خارج النطاق' : 'Outside scope';
+    case 'Z': return isAr ? 'صفرية' : 'Zero-rated';
+    case 'E': return isAr ? 'معفى' : 'Exempt';
+    case 'S': return isAr ? 'خاضع' : 'Standard-rated';
+    default:  return isAr ? 'معفى' : 'Exempt';
+  }
+}
+
 const NON_RECEIVABLE_STATUSES = new Set([
   'cancelled',
   'refunded',

@@ -7,8 +7,9 @@ import { withIdempotency, markIdempotencyComplete } from '@/lib/idempotency';
 import { getNextInvoiceNumber, getNextJournalNumber } from '@/lib/invoice-counter';
 import { assertPeriodOpen } from '@/lib/period-lock';
 import { buildRefundJournalLines } from '@/lib/refund-journal';
+import { buildRefundDocument } from '@/lib/refund-document';
 import { validateRefundPolicy } from '@/lib/refund-policy';
-import { buildZatcaInvoiceRecord } from '@/lib/zatca-einvoice';
+import { buildZatcaInvoiceRecord, parseStoredInvoiceItems } from '@/lib/zatca-einvoice';
 import { allocateProRata } from '@/lib/supplier-aging';
 import { GL } from '@/lib/gl-accounts';
 
@@ -72,6 +73,15 @@ export async function POST(request: Request) {
         if (!booking) throw new BusinessError(`الحجز ${bookingId} غير موجود`, 404);
         if (booking.status === 'cancelled') throw new BusinessError('الحجز ملغى بالفعل', 400);
 
+        // Read the still-active source lines once, before any cancellation cascade.
+        // Besides supplier allocation, these preserve the statutory VAT rate that
+        // applied when the booking was created (agency settings may later change).
+        const activeLines = await tx.select().from(bookingLines).where(and(
+          eq(bookingLines.bookingId, bookingId),
+          eq(bookingLines.agencyId, agencyId),
+          eq(bookingLines.status, 'active'),
+        ));
+
         // ── 2. Validate ────────────────────────────────────────────────────
         const refundPolicy = validateRefundPolicy({
           bookingId,
@@ -88,17 +98,28 @@ export async function POST(request: Request) {
         // ── 3. Calculate refund-document amounts (credit-note invoice + ZATCA) ─
         // These describe the customer-facing refund document. The GL journal is
         // built separately in step 5 by reversing the ORIGINAL invoice's lines.
-        const originalTotal  = invoice.totalHalalas > 0 ? invoice.totalHalalas : 1;
         // A partially-paid full cancellation credits the whole cancelled supply
         // (less the retained fee), not only the cash returned. The difference is
         // the open AR written off by the GL entry.
-        const creditNoteTotal    = refundPolicy.creditNoteTotalHalalas;
-        const creditNoteRatio    = creditNoteTotal / originalTotal;
-        const creditNoteVat      = Math.round(invoice.vatHalalas * creditNoteRatio);
-        const creditNoteSubtotal = creditNoteTotal - creditNoteVat;
-
-        // Fraction of the invoice being unwound (defaults to refund + retained fee).
         const cancelledTotal = refundPolicy.cancelledTotalHalalas;
+        const capturedVatRates = activeLines
+          .filter(line => line.vatCategory === 'S' && line.vatRateBps > 0)
+          .map(line => line.vatRateBps);
+        const vatRateBps = capturedVatRates.length > 0
+          ? Math.max(...capturedVatRates)
+          : invoice.isEInvoice ? 1500 : 0;
+        const refundDocument = buildRefundDocument({
+          originalItems:          parseStoredInvoiceItems(invoice.items),
+          originalTotalHalalas:   invoice.totalHalalas,
+          originalVatHalalas:     invoice.vatHalalas,
+          cancelledTotalHalalas:  cancelledTotal,
+          cancellationFeeHalalas,
+          isEInvoice:             invoice.isEInvoice,
+          vatRateBps,
+        });
+        const creditNoteTotal    = refundDocument.creditNoteTotalHalalas;
+        const creditNoteVat      = refundDocument.creditNoteVatHalalas;
+        const creditNoteSubtotal = refundDocument.creditNoteSubtotalHalalas;
 
         // ── 4. Counters + IDs ───────────────────────────────────────────────
         const now  = new Date();
@@ -142,6 +163,7 @@ export async function POST(request: Request) {
           cancellationFeeHalalas,
           cancelledTotalHalalas:  cancelledTotal,
           isEInvoice:             invoice.isEInvoice,
+          vatRateBps,
           fallback:               { revenueModel: fallbackModel, costPriceHalalas: booking.costPriceHalalas ?? 0 },
         });
 
@@ -161,11 +183,12 @@ export async function POST(request: Request) {
               crNumber:              invoice.sellerCrNumber,
               buyerName:             invoice.buyerNameAr || invoice.buyerNameEn || 'عميل',
               buyerVatNumber:        invoice.buyerVatNumber,
-              vatRatePercent:        15,
+              vatRatePercent:        vatRateBps / 100,
               invoiceTypeCode:       '381',
               subtotalHalalas:       creditNoteSubtotal,
               vatHalalas:            creditNoteVat,
               totalHalalas:          creditNoteTotal,
+              items:                  refundDocument.items,
               originalInvoiceUuid:   invoice.zatcaUuid,
               originalInvoiceNumber: invoice.invoiceNumber,
             });
@@ -192,6 +215,7 @@ export async function POST(request: Request) {
           vatHalalas:      creditNoteVat,
           totalHalalas:    creditNoteTotal,
           paidHalalas:     creditNoteTotal,
+          items:           refundDocument.items ?? null,
           issueDate:       today,
           status:          'issued',
           isEInvoice:      invoice.isEInvoice,
@@ -281,13 +305,6 @@ export async function POST(request: Request) {
         // posted above, keeping suppliers.balanceHalalas consistent with GL 2000.
         // Read the still-active lines BEFORE the cascade cancels them, then split
         // the exact AP control-account debit across their suppliers.
-        const activeLines = await tx.select({ supplierId: bookingLines.supplierId, totalCostHalalas: bookingLines.totalCostHalalas })
-          .from(bookingLines)
-          .where(and(
-            eq(bookingLines.bookingId, bookingId),
-            eq(bookingLines.agencyId, agencyId),
-            eq(bookingLines.status, 'active'),
-          ));
         const supplierWeights = new Map<string, number>();
         for (const l of activeLines) {
           if (l.supplierId && l.totalCostHalalas > 0) {

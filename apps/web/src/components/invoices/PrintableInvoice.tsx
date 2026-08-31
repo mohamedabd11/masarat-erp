@@ -4,6 +4,7 @@ import { useLocale } from 'next-intl';
 import { cn, formatCurrency, formatDate } from '@/lib/utils';
 import { Printer, Download } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
+import { vatCategoryLabel } from '@/lib/invoice-presentation';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -18,6 +19,7 @@ interface InvoiceLine {
   vatRate: number;
   vatAmountHalalas: number;
   totalInclVatHalalas: number;
+  vatCategory?: string;
 }
 
 interface PrintableInvoiceData {
@@ -364,7 +366,9 @@ export function PrintableInvoice({ invoice, onClose }: PrintableInvoiceProps) {
                     {isVatRegistered && (
                       <td className="px-3 py-3 text-center">
                         {line.vatRate === 0 ? (
-                          <span className="text-[10px] bg-slate-100 text-slate-500 px-2 py-0.5 rounded font-medium">معفى</span>
+                          <span className="text-[10px] bg-slate-100 text-slate-500 px-2 py-0.5 rounded font-medium">
+                            {vatCategoryLabel(line.vatCategory, true)}
+                          </span>
                         ) : (
                           <span className="text-slate-700 font-semibold">{(line.vatRate * 100).toFixed(0)}%</span>
                         )}
