@@ -15,6 +15,47 @@ export function vatCategoryLabel(category: string | null | undefined, isAr: bool
   }
 }
 
+export interface InvoiceDocumentLabel {
+  ar: string;
+  en: string;
+}
+
+export function invoiceDocumentLabel(
+  type: string,
+  isVatRegistered: boolean,
+  isBuyerBusiness: boolean,
+): InvoiceDocumentLabel {
+  const isCredit = type === '381' || type === 'credit_note';
+  const isDebit = type === '383' || type === 'debit_note';
+
+  if (!isVatRegistered) {
+    if (isCredit) return { ar: 'إشعار دائن تجاري', en: 'Commercial Credit Note' };
+    if (isDebit) return { ar: 'إشعار مدين تجاري', en: 'Commercial Debit Note' };
+    return { ar: 'فاتورة تجارية', en: 'Commercial Invoice' };
+  }
+
+  const simplifiedAr = isBuyerBusiness ? '' : ' مبسط';
+  const simplifiedEn = isBuyerBusiness ? '' : 'Simplified ';
+
+  if (isCredit) {
+    return {
+      ar: `إشعار دائن ضريبي${simplifiedAr} (مرحلة أولى)`,
+      en: `${simplifiedEn}Tax Credit Note (Phase 1)`,
+    };
+  }
+
+  if (isDebit) {
+    return {
+      ar: `إشعار مدين ضريبي${simplifiedAr} (مرحلة أولى)`,
+      en: `${simplifiedEn}Tax Debit Note (Phase 1)`,
+    };
+  }
+
+  return isBuyerBusiness
+    ? { ar: 'فاتورة ضريبية (مرحلة أولى)', en: 'Tax Invoice (Phase 1)' }
+    : { ar: 'فاتورة ضريبية مبسطة (مرحلة أولى)', en: 'Simplified Tax Invoice (Phase 1)' };
+}
+
 const NON_RECEIVABLE_STATUSES = new Set([
   'cancelled',
   'refunded',

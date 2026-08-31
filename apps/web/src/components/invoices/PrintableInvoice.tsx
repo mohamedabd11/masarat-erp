@@ -4,7 +4,7 @@ import { useLocale } from 'next-intl';
 import { cn, formatCurrency, formatDate } from '@/lib/utils';
 import { Printer, Download } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
-import { vatCategoryLabel } from '@/lib/invoice-presentation';
+import { invoiceDocumentLabel, vatCategoryLabel } from '@/lib/invoice-presentation';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -70,12 +70,6 @@ interface PrintableInvoiceProps {
   onClose?: () => void;
 }
 
-const INVOICE_TYPE_LABELS: Record<string, { ar: string; en: string }> = {
-  '388': { ar: 'فاتورة ضريبية (مرحلة أولى)', en: 'Tax Invoice (Phase 1)' },
-  '381': { ar: 'إشعار دائن',                  en: 'Credit Note' },
-  '383': { ar: 'إشعار مدين',                  en: 'Debit Note'  },
-};
-
 // ─── Helper: stacked bilingual info field ─────────────────────────────────────
 
 function InfoField({ ar, en, value, mono }: { ar: string; en: string; value: string; mono?: boolean }) {
@@ -96,11 +90,7 @@ export function PrintableInvoice({ invoice, onClose }: PrintableInvoiceProps) {
   const isAr = locale === 'ar';
   const isVatRegistered = invoice.seller.isVatRegistered === true;
   const isBuyerBusiness = isVatRegistered && !!(invoice.buyer.vatNumber?.trim());
-  const typeLabel = isVatRegistered
-    ? isBuyerBusiness
-      ? (INVOICE_TYPE_LABELS[invoice.invoiceTypeCode] ?? INVOICE_TYPE_LABELS['388']!)
-      : { ar: 'فاتورة ضريبية مبسطة (مرحلة أولى)', en: 'Simplified Tax Invoice (Phase 1)' }
-    : { ar: 'فاتورة تجارية', en: 'Commercial Invoice' };
+  const typeLabel = invoiceDocumentLabel(invoice.invoiceTypeCode, isVatRegistered, isBuyerBusiness);
 
   const sellerAddress = [
     invoice.seller.address.streetName,
@@ -177,11 +167,8 @@ export function PrintableInvoice({ invoice, onClose }: PrintableInvoiceProps) {
         {/* ══ INVOICE NUMBER STRIP ═════════════════════════════════════════════ */}
         <div className="bg-brand-50 border-b border-brand-100 px-8 py-3 flex items-center justify-between">
           <p className="text-[10px] text-brand-500 uppercase tracking-widest font-semibold">
-            {isVatRegistered
-              ? isBuyerBusiness
-                ? 'فاتورة ضريبية (مرحلة أولى) / Tax Invoice — Phase 1 (B2B)'
-                : 'فاتورة ضريبية مبسطة (مرحلة أولى) / Simplified Tax Invoice — Phase 1 (B2C)'
-              : 'فاتورة تجارية / Commercial Invoice'}
+            {typeLabel.ar} / {typeLabel.en}
+            {isVatRegistered ? (isBuyerBusiness ? ' (B2B)' : ' (B2C)') : ''}
           </p>
           <p className="font-mono font-bold text-brand-700 text-base">{invoice.invoiceNumber}</p>
         </div>
@@ -447,15 +434,15 @@ export function PrintableInvoice({ invoice, onClose }: PrintableInvoiceProps) {
             <div className="text-xs text-slate-500 space-y-1 flex-1">
               {isVatRegistered ? (
                 <>
-                  <p className="font-semibold text-slate-700">فاتورة ضريبية — المرحلة الأولى / Tax Invoice — Phase 1</p>
-                  <p>فاتورة ضريبية ورقية وفق متطلبات ضريبة القيمة المضافة — المرحلة الأولى من برنامج الفوترة الإلكترونية.</p>
-                  <p dir="ltr" className="text-slate-400">VAT tax invoice — Phase 1 (paper-based). ZATCA Phase 2 e-invoicing integration is pending.</p>
+                  <p className="font-semibold text-slate-700">{typeLabel.ar} / {typeLabel.en}</p>
+                  <p>مستند ضريبي ورقي وفق متطلبات ضريبة القيمة المضافة — المرحلة الأولى من برنامج الفوترة الإلكترونية.</p>
+                  <p dir="ltr" className="text-slate-400">VAT document — Phase 1 (paper-based). ZATCA Phase 2 e-invoicing integration is pending.</p>
                 </>
               ) : (
                 <>
-                  <p className="font-semibold text-slate-700">فاتورة تجارية — غير خاضع لضريبة القيمة المضافة</p>
-                  <p>هذه الفاتورة صادرة عن منشأة غير مسجّلة في ضريبة القيمة المضافة لدى هيئة الزكاة والضريبة والجمارك.</p>
-                  <p dir="ltr" className="text-slate-400">Commercial Invoice — Issued by a non-VAT registered entity.</p>
+                  <p className="font-semibold text-slate-700">{typeLabel.ar} / {typeLabel.en}</p>
+                  <p>هذا المستند صادر عن منشأة غير مسجّلة في ضريبة القيمة المضافة لدى هيئة الزكاة والضريبة والجمارك.</p>
+                  <p dir="ltr" className="text-slate-400">Commercial document — Issued by a non-VAT registered entity.</p>
                 </>
               )}
             </div>
