@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
+import { eq } from 'drizzle-orm';
 import { db } from '@/lib/db';
-import { bookings, bookingLines, bookingPassengers, VAT_RATE_BPS } from '@/lib/schema';
+import { agencies, bookings, bookingLines, bookingPassengers, VAT_RATE_BPS } from '@/lib/schema';
 import type { VatCategory } from '@/lib/schema';
 import { verifyAuth, assertRole, ApiAuthError, ROLES_AGENT_UP } from '@/lib/api-auth';
 import { getNextBookingNumber } from '@/lib/invoice-counter';
@@ -14,6 +15,7 @@ const VALID_SERVICE_TYPES = new Set([
 
 const VALID_VAT_CATEGORIES = new Set<string>(['S', 'Z', 'E', 'O']);
 const VALID_REVENUE_MODELS  = new Set<string>(['agent', 'principal']);
+const VALID_VAT_RATES_BPS   = new Set([0, 500, 1000, 1500, 2000]);
 
 const SERVICE_LABEL_AR: Record<string, string> = {
   flight: 'حجز طيران', hotel: 'حجز فندق', package: 'باقة سياحية',
@@ -74,9 +76,13 @@ function prepareLineInput(
   const unitPrice = Number(rawPrice);
   const unitCost  = Math.max(0, Number(raw['unitCostHalalas'] ?? 0));
   const vatRateBps = Number(raw['vatRateBps'] ?? VAT_RATE_BPS[vatCat]);
+  if (!Number.isInteger(vatRateBps) || !VALID_VAT_RATES_BPS.has(vatRateBps)) {
+    return { error: `lines[${index}].vatRateBps غير مدعوم` };
+  }
   const totalPrice = unitPrice * quantity;
   const totalCost  = unitCost  * quantity;
-  const vatHalalas = Math.round(totalPrice * vatRateBps / 10000);
+  const vatBase    = revenueModel === 'agent' ? Math.max(0, totalPrice - totalCost) : totalPrice;
+  const vatHalalas = Math.round(vatBase * vatRateBps / 10000);
 
   return {
     serviceType:              String(raw['serviceType'] ?? fallbackServiceType),
@@ -117,6 +123,12 @@ export async function POST(request: Request) {
 
     const body = await request.json() as Record<string, unknown>;
 
+    const [agency] = await db
+      .select({ isVatRegistered: agencies.isVatRegistered, vatRate: agencies.vatRate })
+      .from(agencies)
+      .where(eq(agencies.id, agencyId));
+    if (!agency) return NextResponse.json({ error: 'الوكالة غير موجودة' }, { status: 404 });
+
     const serviceType = String(body['type'] ?? '');
     if (!serviceType || !VALID_SERVICE_TYPES.has(serviceType)) {
       return NextResponse.json(
@@ -128,7 +140,13 @@ export async function POST(request: Request) {
     const pricing        = (body['pricing'] ?? {}) as Record<string, unknown>;
     const revenueModel   = String(pricing['revenueModel'] ?? 'principal');
     const vatAmountHalalas = Number(pricing['vatAmount'] ?? 0);
-    const vatCategoryFromPricing = String(pricing['vatCategory'] ?? 'S') as VatCategory;
+    const vatCategoryFromPricing = String(
+      pricing['vatCategory'] ?? (agency.isVatRegistered ? 'S' : 'O'),
+    ) as VatCategory;
+    const agencyVatRateBps = agency.isVatRegistered ? Math.round((agency.vatRate ?? 15) * 100) : 0;
+    const vatRateBpsFromPricing = Number(
+      pricing['vatRateBps'] ?? (vatCategoryFromPricing === 'S' ? agencyVatRateBps : VAT_RATE_BPS[vatCategoryFromPricing]),
+    );
     const serviceDetails = (body['details'] ?? {}) as Record<string, unknown>;
     const supplierName   = String(body['supplierName'] ?? '').trim() || null;
     const supplierRef    = String(body['supplierRef']  ?? '').trim() || null;
@@ -140,6 +158,16 @@ export async function POST(request: Request) {
     // Validate and compute all line data BEFORE entering the transaction so
     // we can return 400 errors without holding a DB connection.
     const rawLines = Array.isArray(body['lines']) ? (body['lines'] as Record<string, unknown>[]) : null;
+
+    if (!VALID_REVENUE_MODELS.has(revenueModel)) {
+      return NextResponse.json({ error: 'نموذج الإيراد يجب أن يكون وكيل أو أصيل' }, { status: 400 });
+    }
+    if (!VALID_VAT_CATEGORIES.has(vatCategoryFromPricing)) {
+      return NextResponse.json({ error: 'فئة الضريبة غير صالحة' }, { status: 400 });
+    }
+    if (!Number.isInteger(vatRateBpsFromPricing) || !VALID_VAT_RATES_BPS.has(vatRateBpsFromPricing)) {
+      return NextResponse.json({ error: 'معدل الضريبة غير مدعوم' }, { status: 400 });
+    }
 
     let preparedLines: PreparedLine[];
 
@@ -156,8 +184,18 @@ export async function POST(request: Request) {
       // making it eligible for the per-line invoice path immediately.
       const totalPrice = Number(pricing['totalAmount'] ?? 0);
       const totalCost  = Number(pricing['totalCost']   ?? 0);
+      if (![totalPrice, totalCost, vatAmountHalalas].every(Number.isInteger)
+          || totalPrice < 0 || totalCost < 0 || vatAmountHalalas < 0 || vatAmountHalalas > totalPrice) {
+        return NextResponse.json({ error: 'مبالغ الحجز غير صالحة' }, { status: 400 });
+      }
       const priceExclVat = Math.max(0, totalPrice - vatAmountHalalas);
-      const vatRateBps   = VAT_RATE_BPS[vatCategoryFromPricing];
+      const vatBase = revenueModel === 'agent'
+        ? Math.max(0, priceExclVat - totalCost)
+        : priceExclVat;
+      const expectedVat = Math.round(vatBase * vatRateBpsFromPricing / 10_000);
+      if (vatAmountHalalas !== expectedVat) {
+        return NextResponse.json({ error: 'مبلغ الضريبة لا يطابق نموذج الإيراد ومعدل الضريبة' }, { status: 400 });
+      }
       preparedLines = [{
         serviceType,
         description:              destination ?? SERVICE_LABEL_AR[serviceType] ?? serviceType,
@@ -169,7 +207,7 @@ export async function POST(request: Request) {
         unitPriceExclVatHalalas:  priceExclVat,
         totalPriceExclVatHalalas: priceExclVat,
         vatCategory:              vatCategoryFromPricing,
-        vatRateBps,
+        vatRateBps:              vatRateBpsFromPricing,
         vatHalalas:               vatAmountHalalas,
         revenueModel,
         revenueAccountCode:       null,
@@ -182,10 +220,25 @@ export async function POST(request: Request) {
       }];
     }
 
+    for (const line of preparedLines) {
+      if (!agency.isVatRegistered && (line.vatRateBps !== 0 || line.vatHalalas !== 0)) {
+        return NextResponse.json({ error: 'لا يمكن إضافة ضريبة لمنشأة غير مسجلة ضريبياً' }, { status: 400 });
+      }
+      if (agency.isVatRegistered && line.vatCategory === 'S' && line.vatRateBps !== agencyVatRateBps) {
+        return NextResponse.json({ error: 'معدل الضريبة لا يطابق إعدادات المنشأة' }, { status: 400 });
+      }
+      if (line.vatCategory !== 'S' && (line.vatRateBps !== 0 || line.vatHalalas !== 0)) {
+        return NextResponse.json({ error: 'فئة الضريبة المحددة يجب ألا تحمل ضريبة' }, { status: 400 });
+      }
+    }
+
     // Booking totals are derived from lines (single source of truth)
     const derivedTotal  = preparedLines.reduce((s, l) => s + l.totalPriceExclVatHalalas + l.vatHalalas, 0);
     const derivedCost   = preparedLines.reduce((s, l) => s + l.totalCostHalalas, 0);
-    const derivedProfit = derivedTotal - derivedCost;
+    const derivedProfit = preparedLines.reduce(
+      (sum, line) => sum + line.totalPriceExclVatHalalas - line.totalCostHalalas,
+      0,
+    );
 
     const rawPassengers = Array.isArray(body['passengers'])
       ? body['passengers'] as Record<string, unknown>[]
