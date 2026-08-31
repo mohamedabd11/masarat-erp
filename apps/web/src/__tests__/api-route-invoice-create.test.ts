@@ -169,6 +169,7 @@ vi.mock('@/lib/db', () => ({ db: mockDb }));
 // ─── Import route under test ──────────────────────────────────────────────────
 
 import { POST } from '@/app/api/invoices/create/route';
+import { buildInvoiceItemsFromLines } from '@/lib/invoice-items';
 import { buildZatcaInvoiceRecord } from '@/lib/zatca-einvoice';
 
 // ─── Fixtures ─────────────────────────────────────────────────────────────────
@@ -414,4 +415,38 @@ describe('POST /api/invoices/create', () => {
     expect(res.status).toBe(500);
   });
 
+});
+
+describe('buildInvoiceItemsFromLines', () => {
+  it('splits a VAT-registered agent line into supplier pass-through and taxable agency fee', () => {
+    const items = buildInvoiceItemsFromLines([{
+      description: 'تذكرة طيران اختبار',
+      quantity: 1,
+      serviceType: 'flight',
+      revenueModel: 'agent',
+      totalCostHalalas: 100_000,
+      totalPriceExclVatHalalas: 110_000,
+      unitPriceExclVatHalalas: 110_000,
+      vatHalalas: 1_500,
+      vatCategory: 'S',
+    } as never], true, 'flight', false);
+
+    expect(items).toEqual([
+      expect.objectContaining({
+        description: 'تذكرة طيران اختبار — مبلغ المورد',
+        unitPriceHalalas: 100_000,
+        vatHalalas: 0,
+        totalHalalas: 100_000,
+        vatCategory: 'O',
+      }),
+      expect.objectContaining({
+        description: 'تذكرة طيران اختبار — رسوم الوكالة',
+        unitPriceHalalas: 10_000,
+        vatHalalas: 1_500,
+        totalHalalas: 11_500,
+        vatCategory: 'S',
+      }),
+    ]);
+    expect(items.reduce((sum, item) => sum + item.totalHalalas, 0)).toBe(111_500);
+  });
 });
