@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { invoiceOutstanding, signedInvoiceTotal, summarizeInvoiceDocuments, vatCategoryLabel } from '@/lib/invoice-presentation';
+import {
+  invoiceDocumentLabel,
+  invoiceOutstanding,
+  signedInvoiceTotal,
+  summarizeInvoiceDocuments,
+  vatCategoryLabel,
+} from '@/lib/invoice-presentation';
 
 describe('invoice presentation after refunds', () => {
   const original = {
@@ -28,5 +34,20 @@ describe('VAT category presentation', () => {
     expect(vatCategoryLabel('Z', true)).toBe('صفرية');
     expect(vatCategoryLabel('E', true)).toBe('معفى');
     expect(vatCategoryLabel('O', false)).toBe('Outside scope');
+  });
+});
+
+describe('invoice document labels', () => {
+  it('labels B2C tax credit notes as credit notes rather than invoices', () => {
+    expect(invoiceDocumentLabel('381', true, false)).toEqual({
+      ar: 'إشعار دائن ضريبي مبسط (مرحلة أولى)',
+      en: 'Simplified Tax Credit Note (Phase 1)',
+    });
+  });
+
+  it('preserves B2B and non-VAT document distinctions', () => {
+    expect(invoiceDocumentLabel('381', true, true).ar).toBe('إشعار دائن ضريبي (مرحلة أولى)');
+    expect(invoiceDocumentLabel('381', false, false).ar).toBe('إشعار دائن تجاري');
+    expect(invoiceDocumentLabel('388', true, false).ar).toBe('فاتورة ضريبية مبسطة (مرحلة أولى)');
   });
 });
