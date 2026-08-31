@@ -9,6 +9,7 @@ import { formatCurrency, formatDate } from '@/lib/utils';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@masarat/firebase';
 import { apiFetch } from '@/lib/api-client';
+import { isCreditNote, signedInvoiceTotal, summarizeInvoiceDocuments } from '@/lib/invoice-presentation';
 import {
   ArrowRight, ArrowLeft, User, Phone, Mail, BookOpen, TrendingUp,
   Calendar, Printer, AlertCircle, CheckCircle2,
@@ -93,6 +94,8 @@ interface ApiInvoice {
   invoiceNumber: string;
   totalHalalas: number;
   paidHalalas: number;
+  type: string;
+  status: string;
   issueDate: string | null;
   createdAt: string;
 }
@@ -101,9 +104,8 @@ interface ApiPayment {
   id: string;
   amountHalalas: number;
   method: string;
-  receiptNumber: string | null;
-  type: string;
-  receivedAt: string | null;
+  voucherNumber: string | null;
+  date: string;
   createdAt: string;
 }
 
@@ -134,8 +136,8 @@ export default function CustomerDetailPage({ params }: { params: { locale: strin
 
         // 2. Bookings, invoices, and payments in parallel
         const [bookingsRes, invoicesRes, paymentsRes] = await Promise.all([
-          apiFetch<{ bookings: ApiBooking[] }>(`/api/bookings?customerId=${id}`),
-          apiFetch<{ invoices: ApiInvoice[] }>(`/api/invoices?customerId=${id}`),
+          apiFetch<{ bookings: ApiBooking[]; pagination?: { total: number } }>(`/api/bookings?customerId=${id}`),
+          apiFetch<{ invoices: ApiInvoice[]; summary?: { totalInvoiced: number; totalOutstanding: number } }>(`/api/invoices?customerId=${id}`),
           apiFetch<{ payments: ApiPayment[] }>(`/api/payments?customerId=${id}`),
         ]);
         if (cancelled) return;
@@ -148,32 +150,34 @@ export default function CustomerDetailPage({ params }: { params: { locale: strin
         const statement: StatementEntry[] = [];
 
         for (const inv of invoiceList) {
+          if (inv.status === 'cancelled') continue;
           const issueDate = inv.issueDate
             ? new Date(inv.issueDate)
             : new Date(inv.createdAt);
           const invNumber = inv.invoiceNumber ?? inv.id;
 
+          const creditNote = isCreditNote(inv);
+          const signedTotal = signedInvoiceTotal(inv);
           statement.push({
             id:        `inv-${inv.id}`,
             date:      issueDate,
-            type:      'invoice',
-            descAr:    `فاتورة — ${invNumber}`,
-            descEn:    `Invoice — ${invNumber}`,
+            type:      creditNote ? 'adjustment' : 'invoice',
+            descAr:    creditNote ? `إشعار دائن — ${invNumber}` : `فاتورة — ${invNumber}`,
+            descEn:    creditNote ? `Credit Note — ${invNumber}` : `Invoice — ${invNumber}`,
             reference: invNumber,
-            debitH:    inv.totalHalalas ?? 0,
-            creditH:   0,
+            debitH:    creditNote ? 0 : Math.max(0, signedTotal),
+            creditH:   creditNote ? Math.abs(signedTotal) : 0,
           });
         }
 
         for (const pay of paymentList) {
-          const amount      = pay.amountHalalas ?? 0;
-          const receivedAt  = pay.receivedAt
-            ? new Date(pay.receivedAt)
-            : new Date(pay.createdAt);
+          const amount       = pay.amountHalalas ?? 0;
+          const amountAbs    = Math.abs(amount);
+          const receivedAt   = pay.date ? new Date(pay.date) : new Date(pay.createdAt);
           const method        = pay.method ?? 'cash';
           const methodAr      = METHOD_AR[method] ?? 'دفعة';
-          const receiptNumber = pay.receiptNumber ?? pay.id;
-          const isRefund      = pay.type === 'refund';
+          const receiptNumber = pay.voucherNumber ?? pay.id;
+          const isRefund      = amount < 0;
 
           statement.push({
             id:       `pay-${pay.id}`,
@@ -186,15 +190,17 @@ export default function CustomerDetailPage({ params }: { params: { locale: strin
               ? `Refund — ${receiptNumber}`
               : `Payment — ${method} — ${receiptNumber}`,
             reference: receiptNumber,
-            debitH:   isRefund ? amount : 0,
-            creditH:  isRefund ? 0 : amount,
+            debitH:   isRefund ? amountAbs : 0,
+            creditH:  isRefund ? 0 : amountAbs,
           });
         }
 
         // 4. KPIs
-        const totalSpentHalalas  = invoiceList.reduce((s, inv) => s + (inv.totalHalalas ?? 0), 0);
-        const totalPaidHalalas   = invoiceList.reduce((s, inv) => s + (inv.paidHalalas ?? 0), 0);
-        const outstandingHalalas = Math.max(0, totalSpentHalalas - totalPaidHalalas);
+        const calculatedInvoiceSummary = summarizeInvoiceDocuments(invoiceList);
+        const totalSpentHalalas  = invoicesRes.summary?.totalInvoiced
+          ?? calculatedInvoiceSummary.totalInvoiced;
+        const outstandingHalalas = invoicesRes.summary?.totalOutstanding
+          ?? calculatedInvoiceSummary.totalOutstanding;
 
         setCustomer({
           id:                cust.id,
@@ -205,7 +211,7 @@ export default function CustomerDetailPage({ params }: { params: { locale: strin
           nationality:       cust.nationality ?? '',
           nationalId:        cust.nationalId ?? '',
           tier:              'standard',
-          totalBookings:     bookingList.length,
+          totalBookings:     bookingsRes.pagination?.total ?? bookingList.length,
           totalSpentHalalas,
           outstandingHalalas,
           createdAt:         new Date(cust.createdAt),

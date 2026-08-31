@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { eq, and, desc, count } from 'drizzle-orm';
+import { eq, and, desc, count, sql } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { bookings, invoices } from '@/lib/schema';
 import { verifyAuth, ApiAuthError } from '@/lib/api-auth';
@@ -59,7 +59,11 @@ export async function GET(request: Request) {
         invoiceNumber:     invoices.invoiceNumber,
       })
       .from(bookings)
-      .leftJoin(invoices, eq(invoices.bookingId, bookings.id))
+      .leftJoin(invoices, and(
+        eq(invoices.bookingId, bookings.id),
+        eq(invoices.agencyId, agencyId),
+        sql`${invoices.type} IN ('380','388')`,
+      ))
       .where(and(...conditions))
       .orderBy(desc(bookings.createdAt))
       .limit(pageSize)

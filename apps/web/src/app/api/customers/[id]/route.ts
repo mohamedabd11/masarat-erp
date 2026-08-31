@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
-import { eq, and, desc, sum, count } from 'drizzle-orm';
+import { eq, and, desc, count, inArray, or, sql } from 'drizzle-orm';
 import { db } from '@/lib/db';
-import { customers, invoices, bookings } from '@/lib/schema';
+import { customers, invoices, bookings, payments } from '@/lib/schema';
 import { verifyAuth, assertRole, ApiAuthError, ROLES_MANAGER_UP, ROLES_AGENT_UP } from '@/lib/api-auth';
 
 export async function GET(
@@ -24,8 +24,16 @@ export async function GET(
     // Customer statement: aggregate invoices + recent bookings
     const [invoiceSummary] = await db
       .select({
-        totalInvoiced: sum(invoices.totalHalalas),
-        totalPaid:     sum(invoices.paidHalalas),
+        totalInvoiced: sql<number>`cast(coalesce(sum(case
+          when ${invoices.status} = 'cancelled' then 0
+          when ${invoices.type} = '381' then -${invoices.totalHalalas}
+          else ${invoices.totalHalalas}
+        end), 0) as double precision)`,
+        outstanding: sql<number>`cast(coalesce(sum(case
+          when ${invoices.type} = '381' then 0
+          when ${invoices.status} not in ('issued','partial','overdue') then 0
+          else greatest(${invoices.totalHalalas} - ${invoices.paidHalalas}, 0)
+        end), 0) as double precision)`,
         invoiceCount:  count(invoices.id),
       })
       .from(invoices)
@@ -37,6 +45,7 @@ export async function GET(
         invoiceNumber: invoices.invoiceNumber,
         totalHalalas:  invoices.totalHalalas,
         paidHalalas:   invoices.paidHalalas,
+        type:          invoices.type,
         status:        invoices.status,
         issueDate:     invoices.issueDate,
       })
@@ -44,6 +53,20 @@ export async function GET(
       .where(and(eq(invoices.customerId, id), eq(invoices.agencyId, agencyId)))
       .orderBy(desc(invoices.createdAt))
       .limit(10);
+
+    const customerInvoiceIds = db
+      .select({ id: invoices.id })
+      .from(invoices)
+      .where(and(eq(invoices.customerId, id), eq(invoices.agencyId, agencyId)));
+    const [paymentSummary] = await db
+      .select({
+        totalPaid: sql<number>`cast(coalesce(sum(${payments.amountHalalas}), 0) as double precision)`,
+      })
+      .from(payments)
+      .where(and(
+        eq(payments.agencyId, agencyId),
+        or(eq(payments.customerId, id), inArray(payments.invoiceId, customerInvoiceIds)),
+      ));
 
     const recentBookings = await db
       .select({
@@ -61,14 +84,14 @@ export async function GET(
       .limit(10);
 
     const totalInvoiced = Number(invoiceSummary?.totalInvoiced ?? 0);
-    const totalPaid     = Number(invoiceSummary?.totalPaid     ?? 0);
+    const totalPaid     = Number(paymentSummary?.totalPaid     ?? 0);
 
     return NextResponse.json({
       customer,
       statement: {
         totalInvoiced,
         totalPaid,
-        outstanding:  totalInvoiced - totalPaid,
+        outstanding:  Number(invoiceSummary?.outstanding ?? 0),
         invoiceCount: Number(invoiceSummary?.invoiceCount ?? 0),
       },
       recentInvoices,

@@ -14,6 +14,7 @@ import {
   FileX, AlertTriangle,
 } from 'lucide-react';
 import { ProcessPaymentModal } from '@/components/bookings/ProcessPaymentModal';
+import { invoiceOutstanding, isCreditNote as isCreditNoteDocument } from '@/lib/invoice-presentation';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -113,7 +114,7 @@ export function InvoiceDetailClient({ locale, invoiceId }: InvoiceDetailClientPr
         const grandTotal = inv.totalHalalas ?? 0;
         const paid       = inv.paidHalalas  ?? 0;
         setAmountPaid(paid);
-        setAmountDue(grandTotal - paid);
+        setAmountDue(invoiceOutstanding(inv));
         setIsVatRegistered(inv.isEInvoice === true || inv.vatHalalas > 0);
 
         // Resolve booking number from invoice or fetch booking
@@ -155,7 +156,7 @@ export function InvoiceDetailClient({ locale, invoiceId }: InvoiceDetailClientPr
 
   // ── Extract data ──────────────────────────────────────────────────────────
 
-  const isCreditNote = invoice.type === 'credit_note' || invoice.type === '381';
+  const isCreditNote = isCreditNoteDocument(invoice);
   const zatcaStatus = 'not_submitted' as ZatcaStatus;
   const zStyle = ZATCA_STYLE[zatcaStatus] ?? ZATCA_STYLE.not_submitted;
   const uuid = invoice.zatcaUuid ?? '';
@@ -215,7 +216,7 @@ export function InvoiceDetailClient({ locale, invoiceId }: InvoiceDetailClientPr
         </div>
         <div className="flex items-center gap-2 flex-shrink-0">
           {/* Cancel Invoice — only for unpaid invoices */}
-          {invoice.status !== 'cancelled' && invoice.status !== 'paid' && invoice.paidHalalas === 0 && (
+          {invoice.status === 'issued' && !isCreditNote && invoice.paidHalalas === 0 && (
             <button
               onClick={() => setShowCancel(true)}
               className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-orange-200

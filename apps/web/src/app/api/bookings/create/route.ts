@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { db } from '@/lib/db';
-import { bookings, bookingLines, VAT_RATE_BPS } from '@/lib/schema';
+import { bookings, bookingLines, bookingPassengers, VAT_RATE_BPS } from '@/lib/schema';
 import type { VatCategory } from '@/lib/schema';
 import { verifyAuth, assertRole, ApiAuthError, ROLES_AGENT_UP } from '@/lib/api-auth';
 import { getNextBookingNumber } from '@/lib/invoice-counter';
@@ -8,8 +8,8 @@ import { logAudit } from '@/lib/audit';
 import { checkRateLimit, getClientIp, rateLimitHeaders } from '@/lib/rate-limit';
 
 const VALID_SERVICE_TYPES = new Set([
-  'flight', 'hotel', 'package', 'umrah', 'hajj',
-  'insurance', 'visa', 'transport', 'custom',
+  'flight', 'hotel', 'flight_hotel', 'package', 'umrah', 'hajj',
+  'insurance', 'visa', 'family_visit', 'transport', 'transfer', 'cruise', 'custom',
 ]);
 
 const VALID_VAT_CATEGORIES = new Set<string>(['S', 'Z', 'E', 'O']);
@@ -18,7 +18,9 @@ const VALID_REVENUE_MODELS  = new Set<string>(['agent', 'principal']);
 const SERVICE_LABEL_AR: Record<string, string> = {
   flight: 'حجز طيران', hotel: 'حجز فندق', package: 'باقة سياحية',
   umrah:  'برنامج عمرة', hajj: 'برنامج حج', visa: 'خدمة تأشيرة',
-  insurance: 'تأمين سفر', transport: 'خدمة نقل', custom: 'خدمة متنوعة',
+  flight_hotel: 'طيران وفندق', family_visit: 'زيارة عائلية',
+  insurance: 'تأمين سفر', transport: 'خدمة نقل', transfer: 'خدمة نقل',
+  cruise: 'رحلة بحرية', custom: 'خدمة متنوعة',
 };
 
 // Represents one line after validation and computation — ready for DB insert.
@@ -118,7 +120,7 @@ export async function POST(request: Request) {
     const serviceType = String(body['type'] ?? '');
     if (!serviceType || !VALID_SERVICE_TYPES.has(serviceType)) {
       return NextResponse.json(
-        { error: `نوع الخدمة غير صالح: "${serviceType}". القيم المقبولة: flight، hotel، package، umrah، hajj، insurance، visa، transport، custom` },
+        { error: `نوع الخدمة غير صالح: "${serviceType}"` },
         { status: 400 },
       );
     }
@@ -127,6 +129,12 @@ export async function POST(request: Request) {
     const revenueModel   = String(pricing['revenueModel'] ?? 'principal');
     const vatAmountHalalas = Number(pricing['vatAmount'] ?? 0);
     const vatCategoryFromPricing = String(pricing['vatCategory'] ?? 'S') as VatCategory;
+    const serviceDetails = (body['details'] ?? {}) as Record<string, unknown>;
+    const supplierName   = String(body['supplierName'] ?? '').trim() || null;
+    const supplierRef    = String(body['supplierRef']  ?? '').trim() || null;
+    const destination    = String(body['destination']  ?? '').trim() || null;
+    const departureDate  = String(body['travelDate']   ?? '').trim() || null;
+    const returnDate     = String(body['returnDate']   ?? '').trim() || null;
 
     // ── Prepare booking_lines ──────────────────────────────────────────────
     // Validate and compute all line data BEFORE entering the transaction so
@@ -152,9 +160,9 @@ export async function POST(request: Request) {
       const vatRateBps   = VAT_RATE_BPS[vatCategoryFromPricing];
       preparedLines = [{
         serviceType,
-        description:              SERVICE_LABEL_AR[serviceType] ?? serviceType,
+        description:              destination ?? SERVICE_LABEL_AR[serviceType] ?? serviceType,
         supplierId:               null,
-        supplierName:             null,
+        supplierName,
         quantity:                 1,
         unitCostHalalas:          totalCost,
         totalCostHalalas:         totalCost,
@@ -167,8 +175,8 @@ export async function POST(request: Request) {
         revenueAccountCode:       null,
         costAccountCode:          null,
         operationalStatus:        'pending',
-        pnrReference:             null,
-        voucherNumber:            null,
+        pnrReference:             String(serviceDetails['pnr'] ?? '').trim() || null,
+        voucherNumber:            supplierRef,
         sortOrder:                1,
         notes:                    null,
       }];
@@ -178,6 +186,41 @@ export async function POST(request: Request) {
     const derivedTotal  = preparedLines.reduce((s, l) => s + l.totalPriceExclVatHalalas + l.vatHalalas, 0);
     const derivedCost   = preparedLines.reduce((s, l) => s + l.totalCostHalalas, 0);
     const derivedProfit = derivedTotal - derivedCost;
+
+    const rawPassengers = Array.isArray(body['passengers'])
+      ? body['passengers'] as Record<string, unknown>[]
+      : [];
+    const preparedPassengers: Array<{
+      nameAr: string; nameEn: string | null; type: string; gender: string | null;
+      passportNumber: string | null; passportExpiry: string | null;
+      nationality: string | null; dateOfBirth: string | null; nationalId: string | null;
+    }> = [];
+    const passengerTypeMap: Record<string, string> = {
+      adult: 'ADT', child: 'CHD', infant: 'INF', ADT: 'ADT', CHD: 'CHD', INF: 'INF',
+    };
+    const genderMap: Record<string, string> = { male: 'M', female: 'F', M: 'M', F: 'F' };
+    for (let i = 0; i < rawPassengers.length; i++) {
+      const passenger = rawPassengers[i]!;
+      const nameAr = String(passenger['nameAr'] ?? '').trim();
+      if (!nameAr) {
+        return NextResponse.json({ error: `passengers[${i}].nameAr مطلوب` }, { status: 400 });
+      }
+      const rawType = String(passenger['type'] ?? 'ADT');
+      const type = passengerTypeMap[rawType];
+      if (!type) return NextResponse.json({ error: `passengers[${i}].type غير صالح` }, { status: 400 });
+      const rawGender = String(passenger['gender'] ?? '');
+      preparedPassengers.push({
+        nameAr,
+        nameEn:         String(passenger['nameEn']         ?? '').trim() || null,
+        type,
+        gender:         genderMap[rawGender] ?? null,
+        passportNumber: String(passenger['passportNumber'] ?? '').trim() || null,
+        passportExpiry: String(passenger['passportExpiry'] ?? '').trim() || null,
+        nationality:    String(passenger['nationality']    ?? '').trim() || null,
+        dateOfBirth:    String(passenger['dateOfBirth']    ?? '').trim() || null,
+        nationalId:     String(passenger['nationalId']     ?? '').trim() || null,
+      });
+    }
 
     const year = new Date().getFullYear();
 
@@ -192,9 +235,13 @@ export async function POST(request: Request) {
       const serviceFeeHalalas = Number(pricing['serviceFee'] ?? 0);
 
       // Merge pricing fields into details JSONB so they survive round-trips
-      const serviceDetails = (body['details'] ?? {}) as Record<string, unknown>;
       const mergedDetails = {
         ...serviceDetails,
+        destination,
+        departureDate,
+        returnDate,
+        supplierName,
+        supplierRef,
         revenueModel,
         serviceFee:  serviceFeeHalalas,
         vatAmount:   vatAmountHalalas,
@@ -252,6 +299,16 @@ export async function POST(request: Request) {
           sortOrder:                  l.sortOrder,
           notes:                      l.notes,
         });
+      }
+
+      if (preparedPassengers.length > 0) {
+        await tx.insert(bookingPassengers).values(preparedPassengers.map((passenger) => ({
+          id: crypto.randomUUID(),
+          agencyId,
+          bookingId,
+          ...passenger,
+          createdBy: uid,
+        })));
       }
 
       return { bookingId, bookingNumber };

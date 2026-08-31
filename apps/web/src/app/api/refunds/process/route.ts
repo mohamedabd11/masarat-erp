@@ -209,6 +209,7 @@ export async function POST(request: Request) {
           agencyId,
           invoiceId:     originalInvoiceId,
           bookingId,
+          customerId:    invoice.customerId ?? null,
           customerName:  invoice.buyerNameAr ?? '',
           amountHalalas: -refundAmountHalalas,
           method:        'bank_transfer',
