@@ -1,7 +1,7 @@
 import { Badge } from './Badge';
 
 type BookingStatus = 'draft' | 'pending_approval' | 'confirmed' | 'ticketed' | 'in_progress' | 'completed' | 'cancelled' | 'refunded';
-type InvoiceStatus = 'draft' | 'pending' | 'paid' | 'overdue' | 'cancelled' | 'refunded';
+type InvoiceStatus = 'draft' | 'pending' | 'issued' | 'partial' | 'paid' | 'overdue' | 'cancelled' | 'refunded' | 'credit_noted';
 type PaymentStatus = 'unpaid' | 'partial' | 'fully_paid' | 'refunded';
 
 const bookingVariants: Record<BookingStatus, 'neutral' | 'warning' | 'success' | 'info' | 'default' | 'danger'> = {
@@ -18,10 +18,13 @@ const bookingVariants: Record<BookingStatus, 'neutral' | 'warning' | 'success' |
 const invoiceVariants: Record<InvoiceStatus, 'neutral' | 'warning' | 'success' | 'info' | 'default' | 'danger'> = {
   draft:     'neutral',
   pending:   'warning',
+  issued:    'warning',
+  partial:   'warning',
   paid:      'success',
   overdue:   'danger',
   cancelled: 'neutral',
   refunded:  'info',
+  credit_noted: 'info',
 };
 
 const paymentVariants: Record<PaymentStatus, 'neutral' | 'warning' | 'success' | 'info' | 'default' | 'danger'> = {
@@ -45,10 +48,13 @@ const bookingLabels: Record<BookingStatus, { ar: string; en: string }> = {
 const invoiceLabels: Record<InvoiceStatus, { ar: string; en: string }> = {
   draft:     { ar: 'مسودة',   en: 'Draft' },
   pending:   { ar: 'معلق',    en: 'Pending' },
+  issued:    { ar: 'صادرة',    en: 'Issued' },
+  partial:   { ar: 'مدفوعة جزئياً', en: 'Partially Paid' },
   paid:      { ar: 'مدفوع',   en: 'Paid' },
   overdue:   { ar: 'متأخر',   en: 'Overdue' },
   cancelled: { ar: 'ملغى',    en: 'Cancelled' },
   refunded:  { ar: 'مسترجع', en: 'Refunded' },
+  credit_noted: { ar: 'معدّلة بإشعار دائن', en: 'Credit Noted' },
 };
 
 const paymentLabels: Record<PaymentStatus, { ar: string; en: string }> = {

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useLocale } from 'next-intl';
 import Link from 'next/link';
 import { useAuth } from '@masarat/firebase';
@@ -18,6 +18,8 @@ interface BookingActionsProps {
   existingInvoiceId?: string;
   grandTotalHalalas: number;
   paidHalalas: number;
+  onPaidChange?: (paidHalalas: number) => void;
+  onRefunded?: () => void;
 }
 
 export function BookingActions({
@@ -27,6 +29,8 @@ export function BookingActions({
   existingInvoiceId,
   grandTotalHalalas,
   paidHalalas,
+  onPaidChange,
+  onRefunded,
 }: BookingActionsProps) {
   const locale = useLocale();
   const isAr = locale === 'ar';
@@ -38,8 +42,12 @@ export function BookingActions({
   const [showRefund, setShowRefund]             = useState(false);
   const [showSupplierPayment, setShowSupplierPayment] = useState(false);
 
+  useEffect(() => setInvoiceId(existingInvoiceId), [existingInvoiceId]);
+  useEffect(() => setPaid(paidHalalas), [paidHalalas]);
+
   const remaining = grandTotalHalalas - paid;
   const isFullyPaid = remaining <= 0;
+  const isCancelled = bookingStatus === 'cancelled';
 
   function handleInvoiceCreated(newInvoiceId: string) {
     setInvoiceId(newInvoiceId);
@@ -51,17 +59,19 @@ export function BookingActions({
       <div className="pt-4 border-t border-surface-border space-y-3">
         {canWriteInvoices ? (
           <>
-            <CreateInvoiceButton
-              bookingId={bookingId}
-              agencyId={agencyId}
-              bookingStatus={bookingStatus}
-              existingInvoiceId={invoiceId}
-              grandTotalHalalas={grandTotalHalalas}
-              onSuccess={(id) => handleInvoiceCreated(id)}
-            />
+            {!isCancelled && (
+              <CreateInvoiceButton
+                bookingId={bookingId}
+                agencyId={agencyId}
+                bookingStatus={bookingStatus}
+                existingInvoiceId={invoiceId}
+                grandTotalHalalas={grandTotalHalalas}
+                onSuccess={(id) => handleInvoiceCreated(id)}
+              />
+            )}
 
             {/* Payment action — only when invoice exists and not fully paid */}
-            {invoiceId && !isFullyPaid && (
+            {!isCancelled && invoiceId && !isFullyPaid && (
               <Button
                 fullWidth
                 size="sm"
@@ -72,7 +82,7 @@ export function BookingActions({
             )}
 
             {/* Refund action — only when something was paid */}
-            {invoiceId && paid > 0 && (
+            {!isCancelled && invoiceId && paid > 0 && (
               <Button
                 fullWidth
                 size="sm"
@@ -86,16 +96,18 @@ export function BookingActions({
             )}
 
             {/* Payment voucher - general */}
-            <Button
-              fullWidth
-              size="sm"
-              variant="ghost"
-              onClick={() => setShowSupplierPayment(true)}
-              className="text-slate-600 hover:bg-slate-50 border border-slate-200"
-            >
-              <Banknote size={13} />
-              {isAr ? 'تسجيل سند صرف' : 'Record Payment Voucher'}
-            </Button>
+            {!isCancelled && (
+              <Button
+                fullWidth
+                size="sm"
+                variant="ghost"
+                onClick={() => setShowSupplierPayment(true)}
+                className="text-slate-600 hover:bg-slate-50 border border-slate-200"
+              >
+                <Banknote size={13} />
+                {isAr ? 'تسجيل سند صرف' : 'Record Payment Voucher'}
+              </Button>
+            )}
           </>
         ) : (
           <p className="text-xs text-slate-400">للعرض فقط / Read-only</p>
@@ -120,7 +132,9 @@ export function BookingActions({
           remainingDueHalalas={remaining}
           onClose={() => setShowPayment(false)}
           onSuccess={(newRemaining) => {
-            setPaid(grandTotalHalalas - newRemaining);
+            const newPaid = grandTotalHalalas - newRemaining;
+            setPaid(newPaid);
+            onPaidChange?.(newPaid);
             // لا نُغلق النافذة هنا — المستخدم يحتاج يرى زر "طباعة سند القبض" أولاً
           }}
         />
@@ -137,6 +151,8 @@ export function BookingActions({
           onSuccess={() => {
             setPaid(0);
             setShowRefund(false);
+            onPaidChange?.(0);
+            onRefunded?.();
           }}
         />
       )}

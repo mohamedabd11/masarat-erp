@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
-import { eq, and, desc, count } from 'drizzle-orm';
+import { eq, and, desc, count, inArray, isNotNull, or, sql } from 'drizzle-orm';
 import { db } from '@/lib/db';
-import { invoices } from '@/lib/schema';
+import { invoices, payments } from '@/lib/schema';
 import { verifyAuth, ApiAuthError, BusinessError } from '@/lib/api-auth';
 import { requireFeature } from '@/lib/feature-access';
 
@@ -36,8 +36,50 @@ export async function GET(request: Request) {
       .limit(pageSize)
       .offset(offset);
 
+    const [invoiceSummary] = await db
+      .select({
+        totalInvoiced: sql<number>`cast(coalesce(sum(case
+          when ${invoices.status} = 'cancelled' then 0
+          when ${invoices.type} = '381' then -${invoices.totalHalalas}
+          else ${invoices.totalHalalas}
+        end), 0) as double precision)`,
+        totalOutstanding: sql<number>`cast(coalesce(sum(case
+          when ${invoices.type} = '381' then 0
+          when ${invoices.status} not in ('issued','partial','overdue') then 0
+          else greatest(${invoices.totalHalalas} - ${invoices.paidHalalas}, 0)
+        end), 0) as double precision)`,
+      })
+      .from(invoices)
+      .where(and(...conditions));
+
+    const paymentConditions = [
+      eq(payments.agencyId, agencyId),
+      isNotNull(payments.invoiceId),
+    ];
+    if (customerId) {
+      const customerInvoiceIds = db
+        .select({ id: invoices.id })
+        .from(invoices)
+        .where(and(eq(invoices.customerId, customerId), eq(invoices.agencyId, agencyId)));
+      paymentConditions.push(or(
+        eq(payments.customerId, customerId),
+        inArray(payments.invoiceId, customerInvoiceIds),
+      )!);
+    }
+    const [paymentSummary] = await db
+      .select({
+        totalCollected: sql<number>`cast(coalesce(sum(${payments.amountHalalas}), 0) as double precision)`,
+      })
+      .from(payments)
+      .where(and(...paymentConditions));
+
     return NextResponse.json({
       invoices: rows,
+      summary: {
+        totalInvoiced:    Number(invoiceSummary?.totalInvoiced    ?? 0),
+        totalCollected:   Number(paymentSummary?.totalCollected   ?? 0),
+        totalOutstanding: Number(invoiceSummary?.totalOutstanding ?? 0),
+      },
       pagination: { page, pageSize, total: Number(total), totalPages: Math.ceil(Number(total) / pageSize) },
     });
   } catch (err) {

@@ -241,6 +241,7 @@ export function BookingDetailClient({ locale, bookingId }: BookingDetailClientPr
   const existingInvoiceId = invoiceIds[0];
 
   const isCompleted = booking.status === 'completed';
+  const isCancelled = booking.status === 'cancelled';
   const isPaid      = grandTotalHalalas > 0 && paidHalalas >= grandTotalHalalas;
   const isPartial   = paidHalalas > 0 && !isPaid;
   const hasInvoice  = !!existingInvoiceId;
@@ -546,7 +547,13 @@ export function BookingDetailClient({ locale, bookingId }: BookingDetailClientPr
                 <span>{isAr ? 'المدفوع' : 'Paid'}</span>
                 <span>{formatCurrency(paidHalalas, isAr ? 'ar-SA' : 'en-SA')}</span>
               </div>
-              {grandTotalHalalas - paidHalalas > 0 && (
+              {isCancelled && (
+                <div className="flex justify-between text-purple-700 font-semibold">
+                  <span>{isAr ? 'الحالة المالية' : 'Financial Status'}</span>
+                  <span>{isAr ? 'مسترد وملغى' : 'Refunded & Cancelled'}</span>
+                </div>
+              )}
+              {!isCancelled && grandTotalHalalas - paidHalalas > 0 && (
                 <div className="flex justify-between text-red-600 font-medium">
                   <span>{isAr ? 'المتبقي' : 'Due'}</span>
                   <span>{formatCurrency(grandTotalHalalas - paidHalalas, isAr ? 'ar-SA' : 'en-SA')}</span>
@@ -560,6 +567,12 @@ export function BookingDetailClient({ locale, bookingId }: BookingDetailClientPr
               existingInvoiceId={existingInvoiceId}
               grandTotalHalalas={grandTotalHalalas}
               paidHalalas={paidHalalas}
+              onPaidChange={(newPaid) => {
+                setBooking((current) => current ? { ...current, paidHalalas: newPaid } : current);
+              }}
+              onRefunded={() => {
+                setBooking((current) => current ? { ...current, paidHalalas: 0, status: 'cancelled' } : current);
+              }}
             />
           </Card>
 

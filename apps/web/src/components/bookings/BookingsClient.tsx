@@ -93,8 +93,9 @@ export function BookingsClient({ locale, bookingType, initialQuery = '' }: Booki
   const fmtLocale = isAr ? 'ar-SA' : 'en-SA';
 
   // ── KPIs ────────────────────────────────────────────────────────────────────
-  const revenue   = bookings.reduce((s, b) => s + (b.totalPriceHalalas ?? 0), 0);
-  const paid      = bookings.reduce((s, b) => s + (b.paidHalalas ?? 0), 0);
+  const financiallyActive = bookings.filter(b => b.status !== 'cancelled');
+  const revenue   = financiallyActive.reduce((s, b) => s + (b.totalPriceHalalas ?? 0), 0);
+  const paid      = financiallyActive.reduce((s, b) => s + (b.paidHalalas ?? 0), 0);
   const pending   = bookings.filter(b => b.status === 'draft').length;
   const active    = bookings.filter(b => b.status === 'confirmed').length;
   const completed = bookings.filter(b => b.status === 'completed').length;
@@ -217,7 +218,9 @@ export function BookingsClient({ locale, bookingType, initialQuery = '' }: Booki
               const paidPct   = total > 0 ? Math.min(100, Math.round((paidAmt / total) * 100)) : 0;
               const createdAt = b.createdAt ? new Date(b.createdAt as unknown as string) : null;
               const hasInvoice = !!(b as Record<string, unknown>)['hasInvoice'];
-              const bPaymentStatus = paidAmt >= total && total > 0 ? 'fully_paid' : paidAmt > 0 ? 'partial' : 'unpaid';
+              const bPaymentStatus = b.status === 'cancelled'
+                ? 'refunded'
+                : paidAmt >= total && total > 0 ? 'fully_paid' : paidAmt > 0 ? 'partial' : 'unpaid';
 
               return (
                 <Link key={b.id} href={`/${locale}/bookings/${b.id}`}
@@ -285,7 +288,9 @@ export function BookingsClient({ locale, bookingType, initialQuery = '' }: Booki
                   const paidPct    = total > 0 ? Math.min(100, Math.round((paidAmt / total) * 100)) : 0;
                   const createdAt  = b.createdAt ? new Date(b.createdAt as unknown as string) : null;
                   const hasInvoice = !!(b as Record<string, unknown>)['hasInvoice'];
-                  const bPaymentStatus = paidAmt >= total && total > 0 ? 'fully_paid' : paidAmt > 0 ? 'partial' : 'unpaid';
+                  const bPaymentStatus = b.status === 'cancelled'
+                    ? 'refunded'
+                    : paidAmt >= total && total > 0 ? 'fully_paid' : paidAmt > 0 ? 'partial' : 'unpaid';
 
                   return (
                     <tr key={b.id} className="hover:bg-slate-50/60 transition-colors group">

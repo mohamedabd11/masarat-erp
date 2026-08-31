@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { eq, and, ne } from 'drizzle-orm';
+import { eq, and, ne, sql } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { bookings, invoices, bookingLines } from '@/lib/schema';
 import { verifyAuth, assertRole, ApiAuthError, ROLES_AGENT_UP } from '@/lib/api-auth';
@@ -28,6 +28,7 @@ export async function GET(request: Request, { params }: { params: { id: string }
         eq(invoices.bookingId, params.id),
         eq(invoices.agencyId, agencyId),
         ne(invoices.status, 'cancelled'),
+        sql`${invoices.type} IN ('380','388')`,
       ))
       .limit(1);
 
@@ -35,6 +36,12 @@ export async function GET(request: Request, { params }: { params: { id: string }
     const det = (booking.details ?? {}) as Record<string, unknown>;
     const enriched = {
       ...booking,
+      customerName: {
+        ar: booking.customerNameAr ?? '',
+        en: booking.customerNameEn ?? booking.customerNameAr ?? '',
+      },
+      supplierName: String(det['supplierName'] ?? '') || null,
+      supplierRef:  String(det['supplierRef']  ?? '') || null,
       invoiceIds:    liveInvoice ? [liveInvoice.id] : [],
       invoiceNumber: liveInvoice?.invoiceNumber ?? null,
       pricing: {
