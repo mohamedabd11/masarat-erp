@@ -14,7 +14,7 @@ import {
   FileX, AlertTriangle,
 } from 'lucide-react';
 import { ProcessPaymentModal } from '@/components/bookings/ProcessPaymentModal';
-import { invoiceOutstanding, isCreditNote as isCreditNoteDocument } from '@/lib/invoice-presentation';
+import { invoiceOutstanding, isCreditNote as isCreditNoteDocument, vatCategoryLabel } from '@/lib/invoice-presentation';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -27,6 +27,7 @@ interface InvoiceLine {
   unitPriceHalalas: number;
   vatHalalas:       number;
   totalHalalas:     number;
+  vatCategory?:     string;
 }
 
 // Postgres-backed invoice (flat fields from the invoices table)
@@ -475,7 +476,7 @@ export function InvoiceDetailClient({ locale, invoiceId }: InvoiceDetailClientPr
                       <td className="px-4 py-4 text-center">
                         {line.vatHalalas === 0 ? (
                           <span className="text-xs bg-slate-100 text-slate-500 px-2 py-0.5 rounded font-medium">
-                            {isAr ? 'معفى' : 'Exempt'}
+                            {vatCategoryLabel(line.vatCategory, isAr)}
                           </span>
                         ) : (
                           <span className="text-slate-600">

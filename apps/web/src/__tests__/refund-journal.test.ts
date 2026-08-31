@@ -83,6 +83,30 @@ describe('buildRefundJournalLines — full-paid agent (no COGS line)', () => {
   });
 });
 
+describe('buildRefundJournalLines — agent cancellation fee VAT', () => {
+  it('retains fee VAT at 15% instead of using the invoice-wide effective ratio', () => {
+    const shape = { agentFee: 100_00, vat: 15_00, agentCost: 1_000_00 };
+    const lines = buildRefundJournalLines({
+      originalLines: originalInvoice(shape),
+      originalTotalHalalas: totalOf(shape),
+      originalVatHalalas: 15_00,
+      paidHalalas: totalOf(shape),
+      refundAmountHalalas: 1_015_00,
+      cancellationFeeHalalas: 100_00,
+      cancelledTotalHalalas: totalOf(shape),
+      isEInvoice: true,
+      vatRateBps: 1_500,
+    });
+
+    expect(drOf(lines, '4000')).toBe(100_00);
+    expect(drOf(lines, '2000')).toBe(1_000_00);
+    expect(drOf(lines, '2200')).toBe(1_96);
+    expect(crOf(lines, '1110')).toBe(1_015_00);
+    expect(crOf(lines, '4200')).toBe(86_96);
+    expect(sum(lines, 'dr')).toBe(sum(lines, 'cr'));
+  });
+});
+
 describe('buildRefundJournalLines — mixed agent+principal (defect #1)', () => {
   const shape = { agentFee: 2_000_00, principalRev: 8_000_00, vat: 1_500_00, principalCost: 6_000_00 };
   const lines = buildRefundJournalLines({

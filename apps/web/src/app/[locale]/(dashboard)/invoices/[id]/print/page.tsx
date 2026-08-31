@@ -61,6 +61,7 @@ export default function PrintInvoicePage({
                 vatRate,
                 vatAmountHalalas:        vatAmt,
                 totalInclVatHalalas:     totalIncl,
+                vatCategory:             typeof l['vatCategory'] === 'string' ? l['vatCategory'] : undefined,
               };
             })
           : [{
