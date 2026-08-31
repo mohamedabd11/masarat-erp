@@ -65,4 +65,18 @@ describe('validateRefundPolicy', () => {
       requestedCancelledTotalHalalas: 11_500_01,
     })).toThrow(/تتجاوز إجمالي الفاتورة/);
   });
+
+  it('rejects consuming more than the amount actually paid', () => {
+    expect(() => validateRefundPolicy({
+      ...base,
+      paidHalalas: 5_000_00,
+      refundAmountHalalas: 4_750_00,
+      cancellationFeeHalalas: 500_00,
+    })).toThrow(/يتجاوز المدفوع/);
+  });
+
+  it('rejects a second refund after the invoice is already refunded', () => {
+    expect(() => validateRefundPolicy({ ...base, invoiceStatus: 'refunded' }))
+      .toThrow(/لا تسمح بالاسترداد/);
+  });
 });
