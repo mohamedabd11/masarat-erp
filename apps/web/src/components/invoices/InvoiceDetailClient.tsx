@@ -546,7 +546,12 @@ export function InvoiceDetailClient({ locale, invoiceId }: InvoiceDetailClientPr
               )}
 
               {/* Payment action */}
-              {amountDue > 0 ? (
+              {invoice.status === 'refunded' ? (
+                <div className="mt-3 flex items-center justify-center gap-2 text-sm text-amber-700 font-medium">
+                  <CheckCircle2 size={15} />
+                  {isAr ? 'مستردة بالكامل' : 'Fully Refunded'}
+                </div>
+              ) : amountDue > 0 ? (
                 <button
                   onClick={() => setShowPayment(true)}
                   className="mt-3 w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-brand-600 text-white text-sm font-semibold hover:bg-brand-700 transition-colors"
