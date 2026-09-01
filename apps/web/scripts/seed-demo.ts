@@ -23,8 +23,10 @@
  *   • لا يقرأ DATABASE_URL أو .env.local تلقائياً؛ يتطلب هدف العرض الصريح فقط.
  */
 import { neon } from '@neondatabase/serverless';
-import { drizzle } from 'drizzle-orm/neon-http';
-import { and, eq } from 'drizzle-orm';
+import { Pool as LocalPgPool } from 'pg';
+import { drizzle as drizzleNeon } from 'drizzle-orm/neon-http';
+import { drizzle as drizzleLocal } from 'drizzle-orm/node-postgres';
+import { and, asc, eq, like } from 'drizzle-orm';
 
 import {
   agencies, users, customers, suppliers, bookings, bookingLines, chartOfAccounts,
@@ -40,16 +42,34 @@ import { validateRefundPolicy } from '../src/lib/refund-policy';
 import { buildSupplierPaymentJournalLines, apClearedHalalas } from '../src/lib/supplier-payment-journal';
 import { DEFAULT_COA } from '../src/lib/default-coa';
 import { assertDemoSeedTarget, readDemoSeedConfig } from './seed-demo-safety';
+import {
+  HISTORICAL_DEMO_SCENARIOS,
+  historicalScenarioDate,
+  type DemoSupplierKind,
+  type HistoricalDemoScenario,
+} from './seed-demo-scenarios';
 
 // ─── الإعداد ──────────────────────────────────────────────────────────────────
 
 const config = readDemoSeedConfig();
-const db = drizzle(neon(config.databaseUrl));
+const parsedDatabaseUrl = new URL(config.databaseUrl);
+const isLocalDatabase = ['127.0.0.1', 'localhost', '::1'].includes(parsedDatabaseUrl.hostname);
+const localPool = isLocalDatabase ? new LocalPgPool({ connectionString: config.databaseUrl, max: 2 }) : null;
+type DemoDb = ReturnType<typeof drizzleLocal>;
+const db: DemoDb = localPool
+  ? drizzleLocal(localPool)
+  : drizzleNeon(neon(config.databaseUrl)) as unknown as DemoDb;
 
 // أرقام صحيحة بالهللات (1 ر.س = 100 هللة)
 const SAR = (riyals: number) => Math.round(riyals * 100);
 const today = new Date().toISOString().split('T')[0]!;
 const addDays = (n: number) => new Date(Date.now() + n * 86_400_000).toISOString().split('T')[0]!;
+const atNoonUtc = (date: string) => new Date(`${date}T12:00:00.000Z`);
+const addIsoDays = (date: string, days: number) => {
+  const value = atNoonUtc(date);
+  value.setUTCDate(value.getUTCDate() + days);
+  return value.toISOString().slice(0, 10);
+};
 
 // عدّادات أرقام ثابتة (DEMO- لتجنّب التصادم مع الترقيم الحقيقي + ثبات إعادة التشغيل)
 let invSeq = 0, jeSeq = 0, rctSeq = 0, pvSeq = 0, bkSeq = 0;
@@ -77,6 +97,7 @@ async function postJournal(args: {
     descriptionAr: args.descAr, source: args.source, sourceId: args.sourceId,
     serviceType: args.serviceType ?? null, isPosted: true,
     totalDebitHalalas: totalDr, totalCreditHalalas: totalCr, createdBy: 'seed',
+    createdAt: atNoonUtc(args.date),
   }).onConflictDoNothing();
 
   await db.insert(journalLines).values(args.lines.map((l, i) => ({
@@ -91,8 +112,10 @@ function makeLine(p: {
   agencyId: string; bookingId: string; serviceType: string; description: string;
   revenueModel: 'agent' | 'principal'; priceExclVat: number; vat: number; cost: number;
   vatCategory?: string; supplierId?: string | null; supplierName?: string | null;
+  createdOn?: string;
 }): BookingLine {
   const vatCategory = p.vatCategory ?? (p.vat > 0 ? 'S' : 'Z');
+  const createdAt = p.createdOn ? atNoonUtc(p.createdOn) : new Date();
   return {
     id: `${p.bookingId}-line1`, bookingId: p.bookingId, agencyId: p.agencyId,
     serviceType: p.serviceType, description: p.description,
@@ -103,7 +126,7 @@ function makeLine(p: {
     revenueModel: p.revenueModel, revenueAccountCode: null, costAccountCode: null,
     operationalStatus: 'confirmed', pnrReference: null, voucherNumber: null,
     isLegacy: false, status: 'active', cancelledAt: null, refundHalalas: 0,
-    sortOrder: 1, notes: null, createdAt: new Date(), updatedAt: new Date(),
+    sortOrder: 1, notes: null, createdAt, updatedAt: createdAt,
   } as BookingLine;
 }
 
@@ -111,17 +134,24 @@ function makeLine(p: {
 async function insertBooking(p: {
   agencyId: string; id: string; serviceType: string; customerId: string;
   customerNameAr: string; line: BookingLine; status?: string; details?: Record<string, unknown>;
+  createdOn?: string;
 }) {
   const total = p.line.totalPriceExclVatHalalas + p.line.vatHalalas;
   const cost  = p.line.totalCostHalalas;
+  const createdAt = p.createdOn ? atNoonUtc(p.createdOn) : new Date();
   await db.insert(bookings).values({
     id: p.id, agencyId: p.agencyId, bookingNumber: bkNo(), serviceType: p.serviceType,
     customerId: p.customerId, customerNameAr: p.customerNameAr, status: p.status ?? 'completed',
     totalPriceHalalas: total, costPriceHalalas: cost, profitHalalas: total - cost,
     paidHalalas: 0, currency: 'SAR', details: { revenueModel: p.line.revenueModel, ...(p.details ?? {}) },
-    createdBy: 'seed',
+    createdBy: 'seed', createdAt, updatedAt: createdAt,
   }).onConflictDoNothing();
   await db.insert(bookingLines).values(p.line).onConflictDoNothing();
+  if (p.createdOn) {
+    await db.update(bookings).set({ createdAt }).where(and(
+      eq(bookings.id, p.id), eq(bookings.agencyId, p.agencyId),
+    ));
+  }
   return { total, cost };
 }
 
@@ -161,6 +191,9 @@ async function main() {
     customerCompany: demoId('customer-company'),
     supplierAirline: demoId('supplier-airline'),
     supplierHotel: demoId('supplier-hotel'),
+    supplierGovernment: demoId('supplier-government'),
+    supplierTransport: demoId('supplier-transport'),
+    supplierInsurance: demoId('supplier-insurance'),
     bank: demoId('bank-main'),
     cash: demoId('cash-main'),
   } as const;
@@ -193,9 +226,15 @@ async function main() {
 
   const supAir = ids.supplierAirline;
   const supHotel = ids.supplierHotel;
+  const supGovernment = ids.supplierGovernment;
+  const supTransport = ids.supplierTransport;
+  const supInsurance = ids.supplierInsurance;
   await db.insert(suppliers).values([
     { id: supAir,   agencyId, nameAr: 'الخطوط الجوية (تجريبي)', type: 'airline', balanceHalalas: 0, isActive: true },
     { id: supHotel, agencyId, nameAr: 'فندق مكة (تجريبي)',      type: 'hotel',   balanceHalalas: 0, isActive: true },
+    { id: supGovernment, agencyId, nameAr: 'جهة تأشيرات (تجريبي)', type: 'visa', balanceHalalas: 0, isActive: true },
+    { id: supTransport, agencyId, nameAr: 'شركة نقل (تجريبي)', type: 'transport', balanceHalalas: 0, isActive: true },
+    { id: supInsurance, agencyId, nameAr: 'شركة تأمين سفر (تجريبي)', type: 'insurance', balanceHalalas: 0, isActive: true },
   ]).onConflictDoNothing();
 
   await db.insert(bankAccounts).values([
@@ -222,10 +261,149 @@ async function main() {
     bankBalances.set(input.bankAccountId, balanceAfterHalalas);
     await db.insert(bankTransactions).values({
       ...input, agencyId, balanceAfterHalalas, currency: 'SAR', isReconciled: false,
+      createdAt: atNoonUtc(input.date),
     }).onConflictDoNothing();
   }
 
   const toJL = (ls: { code: string; ar: string; en: string; dr: number; cr: number }[]) => ls as Line[];
+
+  const customerRefs = {
+    individual: { id: custB2C, name: 'عميل تجريبي — فردي', vatNumber: null },
+    company: { id: custB2B, name: 'شركة تجريبية — اعتباري', vatNumber: '310123456700003' },
+  } as const;
+  const supplierRefs: Record<DemoSupplierKind, { id: string; name: string }> = {
+    airline: { id: supAir, name: 'الخطوط الجوية (تجريبي)' },
+    hotel: { id: supHotel, name: 'فندق مكة (تجريبي)' },
+    government: { id: supGovernment, name: 'جهة تأشيرات (تجريبي)' },
+    transport: { id: supTransport, name: 'شركة نقل (تجريبي)' },
+    insurance: { id: supInsurance, name: 'شركة تأمين سفر (تجريبي)' },
+  };
+
+  async function insertHistoricalScenario(scenario: HistoricalDemoScenario) {
+    const issueDate = historicalScenarioDate(today, scenario);
+    const paymentDate = addIsoDays(issueDate, 5);
+    const customer = customerRefs[scenario.customer];
+    const supplier = supplierRefs[scenario.supplier];
+    const bookingId = demoId(`booking-${scenario.key}`);
+    const invoiceId = demoId(`invoice-${scenario.key}`);
+    const invoiceJournalId = demoId(`journal-invoice-${scenario.key}`);
+    const line = makeLine({
+      agencyId,
+      bookingId,
+      serviceType: scenario.serviceType,
+      description: scenario.description,
+      revenueModel: scenario.revenueModel,
+      priceExclVat: scenario.priceExclVatHalalas,
+      vat: scenario.vatHalalas,
+      cost: scenario.costHalalas,
+      vatCategory: scenario.vatCategory,
+      supplierId: supplier.id,
+      supplierName: supplier.name,
+      createdOn: issueDate,
+    });
+    const { total } = await insertBooking({
+      agencyId,
+      id: bookingId,
+      serviceType: scenario.serviceType,
+      customerId: customer.id,
+      customerNameAr: customer.name,
+      line,
+      createdOn: issueDate,
+      details: { revenueModel: scenario.revenueModel, historicalDemo: true },
+    });
+
+    await postJournal({
+      agencyId,
+      id: invoiceJournalId,
+      date: issueDate,
+      descAr: `فاتورة تاريخية تجريبية — ${scenario.description}`,
+      source: 'invoice',
+      sourceId: invoiceId,
+      serviceType: scenario.serviceType,
+      lines: toJL(buildJournalLinesFromBookingLines([line], true, false)),
+    });
+
+    const paymentAmount = scenario.payment.state === 'full'
+      ? total
+      : scenario.payment.state === 'partial'
+        ? scenario.payment.amountHalalas
+        : 0;
+    const invoiceStatus = paymentAmount === 0 ? 'issued' : paymentAmount === total ? 'paid' : 'partial';
+    const feeHalalas = scenario.priceExclVatHalalas - scenario.costHalalas;
+    const items = scenario.revenueModel === 'agent'
+      ? [
+          {
+            description: `تكلفة المورد — ${scenario.description}`, quantity: 1,
+            unitPriceHalalas: scenario.costHalalas, vatHalalas: 0,
+            totalHalalas: scenario.costHalalas, vatCategory: 'O',
+          },
+          {
+            description: `رسوم خدمة الوكالة — ${scenario.description}`, quantity: 1,
+            unitPriceHalalas: feeHalalas, vatHalalas: scenario.vatHalalas,
+            totalHalalas: feeHalalas + scenario.vatHalalas, vatCategory: scenario.vatCategory,
+          },
+        ]
+      : [
+          {
+            description: scenario.description, quantity: 1,
+            unitPriceHalalas: scenario.priceExclVatHalalas, vatHalalas: scenario.vatHalalas,
+            totalHalalas: total, vatCategory: scenario.vatCategory,
+          },
+        ];
+
+    await db.insert(invoices).values({
+      id: invoiceId, agencyId, invoiceNumber: invNo(), type: '388',
+      bookingId, customerId: customer.id, buyerNameAr: customer.name,
+      buyerVatNumber: customer.vatNumber,
+      subtotalHalalas: scenario.priceExclVatHalalas, vatHalalas: scenario.vatHalalas,
+      totalHalalas: total, paidHalalas: paymentAmount, issueDate,
+      dueDate: paymentAmount === total ? null : addIsoDays(issueDate, 30),
+      status: invoiceStatus, isEInvoice: true, journalEntryId: invoiceJournalId,
+      createdBy: 'seed', items, createdAt: atNoonUtc(issueDate), updatedAt: atNoonUtc(issueDate),
+    }).onConflictDoNothing();
+    addAP(supplier.id, scenario.costHalalas);
+
+    if (paymentAmount > 0 && scenario.payment.state !== 'none') {
+      const paymentId = demoId(`payment-${scenario.key}`);
+      const paymentJournalId = demoId(`journal-payment-${scenario.key}`);
+      const receiptId = demoId(`receipt-${scenario.key}`);
+      const voucherNumber = rctNo();
+      const method = scenario.payment.method;
+
+      await postJournal({
+        agencyId, id: paymentJournalId, date: paymentDate,
+        descAr: `تحصيل تاريخي تجريبي — ${scenario.description}`,
+        source: 'payment', sourceId: paymentId,
+        lines: toJL(buildCustomerReceiptLines(paymentAmount, method)),
+      });
+      await db.insert(payments).values({
+        id: paymentId, agencyId, invoiceId, bookingId, customerId: customer.id,
+        customerName: customer.name, amountHalalas: paymentAmount, method,
+        voucherNumber, date: paymentDate, journalEntryId: paymentJournalId,
+        createdBy: 'seed', createdAt: atNoonUtc(paymentDate),
+      }).onConflictDoNothing();
+      await db.insert(receiptVouchers).values({
+        id: receiptId, agencyId, voucherNumber, customerId: customer.id,
+        customerName: customer.name, amountHalalas: paymentAmount, method,
+        description: `تحصيل ${scenario.description}`, bookingId, invoiceId,
+        date: paymentDate, journalEntryId: paymentJournalId, createdBy: 'seed',
+        createdAt: atNoonUtc(paymentDate),
+      }).onConflictDoNothing();
+      await db.update(bookings).set({ paidHalalas: paymentAmount, updatedAt: atNoonUtc(paymentDate) }).where(and(
+        eq(bookings.id, bookingId), eq(bookings.agencyId, agencyId),
+      ));
+
+      const bankAccountId = method === 'bank_transfer' ? ids.bank : method === 'cash' ? ids.cash : null;
+      if (bankAccountId) {
+        await recordBankTransaction({
+          id: demoId(`bank-tx-receipt-${scenario.key}`), bankAccountId, type: 'deposit',
+          amountHalalas: paymentAmount, date: paymentDate,
+          description: `تحصيل ${scenario.description}`, sourceType: 'receipt', sourceId: receiptId,
+          reference: voucherNumber,
+        });
+      }
+    }
+  }
 
   // ── رصيد افتتاحي للمورد (واقعي) ──────────────────────────────────────────────
   // الوكالة بدأت وهي تحتفظ بـ 8000 ر.س نقداً محصّلة من العملاء مستحقة للخطوط الجوية
@@ -257,9 +435,9 @@ async function main() {
     const line = makeLine({ agencyId, bookingId: bId, serviceType: 'flight',
       description: 'تذكرة الرياض ⇄ القاهرة', revenueModel: 'agent',
       priceExclVat: SAR(1600), vat: SAR(15), cost: SAR(1500),
-      supplierId: supAir, supplierName: 'الخطوط الجوية (تجريبي)' });
+      supplierId: supAir, supplierName: 'الخطوط الجوية (تجريبي)', createdOn: scenarioDate });
     const { total } = await insertBooking({ agencyId, id: bId, serviceType: 'flight',
-      customerId: custB2C, customerNameAr: 'عميل تجريبي — فردي', line });
+      customerId: custB2C, customerNameAr: 'عميل تجريبي — فردي', line, createdOn: scenarioDate });
 
     const invId = demoId('invoice-flight'), jeId = demoId('journal-invoice-flight');
     // أدرج القيد أولاً (قبل الفاتورة — FK constraint)
@@ -321,9 +499,9 @@ async function main() {
     const line = makeLine({ agencyId, bookingId: bId, serviceType: 'package',
       description: 'باقة سياحية — إسطنبول 5 ليالٍ', revenueModel: 'principal',
       priceExclVat: SAR(10000), vat: SAR(1500), cost: SAR(6000),
-      supplierId: supHotel, supplierName: 'فندق مكة (تجريبي)' });
+      supplierId: supHotel, supplierName: 'فندق مكة (تجريبي)', createdOn: invoiceDate });
     const { total } = await insertBooking({ agencyId, id: bId, serviceType: 'package',
-      customerId: custB2B, customerNameAr: 'شركة تجريبية — اعتباري', line });
+      customerId: custB2B, customerNameAr: 'شركة تجريبية — اعتباري', line, createdOn: invoiceDate });
 
     const invId = demoId('invoice-package'), jeId = demoId('journal-invoice-package');
     const firstPay = SAR(5000), secondPay = total - firstPay;
@@ -388,13 +566,15 @@ async function main() {
   // (3) عمرة (أصيل، معفاة) — إيراد مؤجل (الرحلة بعد شهر)
   // ════════════════════════════════════════════════════════════════════════
   {
+    const scenarioDate = today;
     const bId = demoId('booking-umrah');
     const line = makeLine({ agencyId, bookingId: bId, serviceType: 'umrah',
       description: 'برنامج عمرة — 4 ليالٍ', revenueModel: 'principal',
       priceExclVat: SAR(5000), vat: 0, cost: SAR(3300), vatCategory: 'E',
-      supplierId: supHotel, supplierName: 'فندق مكة (تجريبي)' });
+      supplierId: supHotel, supplierName: 'فندق مكة (تجريبي)', createdOn: scenarioDate });
     const { total } = await insertBooking({ agencyId, id: bId, serviceType: 'umrah',
-      customerId: custB2C, customerNameAr: 'عميل تجريبي — فردي', line, details: { travelDate: addDays(30) } });
+      customerId: custB2C, customerNameAr: 'عميل تجريبي — فردي', line,
+      details: { travelDate: addDays(30) }, createdOn: scenarioDate });
 
     const invId = demoId('invoice-umrah'), jeId = demoId('journal-invoice-umrah');
     // deferRevenue=true → الإيراد يُقيَّد في 3201 (إيراد مؤجل) لا 4100 — القيد أولاً ثم الفاتورة
@@ -441,13 +621,15 @@ async function main() {
   // (4) حجز مؤكَّد بلا فاتورة بعد (خط أنابيب — لا قيد محاسبي)
   // ════════════════════════════════════════════════════════════════════════
   {
+    const scenarioDate = today;
     const bId = demoId('booking-pipeline');
     const line = makeLine({ agencyId, bookingId: bId, serviceType: 'flight',
       description: 'تذكرة جدة ⇄ دبي (لم تُفوتر بعد)', revenueModel: 'agent',
       priceExclVat: SAR(900), vat: SAR(15), cost: SAR(800),
-      supplierId: supAir, supplierName: 'الخطوط الجوية (تجريبي)' });
+      supplierId: supAir, supplierName: 'الخطوط الجوية (تجريبي)', createdOn: scenarioDate });
     await insertBooking({ agencyId, id: bId, serviceType: 'flight', status: 'confirmed',
-      customerId: custB2C, customerNameAr: 'عميل تجريبي — فردي', line, details: { travelDate: addDays(25) } });
+      customerId: custB2C, customerNameAr: 'عميل تجريبي — فردي', line,
+      details: { travelDate: addDays(25) }, createdOn: scenarioDate });
     // لا فاتورة ولا قيد — يظهر في خط الأنابيب فقط (سلوك صحيح وفق IFRS 15)
   }
 
@@ -623,6 +805,13 @@ async function main() {
     addAP(supHotel, -apClearedHalalas(built));
   }
 
+  // ════════════════════════════════════════════════════════════════════════
+  // (8–15) سجل تاريخي لثمانية أشهر — مدخلات متنوعة ومخرجات قابلة للمقارنة
+  // ════════════════════════════════════════════════════════════════════════
+  for (const scenario of HISTORICAL_DEMO_SCENARIOS) {
+    await insertHistoricalScenario(scenario);
+  }
+
   // ── كتابة أرصدة الموردين كقيمة مطلقة (idempotent) ────────────────────────────
   // الرصيد النهائي مُشتقّ بالكامل من القيود أعلاه فيطابق حساب المراقبة 2000.
   for (const [sid, bal] of supBal) {
@@ -632,10 +821,44 @@ async function main() {
     ));
   }
 
-  for (const [bankAccountId, balance] of bankBalances) {
+  // التقارير الشهرية تعتمد على created_at للفواتير. نحاذيه مع تاريخ الإصدار
+  // لكل سجلات العرض فقط، بما فيها السجلات التي زُرعت قبل إضافة التاريخ الصريح.
+  const demoInvoices = await db.select({ id: invoices.id, issueDate: invoices.issueDate })
+    .from(invoices)
+    .where(and(eq(invoices.agencyId, agencyId), like(invoices.id, `${agencyId}-demo-%`)));
+  for (const invoice of demoInvoices) {
+    await db.update(invoices).set({ createdAt: atNoonUtc(invoice.issueDate) }).where(and(
+      eq(invoices.id, invoice.id), eq(invoices.agencyId, agencyId),
+    ));
+  }
+
+  // أُدخلت الحالات بحسب تسلسل منطقي لا بحسب التاريخ، لذلك نعيد بناء الرصيد الجاري
+  // لكل حركة عرض حسب التاريخ حتى يكون كشف البنك نفسه صحيحاً شهراً بعد شهر.
+  const demoBankTransactions = await db.select({
+    id: bankTransactions.id,
+    bankAccountId: bankTransactions.bankAccountId,
+    type: bankTransactions.type,
+    amountHalalas: bankTransactions.amountHalalas,
+    date: bankTransactions.date,
+  }).from(bankTransactions)
+    .where(and(eq(bankTransactions.agencyId, agencyId), like(bankTransactions.id, `${agencyId}-demo-%`)))
+    .orderBy(asc(bankTransactions.date), asc(bankTransactions.id));
+  const recalculatedBankBalances = new Map<string, number>();
+  for (const transaction of demoBankTransactions) {
+    const previous = recalculatedBankBalances.get(transaction.bankAccountId) ?? 0;
+    const direction = transaction.type === 'deposit' ? 1 : transaction.type === 'withdrawal' ? -1 : 0;
+    const balance = previous + direction * Number(transaction.amountHalalas);
+    recalculatedBankBalances.set(transaction.bankAccountId, balance);
+    await db.update(bankTransactions).set({
+      balanceAfterHalalas: balance,
+      createdAt: atNoonUtc(transaction.date),
+    }).where(and(
+      eq(bankTransactions.id, transaction.id), eq(bankTransactions.agencyId, agencyId),
+    ));
+  }
+  for (const [bankAccountId, balance] of recalculatedBankBalances) {
     await db.update(bankAccounts).set({ currentBalanceHalalas: balance, updatedAt: new Date() }).where(and(
-      eq(bankAccounts.id, bankAccountId),
-      eq(bankAccounts.agencyId, agencyId),
+      eq(bankAccounts.id, bankAccountId), eq(bankAccounts.agencyId, agencyId),
     ));
   }
   const subledgerTotal = [...supBal.values()].reduce((s, b) => s + b, 0);
@@ -644,17 +867,26 @@ async function main() {
   console.log('   • حجوزات: طيران (وكيل) · باقة وعمرة (أصيل) · حجز غير مفوتر');
   console.log('   • فاتورة جزئية + خطة أقساط · عروض أسعار · سندات قبض · بنك وصندوق');
   console.log('   • قيود متوازنة · استرداد جزئي (مذكرة دائنة) · دفعتا مورد (ريال + عملة أجنبية)');
+  console.log(`   • ${HISTORICAL_DEMO_SCENARIOS.length} حالات تاريخية موزعة على 8 أشهر (مدفوع/جزئي/آجل)`);
   console.log(`   • دفتر الموردين الفرعي = ${(subledgerTotal / 100).toFixed(2)} ر.س (مطابق لحساب المراقبة 2000)`);
   console.log('   • قارن: ميزان المراجعة، قائمة الدخل، الذمم المدينة/الدائنة، الإيراد المؤجل، الداش بورد.\n');
 }
 
-main().catch((err) => {
-  console.error('\n✗ فشلت الزراعة:', err instanceof Error ? err.message : err);
-  // خطأ PostgreSQL الحقيقي (مثل "column ... does not exist") يكون في cause
-  const cause = (err as { cause?: unknown })?.cause;
-  if (cause) {
-    const cm = cause instanceof Error ? cause.message : String(cause);
-    console.error('  ↳ السبب الجذري (PostgreSQL):', cm);
+async function run() {
+  try {
+    await main();
+  } catch (err) {
+    console.error('\n✗ فشلت الزراعة:', err instanceof Error ? err.message : err);
+    // خطأ PostgreSQL الحقيقي (مثل "column ... does not exist") يكون في cause
+    const cause = (err as { cause?: unknown })?.cause;
+    if (cause) {
+      const cm = cause instanceof Error ? cause.message : String(cause);
+      console.error('  ↳ السبب الجذري (PostgreSQL):', cm);
+    }
+    process.exitCode = 1;
+  } finally {
+    await localPool?.end();
   }
-  process.exit(1);
-});
+}
+
+void run();
