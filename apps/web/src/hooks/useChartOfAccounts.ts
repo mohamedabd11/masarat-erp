@@ -17,9 +17,16 @@ export type ChartAccountWithBalance = ChartAccount & {
 };
 
 export type NewAccountPayload = {
-  code: string; nameAr: string; nameEn?: string; type: AccountType;
+  code: string;
+  nameAr: string;
+  nameEn?: string;
+  type: AccountType;
+  subType?: string | null;
+  parentId?: string | null;
+  allowDirectEntry?: boolean;
+  openingBalanceHalalas?: number;
 };
-export type UpdateAccountPayload = Partial<NewAccountPayload>;
+export type UpdateAccountPayload = Partial<NewAccountPayload> & { isActive?: boolean };
 
 export interface UseChartOfAccountsReturn {
   accounts: ChartAccountWithBalance[];

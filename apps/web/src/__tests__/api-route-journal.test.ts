@@ -78,7 +78,7 @@ vi.mock('drizzle-orm', () => ({
 vi.mock('@/lib/schema', () => ({
   journalEntries:  { agencyId: 'agencyId', id: 'id', date: 'date', createdAt: 'createdAt' },
   journalLines:    { agencyId: 'agencyId', entryId: 'entryId', sortOrder: 'sortOrder' },
-  chartOfAccounts: { agencyId: 'agencyId', code: 'code' },
+  chartOfAccounts: { agencyId: 'agencyId', code: 'code', isActive: 'isActive', allowDirectEntry: 'allowDirectEntry' },
 }));
 
 // ─── Mock db ──────────────────────────────────────────────────────────────────
@@ -200,6 +200,17 @@ describe('POST /api/accounting/journal', () => {
     expect(res.status).toBe(422);
     const data = await res.json();
     expect(data.error).toMatch(/غير موجودة/);
+  });
+
+  it('422 إذا اختير حساب تجميعي لا يقبل قيداً مباشراً', async () => {
+    mockSelectResults.next([
+      { code: '1120', isActive: true, allowDirectEntry: true },
+      { code: '4000', isActive: true, allowDirectEntry: false },
+    ]);
+    const res = await POST(makePostRequest({ date: '2024-03-15', lines: BALANCED_LINES }));
+    expect(res.status).toBe(422);
+    const data = await res.json();
+    expect(data.error).toMatch(/تجميعية|لا تقبل/);
   });
 
   it('422 إذا كانت الفترة مقفلة', async () => {

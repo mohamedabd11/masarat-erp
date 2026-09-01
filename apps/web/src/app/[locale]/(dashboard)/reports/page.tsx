@@ -15,6 +15,12 @@ import { ArAgingTab } from '@/components/reports/ArAgingTab';
 import { TrialBalanceTab } from '@/components/accounting/TrialBalanceTab';
 import { UpgradeGate } from '@/components/ui/UpgradeGate';
 import {
+  rollupAccountAmounts,
+  type CoaAmountRow,
+  type CoaHierarchyAccount,
+  type CoaReportDepth,
+} from '@/lib/coa-hierarchy';
+import {
   TrendingUp, TrendingDown, BarChart3, Download,
   FileText, CheckCircle2, AlertCircle, Printer,
   ChevronDown, ChevronRight, Receipt, Wallet,
@@ -341,15 +347,42 @@ const QUARTER_OPTS: { value: 0 | 1 | 2 | 3 | 4; ar: string; en: string }[] = [
   { value: 4, ar: 'ر٤ (أكتوبر–ديسمبر)',en: 'Q4 Oct–Dec' },
 ];
 
-function IncomeStatementTab({ isAr, fmtLocale }: { isAr: boolean; fmtLocale: string }) {
+function IncomeStatementTab({ accounts, isAr, fmtLocale }: { accounts: ChartAccount[]; isAr: boolean; fmtLocale: string }) {
   const {
-    revenueLines, expenseLines,
+    revenueLines: directRevenueLines, expenseLines: directExpenseLines,
     totalRevenue, totalExpense,
     grossProfit, netProfit,
     grossMargin, netMargin,
     loading, year, quarter, setYear, setQuarter,
     fromDate, toDate,
-  } = useIncomeStatement();
+  } = useIncomeStatement(accounts);
+  const [reportDepth, setReportDepth] = useState<CoaReportDepth>(3);
+  const { revenueLines, expenseLines } = useMemo(() => {
+    const knownCodes = new Set(accounts.map(account => account.code));
+    const hierarchyAccounts: CoaHierarchyAccount[] = [
+      ...accounts as CoaHierarchyAccount[],
+      ...directRevenueLines.filter(line => !knownCodes.has(line.code)).map(line => ({
+        id: `unmapped-revenue-${line.code}`, code: line.code, nameAr: line.nameAr, nameEn: line.nameEn,
+        type: 'revenue' as const, parentId: null, level: 1, allowDirectEntry: true,
+      })),
+      ...directExpenseLines.filter(line => !knownCodes.has(line.code)).map(line => ({
+        id: `unmapped-expense-${line.code}`, code: line.code, nameAr: line.nameAr, nameEn: line.nameEn,
+        type: 'expense' as const, parentId: null, level: 1, allowDirectEntry: true,
+      })),
+    ];
+    return {
+      revenueLines: rollupAccountAmounts(
+        hierarchyAccounts,
+        new Map(directRevenueLines.map(line => [line.code, line.halalas])),
+        reportDepth,
+      ).filter(line => line.type === 'revenue').map(line => ({ ...line, halalas: line.amount })),
+      expenseLines: rollupAccountAmounts(
+        hierarchyAccounts,
+        new Map(directExpenseLines.map(line => [line.code, line.halalas])),
+        reportDepth,
+      ).filter(line => line.type === 'expense').map(line => ({ ...line, halalas: line.amount })),
+    };
+  }, [accounts, directExpenseLines, directRevenueLines, reportDepth]);
 
   function handleExport() {
     downloadCSV([
@@ -387,6 +420,7 @@ function IncomeStatementTab({ isAr, fmtLocale }: { isAr: boolean; fmtLocale: str
             </button>
           ))}
         </div>
+        <ReportDepthSelect value={reportDepth} onChange={setReportDepth} isAr={isAr} />
         <span className="text-xs text-slate-400 font-mono ms-auto hidden sm:block">{periodLabel}</span>
       </div>
 
@@ -449,8 +483,8 @@ function IncomeStatementTab({ isAr, fmtLocale }: { isAr: boolean; fmtLocale: str
                 </span>
               </div>
               {revenueLines.map(l => (
-                <div key={l.code} className="flex items-center justify-between px-6 py-3 hover:bg-slate-50/60 transition-colors">
-                  <span className="text-sm ps-4 text-slate-600 flex items-center gap-2">
+                <div key={l.code} className={cn('flex items-center justify-between px-6 py-3 hover:bg-slate-50/60 transition-colors', l.isSummary && 'bg-slate-50/60 font-semibold')}>
+                  <span className="text-sm text-slate-600 flex items-center gap-2" style={{ paddingInlineStart: `${16 + Math.max(0, l.level - 1) * 16}px` }}>
                     <span className="font-mono text-[10px] text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded">{l.code}</span>
                     {isAr ? l.nameAr : l.nameEn}
                   </span>
@@ -473,8 +507,8 @@ function IncomeStatementTab({ isAr, fmtLocale }: { isAr: boolean; fmtLocale: str
                 </span>
               </div>
               {expenseLines.map(l => (
-                <div key={l.code} className="flex items-center justify-between px-6 py-3 hover:bg-slate-50/60 transition-colors">
-                  <span className="text-sm ps-4 text-slate-600 flex items-center gap-2">
+                <div key={l.code} className={cn('flex items-center justify-between px-6 py-3 hover:bg-slate-50/60 transition-colors', l.isSummary && 'bg-slate-50/60 font-semibold')}>
+                  <span className="text-sm text-slate-600 flex items-center gap-2" style={{ paddingInlineStart: `${16 + Math.max(0, l.level - 1) * 16}px` }}>
                     <span className="font-mono text-[10px] text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded">{l.code}</span>
                     {isAr ? l.nameAr : l.nameEn}
                   </span>
@@ -565,6 +599,27 @@ function VATBoxRow({ box, isAr, fmtLocale }: { box: VATBoxDef; isAr: boolean; fm
         </div>
       </div>
     </div>
+  );
+}
+
+function ReportDepthSelect({ value, onChange, isAr }: {
+  value: CoaReportDepth;
+  onChange: (value: CoaReportDepth) => void;
+  isAr: boolean;
+}) {
+  return (
+    <label className="flex items-center gap-2 text-xs font-medium text-slate-600">
+      <span>{isAr ? 'مستوى العرض' : 'Display depth'}</span>
+      <select
+        value={value}
+        onChange={event => onChange(event.target.value === 'all' ? 'all' : Number(event.target.value) as 3 | 4)}
+        className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-brand-500"
+      >
+        <option value="3">{isAr ? 'المستوى 3 — قوائم' : 'Level 3 — statements'}</option>
+        <option value="4">{isAr ? 'المستوى 4 — إداري' : 'Level 4 — management'}</option>
+        <option value="all">{isAr ? 'كل المستويات — تفصيلي' : 'All levels — detailed'}</option>
+      </select>
+    </label>
   );
 }
 
@@ -775,45 +830,67 @@ function VATReturnTab({ isAr, fmtLocale, vatRange, onVatRangeChange }: {
 
 // ─── Balance Sheet Tab ────────────────────────────────────────────────────────
 
+function BalanceSheetAccountRow({ account, isAr, fmtLocale }: {
+  account: CoaAmountRow;
+  isAr: boolean;
+  fmtLocale: string;
+}) {
+  return (
+    <div className={cn('flex items-center justify-between px-5 py-2.5 border-b border-slate-100 last:border-0 hover:bg-slate-50/40 transition-colors', account.isSummary && 'bg-slate-50/60 font-semibold')}>
+      <span className="text-sm text-slate-700 flex items-center gap-2" style={{ paddingInlineStart: `${Math.max(0, account.level - 1) * 16}px` }}>
+        <span className="font-mono text-[10px] text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded">{account.code}</span>
+        {isAr ? account.nameAr : (account.nameEn || account.nameAr)}
+      </span>
+      <span className="text-sm font-mono tabular-nums text-slate-800">{formatCurrency(account.amount, fmtLocale)}</span>
+    </div>
+  );
+}
+
 function BalanceSheetTab({ accounts, loadingAccounts, isAr, fmtLocale }: {
   accounts: ChartAccount[]; loadingAccounts: boolean; isAr: boolean; fmtLocale: string;
 }) {
-  const { assetAccounts, liabilityAccounts, equityAccounts, revenueAccounts, expenseAccounts,
+  const [reportDepth, setReportDepth] = useState<CoaReportDepth>(3);
+  const { directAssetAccounts, directLiabilityAccounts, directEquityAccounts,
           totalAssets, totalLiabilities, totalEquity, netProfit } = useMemo(() => {
-    const assetAccounts     = accounts.filter(a => a.type === 'asset'     && a.balanceHalalas !== 0).sort((a, b) => a.code.localeCompare(b.code));
-    const liabilityAccounts = accounts.filter(a => a.type === 'liability' && a.balanceHalalas !== 0).sort((a, b) => a.code.localeCompare(b.code));
-    const equityAccounts    = accounts.filter(a => a.type === 'equity'    && a.balanceHalalas !== 0).sort((a, b) => a.code.localeCompare(b.code));
+    const directAssetAccounts     = accounts.filter(a => a.type === 'asset'     && a.balanceHalalas !== 0).sort((a, b) => a.code.localeCompare(b.code));
+    const directLiabilityAccounts = accounts.filter(a => a.type === 'liability' && a.balanceHalalas !== 0).sort((a, b) => a.code.localeCompare(b.code));
+    const directEquityAccounts    = accounts.filter(a => a.type === 'equity'    && a.balanceHalalas !== 0).sort((a, b) => a.code.localeCompare(b.code));
     const revenueAccounts   = accounts.filter(a => a.type === 'revenue');
     const expenseAccounts   = accounts.filter(a => a.type === 'expense');
-    const totalAssets       = assetAccounts.reduce((s, a) => s + a.balanceHalalas, 0);
-    const totalLiabilities  = liabilityAccounts.reduce((s, a) => s + a.balanceHalalas, 0);
-    const totalEquity       = equityAccounts.reduce((s, a) => s + a.balanceHalalas, 0);
+    const totalAssets       = directAssetAccounts.reduce((s, a) => s + a.balanceHalalas, 0);
+    const totalLiabilities  = directLiabilityAccounts.reduce((s, a) => s + a.balanceHalalas, 0);
+    const totalEquity       = directEquityAccounts.reduce((s, a) => s + a.balanceHalalas, 0);
     const totalRevenue      = revenueAccounts.reduce((s, a) => s + a.balanceHalalas, 0);
     const totalExpense      = expenseAccounts.reduce((s, a) => s + a.balanceHalalas, 0);
     const netProfit         = totalRevenue - totalExpense;
-    return { assetAccounts, liabilityAccounts, equityAccounts, revenueAccounts, expenseAccounts,
+    return { directAssetAccounts, directLiabilityAccounts, directEquityAccounts,
              totalAssets, totalLiabilities, totalEquity, netProfit };
   }, [accounts]);
+
+  const { assetAccounts, liabilityAccounts, equityAccounts } = useMemo(() => {
+    const hierarchyAccounts = accounts as CoaHierarchyAccount[];
+    const project = (type: 'asset' | 'liability' | 'equity', direct: ChartAccount[]) => rollupAccountAmounts(
+      hierarchyAccounts,
+      new Map(direct.map(account => [account.code, account.balanceHalalas])),
+      reportDepth,
+    ).filter(account => account.type === type);
+    return {
+      assetAccounts: project('asset', directAssetAccounts),
+      liabilityAccounts: project('liability', directLiabilityAccounts),
+      equityAccounts: project('equity', directEquityAccounts),
+    };
+  }, [accounts, directAssetAccounts, directEquityAccounts, directLiabilityAccounts, reportDepth]);
 
   const totalLiabEquity = totalLiabilities + totalEquity + netProfit;
   const balanced = Math.abs(totalAssets - totalLiabEquity) < 1;
 
   if (loadingAccounts) return <LoadingPane />;
 
-  function AccountRow({ a }: { a: ChartAccount }) {
-    return (
-      <div className="flex items-center justify-between px-5 py-2.5 border-b border-slate-100 last:border-0 hover:bg-slate-50/40 transition-colors">
-        <span className="text-sm text-slate-700 flex items-center gap-2">
-          <span className="font-mono text-[10px] text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded">{a.code}</span>
-          {isAr ? a.nameAr : a.nameEn}
-        </span>
-        <span className="text-sm font-mono tabular-nums text-slate-800">{formatCurrency(a.balanceHalalas, fmtLocale)}</span>
-      </div>
-    );
-  }
-
   return (
     <div className="space-y-6">
+      <div className="flex justify-end">
+        <ReportDepthSelect value={reportDepth} onChange={setReportDepth} isAr={isAr} />
+      </div>
       {/* Summary chips */}
       <div className="grid grid-cols-3 gap-4">
         {[
@@ -859,7 +936,7 @@ function BalanceSheetTab({ accounts, loadingAccounts, isAr, fmtLocale }: {
               {assetAccounts.length === 0 ? (
                 <p className="text-xs text-slate-400 text-center py-4">{isAr ? 'لا أرصدة' : 'No balances'}</p>
               ) : (
-                assetAccounts.map(a => <AccountRow key={a.id} a={a} />)
+                assetAccounts.map(account => <BalanceSheetAccountRow key={account.id} account={account} isAr={isAr} fmtLocale={fmtLocale} />)
               )}
             </Card>
           </div>
@@ -874,7 +951,7 @@ function BalanceSheetTab({ accounts, loadingAccounts, isAr, fmtLocale }: {
               {liabilityAccounts.length === 0 ? (
                 <p className="text-xs text-slate-400 text-center py-4">{isAr ? 'لا أرصدة' : 'No balances'}</p>
               ) : (
-                liabilityAccounts.map(a => <AccountRow key={a.id} a={a} />)
+                liabilityAccounts.map(account => <BalanceSheetAccountRow key={account.id} account={account} isAr={isAr} fmtLocale={fmtLocale} />)
               )}
             </Card>
 
@@ -883,7 +960,7 @@ function BalanceSheetTab({ accounts, loadingAccounts, isAr, fmtLocale }: {
                 <h3 className="text-sm font-bold text-purple-700">{isAr ? 'حقوق الملكية' : 'Equity'}</h3>
                 <span className="text-sm font-extrabold tabular-nums text-purple-700">{formatCurrency(totalEquity + netProfit, fmtLocale)}</span>
               </div>
-              {equityAccounts.map(a => <AccountRow key={a.id} a={a} />)}
+              {equityAccounts.map(account => <BalanceSheetAccountRow key={account.id} account={account} isAr={isAr} fmtLocale={fmtLocale} />)}
               {/* Current period net profit */}
               <div className="flex items-center justify-between px-5 py-2.5 border-b border-slate-100 last:border-0 hover:bg-slate-50/40 transition-colors">
                 <span className={cn('text-sm flex items-center gap-2', netProfit >= 0 ? 'text-emerald-700' : 'text-red-700')}>
@@ -1781,7 +1858,7 @@ export default function ReportsPage() {
           <TrialBalanceTab locale={locale} />
         )}
         {activeTab === 'pl' && (
-          <IncomeStatementTab isAr={isAr} fmtLocale={fmtLocale} />
+          <IncomeStatementTab accounts={accounts} isAr={isAr} fmtLocale={fmtLocale} />
         )}
         {activeTab === 'ar' && (
           <ArAgingTab />

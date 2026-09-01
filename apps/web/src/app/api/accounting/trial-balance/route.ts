@@ -57,7 +57,6 @@ export async function GET(request: Request) {
     // ── 3. Build trial balance rows ───────────────────────────────────────────
     // Normal balance: Assets(1xxx) & Expenses(5xxx) → debit; others → credit
     const rows = accounts
-      .filter(a => !a.parentId || a.allowDirectEntry) // leaf or direct-entry accounts
       .map(a => {
         const mov    = movMap.get(a.code) ?? { debit: 0, credit: 0 };
         const open   = a.openingBalanceHalalas ?? 0;
@@ -139,6 +138,17 @@ export async function GET(request: Request) {
       asOf,
       from: from ?? null,
       rows,
+      accounts: accounts.map(account => ({
+        id: account.id,
+        code: account.code,
+        nameAr: account.nameAr,
+        nameEn: account.nameEn ?? null,
+        type: account.type,
+        parentId: account.parentId,
+        level: account.level,
+        allowDirectEntry: account.allowDirectEntry,
+        isActive: account.isActive,
+      })),
       grandTotalDebit,
       grandTotalCredit,
       isBalanced,

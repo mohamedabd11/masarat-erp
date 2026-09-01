@@ -1,11 +1,17 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { Fragment, useState, useEffect, useCallback, useMemo } from 'react';
 import { apiFetch } from '@/lib/api-client';
 import { Card } from '@/components/ui/Card';
 import { formatCurrency } from '@/lib/utils';
 import { cn } from '@/lib/utils';
 import { CheckCircle2, AlertCircle, ChevronDown, ChevronRight, Loader2 } from 'lucide-react';
+import {
+  rollupTrialBalance,
+  type CoaHierarchyAccount,
+  type CoaReportDepth,
+  type TrialBalanceAmounts,
+} from '@/lib/coa-hierarchy';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -14,6 +20,7 @@ interface TbRow {
   nameAr:        string;
   nameEn:        string | null;
   type:          'asset' | 'liability' | 'equity' | 'revenue' | 'expense';
+  level:         number;
   openDebit:     number;
   openCredit:    number;
   periodDebit:   number;
@@ -28,6 +35,7 @@ interface TbResponse {
   asOf:             string;
   from:             string | null;
   rows:             TbRow[];
+  accounts:         CoaHierarchyAccount[];
   grandTotalDebit:  number;
   grandTotalCredit: number;
   isBalanced:       boolean;
@@ -58,6 +66,7 @@ export function TrialBalanceTab({ locale }: { locale: string }) {
   const [data,    setData]    = useState<TbResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [err,     setErr]     = useState('');
+  const [reportDepth, setReportDepth] = useState<CoaReportDepth>(3);
   const [expanded, setExpanded] = useState<Set<TbRow['type']>>(
     new Set<TbRow['type']>(CATEGORIES)
   );
@@ -84,7 +93,41 @@ export function TrialBalanceTab({ locale }: { locale: string }) {
 
   useEffect(() => { load(); }, [load]);
 
-  const rows            = data?.rows ?? [];
+  const { directRows, rows } = useMemo(() => {
+    const directRows = data?.rows ?? [];
+    const listed = data?.accounts ?? [];
+    const known = new Set(listed.map(account => account.code));
+    const hierarchyAccounts = [
+      ...listed,
+      ...directRows.filter(row => !known.has(row.code)).map(row => ({
+        id: `unmapped-${row.code}`,
+        code: row.code,
+        nameAr: row.nameAr,
+        nameEn: row.nameEn,
+        type: row.type,
+        parentId: null,
+        level: 1,
+        allowDirectEntry: true,
+        isActive: true,
+      } satisfies CoaHierarchyAccount)),
+    ];
+    const directByCode = new Map<string, TrialBalanceAmounts>(directRows.map(row => [row.code, {
+      openDebit: row.openDebit,
+      openCredit: row.openCredit,
+      periodDebit: row.periodDebit,
+      periodCredit: row.periodCredit,
+      totalDebit: row.totalDebit,
+      totalCredit: row.totalCredit,
+    }]));
+    const rows = rollupTrialBalance(hierarchyAccounts, directByCode, reportDepth).map(row => ({
+      ...row,
+      balance: row.type === 'asset' || row.type === 'expense'
+        ? row.totalDebit - row.totalCredit
+        : row.totalCredit - row.totalDebit,
+      isDebitNormal: row.type === 'asset' || row.type === 'expense',
+    }));
+    return { directRows, rows };
+  }, [data, reportDepth]);
   const grandTotalDebit = data?.grandTotalDebit  ?? 0;
   const grandTotalCredit= data?.grandTotalCredit ?? 0;
   const isBalanced      = data?.isBalanced       ?? true;
@@ -121,6 +164,20 @@ export function TrialBalanceTab({ locale }: { locale: string }) {
             {loading ? <Loader2 size={14} className="animate-spin" /> : null}
             {isAr ? 'تحديث' : 'Refresh'}
           </button>
+          <div>
+            <label className="text-xs font-medium text-slate-600 block mb-1">
+              {isAr ? 'مستوى العرض' : 'Display depth'}
+            </label>
+            <select
+              value={reportDepth}
+              onChange={event => setReportDepth(event.target.value === 'all' ? 'all' : Number(event.target.value) as 3 | 4)}
+              className="rounded-lg border border-slate-200 px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-brand-500"
+            >
+              <option value="3">{isAr ? 'حتى المستوى 3 — عرض القوائم' : 'Through level 3 — statements'}</option>
+              <option value="4">{isAr ? 'حتى المستوى 4 — إداري' : 'Through level 4 — management'}</option>
+              <option value="all">{isAr ? 'كل المستويات — تفصيلي' : 'All levels — detailed'}</option>
+            </select>
+          </div>
           {data?.asOf && (
             <p className="text-xs text-slate-400 self-end pb-2">
               {isAr ? `كما في: ${data.asOf}` : `As of: ${data.asOf}`}
@@ -203,19 +260,17 @@ export function TrialBalanceTab({ locale }: { locale: string }) {
                     const catRows   = rows.filter(r => r.type === cat);
                     if (catRows.length === 0) return null;
 
-                    const catTotD = catRows.reduce((s, r) => s + r.totalDebit,  0);
-                    const catTotC = catRows.reduce((s, r) => s + r.totalCredit, 0);
-                    const catBalD = catRows.filter(r =>  r.isDebitNormal).reduce((s, r) => s + Math.max(0, r.balance), 0)
-                                  + catRows.filter(r => !r.isDebitNormal).reduce((s, r) => s + Math.max(0, r.totalDebit  - r.totalCredit), 0);
-                    const catBalC = catRows.filter(r => !r.isDebitNormal).reduce((s, r) => s + Math.max(0, r.balance), 0)
-                                  + catRows.filter(r =>  r.isDebitNormal).reduce((s, r) => s + Math.max(0, r.totalCredit - r.totalDebit),  0);
+                    const directCatRows = directRows.filter(r => r.type === cat);
+                    const catTotD = directCatRows.reduce((s, r) => s + r.totalDebit,  0);
+                    const catTotC = directCatRows.reduce((s, r) => s + r.totalCredit, 0);
+                    const catBalD = directCatRows.reduce((s, r) => s + Math.max(0, r.totalDebit - r.totalCredit), 0);
+                    const catBalC = directCatRows.reduce((s, r) => s + Math.max(0, r.totalCredit - r.totalDebit), 0);
                     const isOpen  = expanded.has(cat);
 
                     return (
-                      <>
+                      <Fragment key={cat}>
                         {/* Category header row */}
                         <tr
-                          key={`cat-${cat}`}
                           className={cn('cursor-pointer hover:brightness-95 transition-all', meta.bgColor)}
                           onClick={() => toggleCat(cat)}
                         >
@@ -243,11 +298,14 @@ export function TrialBalanceTab({ locale }: { locale: string }) {
                             ? Math.max(0, r.totalCredit - r.totalDebit)
                             : Math.max(0, r.totalCredit - r.totalDebit);   // credit surplus on debit-normal account
                           return (
-                            <tr key={r.code} className="border-b border-slate-50 hover:bg-slate-50/40 transition-colors">
+                            <tr key={r.code} className={cn('border-b border-slate-50 hover:bg-slate-50/40 transition-colors', r.isSummary && 'bg-slate-50/60 font-semibold')}>
                               <td className="ps-5 pe-3 py-2.5">
                                 <span className="font-mono text-xs text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded">{r.code}</span>
                               </td>
-                              <td className="ps-6 pe-3 py-2.5 text-slate-700">{isAr ? r.nameAr : (r.nameEn || r.nameAr)}</td>
+                              <td className="pe-3 py-2.5 text-slate-700" style={{ paddingInlineStart: `${24 + Math.max(0, r.level - 1) * 16}px` }}>
+                                {isAr ? r.nameAr : (r.nameEn || r.nameAr)}
+                                <span className="ms-2 text-[10px] font-normal text-slate-400">{isAr ? `م${r.level}` : `L${r.level}`}</span>
+                              </td>
                               <td className="px-3 py-2.5 text-end text-xs font-mono tabular-nums text-slate-600">{r.totalDebit  > 0 ? formatCurrency(r.totalDebit,  fmtLocale) : <span className="text-slate-300">—</span>}</td>
                               <td className="px-3 py-2.5 text-end text-xs font-mono tabular-nums text-slate-600">{r.totalCredit > 0 ? formatCurrency(r.totalCredit, fmtLocale) : <span className="text-slate-300">—</span>}</td>
                               <td className="px-3 py-2.5 text-end text-sm font-mono tabular-nums font-semibold text-slate-900">{balDr > 0 ? formatCurrency(balDr, fmtLocale) : <span className="text-slate-300">—</span>}</td>
@@ -255,7 +313,7 @@ export function TrialBalanceTab({ locale }: { locale: string }) {
                             </tr>
                           );
                         })}
-                      </>
+                      </Fragment>
                     );
                   })
                 )}
