@@ -9,12 +9,18 @@ export const quotes = pgTable('quotes', {
   quoteNumber:          text('quote_number').notNull(),
   customerId:           text('customer_id').references(() => customers.id),
   customerName:         text('customer_name'),
+  customerNameEn:       text('customer_name_en'),
   customerPhone:        text('customer_phone'),
+  customerEmail:        text('customer_email'),
   items:                jsonb('items'),                              // array of line items
+  subtotalHalalas:      bigint('subtotal_halalas', { mode: 'number' }).notNull().default(0),
+  vatHalalas:           bigint('vat_halalas', { mode: 'number' }).notNull().default(0),
   totalHalalas:         bigint('total_halalas', { mode: 'number' }).notNull().default(0),
   status:               text('status').notNull().default('draft'),   // draft|sent|accepted|rejected|expired|converted
+  issueDate:            text('issue_date'),
   validUntil:           text('valid_until'),
   notes:                text('notes'),
+  terms:                text('terms'),
   convertedToBookingId: text('converted_to_booking_id'),             // set when status=converted
   convertedAt:          timestamp('converted_at'),
   createdBy:            text('created_by'),
