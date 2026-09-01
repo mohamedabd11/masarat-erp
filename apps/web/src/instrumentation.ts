@@ -718,6 +718,14 @@ export async function register() {
          FROM agencies a
          ON CONFLICT (agency_id, code) DO NOTHING`,
     ),
+
+    // ── 2026-09-01 — Preserve the complete quote form payload ────────────────
+    `ALTER TABLE quotes ADD COLUMN IF NOT EXISTS customer_name_en  TEXT`,
+    `ALTER TABLE quotes ADD COLUMN IF NOT EXISTS customer_email    TEXT`,
+    `ALTER TABLE quotes ADD COLUMN IF NOT EXISTS subtotal_halalas  BIGINT NOT NULL DEFAULT 0`,
+    `ALTER TABLE quotes ADD COLUMN IF NOT EXISTS vat_halalas       BIGINT NOT NULL DEFAULT 0`,
+    `ALTER TABLE quotes ADD COLUMN IF NOT EXISTS issue_date        TEXT`,
+    `ALTER TABLE quotes ADD COLUMN IF NOT EXISTS terms             TEXT`,
   ];
 
   try {

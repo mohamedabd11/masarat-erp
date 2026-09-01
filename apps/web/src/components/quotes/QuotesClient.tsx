@@ -1,9 +1,10 @@
 'use client';
 
-import { useState, useEffect, useMemo, useCallback } from 'react';
-import Link from 'next/link';
+import { useState, useEffect, useMemo } from 'react';
+import { useRouter } from 'next/navigation';
 import { useAuth } from '@masarat/firebase';
 import { apiFetch } from '@/lib/api-client';
+import type { PresentedQuote as Quote, QuoteItem, QuoteStatus } from '@/lib/quote-presentation';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Spinner } from '@/components/ui/Spinner';
@@ -12,42 +13,9 @@ import { formatCurrency, formatDate, formatCount } from '@/lib/utils';
 import { cn } from '@/lib/utils';
 import {
   FileText, Plus, Search, X, Send, CheckCircle2, XCircle,
-  Clock, ArrowRight, Printer, Copy, ChevronDown, ChevronRight,
-  AlertTriangle, RotateCcw, TrendingUp, Users, BookOpen,
+  Clock, ArrowRight, Printer, ChevronDown, ChevronRight,
+  AlertTriangle, TrendingUp,
 } from 'lucide-react';
-
-// ─── Types ────────────────────────────────────────────────────────────────────
-
-type QuoteStatus = 'draft' | 'sent' | 'accepted' | 'rejected' | 'expired' | 'converted';
-
-interface QuoteItem {
-  serviceType:  string;
-  customLabel?: string;  // used when serviceType === 'other'
-  description:  string;
-  quantity:     number;
-  unitPriceSAR: number;
-}
-
-interface Quote {
-  id: string;
-  agencyId: string;
-  quoteNumber: string;
-  customerNameAr: string;
-  customerNameEn: string;
-  customerPhone: string;
-  customerEmail: string;
-  issueDate: number;
-  expiryDate: number;
-  status: QuoteStatus;
-  items: QuoteItem[];
-  subtotalHalalas: number;
-  vatHalalas: number;
-  grandTotalHalalas: number;
-  notes: string;
-  terms: string;
-  convertedToBookingId?: string;
-  createdAt: string;
-}
 
 interface QuotesClientProps { locale: string }
 
@@ -100,9 +68,10 @@ function QuoteBadge({ status, isAr }: { status: QuoteStatus; isAr: boolean }) {
 
 // ─── QuoteRow (expandable) ────────────────────────────────────────────────────
 
-function QuoteRow({ q, isAr, fmtLocale, locale, onStatusChange }: {
-  q: Quote; isAr: boolean; fmtLocale: string; locale: string;
-  onStatusChange: (id: string, status: QuoteStatus) => void;
+function QuoteRow({ q, isAr, fmtLocale, onStatusChange, onConvert }: {
+  q: Quote; isAr: boolean; fmtLocale: string;
+  onStatusChange: (id: string, status: QuoteStatus) => Promise<void>;
+  onConvert: (id: string) => Promise<void>;
 }) {
   const [expanded, setExpanded] = useState(false);
   const now = Date.now();
@@ -243,13 +212,13 @@ function QuoteRow({ q, isAr, fmtLocale, locale, onStatusChange }: {
                     </>
                   )}
                   {q.status === 'accepted' && (
-                    <Link
-                      href={`/${locale}/bookings/new?customerNameAr=${encodeURIComponent(q.customerNameAr)}&customerPhone=${encodeURIComponent(q.customerPhone ?? '')}&notes=${encodeURIComponent((isAr ? 'من عرض سعر ' : 'From quote ') + q.quoteNumber)}`}
-                      onClick={e => { e.stopPropagation(); onStatusChange(q.id, 'converted'); }}
+                    <button
+                      type="button"
+                      onClick={e => { e.stopPropagation(); void onConvert(q.id); }}
                       className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-brand-600 text-white text-xs font-semibold hover:bg-brand-700 transition-colors"
                     >
                       <ArrowRight size={12} /> {isAr ? 'تحويل لحجز' : 'Convert to Booking'}
-                    </Link>
+                    </button>
                   )}
                 </div>
               </div>
@@ -263,9 +232,10 @@ function QuoteRow({ q, isAr, fmtLocale, locale, onStatusChange }: {
 
 // ─── QuoteMobileCard (expandable card for phones) ─────────────────────────────
 
-function QuoteMobileCard({ q, isAr, fmtLocale, locale, onStatusChange }: {
-  q: Quote; isAr: boolean; fmtLocale: string; locale: string;
-  onStatusChange: (id: string, status: QuoteStatus) => void;
+function QuoteMobileCard({ q, isAr, fmtLocale, onStatusChange, onConvert }: {
+  q: Quote; isAr: boolean; fmtLocale: string;
+  onStatusChange: (id: string, status: QuoteStatus) => Promise<void>;
+  onConvert: (id: string) => Promise<void>;
 }) {
   const [expanded, setExpanded] = useState(false);
   const now = Date.now();
@@ -330,12 +300,12 @@ function QuoteMobileCard({ q, isAr, fmtLocale, locale, onStatusChange }: {
               </>
             )}
             {q.status === 'accepted' && (
-              <Link
-                href={`/${locale}/bookings/new?customerNameAr=${encodeURIComponent(q.customerNameAr)}&customerPhone=${encodeURIComponent(q.customerPhone ?? '')}&notes=${encodeURIComponent((isAr ? 'من عرض سعر ' : 'From quote ') + q.quoteNumber)}`}
-                onClick={() => onStatusChange(q.id, 'converted')}
+              <button
+                type="button"
+                onClick={() => { void onConvert(q.id); }}
                 className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-brand-600 text-white text-xs font-semibold">
                 <ArrowRight size={12} /> {isAr ? 'تحويل لحجز' : 'Convert'}
-              </Link>
+              </button>
             )}
           </div>
         </div>
@@ -347,7 +317,7 @@ function QuoteMobileCard({ q, isAr, fmtLocale, locale, onStatusChange }: {
 // ─── New Quote Modal ───────────────────────────────────────────────────────────
 
 function NewQuoteModal({ isAr, onClose, onSave }: {
-  isAr: boolean; onClose: () => void; onSave: (q: Omit<Quote, 'id'>) => void;
+  isAr: boolean; onClose: () => void; onSave: (q: Omit<Quote, 'id'>) => Promise<void>;
 }) {
   const fmtLocale = isAr ? 'ar-SA' : 'en-SA';
   const today  = new Date().toISOString().slice(0, 10);
@@ -404,27 +374,33 @@ function NewQuoteModal({ isAr, onClose, onSave }: {
     if (!customerNameAr.trim()) { setError(isAr ? 'اسم العميل بالعربية مطلوب' : 'Customer Arabic name required'); return; }
     if (items.some(i => i.unitPriceSAR <= 0)) { setError(isAr ? 'يجب إدخال سعر لكل خدمة' : 'Price required for each item'); return; }
     setSaving(true);
+    setError('');
     const quoteNum = `QT-${new Date().getFullYear()}-${String(Date.now()).slice(-5)}`;
-    onSave({
-      agencyId: '',
-      quoteNumber: quoteNum,
-      customerNameAr: customerNameAr.trim(),
-      customerNameEn: customerNameEn.trim() || customerNameAr.trim(),
-      customerPhone: customerPhone.trim(),
-      customerEmail: customerEmail.trim(),
-      issueDate: new Date(issueDate).getTime(),
-      expiryDate: new Date(expiryDate).getTime(),
-      status: 'draft',
-      items,
-      subtotalHalalas,
-      vatHalalas,
-      grandTotalHalalas,
-      notes: notes.trim(),
-      terms: terms.trim(),
-      createdAt: new Date().toISOString(),
-    });
-    setSaving(false);
-    onClose();
+    try {
+      await onSave({
+        agencyId: '',
+        quoteNumber: quoteNum,
+        customerNameAr: customerNameAr.trim(),
+        customerNameEn: customerNameEn.trim() || customerNameAr.trim(),
+        customerPhone: customerPhone.trim(),
+        customerEmail: customerEmail.trim(),
+        issueDate: new Date(issueDate).getTime(),
+        expiryDate: new Date(expiryDate).getTime(),
+        status: 'draft',
+        items,
+        subtotalHalalas,
+        vatHalalas,
+        grandTotalHalalas,
+        notes: notes.trim(),
+        terms: terms.trim(),
+        createdAt: new Date().toISOString(),
+      });
+      onClose();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : (isAr ? 'تعذّر حفظ عرض السعر' : 'Could not save quote'));
+    } finally {
+      setSaving(false);
+    }
   }
 
   const inputCls = 'w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-brand-500';
@@ -646,9 +622,11 @@ export function QuotesClient({ locale }: QuotesClientProps) {
   const isAr      = locale === 'ar';
   const fmtLocale = isAr ? 'ar-SA' : 'en-SA';
   const { user }  = useAuth();
+  const router = useRouter();
 
   const [quotes, setQuotes]         = useState<Quote[]>([]);
   const [loading, setLoading]       = useState(true);
+  const [actionError, setActionError] = useState('');
   const [search, setSearch]         = useState('');
   const [statusFilter, setStatusFilter] = useState<QuoteStatus | 'all'>('all');
   const [showModal, setShowModal]   = useState(false);
@@ -665,20 +643,39 @@ export function QuotesClient({ locale }: QuotesClientProps) {
         const docs = data.quotes;
         docs.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
         setQuotes(docs);
+        setActionError('');
         setLoading(false);
       })
-      .catch(() => setLoading(false));
-  }, [agencyId, tick]);
+      .catch((err: unknown) => {
+        setActionError(err instanceof Error ? err.message : (isAr ? 'تعذّر تحميل عروض الأسعار' : 'Could not load quotes'));
+        setLoading(false);
+      });
+  }, [agencyId, isAr, tick]);
 
   async function handleSave(data: Omit<Quote, 'id'>) {
-    if (!agencyId) return;
+    if (!agencyId) throw new Error(isAr ? 'الحساب غير جاهز بعد' : 'Account is not ready yet');
     await apiFetch('/api/quotes', { method: 'POST', body: JSON.stringify(data) });
     setTick(t => t + 1);
   }
 
   async function handleStatusChange(id: string, status: QuoteStatus) {
-    await apiFetch(`/api/quotes/${id}`, { method: 'PATCH', body: JSON.stringify({ status }) });
-    setTick(t => t + 1);
+    setActionError('');
+    try {
+      await apiFetch(`/api/quotes/${id}`, { method: 'PATCH', body: JSON.stringify({ status }) });
+      setTick(t => t + 1);
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : (isAr ? 'تعذّر تحديث عرض السعر' : 'Could not update quote'));
+    }
+  }
+
+  async function handleConvert(id: string) {
+    setActionError('');
+    try {
+      const result = await apiFetch<{ bookingId: string }>(`/api/quotes/${id}/convert`, { method: 'POST' });
+      router.push(`/${locale}/bookings/${result.bookingId}`);
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : (isAr ? 'تعذّر تحويل العرض إلى حجز' : 'Could not convert quote'));
+    }
   }
 
   const now = Date.now();
@@ -729,6 +726,12 @@ export function QuotesClient({ locale }: QuotesClientProps) {
           {isAr ? 'عرض سعر جديد' : 'New Quotation'}
         </Button>
       </div>
+
+      {actionError && (
+        <div role="alert" className="px-4 py-3 bg-red-50 border border-red-200 rounded-xl text-sm text-red-700">
+          {actionError}
+        </div>
+      )}
 
       {/* KPIs */}
       <div className="grid grid-cols-2 xl:grid-cols-5 gap-3">
@@ -811,7 +814,8 @@ export function QuotesClient({ locale }: QuotesClientProps) {
           {/* Mobile cards */}
           <div className="sm:hidden divide-y divide-surface-border">
             {filtered.map(q => (
-              <QuoteMobileCard key={q.id} q={q} isAr={isAr} fmtLocale={fmtLocale} locale={locale} onStatusChange={handleStatusChange} />
+              <QuoteMobileCard key={q.id} q={q} isAr={isAr} fmtLocale={fmtLocale}
+                onStatusChange={handleStatusChange} onConvert={handleConvert} />
             ))}
           </div>
 
@@ -831,7 +835,8 @@ export function QuotesClient({ locale }: QuotesClientProps) {
               </thead>
               <tbody className="divide-y divide-surface-border">
                 {filtered.map(q => (
-                  <QuoteRow key={q.id} q={q} isAr={isAr} fmtLocale={fmtLocale} locale={locale} onStatusChange={handleStatusChange} />
+                  <QuoteRow key={q.id} q={q} isAr={isAr} fmtLocale={fmtLocale}
+                    onStatusChange={handleStatusChange} onConvert={handleConvert} />
                 ))}
               </tbody>
             </table>

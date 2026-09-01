@@ -17,21 +17,21 @@ export async function PATCH(request: Request, { params }: { params: { id: string
       .where(and(eq(quotes.id, params.id), eq(quotes.agencyId, agencyId)));
     if (!existing) return NextResponse.json({ error: 'عرض السعر غير موجود' }, { status: 404 });
 
-    // Prevent converting an already-converted quote
-    if (body['status'] === 'converted' && existing.status === 'converted') {
-      return NextResponse.json({ error: 'تم تحويل عرض السعر هذا مسبقاً' }, { status: 422 });
+    const status = typeof body['status'] === 'string' ? body['status'] : '';
+    const allowedStatuses = new Set(['draft', 'sent', 'accepted', 'rejected', 'expired']);
+    if (existing.status === 'converted') {
+      return NextResponse.json({ error: 'لا يمكن تعديل عرض سعر تم تحويله إلى حجز' }, { status: 422 });
     }
-
-    // Strip fields callers should not set directly
-    const STRIP = new Set(['id', 'agencyId', 'quoteNumber', 'createdBy', 'createdAt']);
-    const patch: Record<string, unknown> = { updatedAt: now };
-    for (const [k, v] of Object.entries(body)) {
-      if (!STRIP.has(k)) patch[k] = v;
+    if (status === 'converted') {
+      return NextResponse.json({ error: 'يجب تحويل عرض السعر عبر مسار إنشاء الحجز' }, { status: 422 });
+    }
+    if (!allowedStatuses.has(status)) {
+      return NextResponse.json({ error: 'حالة عرض السعر غير صالحة' }, { status: 400 });
     }
 
     await db
       .update(quotes)
-      .set(patch as Partial<typeof quotes.$inferInsert>)
+      .set({ status, updatedAt: now })
       .where(and(eq(quotes.id, params.id), eq(quotes.agencyId, agencyId)));
 
     return NextResponse.json({ success: true });
