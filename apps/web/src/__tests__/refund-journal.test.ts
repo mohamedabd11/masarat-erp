@@ -202,6 +202,23 @@ describe('buildRefundJournalLines — legacy fallback (no original journal)', ()
   });
 });
 
+describe('buildRefundJournalLines — partially paid full cancel with retained fee', () => {
+  const shape = { principalRev: 10_000_00, vat: 1_500_00, principalCost: 6_000_00 };
+  const lines = buildRefundJournalLines({
+    originalLines: originalInvoice(shape), originalTotalHalalas: totalOf(shape), originalVatHalalas: 1_500_00,
+    paidHalalas: 5_750_00, refundAmountHalalas: 5_250_00, cancellationFeeHalalas: 500_00,
+    cancelledTotalHalalas: totalOf(shape), isEInvoice: true, vatRateBps: 1_500,
+  });
+
+  it('returns only collected cash, writes off open AR, and retains the net fee', () => {
+    expect(crOf(lines, '1110')).toBe(5_250_00);
+    expect(crOf(lines, '1120')).toBe(5_750_00);
+    expect(crOf(lines, '4200')).toBe(434_78);
+    expect(drOf(lines, '2200')).toBe(1_434_78);
+    expect(sum(lines, 'dr')).toBe(sum(lines, 'cr'));
+  });
+});
+
 describe('buildRefundJournalLines — guards', () => {
   it('throws on an over-refund (cancelled portion < cash + fee)', () => {
     expect(() => buildRefundJournalLines({

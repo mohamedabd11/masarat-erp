@@ -100,4 +100,28 @@ describe('buildRefundDocument', () => {
       vatRateBps: 1_500,
     })).toThrow(/فاتورة مستقلة للرسوم/);
   });
+
+  it('keeps a non-VAT credit note completely free of VAT', () => {
+    const result = buildRefundDocument({
+      originalItems: [{
+        description: 'خدمة غير خاضعة', quantity: 1,
+        unitPriceHalalas: 92_000, vatHalalas: 0, totalHalalas: 92_000,
+        vatCategory: 'O',
+      }],
+      originalTotalHalalas: 92_000,
+      originalVatHalalas: 0,
+      cancelledTotalHalalas: 92_000,
+      cancellationFeeHalalas: 7_000,
+      isEInvoice: false,
+      vatRateBps: 0,
+    });
+
+    expect(result.cancellationFeeVatHalalas).toBe(0);
+    expect(result.creditNoteVatHalalas).toBe(0);
+    expect(result.creditNoteSubtotalHalalas).toBe(85_000);
+    expect(result.creditNoteTotalHalalas).toBe(85_000);
+    expect(result.items).toEqual([
+      expect.objectContaining({ vatCategory: 'O', vatHalalas: 0, totalHalalas: 85_000 }),
+    ]);
+  });
 });
