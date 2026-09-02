@@ -36,6 +36,7 @@ export interface AgingInvoiceLine {
   dueDate:            string | null;
   totalHalalas:       number;
   paidHalalas:        number;
+  creditNoteHalalas:  number;
   outstandingHalalas: number;
   daysOverdue:        number;
   bucket:             'current' | '1-30' | '31-60' | '61-90' | '91+';
@@ -123,6 +124,16 @@ async function customerDrilldown(
   filterCust: string,
 ): Promise<AgingReport> {
   const asOf = new Date(asOfStr + 'T00:00:00Z');
+  const linkedCredits = sql<string>`CAST(COALESCE((
+    SELECT SUM(cn.total_halalas)
+    FROM invoices AS cn
+    WHERE cn.agency_id = ${invoices.agencyId}
+      AND cn.original_invoice_id = ${invoices.id}
+      AND cn.type = '381'
+      AND cn.status <> 'cancelled'
+      AND cn.issue_date <= ${asOfStr}
+  ), 0) AS bigint)`;
+  const netOutstanding = sql`GREATEST(${invoices.totalHalalas} - ${invoices.paidHalalas} - ${linkedCredits}, 0)`;
 
   const rows = await db
     .select({
@@ -143,8 +154,30 @@ async function customerDrilldown(
       inArray(invoices.type, [...AGING_DOC_TYPES]),
       inArray(invoices.status, ['issued', 'partial']),
       lte(invoices.issueDate, asOfStr),
-      sql`${invoices.totalHalalas} > ${invoices.paidHalalas}`,
+      sql`${netOutstanding} > 0`,
     ));
+
+  // Fetch the linked credit-note totals separately. Drizzle intentionally strips
+  // table qualification from raw SQL fields placed directly in a SELECT list;
+  // keeping this as a bounded second query avoids an incorrectly uncorrelated
+  // subquery while the main WHERE still filters by the exact net outstanding.
+  const creditRows = rows.length === 0 ? [] : await db
+    .select({
+      originalInvoiceId: invoices.originalInvoiceId,
+      totalHalalas: sql<string>`CAST(COALESCE(SUM(${invoices.totalHalalas}), 0) AS bigint)`,
+    })
+    .from(invoices)
+    .where(and(
+      eq(invoices.agencyId, agencyId),
+      eq(invoices.type, '381'),
+      ne(invoices.status, 'cancelled'),
+      lte(invoices.issueDate, asOfStr),
+      inArray(invoices.originalInvoiceId, rows.map((row) => row.id)),
+    ))
+    .groupBy(invoices.originalInvoiceId);
+  const creditsByInvoice = new Map(
+    creditRows.map((credit) => [credit.originalInvoiceId, Number(credit.totalHalalas)]),
+  );
 
   // Canonical customer name (may differ from the invoice's buyer snapshot).
   const [cust] = await db
@@ -162,7 +195,8 @@ async function customerDrilldown(
   };
 
   for (const r of rows) {
-    const outstanding = r.totalHalalas - r.paidHalalas;
+    const creditNoteHalalas = creditsByInvoice.get(r.id) ?? 0;
+    const outstanding = Math.max(0, r.totalHalalas - r.paidHalalas - creditNoteHalalas);
     if (outstanding <= 0) continue;
     // Treat an empty-string dueDate as absent (mirrors the SQL NULLIF) so it falls
     // back to the issue date instead of parsing to an Invalid Date.
@@ -176,6 +210,7 @@ async function customerDrilldown(
       dueDate:            effectiveDue,
       totalHalalas:       r.totalHalalas,
       paidHalalas:        r.paidHalalas,
+      creditNoteHalalas,
       outstandingHalalas: outstanding,
       daysOverdue,
       bucket,
@@ -208,7 +243,21 @@ async function agencyRollup(
 ): Promise<AgingReport> {
   // Days overdue, computed in SQL against the stored YYYY-MM-DD text dates.
   const dueDays     = sql`(${asOfStr}::date - COALESCE(NULLIF(${invoices.dueDate}, '')::date, ${invoices.issueDate}::date))`;
-  const outstanding = sql`(${invoices.totalHalalas} - ${invoices.paidHalalas})`;
+  // A credit note is not a positive aging document, but its AR-reducing amount
+  // must still be applied to the original invoice. This is essential for partial
+  // refunds: the refund flow reduces paidHalalas and records the cancellation as
+  // a linked type-381 document. Ignoring that link would resurrect the refunded
+  // amount as an overdue receivable even though GL 1120 has already been credited.
+  const linkedCredits = sql`COALESCE((
+    SELECT SUM(cn.total_halalas)
+    FROM invoices AS cn
+    WHERE cn.agency_id = ${invoices.agencyId}
+      AND cn.original_invoice_id = ${invoices.id}
+      AND cn.type = '381'
+      AND cn.status <> 'cancelled'
+      AND cn.issue_date <= ${asOfStr}
+  ), 0)`;
+  const outstanding = sql`GREATEST(${invoices.totalHalalas} - ${invoices.paidHalalas} - ${linkedCredits}, 0)`;
   // Group registered customers by id; walk-ins (no customerId) by buyer name.
   const groupKey    = sql`COALESCE(${invoices.customerId}, '_walkin_' || COALESCE(${invoices.buyerNameAr}, 'unknown'))`;
 
@@ -232,7 +281,7 @@ async function agencyRollup(
       inArray(invoices.type, [...AGING_DOC_TYPES]),
       inArray(invoices.status, ['issued', 'partial']),
       lte(invoices.issueDate, asOfStr),
-      sql`${invoices.totalHalalas} > ${invoices.paidHalalas}`,
+      sql`${outstanding} > 0`,
     ))
     .groupBy(groupKey, invoices.customerId);
 
