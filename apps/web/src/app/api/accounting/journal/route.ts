@@ -68,7 +68,11 @@ export async function POST(request: Request) {
     const codes = (body.lines ?? []).map((l) => l.accountCode);
     if (codes.length > 0) {
       const found = await db
-        .select({ code: chartOfAccounts.code })
+        .select({
+          code: chartOfAccounts.code,
+          isActive: chartOfAccounts.isActive,
+          allowDirectEntry: chartOfAccounts.allowDirectEntry,
+        })
         .from(chartOfAccounts)
         .where(and(eq(chartOfAccounts.agencyId, agencyId), inArray(chartOfAccounts.code, codes)));
       const foundCodes = new Set(found.map((r) => r.code));
@@ -76,6 +80,15 @@ export async function POST(request: Request) {
       if (missing.length > 0) {
         return NextResponse.json(
           { error: `الحسابات التالية غير موجودة في الدليل: ${missing.join(', ')}` },
+          { status: 422 },
+        );
+      }
+      const nonPosting = found
+        .filter(account => account.isActive === false || account.allowDirectEntry === false)
+        .map(account => account.code);
+      if (nonPosting.length > 0) {
+        return NextResponse.json(
+          { error: `الحسابات التالية تجميعية أو غير نشطة ولا تقبل قيوداً مباشرة: ${nonPosting.join(', ')}` },
           { status: 422 },
         );
       }

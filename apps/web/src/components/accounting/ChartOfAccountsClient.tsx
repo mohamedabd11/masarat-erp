@@ -1,11 +1,10 @@
 'use client';
 
-import { useState, useMemo, type FormEvent } from 'react';
+import { Fragment, useState, useMemo, type FormEvent } from 'react';
 import {
   useChartOfAccounts,
   type ChartAccountWithBalance,
   type AccountType,
-  type AccountSide,
   type NewAccountPayload,
 } from '@/hooks/useChartOfAccounts';
 
@@ -17,6 +16,12 @@ import { EmptyState } from '@/components/ui/EmptyState';
 import { formatCurrency } from '@/lib/utils';
 import { cn } from '@/lib/utils';
 import {
+  descendantIds,
+  flattenAccountTree,
+  rollupAccountAmounts,
+  type CoaHierarchyAccount,
+} from '@/lib/coa-hierarchy';
+import {
   Plus,
   Search,
   Pencil,
@@ -25,6 +30,7 @@ import {
   Check,
   BookOpen,
   AlertTriangle,
+  Layers3,
 } from 'lucide-react';
 
 // ─── Labels & helpers ─────────────────────────────────────────────────────────
@@ -41,7 +47,27 @@ const ACCOUNT_TYPE_META: Record<
 };
 
 const ACCOUNT_TYPES: AccountType[] = ['asset', 'liability', 'equity', 'revenue', 'expense'];
-const ACCOUNT_SIDES: AccountSide[] = ['debit', 'credit'];
+
+const SUBTYPE_OPTIONS: Record<AccountType, { value: string; ar: string; en: string }[]> = {
+  asset: [
+    { value: 'current_asset', ar: 'أصول متداولة', en: 'Current assets' },
+    { value: 'non_current_asset', ar: 'أصول غير متداولة', en: 'Non-current assets' },
+  ],
+  liability: [
+    { value: 'current_liability', ar: 'التزامات متداولة', en: 'Current liabilities' },
+    { value: 'non_current_liability', ar: 'التزامات غير متداولة', en: 'Non-current liabilities' },
+  ],
+  equity: [{ value: 'equity', ar: 'حقوق الملكية', en: 'Equity' }],
+  revenue: [
+    { value: 'operating_revenue', ar: 'إيرادات تشغيلية', en: 'Operating revenue' },
+    { value: 'other_revenue', ar: 'إيرادات أخرى', en: 'Other revenue' },
+  ],
+  expense: [
+    { value: 'cost_of_sales', ar: 'تكلفة المبيعات / الخدمات', en: 'Cost of sales / services' },
+    { value: 'operating_expense', ar: 'مصروفات تشغيلية', en: 'Operating expenses' },
+    { value: 'other_expense', ar: 'مصروفات أخرى', en: 'Other expenses' },
+  ],
+};
 
 // ─── Form state ───────────────────────────────────────────────────────────────
 
@@ -50,8 +76,11 @@ interface FormState {
   nameAr: string;
   nameEn: string;
   type: AccountType;
-  side: AccountSide;
-  balanceHalalas: number;
+  subType: string;
+  parentId: string;
+  allowDirectEntry: boolean;
+  openingBalanceHalalas: number;
+  isActive: boolean;
 }
 
 const EMPTY_FORM: FormState = {
@@ -59,8 +88,11 @@ const EMPTY_FORM: FormState = {
   nameAr: '',
   nameEn: '',
   type: 'asset',
-  side: 'debit',
-  balanceHalalas: 0,
+  subType: 'current_asset',
+  parentId: '',
+  allowDirectEntry: true,
+  openingBalanceHalalas: 0,
+  isActive: true,
 };
 
 // ─── AccountForm (inline add / edit) ─────────────────────────────────────────
@@ -68,17 +100,33 @@ const EMPTY_FORM: FormState = {
 interface AccountFormProps {
   isAr: boolean;
   initial: FormState;
+  accounts: ChartAccount[];
+  excludeId?: string;
+  codeLocked?: boolean;
   onSave: (data: FormState) => Promise<void>;
   onCancel: () => void;
 }
 
-function AccountForm({ isAr, initial, onSave, onCancel }: AccountFormProps) {
+function AccountForm({ isAr, initial, accounts, excludeId, codeLocked, onSave, onCancel }: AccountFormProps) {
   const [form, setForm] = useState<FormState>(initial);
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
   const set = <K extends keyof FormState>(k: K, v: FormState[K]) =>
     setForm((p) => ({ ...p, [k]: v }));
+
+  const parentOptions = useMemo(() => {
+    const excluded = excludeId
+      ? descendantIds(accounts as CoaHierarchyAccount[], excludeId)
+      : new Set<string>();
+    return accounts.filter(account =>
+      account.id !== excludeId
+      && !excluded.has(account.id)
+      && account.type === form.type
+      && !account.allowDirectEntry
+      && account.isActive,
+    );
+  }, [accounts, excludeId, form.type]);
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
@@ -110,8 +158,10 @@ function AccountForm({ isAr, initial, onSave, onCancel }: AccountFormProps) {
             onChange={(e) => set('code', e.target.value)}
             placeholder="e.g. 1100"
             dir="ltr"
-            className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 font-mono"
+            disabled={codeLocked}
+            className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 font-mono disabled:bg-slate-100 disabled:text-slate-500"
           />
+          {codeLocked && <p className="text-[11px] text-slate-400 mt-1">{isAr ? 'الكود محمي لأنه حساب نظامي' : 'Protected system-account code'}</p>}
         </div>
 
         {/* Name AR */}
@@ -147,7 +197,16 @@ function AccountForm({ isAr, initial, onSave, onCancel }: AccountFormProps) {
           </label>
           <select
             value={form.type}
-            onChange={(e) => set('type', e.target.value as AccountType)}
+            onChange={(e) => {
+              const nextType = e.target.value as AccountType;
+              setForm(previous => ({
+                ...previous,
+                type: nextType,
+                parentId: '',
+                subType: SUBTYPE_OPTIONS[nextType][0]?.value ?? '',
+              }));
+            }}
+            disabled={codeLocked}
             className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white appearance-none"
           >
             {ACCOUNT_TYPES.map((t) => (
@@ -158,21 +217,64 @@ function AccountForm({ isAr, initial, onSave, onCancel }: AccountFormProps) {
           </select>
         </div>
 
-        {/* Side */}
+        {/* Subtype */}
         <div>
           <label className="block text-xs font-medium text-slate-700 mb-1">
-            {isAr ? 'الجانب الطبيعي *' : 'Normal Side *'}
+            {isAr ? 'تصنيف العرض' : 'Statement classification'}
           </label>
           <select
-            value={form.side}
-            onChange={(e) => set('side', e.target.value as AccountSide)}
+            value={form.subType}
+            onChange={(e) => set('subType', e.target.value)}
             className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white appearance-none"
           >
-            {ACCOUNT_SIDES.map((s) => (
-              <option key={s} value={s}>
-                {s === 'debit' ? (isAr ? 'مدين' : 'Debit') : (isAr ? 'دائن' : 'Credit')}
+            <option value="">{isAr ? 'بدون تصنيف فرعي' : 'No sub-classification'}</option>
+            {SUBTYPE_OPTIONS[form.type].map(option => (
+              <option key={option.value} value={option.value}>
+                {isAr ? option.ar : option.en}
               </option>
             ))}
+          </select>
+        </div>
+
+        {/* Parent */}
+        <div>
+          <label className="block text-xs font-medium text-slate-700 mb-1">
+            {isAr ? 'الحساب الأب' : 'Parent account'}
+          </label>
+          <select
+            value={form.parentId}
+            onChange={(e) => set('parentId', e.target.value)}
+            className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white appearance-none"
+          >
+            <option value="">{isAr ? 'بدون أب — مستوى رئيسي' : 'No parent — top level'}</option>
+            {parentOptions.map(parent => (
+              <option key={parent.id} value={parent.id}>
+                {parent.code} — {isAr ? parent.nameAr : (parent.nameEn || parent.nameAr)}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        {/* Posting / summary */}
+        <div>
+          <label className="block text-xs font-medium text-slate-700 mb-1">
+            {isAr ? 'طبيعة الحساب' : 'Account role'}
+          </label>
+          <select
+            value={form.allowDirectEntry ? 'posting' : 'summary'}
+            onChange={(event) => {
+              const isPosting = event.target.value === 'posting';
+              setForm(previous => ({
+                ...previous,
+                allowDirectEntry: isPosting,
+                openingBalanceHalalas: isPosting ? previous.openingBalanceHalalas : 0,
+              }));
+            }}
+            disabled={codeLocked}
+            className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white appearance-none disabled:bg-slate-100"
+          >
+            <option value="posting">{isAr ? 'حساب ترحيل — يستقبل القيود' : 'Posting account — accepts entries'}</option>
+            <option value="summary">{isAr ? 'حساب تجميعي — يحتوي حسابات' : 'Summary account — contains children'}</option>
           </select>
         </div>
 
@@ -185,14 +287,38 @@ function AccountForm({ isAr, initial, onSave, onCancel }: AccountFormProps) {
             type="number"
             min="0"
             step="0.01"
-            value={form.balanceHalalas / 100}
+            disabled={!form.allowDirectEntry}
+            value={form.openingBalanceHalalas / 100}
             onChange={(e) =>
-              set('balanceHalalas', Math.round(parseFloat(e.target.value || '0') * 100))
+              set('openingBalanceHalalas', Math.round(parseFloat(e.target.value || '0') * 100))
             }
             dir="ltr"
-            className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 font-mono"
+            className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 font-mono disabled:bg-slate-100 disabled:text-slate-400"
           />
+          {!form.allowDirectEntry && (
+            <p className="text-[11px] text-slate-400 mt-1">
+              {isAr ? 'رصيد الحساب التجميعي يُحسب تلقائياً من فروعه' : 'A summary balance is calculated automatically from its children'}
+            </p>
+          )}
         </div>
+
+        {/* Active status (edit only) */}
+        {excludeId && (
+          <div>
+            <label className="block text-xs font-medium text-slate-700 mb-1">
+              {isAr ? 'حالة الحساب' : 'Account status'}
+            </label>
+            <select
+              value={form.isActive ? 'active' : 'inactive'}
+              onChange={(event) => set('isActive', event.target.value === 'active')}
+              disabled={codeLocked}
+              className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white appearance-none disabled:bg-slate-100"
+            >
+              <option value="active">{isAr ? 'نشط — يمكن الاستخدام' : 'Active — available for use'}</option>
+              <option value="inactive">{isAr ? 'غير نشط — يحتفظ بالسجل' : 'Inactive — history is retained'}</option>
+            </select>
+          </div>
+        )}
       </div>
 
       {err && (
@@ -278,9 +404,18 @@ export function ChartOfAccountsClient({ locale }: ChartOfAccountsClientProps) {
   const [deletingId, setDeletingId] = useState<string | null>(null);
 
   // ── Derived / filtered list ───────────────────────────────────────────────
+  const rolledBalances = useMemo(() => new Map(
+    rollupAccountAmounts(
+      accounts as CoaHierarchyAccount[],
+      new Map(accounts.map(account => [account.code, account.balanceHalalas])),
+      'all',
+    ).map(row => [row.id, row.amount]),
+  ), [accounts]);
+
   const filtered = useMemo(() => {
     const q = search.toLowerCase();
-    return accounts.filter((a) => {
+    const ordered = flattenAccountTree(accounts as CoaHierarchyAccount[]) as ChartAccount[];
+    return ordered.filter((a) => {
       if (typeFilter !== 'all' && a.type !== typeFilter) return false;
       if (!q) return true;
       return (
@@ -298,6 +433,10 @@ export function ChartOfAccountsClient({ locale }: ChartOfAccountsClientProps) {
       nameAr: data.nameAr.trim(),
       nameEn: data.nameEn.trim(),
       type: data.type,
+      subType: data.subType || null,
+      parentId: data.parentId || null,
+      allowDirectEntry: data.allowDirectEntry,
+      openingBalanceHalalas: data.openingBalanceHalalas,
     };
     await addAccount(payload);
     setShowAddForm(false);
@@ -309,6 +448,11 @@ export function ChartOfAccountsClient({ locale }: ChartOfAccountsClientProps) {
       nameAr: data.nameAr.trim(),
       nameEn: data.nameEn.trim(),
       type: data.type,
+      subType: data.subType || null,
+      parentId: data.parentId || null,
+      allowDirectEntry: data.allowDirectEntry,
+      openingBalanceHalalas: data.openingBalanceHalalas,
+      isActive: data.isActive,
     });
     setEditingId(null);
   }
@@ -324,8 +468,11 @@ export function ChartOfAccountsClient({ locale }: ChartOfAccountsClientProps) {
       nameAr: a.nameAr,
       nameEn: a.nameEn ?? '',
       type: a.type as AccountType,
-      side: a.side,
-      balanceHalalas: a.balanceHalalas,
+      subType: a.subType ?? '',
+      parentId: a.parentId ?? '',
+      allowDirectEntry: a.allowDirectEntry,
+      openingBalanceHalalas: a.openingBalanceHalalas,
+      isActive: a.isActive,
     };
   }
 
@@ -367,6 +514,7 @@ export function ChartOfAccountsClient({ locale }: ChartOfAccountsClientProps) {
           />
           <input
             type="search"
+            aria-label={isAr ? 'البحث في شجرة الحسابات' : 'Search chart of accounts'}
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder={isAr ? 'ابحث بالكود أو الاسم...' : 'Search by code or name...'}
@@ -377,6 +525,7 @@ export function ChartOfAccountsClient({ locale }: ChartOfAccountsClientProps) {
         {/* Type filter + Add button */}
         <div className="flex items-center gap-3">
           <select
+            aria-label={isAr ? 'تصفية حسابات الشجرة حسب النوع' : 'Filter accounts by type'}
             value={typeFilter}
             onChange={(e) => setTypeFilter(e.target.value as AccountType | 'all')}
             className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 appearance-none"
@@ -411,6 +560,8 @@ export function ChartOfAccountsClient({ locale }: ChartOfAccountsClientProps) {
               {isAr ? 'إضافة حساب جديد' : 'Add New Account'}
             </h3>
             <button
+              type="button"
+              aria-label={isAr ? 'إغلاق نموذج الإضافة' : 'Close add account form'}
               onClick={() => setShowAddForm(false)}
               className="text-slate-400 hover:text-slate-600 transition-colors"
             >
@@ -420,6 +571,7 @@ export function ChartOfAccountsClient({ locale }: ChartOfAccountsClientProps) {
           <AccountForm
             isAr={isAr}
             initial={EMPTY_FORM}
+            accounts={accounts}
             onSave={handleAdd}
             onCancel={() => setShowAddForm(false)}
           />
@@ -495,7 +647,7 @@ export function ChartOfAccountsClient({ locale }: ChartOfAccountsClientProps) {
                     {isAr ? 'النوع' : 'Type'}
                   </th>
                   <th className="text-start px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider hidden sm:table-cell">
-                    {isAr ? 'الجانب' : 'Side'}
+                    {isAr ? 'الدور / المستوى' : 'Role / Level'}
                   </th>
                   <th className="text-end px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">
                     {isAr ? 'الرصيد' : 'Balance'}
@@ -518,26 +670,36 @@ export function ChartOfAccountsClient({ locale }: ChartOfAccountsClientProps) {
                     const isEditing = editingId === account.id;
 
                     return (
-                      <>
+                      <Fragment key={account.id}>
                         <tr
-                          key={`row-${account.id}`}
                           className={cn(
                             'hover:bg-slate-50/60 transition-colors',
                             isEditing && 'bg-brand-50/30',
+                            !account.isActive && 'opacity-60 bg-slate-50/70',
                             deletingId === account.id && 'opacity-40',
                           )}
                         >
                           {/* Code */}
                           <td className="ps-5 pe-3 py-3.5">
-                            <span className="font-mono text-sm font-semibold text-slate-700 bg-slate-100 px-2 py-0.5 rounded">
-                              {account.code}
-                            </span>
+                            <div className="flex items-center gap-1.5" style={{ paddingInlineStart: `${Math.max(0, account.level - 1) * 14}px` }}>
+                              {account.allowDirectEntry
+                                ? <span className="w-1.5 h-1.5 rounded-full bg-slate-300" />
+                                : <Layers3 size={13} className="text-brand-500" />}
+                              <span className="font-mono text-sm font-semibold text-slate-700 bg-slate-100 px-2 py-0.5 rounded">
+                                {account.code}
+                              </span>
+                            </div>
                           </td>
 
                           {/* Name */}
                           <td className="px-3 py-3.5">
                             <p className="text-sm font-medium text-slate-900">
                               {isAr ? account.nameAr : (account.nameEn || account.nameAr)}
+                              {!account.isActive && (
+                                <span className="ms-2 rounded bg-slate-200 px-1.5 py-0.5 text-[10px] font-medium text-slate-600">
+                                  {isAr ? 'غير نشط' : 'Inactive'}
+                                </span>
+                              )}
                             </p>
                             {isAr && account.nameEn && (
                               <p className="text-xs text-slate-400 mt-0.5 font-mono">
@@ -563,26 +725,27 @@ export function ChartOfAccountsClient({ locale }: ChartOfAccountsClientProps) {
                             </span>
                           </td>
 
-                          {/* Side */}
+                          {/* Role / level */}
                           <td className="px-3 py-3.5 hidden sm:table-cell">
-                            <span
-                              className={cn(
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <span className={cn(
                                 'text-xs font-medium px-2 py-0.5 rounded',
-                                account.side === 'debit'
-                                  ? 'bg-sky-50 text-sky-700'
-                                  : 'bg-violet-50 text-violet-700',
-                              )}
-                            >
-                              {account.side === 'debit'
-                                ? isAr ? 'مدين' : 'Debit'
-                                : isAr ? 'دائن' : 'Credit'}
-                            </span>
+                                account.allowDirectEntry ? 'bg-sky-50 text-sky-700' : 'bg-brand-50 text-brand-700',
+                              )}>
+                                {account.allowDirectEntry
+                                  ? (isAr ? 'ترحيل' : 'Posting')
+                                  : (isAr ? 'تجميعي' : 'Summary')}
+                              </span>
+                              <span className="text-[11px] text-slate-400">
+                                {isAr ? `مستوى ${account.level}` : `Level ${account.level}`}
+                              </span>
+                            </div>
                           </td>
 
                           {/* Balance */}
                           <td className="px-3 py-3.5 text-end">
                             <span className="text-sm font-mono tabular-nums text-slate-800 font-semibold">
-                              {formatCurrency(account.balanceHalalas, fmtLocale)}
+                              {formatCurrency(rolledBalances.get(account.id) ?? account.balanceHalalas, fmtLocale)}
                             </span>
                           </td>
 
@@ -590,6 +753,8 @@ export function ChartOfAccountsClient({ locale }: ChartOfAccountsClientProps) {
                           <td className="pe-5 px-3 py-3.5 text-end">
                             <div className="inline-flex items-center gap-1">
                               <button
+                                type="button"
+                                aria-label={isAr ? `تعديل ${account.nameAr}` : `Edit ${account.nameEn || account.nameAr}`}
                                 onClick={() => {
                                   setEditingId(isEditing ? null : account.id);
                                   setDeletingId(null);
@@ -601,13 +766,18 @@ export function ChartOfAccountsClient({ locale }: ChartOfAccountsClientProps) {
                                 <Pencil size={14} />
                               </button>
                               <button
+                                type="button"
+                                aria-label={isAr ? `حذف ${account.nameAr}` : `Delete ${account.nameEn || account.nameAr}`}
                                 onClick={() => {
                                   setDeletingId(account.id);
                                   setEditingId(null);
                                   setShowAddForm(false);
                                 }}
-                                className="p-1.5 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 transition-colors"
-                                title={isAr ? 'حذف' : 'Delete'}
+                                disabled={account.isSystem}
+                                className="p-1.5 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 transition-colors disabled:opacity-25 disabled:cursor-not-allowed"
+                                title={account.isSystem
+                                  ? (isAr ? 'حساب نظامي محمي من الحذف' : 'System account is protected from deletion')
+                                  : (isAr ? 'حذف' : 'Delete')}
                               >
                                 <Trash2 size={14} />
                               </button>
@@ -622,13 +792,16 @@ export function ChartOfAccountsClient({ locale }: ChartOfAccountsClientProps) {
                               <AccountForm
                                 isAr={isAr}
                                 initial={accountToForm(account)}
+                                accounts={accounts}
+                                excludeId={account.id}
+                                codeLocked={account.isSystem}
                                 onSave={(data) => handleEdit(account, data)}
                                 onCancel={() => setEditingId(null)}
                               />
                             </td>
                           </tr>
                         )}
-                      </>
+                      </Fragment>
                     );
                   })
                 )}

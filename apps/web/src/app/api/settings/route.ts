@@ -5,6 +5,7 @@ import { agencies, users } from '@/lib/schema';
 import { verifyAuth, assertRole, ApiAuthError, ROLES_MANAGER_UP, ROLES_ADMIN_ONLY } from '@/lib/api-auth';
 import { encrypt } from '@/lib/crypto';
 import { sanitizeEnabledModules } from '@/lib/user-permissions';
+import { validateVatSettings, vatSettingsIssueMessage } from '@/lib/vat-settings';
 
 export async function GET(request: Request) {
   try {
@@ -75,16 +76,9 @@ export async function PATCH(request: Request) {
     const wantsGosi  = gosiFields.some(k => body[k] !== undefined);
     if (wantsGosi) assertRole(role, [...ROLES_ADMIN_ONLY]);
 
-    if (body.isVatRegistered && body.vatNumber !== undefined) {
-      const vat = body.vatNumber.trim();
-      if (vat && !/^300\d{12}$/.test(vat)) {
-        return NextResponse.json({ error: 'الرقم الضريبي يجب أن يكون 15 خانة ويبدأ بـ 300' }, { status: 400 });
-      }
-    }
-    if (body.vatRate !== undefined) {
-      if (![0, 5, 10, 15, 20].includes(body.vatRate)) {
-        return NextResponse.json({ error: 'معدل الضريبة غير مدعوم' }, { status: 400 });
-      }
+    const vatIssue = validateVatSettings(body);
+    if (vatIssue) {
+      return NextResponse.json({ error: vatSettingsIssueMessage(vatIssue) }, { status: 400 });
     }
     for (const gf of gosiFields) {
       if (body[gf] !== undefined) {

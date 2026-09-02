@@ -12,9 +12,22 @@ export async function register() {
   if (process.env.NEXT_RUNTIME !== 'nodejs') return;
 
   const { validateEnv } = await import('@/lib/env-validate');
+  const { getAdminDatabaseUrl } = await import('@/lib/admin-database-url');
   validateEnv();
 
-  if (!process.env.DATABASE_URL) return;
+  if (process.env.SENTRY_DSN) {
+    const { init } = await import('@sentry/nextjs');
+    init({ dsn: process.env.SENTRY_DSN, tracesSampleRate: 0.1 });
+  }
+
+  const adminDatabaseUrl = getAdminDatabaseUrl();
+  if (!adminDatabaseUrl) {
+    console.error(JSON.stringify({
+      event: 'db_migrations_skipped',
+      reason: 'ADMIN_DATABASE_URL is required outside local development',
+    }));
+    return;
+  }
 
   // Canonical chart of accounts — single source of truth shared with
   // api/auth/register and api/auth/sync. Used below to backfill any missing
@@ -705,11 +718,19 @@ export async function register() {
          FROM agencies a
          ON CONFLICT (agency_id, code) DO NOTHING`,
     ),
+
+    // ── 2026-09-01 — Preserve the complete quote form payload ────────────────
+    `ALTER TABLE quotes ADD COLUMN IF NOT EXISTS customer_name_en  TEXT`,
+    `ALTER TABLE quotes ADD COLUMN IF NOT EXISTS customer_email    TEXT`,
+    `ALTER TABLE quotes ADD COLUMN IF NOT EXISTS subtotal_halalas  BIGINT NOT NULL DEFAULT 0`,
+    `ALTER TABLE quotes ADD COLUMN IF NOT EXISTS vat_halalas       BIGINT NOT NULL DEFAULT 0`,
+    `ALTER TABLE quotes ADD COLUMN IF NOT EXISTS issue_date        TEXT`,
+    `ALTER TABLE quotes ADD COLUMN IF NOT EXISTS terms             TEXT`,
   ];
 
   try {
     const { neon } = await import('@neondatabase/serverless');
-    const sql = neon(process.env.DATABASE_URL);
+    const sql = neon(adminDatabaseUrl);
     let failed = 0;
     for (const stmt of migrations) {
       try {
@@ -726,8 +747,4 @@ export async function register() {
     console.error(JSON.stringify({ event: 'db_migrations_failed', error: String(err) }));
   }
 
-  if (process.env.SENTRY_DSN) {
-    const { init } = await import('@sentry/nextjs');
-    init({ dsn: process.env.SENTRY_DSN, tracesSampleRate: 0.1 });
-  }
 }

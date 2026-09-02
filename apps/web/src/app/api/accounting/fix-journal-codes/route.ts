@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { and, eq } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { journalLines } from '@/lib/schema';
-import { verifyAuth, ApiAuthError } from '@/lib/api-auth';
+import { verifyAuth, assertRole, ApiAuthError, ROLES_ADMIN_ONLY } from '@/lib/api-auth';
 import { logAudit } from '@/lib/audit';
 
 // Fixes wrong expense account codes inserted by the old supplier-payments handler.
@@ -10,9 +10,7 @@ import { logAudit } from '@/lib/audit';
 export async function POST(request: Request) {
   try {
     const { uid, agencyId, role } = await verifyAuth(request);
-    if (role !== 'admin' && role !== 'owner') {
-      return NextResponse.json({ error: 'غير مصرح' }, { status: 403 });
-    }
+    assertRole(role, [...ROLES_ADMIN_ONLY]);
 
     const result = await db.transaction(async (tx) => {
       // Case 1: accountCode='5900' (non-existent "other") → '5400' Operating Expenses

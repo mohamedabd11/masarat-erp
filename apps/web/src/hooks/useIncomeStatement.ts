@@ -29,6 +29,11 @@ export interface IncomeStatementData {
   toDate:        Date;
 }
 
+export interface IncomeStatementAccount {
+  code: string;
+  type: 'asset' | 'liability' | 'equity' | 'revenue' | 'expense' | string;
+}
+
 interface JournalLineRow {
   accountCode:   string;
   accountNameAr: string | null;
@@ -52,7 +57,7 @@ function toISODate(d: Date): string {
   return d.toISOString().split('T')[0]!;
 }
 
-export function useIncomeStatement(): IncomeStatementData {
+export function useIncomeStatement(accounts: readonly IncomeStatementAccount[] = []): IncomeStatementData {
   const { user } = useAuth();
   const agencyId = (user?.agencyId as string | undefined) ?? null;
 
@@ -64,6 +69,10 @@ export function useIncomeStatement(): IncomeStatementData {
   const [expenseMap, setExpenseMap] = useState<Map<string, AccountLine>>(new Map());
 
   const [fromDate, toDate] = useMemo(() => quarterRange(year, quarter), [year, quarter]);
+  const accountTypeByCode = useMemo(
+    () => new Map(accounts.map(account => [account.code, account.type])),
+    [accounts],
+  );
 
   useEffect(() => {
     if (!agencyId) { setLoading(false); return; }
@@ -90,15 +99,17 @@ export function useIncomeStatement(): IncomeStatementData {
             const nameAr = line.accountNameAr ?? code;
             const nameEn = line.accountNameEn ?? code;
             const c = code.charAt(0);
+            const accountType = accountTypeByCode.get(code)
+              ?? (c === '4' ? 'revenue' : c === '5' || c === '6' || c === '8' ? 'expense' : null);
             // Revenue (4xxx) is credit-normal → net = credits − debits. A refund /
             // credit-note debits the revenue account to REVERSE it; counting only
             // the credit side (the previous bug) overstated revenue and made the
             // income statement disagree with the balance sheet. Expenses (5xxx /
             // 6xxx) are debit-normal → net = debits − credits.
-            if (c === '4') {
+            if (accountType === 'revenue') {
               const ex = rev.get(code);
               rev.set(code, { code, nameAr, nameEn, halalas: (ex?.halalas ?? 0) + credit - debit });
-            } else if (c === '5' || c === '6') {
+            } else if (accountType === 'expense') {
               const ex = exp.get(code);
               exp.set(code, { code, nameAr, nameEn, halalas: (ex?.halalas ?? 0) + debit - credit });
             }
@@ -115,7 +126,7 @@ export function useIncomeStatement(): IncomeStatementData {
       .finally(() => { if (!cancelled) setLoading(false); });
 
     return () => { cancelled = true; };
-  }, [agencyId, fromDate, toDate]);
+  }, [agencyId, fromDate, toDate, accountTypeByCode]);
 
   return useMemo(() => {
     const revenueLines = Array.from(revenueMap.values()).sort((a, b) => a.code.localeCompare(b.code));

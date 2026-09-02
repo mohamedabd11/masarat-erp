@@ -1,12 +1,12 @@
 import { NextResponse } from 'next/server';
-import { eq, and } from 'drizzle-orm';
+import { eq, and, sql } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { quotes, bookings, bookingLines, agencies } from '@/lib/schema';
 import { verifyAuth, assertRole, ApiAuthError, ROLES_AGENT_UP } from '@/lib/api-auth';
 import { getNextBookingNumber } from '@/lib/invoice-counter';
 import { logAudit } from '@/lib/audit';
 
-const CONVERTIBLE_STATUSES = new Set(['approved', 'sent']);
+const CONVERTIBLE_STATUSES = new Set(['accepted', 'approved', 'sent']);
 
 export async function POST(request: Request, { params }: { params: { id: string } }) {
   try {
@@ -30,10 +30,11 @@ export async function POST(request: Request, { params }: { params: { id: string 
       .from(agencies)
       .where(eq(agencies.id, agencyId));
 
-    // Only approved or sent quotes can be converted
+    // Accepted/sent quotes can be converted; "approved" remains supported for
+    // rows created before the UI status was standardised to "accepted".
     if (!CONVERTIBLE_STATUSES.has(quote.status)) {
       return NextResponse.json(
-        { error: `لا يمكن تحويل عرض السعر بحالة '${quote.status}'. يجب أن تكون الحالة 'approved' أو 'sent'` },
+        { error: `لا يمكن تحويل عرض السعر بحالة '${quote.status}'. يجب أن تكون الحالة مقبولة أو مُرسلة` },
         { status: 422 },
       );
     }
@@ -41,9 +42,11 @@ export async function POST(request: Request, { params }: { params: { id: string 
     const year = new Date().getFullYear();
 
     const result = await db.transaction(async (tx) => {
-      // Re-read inside the transaction to guard against concurrent conversion.
-      // The unique index on quotes.converted_to_booking_id is the DB-level guard;
-      // this application-level check provides a clean 409 before hitting the constraint.
+      // Lock this quote before checking its status. Without the row lock, two
+      // simultaneous clicks could both read "accepted" and create two bookings.
+      await tx.execute(sql`SELECT id FROM quotes
+        WHERE id = ${params.id} AND agency_id = ${agencyId}
+        FOR UPDATE`);
       const [freshQuote] = await tx.select({ status: quotes.status })
         .from(quotes)
         .where(and(eq(quotes.id, params.id), eq(quotes.agencyId, agencyId)));
@@ -58,6 +61,9 @@ export async function POST(request: Request, { params }: { params: { id: string 
       // Map quote fields to booking fields
       const items = (quote.items ?? []) as Record<string, unknown>[];
       const totalPriceHalalas = quote.totalHalalas;
+      const primaryServiceType = typeof items[0]?.['serviceType'] === 'string'
+        ? items[0]['serviceType'] as string
+        : 'custom';
 
       // Derive cost from items if available, otherwise default to 0
       let costPriceHalalas = 0;
@@ -81,10 +87,10 @@ export async function POST(request: Request, { params }: { params: { id: string 
         id:               bookingId,
         agencyId,
         bookingNumber,
-        serviceType:      'custom',          // quotes are generic; caller can PATCH to refine
+        serviceType:      primaryServiceType,
         customerId:       quote.customerId ?? null,
         customerNameAr:   quote.customerName ?? null,
-        customerNameEn:   null,
+        customerNameEn:   quote.customerNameEn ?? null,
         customerPhone:    quote.customerPhone ?? null,
         status:           'confirmed',
         totalPriceHalalas,
@@ -105,7 +111,7 @@ export async function POST(request: Request, { params }: { params: { id: string 
         id:                       crypto.randomUUID(),
         bookingId,
         agencyId,
-        serviceType:              'custom',
+        serviceType:              primaryServiceType,
         description:              `تحويل من عرض سعر رقم ${quote.quoteNumber}`,
         supplierId:               null,
         supplierName:             null,

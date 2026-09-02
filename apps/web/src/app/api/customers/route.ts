@@ -78,10 +78,10 @@ export async function POST(request: Request) {
     const { agencyId, role } = await verifyAuth(request);
     assertRole(role, [...ROLES_AGENT_UP]);
     const body = await request.json() as {
-      nameAr: string; nameEn?: string; phone?: string; email?: string;
-      nationality?: string; nationalId?: string; passportNumber?: string;
-      dateOfBirth?: string; notes?: string; openingBalanceHalalas?: number;
-      vatNumber?: string;
+      nameAr: string; nameEn?: string | null; phone?: string | null; email?: string | null;
+      nationality?: string | null; nationalId?: string | null; passportNumber?: string | null;
+      dateOfBirth?: string | null; notes?: string | null; openingBalanceHalalas?: number;
+      vatNumber?: string | null;
     };
     if (!body.nameAr?.trim()) return NextResponse.json({ error: 'الاسم مطلوب' }, { status: 400 });
     if (body.openingBalanceHalalas !== undefined &&
@@ -89,7 +89,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'الرصيد الافتتاحي غير صالح' }, { status: 400 });
     }
     let vatNumber: string | null = null;
-    if (body.vatNumber !== undefined) {
+    if (body.vatNumber != null) {
       const trimmed = body.vatNumber.trim();
       if (trimmed) {
         if (!/^3\d{14}$/.test(trimmed)) {
@@ -136,6 +136,21 @@ export async function POST(request: Request) {
     });
   } catch (err) {
     if (err instanceof ApiAuthError) return NextResponse.json({ error: err.message }, { status: err.status });
+    const cause = err instanceof Error
+      ? (err as Error & { cause?: unknown }).cause
+      : undefined;
+    const databaseError = cause && typeof cause === 'object'
+      ? cause as Record<string, unknown>
+      : undefined;
+    console.error(JSON.stringify({
+      event:      'customer_create_failed',
+      errorName:  err instanceof Error ? err.name : typeof err,
+      code:       typeof databaseError?.['code'] === 'string' ? databaseError['code'] : undefined,
+      table:      typeof databaseError?.['table'] === 'string' ? databaseError['table'] : undefined,
+      column:     typeof databaseError?.['column'] === 'string' ? databaseError['column'] : undefined,
+      constraint: typeof databaseError?.['constraint'] === 'string' ? databaseError['constraint'] : undefined,
+      routine:    typeof databaseError?.['routine'] === 'string' ? databaseError['routine'] : undefined,
+    }));
     return NextResponse.json({ error: 'خطأ في الخادم' }, { status: 500 });
   }
 }

@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { eq, desc, count } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { employees } from '@/lib/schema';
-import { verifyAuth, ApiAuthError, BusinessError } from '@/lib/api-auth';
+import { verifyAuth, assertRole, ApiAuthError, BusinessError, ROLES_MANAGER_UP } from '@/lib/api-auth';
 import { requireFeature } from '@/lib/feature-access';
 
 const DEFAULT_PAGE_SIZE = 50;
@@ -40,7 +40,8 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
-    const { uid, agencyId } = await verifyAuth(request);
+    const { uid, agencyId, role } = await verifyAuth(request);
+    assertRole(role, [...ROLES_MANAGER_UP]);
     await requireFeature(agencyId, 'employees', db);
     const body = await request.json() as {
       nameAr: string; nameEn?: string; employeeNumber?: string; department?: string;

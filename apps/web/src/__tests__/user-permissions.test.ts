@@ -22,8 +22,11 @@ describe('userHasFeature', () => {
     expect(userHasFeature('agent', [], 'settings')).toBe(true);
   });
 
-  it('null permissions = full access (legacy users)', () => {
-    expect(userHasFeature('agent', null, 'accounting')).toBe(true);
+  it('null permissions use the role preset instead of granting full access', () => {
+    expect(userHasFeature('agent', null, 'bookings')).toBe(true);
+    expect(userHasFeature('agent', null, 'accounting')).toBe(false);
+    expect(userHasFeature('accountant', null, 'invoices')).toBe(true);
+    expect(userHasFeature('accountant', null, 'bookings')).toBe(false);
   });
 
   it('restricted user can reach only granted sections', () => {
@@ -55,10 +58,10 @@ describe('presetFeatures', () => {
 });
 
 describe('parsePermissions / sanitizePermissions', () => {
-  it('null/garbage → null (full access)', () => {
+  it('null preserves legacy full access, but malformed values fail closed', () => {
     expect(parsePermissions(null)).toBeNull();
-    expect(parsePermissions('not json')).toBeNull();
-    expect(parsePermissions('{}')).toBeNull();
+    expect(parsePermissions('not json')).toEqual([]);
+    expect(parsePermissions('{}')).toEqual([]);
   });
   it('keeps only known assignable keys', () => {
     expect(parsePermissions('["bookings","__bogus__","invoices"]')).toEqual(['bookings', 'invoices']);

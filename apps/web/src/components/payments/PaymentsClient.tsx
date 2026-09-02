@@ -1,7 +1,9 @@
 'use client';
 
-import { useState, useMemo } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import { useFirestoreBookings } from '@/hooks/useFirestoreBookings';
+import { useAuth } from '@masarat/firebase';
+import { apiFetch } from '@/lib/api-client';
 import type { Booking } from '@/lib/schema';
 import { Card } from '@/components/ui/Card';
 import { Spinner } from '@/components/ui/Spinner';
@@ -16,9 +18,10 @@ import {
 import Link from 'next/link';
 
 interface PaymentsClientProps { locale: string }
-type PaymentFilter = 'all' | 'unpaid' | 'partial' | 'paid';
+type PaymentFilter = 'all' | 'unpaid' | 'partial' | 'paid' | 'refunded';
 
 function paymentStatus(b: Booking): string {
+  if (b.status === 'cancelled' || b.status === 'refunded') return 'refunded';
   if (b.paidHalalas <= 0) return 'unpaid';
   if (b.paidHalalas >= b.totalPriceHalalas) return 'paid';
   return 'partial';
@@ -29,6 +32,7 @@ function PaymentStatusBadge({ status, isAr }: { status: string; isAr: boolean })
     unpaid:  { ar: 'غير مدفوع', en: 'Unpaid',   cls: 'bg-red-100 text-red-700',        icon: AlertCircle },
     partial: { ar: 'دفع جزئي',  en: 'Partial',  cls: 'bg-amber-100 text-amber-700',     icon: Clock },
     paid:    { ar: 'مكتمل',     en: 'Paid',     cls: 'bg-emerald-100 text-emerald-700', icon: CheckCircle2 },
+    refunded:{ ar: 'مسترد',     en: 'Refunded', cls: 'bg-purple-100 text-purple-700',    icon: Clock },
   };
   const m = map[status] ?? { ar: status, en: status, cls: 'bg-slate-100 text-slate-600', icon: Clock };
   const Icon = m.icon;
@@ -45,17 +49,30 @@ export function PaymentsClient({ locale }: PaymentsClientProps) {
   const fmtLocale = isAr ? 'ar-SA' : 'en-SA';
 
   const { bookings, loading, error } = useFirestoreBookings({ pageSize: 200 });
+  const { user } = useAuth();
   const [filter, setFilter] = useState<PaymentFilter>('all');
   const [search, setSearch] = useState('');
+  const [summary, setSummary] = useState<{ netCollected: number; outstanding: number } | null>(null);
 
-  const totalPaid = bookings.reduce((s, b) => s + b.paidHalalas, 0);
-  const totalDue  = bookings.reduce((s, b) => s + Math.max(0, b.totalPriceHalalas - b.paidHalalas), 0);
+  useEffect(() => {
+    if (!user?.agencyId) return;
+    let cancelled = false;
+    apiFetch<{ summary?: { netCollected: number; outstanding: number } }>('/api/payments?limit=1')
+      .then((data) => { if (!cancelled) setSummary(data.summary ?? null); })
+      .catch(() => { if (!cancelled) setSummary(null); });
+    return () => { cancelled = true; };
+  }, [user?.agencyId]);
+
+  const activeBookings = bookings.filter(b => b.status !== 'cancelled' && b.status !== 'refunded');
+  const totalPaid = summary?.netCollected ?? activeBookings.reduce((s, b) => s + b.paidHalalas, 0);
+  const totalDue  = summary?.outstanding  ?? activeBookings.reduce((s, b) => s + Math.max(0, b.totalPriceHalalas - b.paidHalalas), 0);
   const collectionRate = (totalPaid + totalDue) > 0 ? Math.round((totalPaid / (totalPaid + totalDue)) * 100) : 0;
 
   const now   = Date.now();
   const aging = useMemo(() => {
     const buckets: number[] = [0, 0, 0, 0, 0];
     bookings.forEach(b => {
+      if (b.status === 'cancelled' || b.status === 'refunded') return;
       const outstanding = Math.max(0, b.totalPriceHalalas - b.paidHalalas);
       if (outstanding <= 0) return;
       const created = new Date(b.createdAt as unknown as string).getTime();
@@ -85,6 +102,7 @@ export function PaymentsClient({ locale }: PaymentsClientProps) {
     { key: 'unpaid',  ar: 'غير مدفوع', en: 'Unpaid' },
     { key: 'partial', ar: 'دفع جزئي',  en: 'Partial' },
     { key: 'paid',    ar: 'مكتمل',     en: 'Paid' },
+    { key: 'refunded',ar: 'مسترد',     en: 'Refunded' },
   ];
 
   if (loading) return <div className="flex items-center justify-center py-24"><Spinner size="lg" /></div>;
@@ -183,7 +201,9 @@ export function PaymentsClient({ locale }: PaymentsClientProps) {
             {filtered.map(b => {
               const name    = isAr ? (b.customerNameAr ?? '') : (b.customerNameEn ?? b.customerNameAr ?? '');
               const paidAmt = b.paidHalalas;
-              const dueAmt  = Math.max(0, b.totalPriceHalalas - paidAmt);
+              const dueAmt  = b.status === 'cancelled' || b.status === 'refunded'
+                ? 0
+                : Math.max(0, b.totalPriceHalalas - paidAmt);
               const status  = paymentStatus(b);
               return (
                 <MobileListItem key={b.id} href={`/${locale}/bookings/${b.id}`}>
@@ -222,7 +242,9 @@ export function PaymentsClient({ locale }: PaymentsClientProps) {
                 {filtered.map(b => {
                   const name    = isAr ? (b.customerNameAr ?? '') : (b.customerNameEn ?? b.customerNameAr ?? '');
                   const paidAmt = b.paidHalalas;
-                  const dueAmt  = Math.max(0, b.totalPriceHalalas - paidAmt);
+                  const dueAmt  = b.status === 'cancelled' || b.status === 'refunded'
+                    ? 0
+                    : Math.max(0, b.totalPriceHalalas - paidAmt);
                   const pct     = b.totalPriceHalalas > 0 ? Math.min(100, Math.round((paidAmt / b.totalPriceHalalas) * 100)) : 0;
                   const status  = paymentStatus(b);
 

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useRef } from 'react';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -176,11 +176,16 @@ export function useProcessRefund() {
     error: null,
     data: null,
   });
+  // Keep one key for the whole logical refund attempt. If the server commits
+  // but the response is lost, pressing retry must replay the same result rather
+  // than issuing a second partial refund with a fresh key.
+  const idempotencyKeyRef = useRef<string | null>(null);
 
   const processRefund = useCallback(
     async (req: Omit<ProcessRefundRequest, 'idempotencyKey'>) => {
       setState({ loading: true, error: null, data: null });
       try {
+        idempotencyKeyRef.current ??= crypto.randomUUID();
         const result = await apiPost<ProcessRefundResponse>('/api/refunds/process', {
           bookingId: req.bookingId,
           originalInvoiceId: req.invoiceId,
@@ -188,8 +193,11 @@ export function useProcessRefund() {
           cancellationFeeHalalas: req.cancellationFeeHalalas,
           cancelledTotalHalalas: req.cancelledTotalHalalas,
           reason: req.reason,
-          idempotencyKey: crypto.randomUUID(),
+          idempotencyKey: idempotencyKeyRef.current,
         });
+        // A confirmed response completes this logical attempt. A future refund
+        // from the same mounted UI receives a new key.
+        idempotencyKeyRef.current = null;
         setState({ loading: false, error: null, data: result });
         return result;
       } catch (err) {

@@ -5,6 +5,7 @@ import { agencies, users } from '@/lib/schema';
 import { eq, count } from 'drizzle-orm';
 import { checkRateLimit, getClientIp } from '@/lib/rate-limit';
 import { sanitizePermissions, presetFeatures } from '@/lib/user-permissions';
+import { verifyAuth, assertRole, ApiAuthError, ROLES_ADMIN_ONLY } from '@/lib/api-auth';
 
 const EMAIL_RE  = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 const MAX_NAME  = 100;
@@ -30,30 +31,12 @@ export async function POST(request: Request) {
   let firebaseUid: string | null = null;
 
   try {
+    const { agencyId: callerAgency, role: callerRole, uid: callerUid } = await verifyAuth(request);
+    assertRole(callerRole, [...ROLES_ADMIN_ONLY]);
+
     ensureAdminApp();
-
-    const authHeader = request.headers.get('Authorization') ?? '';
-    const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : null;
-    if (!token) {
-      return NextResponse.json({ error: 'يجب تسجيل الدخول أولاً' }, { status: 401 });
-    }
-
     const { getAuth } = await import('firebase-admin/auth');
     const auth = getAuth();
-
-    const decoded      = await auth.verifyIdToken(token);
-    const callerAgency = decoded['agencyId'] as string | undefined;
-    const callerRole   = decoded['role']     as string | undefined;
-    const callerUid    = decoded.uid;
-
-    if (!callerAgency) {
-      return NextResponse.json({ error: 'يجب تسجيل الدخول أولاً' }, { status: 401 });
-    }
-    // Only owner/admin may invite. (Non-admins are blocked here, so a lower role
-    // can never escalate a new user above its own tier.)
-    if (callerRole !== 'owner' && callerRole !== 'admin') {
-      return NextResponse.json({ error: 'فقط مدير الوكالة يمكنه دعوة مستخدمين' }, { status: 403 });
-    }
 
     // Check user seat limit (maxUsers from agencies table)
     const [agency] = await db
@@ -135,6 +118,9 @@ export async function POST(request: Request) {
     if (firebaseUid) {
       const { getAuth } = await import('firebase-admin/auth');
       await getAuth().deleteUser(firebaseUid).catch(() => {});
+    }
+    if (err instanceof ApiAuthError) {
+      return NextResponse.json({ error: err.message }, { status: err.status });
     }
     console.error(JSON.stringify({ event: 'auth_invite_failed', error: (err as Error).message ?? String(err) }));
     return NextResponse.json({ error: 'خطأ في الخادم' }, { status: 500 });

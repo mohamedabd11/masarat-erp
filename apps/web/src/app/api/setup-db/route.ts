@@ -6,6 +6,7 @@
  */
 import { NextRequest, NextResponse } from 'next/server';
 import { neon } from '@neondatabase/serverless';
+import { getAdminDatabaseUrl } from '@/lib/admin-database-url';
 
 const CREATE_TABLES_SQL = `
 
@@ -146,12 +147,18 @@ CREATE TABLE IF NOT EXISTS quotes (
   quote_number    TEXT NOT NULL,
   customer_id     TEXT REFERENCES customers(id),
   customer_name   TEXT,
+  customer_name_en TEXT,
   customer_phone  TEXT,
+  customer_email  TEXT,
   items           JSONB,
-  total_halalas   INTEGER NOT NULL DEFAULT 0,
+  subtotal_halalas BIGINT NOT NULL DEFAULT 0,
+  vat_halalas      BIGINT NOT NULL DEFAULT 0,
+  total_halalas   BIGINT NOT NULL DEFAULT 0,
   status          TEXT NOT NULL DEFAULT 'draft',
+  issue_date      TEXT,
   valid_until     TEXT,
   notes           TEXT,
+  terms           TEXT,
   created_by      TEXT,
   created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -1178,15 +1185,16 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  if (!process.env.DATABASE_URL) {
+  const adminDatabaseUrl = getAdminDatabaseUrl();
+  if (!adminDatabaseUrl) {
     return NextResponse.json({
       ok: false,
-      error: 'DATABASE_URL is not set. Add it to Vercel environment variables.',
+      error: 'ADMIN_DATABASE_URL is not set for privileged database setup.',
     }, { status: 503 });
   }
 
   try {
-    const sql = neon(process.env.DATABASE_URL);
+    const sql = neon(adminDatabaseUrl);
 
     // Strip single-line comments, split on semicolons, run each statement separately.
     // Neon serverless doesn't allow multiple commands in one prepared statement.

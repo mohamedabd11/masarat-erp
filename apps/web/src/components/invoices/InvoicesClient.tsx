@@ -16,9 +16,21 @@ import {
   CheckCircle2, Clock, AlertCircle, AlertTriangle, ChevronRight, Plus,
 } from 'lucide-react';
 import { CreateDirectInvoiceModal } from './CreateDirectInvoiceModal';
+import {
+  invoiceOutstanding,
+  isCreditNote,
+  isReceivableInvoice,
+  signedInvoiceTotal,
+  summarizeInvoiceDocuments,
+} from '@/lib/invoice-presentation';
 
 type StatusFilter = 'all' | 'issued' | 'partial' | 'paid' | 'overdue';
 interface InvoicesClientProps { locale: string }
+interface InvoiceSummary {
+  totalInvoiced: number;
+  totalCollected: number;
+  totalOutstanding: number;
+}
 
 export function InvoicesClient({ locale }: InvoicesClientProps) {
   const isAr      = locale === 'ar';
@@ -30,29 +42,35 @@ export function InvoicesClient({ locale }: InvoicesClientProps) {
   const [search,      setSearch]      = useState('');
   const [filter,      setFilter]      = useState<StatusFilter>('all');
   const [showCreate,  setShowCreate]  = useState(false);
+  const [summary,     setSummary]     = useState<InvoiceSummary | null>(null);
+  const [loadError,   setLoadError]   = useState(false);
+  const [reloadKey,   setReloadKey]   = useState(0);
 
   useEffect(() => {
     if (!user?.agencyId) { setLoading(false); return; }
     let cancelled = false;
-    apiFetch<{ invoices: Invoice[] }>('/api/invoices')
-      .then(d => { if (!cancelled) { setInvoices(d.invoices); } })
-      .catch(() => {})
+    setLoading(true);
+    setLoadError(false);
+    apiFetch<{ invoices: Invoice[]; summary?: InvoiceSummary }>('/api/invoices')
+      .then(d => { if (!cancelled) { setInvoices(d.invoices); setSummary(d.summary ?? null); } })
+      .catch(() => { if (!cancelled) setLoadError(true); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [user?.agencyId]);
+  }, [user?.agencyId, reloadKey]);
 
   const now = Date.now();
 
   function isOverdue(inv: Invoice) {
-    if (inv.status === 'paid') return false;
+    if (!isReceivableInvoice(inv)) return false;
     if (!inv.issueDate) return false;
     const issued = new Date(inv.issueDate).getTime();
     return (now - issued) > 30 * 86_400_000;
   }
 
-  const totalRevenue  = invoices.reduce((s, i) => s + i.totalHalalas, 0);
-  const totalPaid     = invoices.reduce((s, i) => s + i.paidHalalas, 0);
-  const totalDue      = invoices.reduce((s, i) => s + Math.max(0, i.totalHalalas - i.paidHalalas), 0);
+  const fallbackSummary = summarizeInvoiceDocuments(invoices);
+  const totalRevenue  = summary?.totalInvoiced    ?? fallbackSummary.totalInvoiced;
+  const totalPaid     = summary?.totalCollected   ?? invoices.reduce((s, i) => s + i.paidHalalas, 0);
+  const totalDue      = summary?.totalOutstanding ?? fallbackSummary.totalOutstanding;
   const overdueCount  = invoices.filter(isOverdue).length;
 
   const filtered = useMemo(() => {
@@ -62,6 +80,7 @@ export function InvoicesClient({ locale }: InvoicesClientProps) {
       const matchSearch = !q || inv.invoiceNumber.toLowerCase().includes(q) || name.toLowerCase().includes(q);
       let matchFilter = true;
       if      (filter === 'overdue') matchFilter = isOverdue(inv);
+      else if (filter === 'issued')  matchFilter = inv.status === 'issued' && !isCreditNote(inv);
       else if (filter !== 'all')     matchFilter = inv.status === filter;
       return matchSearch && matchFilter;
     });
@@ -82,9 +101,9 @@ export function InvoicesClient({ locale }: InvoicesClientProps) {
       inv.invoiceNumber,
       isAr ? (inv.buyerNameAr ?? '') : (inv.buyerNameEn ?? inv.buyerNameAr ?? ''),
       inv.issueDate,
-      (inv.totalHalalas / 100).toFixed(2),
+      (signedInvoiceTotal(inv) / 100).toFixed(2),
       (inv.paidHalalas / 100).toFixed(2),
-      ((inv.totalHalalas - inv.paidHalalas) / 100).toFixed(2),
+      (invoiceOutstanding(inv) / 100).toFixed(2),
       inv.status,
     ]);
     const csv = [header, ...rows].map(r => r.map(c => `"${String(c).replace(/"/g, '""')}"`).join(',')).join('\n');
@@ -98,6 +117,29 @@ export function InvoicesClient({ locale }: InvoicesClientProps) {
   }
 
   if (loading) return <div className="flex items-center justify-center py-24"><Spinner size="lg" /></div>;
+
+  if (loadError) {
+    return (
+      <Card>
+        <div className="flex flex-col items-center justify-center py-16 text-center">
+          <AlertCircle size={42} className="mb-4 text-red-500" />
+          <h2 className="text-lg font-bold text-slate-900">
+            {isAr ? 'تعذّر تحميل الفواتير' : 'Could not load invoices'}
+          </h2>
+          <p className="mt-1 max-w-md text-sm text-slate-500">
+            {isAr ? 'لم تُعرض أرقام بديلة حتى لا تبدو البيانات المالية خالية بالخطأ.' : 'No fallback totals are shown, so financial data is not mistaken for an empty account.'}
+          </p>
+          <button
+            type="button"
+            onClick={() => setReloadKey(key => key + 1)}
+            className="mt-5 rounded-xl bg-brand-600 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-brand-700"
+          >
+            {isAr ? 'إعادة المحاولة' : 'Try again'}
+          </button>
+        </div>
+      </Card>
+    );
+  }
 
   return (
     <div className="space-y-5">
@@ -147,6 +189,7 @@ export function InvoicesClient({ locale }: InvoicesClientProps) {
             let count = 0;
             if      (tab.key === 'all')     count = invoices.length;
             else if (tab.key === 'overdue') count = overdueCount;
+            else if (tab.key === 'issued')  count = invoices.filter(i => i.status === 'issued' && !isCreditNote(i)).length;
             else                            count = invoices.filter(i => i.status === tab.key).length;
             return (
               <button key={tab.key} onClick={() => setFilter(tab.key)}
@@ -183,9 +226,10 @@ export function InvoicesClient({ locale }: InvoicesClientProps) {
           <div className="sm:hidden divide-y divide-surface-border">
             {filtered.map(inv => {
               const customerName = isAr ? (inv.buyerNameAr ?? '') : (inv.buyerNameEn ?? inv.buyerNameAr ?? '');
-              const balance   = inv.totalHalalas - inv.paidHalalas;
+              const balance   = invoiceOutstanding(inv);
               const overdue   = isOverdue(inv);
-              const isCN      = inv.type === '381';
+              const isCN      = isCreditNote(inv);
+              const displayTotal = signedInvoiceTotal(inv);
 
               return (
                 <Link key={inv.id} href={`/${locale}/invoices/${inv.id}`}
@@ -203,7 +247,7 @@ export function InvoicesClient({ locale }: InvoicesClientProps) {
                     <span className="text-xs text-slate-400">{formatDate(inv.issueDate, fmtLocale)}</span>
                     <div className="flex items-center gap-2">
                       {balance > 0 && <span className="text-xs font-semibold text-red-600">{isAr ? 'متبقي ' : 'Due '}{formatCurrency(balance, fmtLocale)}</span>}
-                      <span className="text-sm font-bold text-slate-900 tabular-nums">{formatCurrency(inv.totalHalalas, fmtLocale)}</span>
+                      <span className={cn('text-sm font-bold tabular-nums', isCN ? 'text-amber-700' : 'text-slate-900')}>{formatCurrency(displayTotal, fmtLocale)}</span>
                     </div>
                   </div>
                 </Link>
@@ -228,9 +272,10 @@ export function InvoicesClient({ locale }: InvoicesClientProps) {
               <tbody className="divide-y divide-surface-border">
                 {filtered.map(inv => {
                   const customerName = isAr ? (inv.buyerNameAr ?? '') : (inv.buyerNameEn ?? inv.buyerNameAr ?? '');
-                  const balance   = inv.totalHalalas - inv.paidHalalas;
+                  const balance   = invoiceOutstanding(inv);
                   const overdue   = isOverdue(inv);
-                  const isCN      = inv.type === '381';
+                  const isCN      = isCreditNote(inv);
+                  const displayTotal = signedInvoiceTotal(inv);
 
                   return (
                     <tr key={inv.id} className={cn('hover:bg-slate-50/60 transition-colors group', overdue && 'bg-red-50/30')}>
@@ -245,7 +290,7 @@ export function InvoicesClient({ locale }: InvoicesClientProps) {
                       </td>
                       <td className="px-3 py-4"><InvoiceStatusBadge status={inv.status} locale={locale} /></td>
                       <td className="px-3 py-4 text-end">
-                        <span className="text-sm font-bold tabular-nums text-slate-900">{formatCurrency(inv.totalHalalas, fmtLocale)}</span>
+                        <span className={cn('text-sm font-bold tabular-nums', isCN ? 'text-amber-700' : 'text-slate-900')}>{formatCurrency(displayTotal, fmtLocale)}</span>
                       </td>
                       <td className="pe-5 px-3 py-4 text-end hidden lg:table-cell">
                         {balance > 0
@@ -278,14 +323,9 @@ export function InvoicesClient({ locale }: InvoicesClientProps) {
       {showCreate && (
         <CreateDirectInvoiceModal
           onClose={() => setShowCreate(false)}
-          onSuccess={(invoiceId, invoiceNumber) => {
+          onSuccess={() => {
             setShowCreate(false);
-            // Reload invoices list to show the new one
-            if (user?.agencyId) {
-              apiFetch<{ invoices: Invoice[] }>('/api/invoices')
-                .then(d => setInvoices(d.invoices))
-                .catch(() => {});
-            }
+            setReloadKey(key => key + 1);
           }}
         />
       )}

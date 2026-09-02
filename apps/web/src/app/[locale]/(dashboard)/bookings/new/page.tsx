@@ -20,6 +20,7 @@ import {
 } from 'lucide-react';
 import { CustomerSearch } from '@/components/customers/CustomerSearch';
 import { COUNTRIES } from '@/lib/countries';
+import { calculateBookingPricing } from '@/lib/booking-pricing';
 
 // ─── Service Types Catalog ─────────────────────────────────────────────────────
 
@@ -114,6 +115,7 @@ const formSchema = z.object({
 
   // Pricing
   costPriceSAR:  z.coerce.number().min(0).default(0),
+  sellingPriceSAR: z.coerce.number().min(0).default(0),
   serviceFeeSAR: z.coerce.number().min(0).default(0),
 
   notes: z.string().optional(),
@@ -496,6 +498,7 @@ function NewBookingContent() {
       revenueModel: 'agent',
       travelers: [{ nameAr: '', nationality: isAr ? 'السعودية' : 'Saudi Arabia', gender: 'male' }],
       costPriceSAR:  0,
+      sellingPriceSAR: 0,
       serviceFeeSAR: 0,
     },
   });
@@ -549,13 +552,20 @@ function NewBookingContent() {
   }, [params, user, setValue]);
 
   // ── Pricing (fixed: use Number() to avoid string concatenation) ──
-  const costSAR    = Number(watch('costPriceSAR'))  || 0;
-  const feeSAR     = Number(watch('serviceFeeSAR')) || 0;
-  const model      = watch('revenueModel');
-  const sellSAR    = model === 'agent' ? costSAR + feeSAR : costSAR;
-  const vatBaseSAR = model === 'agent' ? feeSAR : sellSAR;
-  const vatSAR     = agencyIsVatRegistered ? Math.round(vatBaseSAR * agencyVatRate) / 100 : 0;
-  const totalSAR   = sellSAR + vatSAR;
+  const model = watch('revenueModel');
+  const pricingPreview = calculateBookingPricing({
+    revenueModel: model,
+    supplierCostSAR: Number(watch('costPriceSAR')) || 0,
+    sellingPriceSAR: Number(watch('sellingPriceSAR')) || 0,
+    serviceFeeSAR: Number(watch('serviceFeeSAR')) || 0,
+    isVatRegistered: agencyIsVatRegistered,
+    vatRatePercent: agencyVatRate,
+  });
+  const costSAR  = pricingPreview.supplierCostSAR;
+  const feeSAR   = pricingPreview.serviceFeeSAR;
+  const sellSAR  = pricingPreview.sellingPriceSAR;
+  const vatSAR   = pricingPreview.vatSAR;
+  const totalSAR = pricingPreview.totalSAR;
   const loc2       = isAr ? 'ar-SA' : 'en-SA';
   const toH        = (n: number) => Math.round(n * 100);
 
@@ -575,12 +585,18 @@ function NewBookingContent() {
     setSubmitting(true);
     setFormError('');
     try {
-      const costH  = toH(data.costPriceSAR ?? 0);
-      const feeH   = toH(data.serviceFeeSAR ?? 0);
-      const sell   = data.revenueModel === 'agent' ? costH + feeH : costH;
-      const vBase  = data.revenueModel === 'agent' ? feeH : sell;
-      const vatH   = agencyIsVatRegistered ? Math.round(vBase * agencyVatRate / 100) : 0;
-      const totalH = sell + vatH;
+      const calculated = calculateBookingPricing({
+        revenueModel: data.revenueModel,
+        supplierCostSAR: data.costPriceSAR ?? 0,
+        sellingPriceSAR: data.sellingPriceSAR ?? 0,
+        serviceFeeSAR: data.serviceFeeSAR ?? 0,
+        isVatRegistered: agencyIsVatRegistered,
+        vatRatePercent: agencyVatRate,
+      });
+      const costH  = toH(calculated.supplierCostSAR);
+      const feeH   = toH(calculated.serviceFeeSAR);
+      const vatH   = toH(calculated.vatSAR);
+      const totalH = toH(calculated.totalSAR);
 
       const json = await apiFetch<{ bookingId?: string; error?: string }>('/api/bookings/create', {
         method: 'POST',
@@ -604,6 +620,8 @@ function NewBookingContent() {
             revenueModel: data.revenueModel, currency: 'SAR',
             totalCost: costH, serviceFee: feeH, vatAmount: vatH,
             totalAmount: totalH, commission: feeH,
+            vatCategory: agencyIsVatRegistered ? 'S' : 'O',
+            vatRateBps: agencyIsVatRegistered ? Math.round(agencyVatRate * 100) : 0,
           },
           supplierName:  data.supplierName ?? '',
           supplierRef:   data.supplierRef  ?? '',
@@ -995,17 +1013,30 @@ function NewBookingContent() {
                     </div>
                   </>
                 ) : (
-                  <div>
-                    <label className="block text-xs font-medium text-slate-600 mb-1">
-                      {isAr ? 'سعر البيع للعميل (ريال)' : 'Selling Price to Client (SAR)'}
-                    </label>
-                    <input
-                      type="number" step="0.01" min="0"
-                      className={IC} dir="ltr"
-                      {...register('costPriceSAR')}
-                    />
-                    <p className="text-[11px] text-slate-400 mt-0.5">{isAr ? 'السعر الكامل للعميل شامل التكلفة' : 'Full price to client including cost'}</p>
-                  </div>
+                  <>
+                    <div>
+                      <label className="block text-xs font-medium text-slate-600 mb-1">
+                        {isAr ? 'سعر البيع للعميل (ريال)' : 'Selling Price to Client (SAR)'}
+                      </label>
+                      <input
+                        type="number" step="0.01" min="0"
+                        className={IC} dir="ltr"
+                        {...register('sellingPriceSAR')}
+                      />
+                      <p className="text-[11px] text-slate-400 mt-0.5">{isAr ? 'المبلغ الذي سيدفعه العميل قبل الضريبة' : 'Amount charged to the client before VAT'}</p>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-slate-600 mb-1">
+                        {isAr ? 'التكلفة من المورد (ريال)' : 'Cost from Supplier (SAR)'}
+                      </label>
+                      <input
+                        type="number" step="0.01" min="0"
+                        className={IC} dir="ltr"
+                        {...register('costPriceSAR')}
+                      />
+                      <p className="text-[11px] text-slate-400 mt-0.5">{isAr ? 'تُستخدم لحساب تكلفة الخدمة والربح، ويمكن تركها صفراً' : 'Used for service cost and profit; may be left at zero'}</p>
+                    </div>
+                  </>
                 )}
               </div>
 
@@ -1013,7 +1044,7 @@ function NewBookingContent() {
               <div className="mt-4 rounded-xl border border-slate-200 overflow-hidden">
                 <table className="w-full text-sm">
                   <tbody className="divide-y divide-slate-100">
-                    {model === 'agent' && (
+                    {costSAR > 0 && (
                       <tr className="bg-white">
                         <td className="px-4 py-2.5 text-slate-600">{isAr ? 'تكلفة المورد' : 'Supplier Cost'}</td>
                         <td className="px-4 py-2.5 text-end font-medium text-slate-800">{costSAR.toFixed(2)} {isAr ? 'ر.س' : 'SAR'}</td>

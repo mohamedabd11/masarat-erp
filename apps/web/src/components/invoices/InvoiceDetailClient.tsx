@@ -14,6 +14,7 @@ import {
   FileX, AlertTriangle,
 } from 'lucide-react';
 import { ProcessPaymentModal } from '@/components/bookings/ProcessPaymentModal';
+import { invoiceOutstanding, isCreditNote as isCreditNoteDocument, vatCategoryLabel } from '@/lib/invoice-presentation';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -26,6 +27,7 @@ interface InvoiceLine {
   unitPriceHalalas: number;
   vatHalalas:       number;
   totalHalalas:     number;
+  vatCategory?:     string;
 }
 
 // Postgres-backed invoice (flat fields from the invoices table)
@@ -113,7 +115,7 @@ export function InvoiceDetailClient({ locale, invoiceId }: InvoiceDetailClientPr
         const grandTotal = inv.totalHalalas ?? 0;
         const paid       = inv.paidHalalas  ?? 0;
         setAmountPaid(paid);
-        setAmountDue(grandTotal - paid);
+        setAmountDue(invoiceOutstanding(inv));
         setIsVatRegistered(inv.isEInvoice === true || inv.vatHalalas > 0);
 
         // Resolve booking number from invoice or fetch booking
@@ -155,7 +157,7 @@ export function InvoiceDetailClient({ locale, invoiceId }: InvoiceDetailClientPr
 
   // ── Extract data ──────────────────────────────────────────────────────────
 
-  const isCreditNote = invoice.type === 'credit_note' || invoice.type === '381';
+  const isCreditNote = isCreditNoteDocument(invoice);
   const zatcaStatus = 'not_submitted' as ZatcaStatus;
   const zStyle = ZATCA_STYLE[zatcaStatus] ?? ZATCA_STYLE.not_submitted;
   const uuid = invoice.zatcaUuid ?? '';
@@ -215,7 +217,7 @@ export function InvoiceDetailClient({ locale, invoiceId }: InvoiceDetailClientPr
         </div>
         <div className="flex items-center gap-2 flex-shrink-0">
           {/* Cancel Invoice — only for unpaid invoices */}
-          {invoice.status !== 'cancelled' && invoice.status !== 'paid' && invoice.paidHalalas === 0 && (
+          {invoice.status === 'issued' && !isCreditNote && invoice.paidHalalas === 0 && (
             <button
               onClick={() => setShowCancel(true)}
               className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-orange-200
@@ -474,7 +476,7 @@ export function InvoiceDetailClient({ locale, invoiceId }: InvoiceDetailClientPr
                       <td className="px-4 py-4 text-center">
                         {line.vatHalalas === 0 ? (
                           <span className="text-xs bg-slate-100 text-slate-500 px-2 py-0.5 rounded font-medium">
-                            {isAr ? 'معفى' : 'Exempt'}
+                            {vatCategoryLabel(line.vatCategory, isAr)}
                           </span>
                         ) : (
                           <span className="text-slate-600">
@@ -545,7 +547,12 @@ export function InvoiceDetailClient({ locale, invoiceId }: InvoiceDetailClientPr
               )}
 
               {/* Payment action */}
-              {amountDue > 0 ? (
+              {invoice.status === 'refunded' ? (
+                <div className="mt-3 flex items-center justify-center gap-2 text-sm text-amber-700 font-medium">
+                  <CheckCircle2 size={15} />
+                  {isAr ? 'مستردة بالكامل' : 'Fully Refunded'}
+                </div>
+              ) : amountDue > 0 ? (
                 <button
                   onClick={() => setShowPayment(true)}
                   className="mt-3 w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-brand-600 text-white text-sm font-semibold hover:bg-brand-700 transition-colors"

@@ -3,6 +3,7 @@ import { validateEnv } from '@/lib/env-validate';
 
 const REQUIRED_ENV_KEYS = [
   'DATABASE_URL',
+  'ADMIN_DATABASE_URL',
   'FIREBASE_SERVICE_ACCOUNT_JSON',
   'ENCRYPTION_KEY',
   'SUPER_ADMIN_EMAIL',
@@ -31,6 +32,15 @@ describe('validateEnv', () => {
     vi.stubEnv('VERCEL_ENV', 'production');
 
     expect(() => validateEnv()).toThrow(/DATABASE_URL/);
+  });
+
+  it('requires a separate admin database connection in production', () => {
+    vi.stubEnv('NODE_ENV', 'production');
+    vi.stubEnv('VERCEL_ENV', 'production');
+    for (const key of REQUIRED_ENV_KEYS) vi.stubEnv(key, 'configured');
+    vi.stubEnv('ADMIN_DATABASE_URL', '');
+
+    expect(() => validateEnv()).toThrow(/ADMIN_DATABASE_URL/);
   });
 
   it('still requires secrets for a local production-mode server', () => {

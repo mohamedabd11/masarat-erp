@@ -30,15 +30,21 @@ export async function GET(request: Request) {
     // that is a pass-through to the supplier (agent model, IFRS 15).
     const [invoiceAgg] = await db
       .select({
-        grossBookings: sum(invoices.subtotalHalalas),
-        vat:           sum(invoices.vatHalalas),
+        grossBookings: sql<number>`coalesce(sum(case
+          when ${invoices.type} = '381' then -${invoices.subtotalHalalas}
+          else ${invoices.subtotalHalalas}
+        end), 0)`,
+        vat: sql<number>`coalesce(sum(case
+          when ${invoices.type} = '381' then -${invoices.vatHalalas}
+          else ${invoices.vatHalalas}
+        end), 0)`,
       })
       .from(invoices)
       .where(and(
         eq(invoices.agencyId, agencyId),
         gte(invoices.createdAt, startOfMonth),
         lt(invoices.createdAt, startOfNext),
-        sql`${invoices.status} NOT IN ('cancelled','refunded')`,
+        sql`${invoices.status} <> 'cancelled'`,
       ));
 
     const monthGrossBookings = Number(invoiceAgg?.grossBookings ?? 0);
@@ -82,6 +88,7 @@ export async function GET(request: Request) {
         eq(invoices.bookingId, bookings.id),
         eq(invoices.agencyId,  agencyId),
         sql`${invoices.status} NOT IN ('cancelled','refunded')`,
+        sql`${invoices.type} IN ('380','388')`,
       ))
       .where(and(
         eq(bookings.agencyId,  agencyId),
@@ -101,7 +108,8 @@ export async function GET(request: Request) {
       .from(invoices)
       .where(and(
         eq(invoices.agencyId, agencyId),
-        sql`${invoices.status} NOT IN ('cancelled','refunded','paid')`,
+        sql`${invoices.type} <> '381'`,
+        sql`${invoices.status} IN ('issued','partial','overdue')`,
       ));
 
     const arOutstanding = arRows.reduce((s, r) => s + Math.max(0, r.total - r.paid), 0);

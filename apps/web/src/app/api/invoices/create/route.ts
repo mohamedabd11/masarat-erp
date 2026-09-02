@@ -2,7 +2,6 @@ import { NextResponse } from 'next/server';
 import { eq, and, sql, ne, asc } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { bookings, bookingLines, agencies, invoices, journalEntries, journalLines, customers, suppliers } from '@/lib/schema';
-import type { BookingLine } from '@/lib/schema';
 import { verifyAuth, assertRole, ApiAuthError, BusinessError, ROLES_ACCOUNTANT_UP } from '@/lib/api-auth';
 import { logAudit } from '@/lib/audit';
 import { checkRateLimit, getClientIp, rateLimitHeaders } from '@/lib/rate-limit';
@@ -11,6 +10,8 @@ import { getNextInvoiceNumber, getNextJournalNumber } from '@/lib/invoice-counte
 import { assertPeriodOpen } from '@/lib/period-lock';
 import { buildZatcaInvoiceRecord, submitInvoiceToZatca, inferZatcaExemptionReason } from '@/lib/zatca-einvoice';
 import { buildInvoiceJournalLines, buildJournalLinesFromBookingLines } from '@/lib/invoice-journal';
+import { buildInvoiceItemsFromLines } from '@/lib/invoice-items';
+import type { InvoiceItem } from '@/lib/invoice-items';
 import type { ZatcaVatCategory, ZatcaExemptionReason } from '@masarat/zatca';
 
 // Service types whose revenue is deferred until the trip is delivered (IFRS 15).
@@ -35,17 +36,6 @@ interface PackageLineItem {
   quantity:         number;
   unitPriceHalalas: number;   // VAT-inclusive per unit
   totalHalalas:     number;   // VAT-inclusive total (= quantity × unitPriceHalalas)
-}
-
-interface InvoiceItem {
-  description:      string;
-  descriptionEn:    string | null;
-  quantity:         number;
-  unitPriceHalalas: number;   // excl. VAT (for ZATCA line-level breakdown)
-  vatHalalas:       number;
-  totalHalalas:     number;   // incl. VAT
-  vatCategory?:     ZatcaVatCategory;
-  exemptionReason?: ZatcaExemptionReason;
 }
 
 export async function POST(request: Request) {
@@ -463,35 +453,6 @@ function buildInvoiceItems(
       unitPriceHalalas: unitPriceExclVat,
       vatHalalas:       itemVat,
       totalHalalas:     item.totalHalalas,
-      vatCategory,
-      exemptionReason,
-    };
-  });
-}
-
-// ─── buildInvoiceItemsFromLines ───────────────────────────────────────────────
-// Maps active non-legacy booking_lines to ZATCA invoice line items.
-// Each line carries its own vatCategory and vatRateBps — no proportional
-// distribution needed (each line already has the exact vatHalalas).
-function buildInvoiceItemsFromLines(
-  lines: BookingLine[],
-  isVatRegistered: boolean,
-  bookingServiceType: string | null,
-  isInternational: boolean,
-): InvoiceItem[] {
-  return lines.map(line => {
-    const lineVat = isVatRegistered ? line.vatHalalas : 0;
-    const vatCategory = isVatRegistered ? (line.vatCategory as ZatcaVatCategory) : undefined;
-    const exemptionReason = vatCategory
-      ? inferZatcaExemptionReason(vatCategory, line.serviceType, bookingServiceType, isInternational)
-      : undefined;
-    return {
-      description:      line.description,
-      descriptionEn:    null,
-      quantity:         line.quantity,
-      unitPriceHalalas: line.unitPriceExclVatHalalas,
-      vatHalalas:       lineVat,
-      totalHalalas:     line.totalPriceExclVatHalalas + lineVat,
       vatCategory,
       exemptionReason,
     };
