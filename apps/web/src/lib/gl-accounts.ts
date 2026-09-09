@@ -19,6 +19,7 @@ export const GL = {
   receivable:       { code: '1120', ar: 'ذمم مدينة - عملاء',       en: 'Accounts Receivable' },
   chequesReceivable:{ code: '1125', ar: 'أوراق قبض - شيكات',      en: 'Cheques Receivable' },
   prepaidExpenses:  { code: '1130', ar: 'المصاريف المدفوعة مقدماً', en: 'Prepaid Expenses' },
+  employeeAdvances: { code: '1140', ar: 'سلف الموظفين',             en: 'Employee Advances' },
   bspClearing:      { code: '1350', ar: 'مقاصة BSP',               en: 'BSP Clearing' },
   inputVat:         { code: '1230', ar: 'ضريبة المدخلات القابلة للاسترداد', en: 'Input VAT Receivable' },
 
@@ -32,9 +33,11 @@ export const GL = {
   // NOTE: code 2300 is already taken by customerDeposits (and seeded with a
   // UNIQUE(agency_id, code) constraint). Salaries Payable therefore uses 2310.
   salariesPayable:  { code: '2310', ar: 'رواتب مستحقة للدفع',     en: 'Salaries Payable' },
+  payrollDeductionsPayable: { code: '2390', ar: 'استقطاعات رواتب مستحقة', en: 'Payroll Deductions Payable' },
   gosiPayable:      { code: '2400', ar: 'GOSI مستحقة',            en: 'GOSI Payable' },
   // EOSB provision (IAS 19 — Saudi Labor Law art. 84)
   eosbProvision:    { code: '2500', ar: 'مخصص مكافأة نهاية الخدمة', en: 'EOSB Provision' },
+  eosbPayable:      { code: '2510', ar: 'مكافأة نهاية الخدمة مستحقة', en: 'EOSB Payable' },
 
   // ── Equity (3xxx) ──────────────────────────────────────────────────────────
   ownerCapital:     { code: '3100', ar: 'رأس مال المالك',         en: 'Owner Capital' },

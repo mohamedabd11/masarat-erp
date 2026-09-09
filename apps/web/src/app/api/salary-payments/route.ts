@@ -7,6 +7,7 @@ import { requireFeature } from '@/lib/feature-access';
 import { getNextJournalNumber } from '@/lib/invoice-counter';
 import { assertPeriodOpen } from '@/lib/period-lock';
 import { GL } from '@/lib/gl-accounts';
+import { isYearMonth } from '@/lib/hr-validation';
 
 const DEFAULT_PAGE_SIZE = 50;
 const MAX_PAGE_SIZE     = 200;
@@ -27,12 +28,15 @@ export async function GET(request: Request) {
     await requireFeature(agencyId, 'payroll', db);
     const url        = new URL(request.url);
     const employeeId = url.searchParams.get('employeeId') ?? undefined;
+    const month      = url.searchParams.get('month')      ?? undefined;
+    if (month && !isYearMonth(month)) return NextResponse.json({ error: 'الشهر غير صالح' }, { status: 400 });
     const page     = Math.max(1, parseInt(url.searchParams.get('page')  ?? '1', 10) || 1);
     const pageSize = Math.min(MAX_PAGE_SIZE, Math.max(1, parseInt(url.searchParams.get('limit') ?? String(DEFAULT_PAGE_SIZE), 10) || DEFAULT_PAGE_SIZE));
     const offset   = (page - 1) * pageSize;
 
     const conditions = [eq(salaryPayments.agencyId, agencyId)];
     if (employeeId) conditions.push(eq(salaryPayments.employeeId, employeeId));
+    if (month) conditions.push(eq(salaryPayments.month, month));
 
     const [{ total }] = await db.select({ total: count(salaryPayments.id) })
       .from(salaryPayments).where(and(...conditions));
@@ -49,7 +53,7 @@ export async function GET(request: Request) {
       pagination: { page, pageSize, total: Number(total), totalPages: Math.ceil(Number(total) / pageSize) },
     });
   } catch (err) {
-    if (err instanceof ApiAuthError) return NextResponse.json({ error: err.message }, { status: err.status });
+    if (err instanceof ApiAuthError || err instanceof BusinessError) return NextResponse.json({ error: err.message }, { status: err.status });
     return NextResponse.json({ error: 'خطأ في الخادم' }, { status: 500 });
   }
 }
@@ -58,6 +62,7 @@ export async function POST(request: Request) {
   try {
     const { uid, agencyId, role } = await verifyAuth(request);
     assertRole(role, [...ROLES_ADMIN_ONLY]);
+    await requireFeature(agencyId, 'payroll', db);
     const body = await request.json() as {
       employeeId:    string;
       amountHalalas: number;
@@ -73,8 +78,12 @@ export async function POST(request: Request) {
     if (!Number.isInteger(amountHalalas) || amountHalalas <= 0) {
       return NextResponse.json({ error: 'مبلغ الراتب غير صالح' }, { status: 400 });
     }
-    if (!/^\d{4}-\d{2}$/.test(month)) {
+    if (!isYearMonth(month)) {
       return NextResponse.json({ error: 'صيغة الشهر يجب أن تكون YYYY-MM' }, { status: 400 });
+    }
+    const paymentMethod = body.paymentMethod ?? 'bank_transfer';
+    if (!(paymentMethod in METHOD_ACCOUNT)) {
+      return NextResponse.json({ error: 'طريقة صرف الراتب غير صالحة' }, { status: 400 });
     }
 
     const result = await db.transaction(async (tx) => {
@@ -111,7 +120,10 @@ export async function POST(request: Request) {
         .from(payslips)
         .where(and(eq(payslips.employeeId, employeeId), eq(payslips.month, month), eq(payslips.agencyId, agencyId)))
         .limit(1);
-      if (slip && slip.netHalalas !== amountHalalas) {
+      if (!slip) {
+        throw new BusinessError(`يجب إنشاء واعتماد قسيمة راتب ${month} قبل الصرف`, 422);
+      }
+      if (slip.netHalalas !== amountHalalas) {
         throw new BusinessError(
           `مبلغ الصرف (${(amountHalalas / 100).toFixed(2)}) لا يطابق صافي قسيمة الراتب (${(slip.netHalalas / 100).toFixed(2)}) لشهر ${month}`,
           422,
@@ -127,8 +139,7 @@ export async function POST(request: Request) {
       const jeId   = crypto.randomUUID();
       const jeNum  = await getNextJournalNumber(agencyId, year, tx);
       const payId  = crypto.randomUUID();
-      const paymentMethod = body.paymentMethod ?? 'bank_transfer';
-      const cashAc = METHOD_ACCOUNT[paymentMethod] ?? METHOD_ACCOUNT['bank_transfer']!;
+      const cashAc = METHOD_ACCOUNT[paymentMethod]!;
 
       await tx.insert(salaryPayments).values({
         id:            payId,
@@ -164,6 +175,10 @@ export async function POST(request: Request) {
         { id: crypto.randomUUID(), entryId: jeId, agencyId, accountCode: cashAc.code,               accountNameAr: cashAc.ar,               accountNameEn: cashAc.en,               debitHalalas: 0,             creditHalalas: amountHalalas, sortOrder: 2 },
       ]);
 
+      await tx.update(payslips)
+        .set({ salaryPaymentId: payId, paymentDate: today, paymentMethod })
+        .where(and(eq(payslips.employeeId, employeeId), eq(payslips.month, month), eq(payslips.agencyId, agencyId)));
+
       return { id: payId };
     });
 
@@ -174,6 +189,9 @@ export async function POST(request: Request) {
     }
     if (err instanceof BusinessError) {
       return NextResponse.json({ error: err.message }, { status: err.status });
+    }
+    if (err && typeof err === 'object' && 'code' in err && (err as { code: string }).code === '23505') {
+      return NextResponse.json({ error: 'تم صرف راتب هذا الشهر مسبقاً' }, { status: 409 });
     }
     console.error(JSON.stringify({ event: 'salary_payment_failed', error: String(err) }));
     return NextResponse.json({ error: 'خطأ في الخادم' }, { status: 500 });

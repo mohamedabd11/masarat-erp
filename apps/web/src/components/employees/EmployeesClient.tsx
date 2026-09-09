@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef, useMemo } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useAuth } from '@masarat/firebase';
 import { apiFetch } from '@/lib/api-client';
 import { Card } from '@/components/ui/Card';
@@ -10,6 +10,7 @@ import { EmptyState } from '@/components/ui/EmptyState';
 import { Badge } from '@/components/ui/Badge';
 import { formatCurrency } from '@/lib/utils';
 import { COUNTRIES } from '@/lib/countries';
+import { AdvancesTab, ContractsTab, EndOfServiceTab } from './EmployeeLifecycleTabs';
 import {
   UserCog, Plus, Search, Phone, Mail, X, Check,
   Banknote, CalendarDays, Building2, ChevronLeft, ChevronRight,
@@ -20,7 +21,7 @@ import {
 // ─── Types ───────────────────────────────────────────────────────────────────
 
 type EmployeeRole       = 'admin' | 'manager' | 'agent' | 'accountant' | 'support';
-type EmployeeDepartment = 'management' | 'bookings' | 'accounting' | 'customer_service' | 'operations';
+type EmployeeDepartment = string;
 type LeaveType          = 'annual' | 'sick' | 'unpaid';
 type LeaveStatus        = 'pending' | 'approved' | 'rejected';
 type PaymentStatus      = 'paid' | 'unpaid';
@@ -30,18 +31,45 @@ interface Employee {
   nameAr: string;
   nameEn: string;
   role: EmployeeRole;
+  departmentId: string;
   department: EmployeeDepartment;
   phone: string;
   email: string;
   nationalId: string;
   nationality: string;
   nationalityType: 'saudi' | 'expat';
+  gosiScheme: 'legacy' | 'new' | 'expat' | 'exempt';
+  gosiEnrollmentDate: string;
+  sanedApplicable: boolean;
   joinDate: string;
   salaryHalalas: number; // monthly SAR in halalas (x100)
   isActive: boolean;
   terminatedAt?: number;
   terminationReason?: string;
   agencyId: string;
+  createdAt: string;
+}
+
+interface ApiEmployee {
+  id: string;
+  agencyId: string;
+  employeeNumber: string;
+  nameAr: string;
+  nameEn: string | null;
+  departmentId: string | null;
+  department: string | null;
+  position: string | null;
+  hireDate: string | null;
+  endDate: string | null;
+  salaryHalalas: number;
+  phone: string | null;
+  email: string | null;
+  nationalId: string | null;
+  nationalityType: 'saudi' | 'expat';
+  gosiScheme: 'legacy' | 'new' | 'expat' | 'exempt';
+  gosiEnrollmentDate: string | null;
+  sanedApplicable: boolean;
+  isActive: boolean;
   createdAt: string;
 }
 
@@ -74,8 +102,10 @@ interface LeaveRequest {
 
 interface Department {
   id: string;
+  code: string;
   nameAr: string;
-  nameEn: string;
+  nameEn: string | null;
+  isActive: boolean;
   agencyId: string;
 }
 
@@ -89,7 +119,7 @@ const ROLE_LABELS: Record<EmployeeRole, { ar: string; en: string; color: string 
   support:    { ar: 'دعم العملاء',  en: 'Support',        color: 'bg-amber-100 text-amber-700' },
 };
 
-const DEPT_LABELS: Record<EmployeeDepartment, { ar: string; en: string }> = {
+const DEPT_LABELS: Record<string, { ar: string; en: string }> = {
   management:       { ar: 'الإدارة',        en: 'Management' },
   bookings:         { ar: 'الحجوزات',       en: 'Bookings' },
   accounting:       { ar: 'المحاسبة',       en: 'Accounting' },
@@ -102,14 +132,6 @@ const LEAVE_TYPE_LABELS: Record<LeaveType, { ar: string; en: string }> = {
   sick:   { ar: 'إجازة مرضية', en: 'Sick Leave' },
   unpaid: { ar: 'إجازة بدون راتب', en: 'Unpaid Leave' },
 };
-
-const DEFAULT_DEPARTMENTS: Omit<Department, 'id' | 'agencyId'>[] = [
-  { nameAr: 'الإدارة',        nameEn: 'Management' },
-  { nameAr: 'الحجوزات',       nameEn: 'Bookings' },
-  { nameAr: 'المحاسبة',       nameEn: 'Accounting' },
-  { nameAr: 'خدمة العملاء',   nameEn: 'Customer Service' },
-  { nameAr: 'العمليات',       nameEn: 'Operations' },
-];
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -136,6 +158,61 @@ function salaryToHalalas(val: string): number {
   return Math.round(n * 100);
 }
 
+const EMPLOYEE_ROLES = new Set<EmployeeRole>(['admin', 'manager', 'agent', 'accountant', 'support']);
+function normalizeEmployee(row: ApiEmployee): Employee {
+  return {
+    id: row.id,
+    nameAr: row.nameAr,
+    nameEn: row.nameEn ?? '',
+    role: EMPLOYEE_ROLES.has(row.position as EmployeeRole) ? row.position as EmployeeRole : 'agent',
+    departmentId: row.departmentId ?? '',
+    department: row.department ?? 'operations',
+    phone: row.phone ?? '',
+    email: row.email ?? '',
+    nationalId: row.nationalId ?? '',
+    nationality: '',
+    nationalityType: row.nationalityType ?? 'saudi',
+    gosiScheme: row.gosiScheme ?? (row.nationalityType === 'expat' ? 'expat' : 'legacy'),
+    gosiEnrollmentDate: row.gosiEnrollmentDate ?? '',
+    sanedApplicable: row.sanedApplicable ?? row.nationalityType !== 'expat',
+    joinDate: row.hireDate ?? '',
+    salaryHalalas: row.salaryHalalas ?? 0,
+    isActive: row.isActive,
+    terminatedAt: row.endDate ? new Date(`${row.endDate}T00:00:00`).getTime() : undefined,
+    agencyId: row.agencyId,
+    createdAt: row.createdAt,
+  };
+}
+
+async function fetchAllPages<T>(path: string, key: string): Promise<T[]> {
+  const rows: T[] = [];
+  let page = 1;
+  let totalPages = 1;
+  do {
+    const separator = path.includes('?') ? '&' : '?';
+    const data = await apiFetch<Record<string, unknown> & { pagination?: { totalPages?: number } }>(
+      `${path}${separator}page=${page}&limit=200`,
+    );
+    const batch = data[key];
+    if (!Array.isArray(batch)) throw new Error(`Invalid paginated response for ${key}`);
+    rows.push(...batch as T[]);
+    totalPages = Math.max(1, Number(data.pagination?.totalPages ?? 1));
+    page += 1;
+  } while (page <= totalPages);
+  return rows;
+}
+
+async function fetchAllEmployees(): Promise<Employee[]> {
+  const rows = await fetchAllPages<ApiEmployee>('/api/employees', 'employees');
+  return rows.map(normalizeEmployee);
+}
+
+function localAttendanceTimestamp(date: string, time: string, addDay = false): string {
+  const [year, month, day] = date.split('-').map(Number) as [number, number, number];
+  const [hour, minute] = time.split(':').map(Number) as [number, number];
+  return new Date(year, month - 1, day + (addDay ? 1 : 0), hour, minute, 0, 0).toISOString();
+}
+
 // input class reuse
 const inputCls =
   'w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white';
@@ -145,7 +222,7 @@ const labelCls = 'block text-xs font-medium text-slate-700 mb-1';
 
 interface EmployeesClientProps { locale: string }
 
-type Tab = 'employees' | 'salaries' | 'leaves' | 'departments' | 'shifts' | 'attendance';
+type Tab = 'employees' | 'contracts' | 'salaries' | 'advances' | 'eosb' | 'leaves' | 'departments' | 'shifts' | 'attendance';
 
 export function EmployeesClient({ locale }: EmployeesClientProps) {
   const isAr = locale === 'ar';
@@ -156,7 +233,10 @@ export function EmployeesClient({ locale }: EmployeesClientProps) {
 
   const tabs: { key: Tab; label: string; icon: React.ReactNode }[] = [
     { key: 'employees',   label: isAr ? 'الموظفين'  : 'Employees',   icon: <UserCog size={16} /> },
+    { key: 'contracts',   label: isAr ? 'العقود'    : 'Contracts',   icon: <CreditCard size={16} /> },
     { key: 'salaries',    label: isAr ? 'الرواتب'   : 'Salaries',    icon: <Banknote size={16} /> },
+    { key: 'advances',    label: isAr ? 'السلف'     : 'Advances',    icon: <Banknote size={16} /> },
+    { key: 'eosb',        label: isAr ? 'نهاية الخدمة' : 'End of service', icon: <UserCheck size={16} /> },
     { key: 'leaves',      label: isAr ? 'الإجازات'  : 'Leave',        icon: <CalendarDays size={16} /> },
     { key: 'departments', label: isAr ? 'الأقسام'   : 'Departments',  icon: <Building2 size={16} /> },
     { key: 'shifts',      label: isAr ? 'الورديات'  : 'Shifts',       icon: <Clock size={16} /> },
@@ -171,7 +251,7 @@ export function EmployeesClient({ locale }: EmployeesClientProps) {
           {isAr ? 'إدارة الموارد البشرية' : 'HR Management'}
         </h1>
         <p className="text-slate-500 text-sm mt-0.5">
-          {isAr ? 'الموظفون، الرواتب، الإجازات والأقسام' : 'Employees, salaries, leaves & departments'}
+          {isAr ? 'الموظفون والعقود والرواتب والإجازات ودورة نهاية الخدمة' : 'Employees, contracts, payroll, leave, and end-of-service lifecycle'}
         </p>
       </div>
 
@@ -195,7 +275,10 @@ export function EmployeesClient({ locale }: EmployeesClientProps) {
 
       {/* Tab content */}
       {activeTab === 'employees'   && <EmployeesTab   isAr={isAr} agencyId={agencyId} locale={locale} />}
+      {activeTab === 'contracts'   && <ContractsTab   isAr={isAr} agencyId={agencyId} />}
       {activeTab === 'salaries'    && <SalariesTab    isAr={isAr} agencyId={agencyId} locale={locale} />}
+      {activeTab === 'advances'    && <AdvancesTab    isAr={isAr} agencyId={agencyId} />}
+      {activeTab === 'eosb'        && <EndOfServiceTab isAr={isAr} agencyId={agencyId} />}
       {activeTab === 'leaves'      && <LeavesTab      isAr={isAr} agencyId={agencyId} locale={locale} />}
       {activeTab === 'departments' && <DepartmentsTab isAr={isAr} agencyId={agencyId} locale={locale} />}
       {activeTab === 'shifts'      && <ShiftsTab      isAr={isAr} agencyId={agencyId} locale={locale} />}
@@ -210,17 +293,20 @@ export function EmployeesClient({ locale }: EmployeesClientProps) {
 
 interface EmployeeFormState {
   nameAr: string; nameEn: string;
-  role: EmployeeRole; department: EmployeeDepartment;
+  role: EmployeeRole; departmentId: string;
   phone: string; email: string;
   nationalId: string; nationality: string;
   nationalityType: 'saudi' | 'expat';
+  gosiScheme: 'legacy' | 'new' | 'exempt';
+  gosiEnrollmentDate: string;
+  sanedApplicable: boolean;
   joinDate: string; salary: string; // display value in SAR
 }
 
 const EMPTY_EMP_FORM: EmployeeFormState = {
-  nameAr: '', nameEn: '', role: 'agent', department: 'bookings',
+  nameAr: '', nameEn: '', role: 'agent', departmentId: '',
   phone: '', email: '', nationalId: '', nationality: '',
-  nationalityType: 'saudi',
+  nationalityType: 'saudi', gosiScheme: 'legacy', gosiEnrollmentDate: '', sanedApplicable: true,
   joinDate: '', salary: '',
 };
 
@@ -231,10 +317,11 @@ const NATIONALITY_TYPE_LABELS: Record<'saudi' | 'expat', { ar: string; en: strin
 
 function EmployeesTab({ isAr, agencyId, locale }: { isAr: boolean; agencyId: string; locale: string }) {
   const [employees, setEmployees] = useState<Employee[]>([]);
+  const [departments, setDepartments] = useState<Department[]>([]);
   const [loading, setLoading]     = useState(true);
   const [search, setSearch]       = useState('');
   const [roleFilter, setRoleFilter] = useState<EmployeeRole | 'all'>('all');
-  const [deptFilter, setDeptFilter] = useState<EmployeeDepartment | 'all'>('all');
+  const [deptFilter, setDeptFilter] = useState<string>('all');
   const [showForm, setShowForm]   = useState(false);
   const [editEmp, setEditEmp]     = useState<Employee | null>(null);
   const [form, setForm]           = useState<EmployeeFormState>(EMPTY_EMP_FORM);
@@ -244,11 +331,15 @@ function EmployeesTab({ isAr, agencyId, locale }: { isAr: boolean; agencyId: str
   useEffect(() => {
     if (!agencyId) { setLoading(false); return; }
     setLoading(true);
-    apiFetch<{ employees: Employee[] }>('/api/employees')
-      .then(data => {
-        const docs = data.employees;
+    Promise.all([
+      fetchAllEmployees(),
+      apiFetch<{ departments: Department[] }>('/api/departments'),
+    ])
+      .then(([data, departmentData]) => {
+        const docs = data;
         docs.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
         setEmployees(docs);
+        setDepartments(departmentData.departments);
         setLoading(false);
       })
       .catch(() => setLoading(false));
@@ -256,7 +347,7 @@ function EmployeesTab({ isAr, agencyId, locale }: { isAr: boolean; agencyId: str
 
   function openAdd() {
     setEditEmp(null);
-    setForm(EMPTY_EMP_FORM);
+    setForm({ ...EMPTY_EMP_FORM, departmentId: departments.find(d => d.isActive)?.id ?? '' });
     setShowForm(true);
   }
 
@@ -264,10 +355,13 @@ function EmployeesTab({ isAr, agencyId, locale }: { isAr: boolean; agencyId: str
     setEditEmp(emp);
     setForm({
       nameAr: emp.nameAr, nameEn: emp.nameEn,
-      role: emp.role, department: emp.department,
+      role: emp.role, departmentId: emp.departmentId,
       phone: emp.phone ?? '', email: emp.email ?? '',
       nationalId: emp.nationalId ?? '', nationality: emp.nationality ?? '',
       nationalityType: emp.nationalityType ?? 'saudi',
+      gosiScheme: emp.gosiScheme === 'new' || emp.gosiScheme === 'exempt' ? emp.gosiScheme : 'legacy',
+      gosiEnrollmentDate: emp.gosiEnrollmentDate,
+      sanedApplicable: emp.sanedApplicable,
       joinDate: emp.joinDate ?? '', salary: salaryDisplayValue(emp.salaryHalalas ?? 0),
     });
     setShowForm(true);
@@ -279,10 +373,14 @@ function EmployeesTab({ isAr, agencyId, locale }: { isAr: boolean; agencyId: str
     try {
       const payload = {
         nameAr: form.nameAr, nameEn: form.nameEn,
-        department: form.department,
+        departmentId: form.departmentId || undefined,
+        position: form.role,
         phone: form.phone, email: form.email,
         nationalId: form.nationalId,
         nationalityType: form.nationalityType,
+        gosiScheme: form.nationalityType === 'expat' ? 'expat' : form.gosiScheme,
+        gosiEnrollmentDate: form.gosiEnrollmentDate || form.joinDate,
+        sanedApplicable: form.nationalityType === 'saudi' && form.sanedApplicable,
         hireDate: form.joinDate,
         salaryHalalas: salaryToHalalas(form.salary),
       };
@@ -305,24 +403,6 @@ function EmployeesTab({ isAr, agencyId, locale }: { isAr: boolean; agencyId: str
     setTick(t => t + 1);
   }
 
-  async function terminateEmployee(emp: Employee) {
-    const reason = window.prompt(isAr ? 'سبب إنهاء الخدمة (اختياري):' : 'Termination reason (optional):') ?? '';
-    if (reason === null) return; // cancelled
-    if (reason === '__DELETE__') {
-      await apiFetch(`/api/employees/${emp.id}`, { method: 'DELETE' });
-    } else {
-      await apiFetch(`/api/employees/${emp.id}`, {
-        method: 'PATCH',
-        body: JSON.stringify({
-          isActive: false,
-          terminatedAt: new Date().toISOString(),
-          terminationReason: reason || (isAr ? 'إنهاء خدمة' : 'Terminated'),
-        }),
-      });
-    }
-    setTick(t => t + 1);
-  }
-
   async function deleteEmployee(emp: Employee) {
     const confirmed = window.confirm(
       isAr
@@ -341,12 +421,12 @@ function EmployeesTab({ isAr, agencyId, locale }: { isAr: boolean; agencyId: str
       || e.email?.toLowerCase().includes(search.toLowerCase())
       || e.phone?.includes(search);
     const matchRole = roleFilter === 'all' || e.role === roleFilter;
-    const matchDept = deptFilter === 'all' || e.department === deptFilter;
+    const matchDept = deptFilter === 'all' || e.departmentId === deptFilter;
     return matchSearch && matchRole && matchDept;
   });
 
   const roles: (EmployeeRole | 'all')[] = ['all', 'admin', 'manager', 'agent', 'accountant', 'support'];
-  const depts: (EmployeeDepartment | 'all')[] = ['all', 'management', 'bookings', 'accounting', 'customer_service', 'operations'];
+  const depts = departments.filter(d => d.isActive);
 
   const activeCount   = employees.filter(e => e.isActive).length;
   const inactiveCount = employees.length - activeCount;
@@ -417,10 +497,11 @@ function EmployeesTab({ isAr, agencyId, locale }: { isAr: boolean; agencyId: str
             </div>
             <div>
               <label className={labelCls}>{isAr ? 'القسم' : 'Department'}</label>
-              <select value={form.department} onChange={e => setForm(p => ({ ...p, department: e.target.value as EmployeeDepartment }))}
+              <select value={form.departmentId} onChange={e => setForm(p => ({ ...p, departmentId: e.target.value }))}
                 className={inputCls}>
-                {(Object.keys(DEPT_LABELS) as EmployeeDepartment[]).map(d => (
-                  <option key={d} value={d}>{isAr ? DEPT_LABELS[d].ar : DEPT_LABELS[d].en}</option>
+                <option value="">{isAr ? 'بدون قسم' : 'No department'}</option>
+                {departments.filter(d => d.isActive || d.id === form.departmentId).map(d => (
+                  <option key={d.id} value={d.id}>{isAr ? d.nameAr : (d.nameEn || d.nameAr)}</option>
                 ))}
               </select>
             </div>
@@ -461,10 +542,30 @@ function EmployeesTab({ isAr, agencyId, locale }: { isAr: boolean; agencyId: str
               </select>
               <p className="mt-1 text-xs text-slate-400">
                 {isAr
-                  ? 'يحدد نسبة اشتراك التأمينات؛ تُضبط النسب من الإعدادات (الافتراضي: سعودي 12% لصاحب العمل و10% للموظف — وافد 2%)'
-                  : 'Determines GOSI rates; configurable in Settings (default: Saudi 12% employer / 10% employee — Expat 2%)'}
+                  ? 'يحدد فرع التأمينات المطبق؛ الموظف الوافد يخضع للأخطار المهنية على صاحب العمل فقط.'
+                  : 'Determines the applicable GOSI branch; expatriates carry employer occupational-risk only.'}
               </p>
             </div>
+            {form.nationalityType === 'saudi' ? (
+              <>
+                <div>
+                  <label className={labelCls}>{isAr ? 'نظام التأمينات' : 'GOSI scheme'}</label>
+                  <select value={form.gosiScheme} onChange={e => setForm(p => ({ ...p, gosiScheme: e.target.value as EmployeeFormState['gosiScheme'] }))} className={inputCls}>
+                    <option value="legacy">{isAr ? 'له مدة اشتراك قبل 3 يوليو 2024' : 'Prior coverage before 3 Jul 2024'}</option>
+                    <option value="new">{isAr ? 'مشترك جديد دون مدة سابقة' : 'New entrant without prior coverage'}</option>
+                    <option value="exempt">{isAr ? 'غير مشمول' : 'Exempt'}</option>
+                  </select>
+                </div>
+                <div>
+                  <label className={labelCls}>{isAr ? 'تاريخ بدء التأمينات' : 'GOSI enrollment date'}</label>
+                  <input value={form.gosiEnrollmentDate} onChange={e => setForm(p => ({ ...p, gosiEnrollmentDate: e.target.value }))} className={inputCls} type="date" dir="ltr" />
+                </div>
+                <label className="flex items-center gap-2 text-sm text-slate-700 sm:col-span-2">
+                  <input type="checkbox" checked={form.sanedApplicable} onChange={e => setForm(p => ({ ...p, sanedApplicable: e.target.checked }))} />
+                  {isAr ? 'الموظف مشمول باشتراك ساند' : 'Employee is covered by SANED'}
+                </label>
+              </>
+            ) : null}
             <div>
               <label className={labelCls}>{isAr ? 'تاريخ الالتحاق' : 'Join Date'}</label>
               <input value={form.joinDate} onChange={e => setForm(p => ({ ...p, joinDate: e.target.value }))}
@@ -513,13 +614,17 @@ function EmployeesTab({ isAr, agencyId, locale }: { isAr: boolean; agencyId: str
           {/* Dept filter */}
           <div className="flex gap-2 flex-wrap">
             {depts.map(d => (
-              <button key={d} onClick={() => setDeptFilter(d)}
+              <button key={d.id} onClick={() => setDeptFilter(d.id)}
                 className={`px-3 py-1 rounded-lg text-xs font-medium transition-colors ${
-                  deptFilter === d ? 'bg-slate-700 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                  deptFilter === d.id ? 'bg-slate-700 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
                 }`}>
-                {d === 'all' ? (isAr ? 'كل الأقسام' : 'All Depts') : (isAr ? DEPT_LABELS[d].ar : DEPT_LABELS[d].en)}
+                {isAr ? d.nameAr : (d.nameEn || d.nameAr)}
               </button>
             ))}
+            <button onClick={() => setDeptFilter('all')}
+              className={`px-3 py-1 rounded-lg text-xs font-medium transition-colors ${deptFilter === 'all' ? 'bg-slate-700 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}>
+              {isAr ? 'كل الأقسام' : 'All Depts'}
+            </button>
           </div>
         </div>
       </Card>
@@ -561,7 +666,10 @@ function EmployeesTab({ isAr, agencyId, locale }: { isAr: boolean; agencyId: str
                 {filtered.map(emp => {
                   const name     = isAr ? emp.nameAr : (emp.nameEn || emp.nameAr);
                   const roleInfo = ROLE_LABELS[emp.role] ?? ROLE_LABELS.agent;
-                  const deptInfo = DEPT_LABELS[emp.department] ?? { ar: emp.department, en: emp.department };
+                  const department = departments.find(d => d.id === emp.departmentId);
+                  const deptInfo = department
+                    ? { ar: department.nameAr, en: department.nameEn || department.nameAr }
+                    : (DEPT_LABELS[emp.department] ?? { ar: emp.department, en: emp.department });
                   return (
                     <tr key={emp.id} className={`hover:bg-slate-50 transition-colors ${emp.isActive ? '' : 'opacity-60'}`}>
                       <td className="px-4 py-3">
@@ -610,12 +718,6 @@ function EmployeesTab({ isAr, agencyId, locale }: { isAr: boolean; agencyId: str
                             className="text-xs text-slate-500 hover:text-slate-700 font-medium">
                             {emp.isActive ? (isAr ? 'تعطيل' : 'Suspend') : (isAr ? 'تفعيل' : 'Activate')}
                           </button>
-                          {emp.isActive && (
-                            <button onClick={() => terminateEmployee(emp)}
-                              className="text-xs text-orange-500 hover:text-orange-700 font-medium">
-                              {isAr ? 'إنهاء الخدمة' : 'Terminate'}
-                            </button>
-                          )}
                           {!emp.isActive && (
                             <button onClick={() => deleteEmployee(emp)}
                               className="text-xs text-red-500 hover:text-red-700 font-medium">
@@ -636,7 +738,10 @@ function EmployeesTab({ isAr, agencyId, locale }: { isAr: boolean; agencyId: str
             {filtered.map(emp => {
               const name     = isAr ? emp.nameAr : (emp.nameEn || emp.nameAr);
               const roleInfo = ROLE_LABELS[emp.role] ?? ROLE_LABELS.agent;
-              const deptInfo = DEPT_LABELS[emp.department] ?? { ar: emp.department, en: emp.department };
+              const department = departments.find(d => d.id === emp.departmentId);
+              const deptInfo = department
+                ? { ar: department.nameAr, en: department.nameEn || department.nameAr }
+                : (DEPT_LABELS[emp.department] ?? { ar: emp.department, en: emp.department });
               return (
                 <Card key={emp.id} className={`transition-opacity ${emp.isActive ? '' : 'opacity-60'}`}>
                   <div className="flex items-start gap-3">
@@ -701,8 +806,8 @@ function SalariesTab({ isAr, agencyId, locale }: { isAr: boolean; agencyId: stri
   // Load employees once
   useEffect(() => {
     if (!agencyId) return;
-    apiFetch<{ employees: Employee[] }>('/api/employees')
-      .then(data => setEmployees(data.employees.filter(e => e.isActive)))
+    fetchAllEmployees()
+      .then(data => setEmployees(data.filter(e => e.isActive)))
       .catch(() => {});
   }, [agencyId]);
 
@@ -712,9 +817,9 @@ function SalariesTab({ isAr, agencyId, locale }: { isAr: boolean; agencyId: stri
     setLoading(true);
     Promise.all([
       apiFetch<{ payslips: Array<{ id: string; employeeId: string; baseSalaryHalalas: number; otherAllowancesHalalas: number; deductionsHalalas: number; advanceDeductionHalalas: number; gosiEmployeeHalalas: number; netHalalas: number }> }>(`/api/employees/payslips?month=${month}`),
-      apiFetch<{ salaryPayments: Array<{ employeeId: string; month: string }> }>('/api/salary-payments'),
+      fetchAllPages<{ employeeId: string; month: string }>(`/api/salary-payments?month=${month}`, 'salaryPayments'),
     ]).then(([psData, spData]) => {
-      const paidEmpIds = new Set(spData.salaryPayments.filter(p => p.month === month).map(p => p.employeeId));
+      const paidEmpIds = new Set(spData.map(p => p.employeeId));
       setPayments(psData.payslips.map(ps => ({
         id:           ps.id,
         employeeId:   ps.employeeId,
@@ -782,16 +887,6 @@ function SalariesTab({ isAr, agencyId, locale }: { isAr: boolean; agencyId: stri
       setPayments(prev => prev.map(p => p.employeeId === emp.id ? { ...p, status: 'paid' as PaymentStatus, paidAt: Date.now() } : p));
     } catch (err) {
       alert((err as Error).message);
-    } finally {
-      setActionId(null);
-    }
-  }
-
-  async function markUnpaid(pay: SalaryPayment) {
-    if (!pay.id) return;
-    setActionId(pay.employeeId);
-    try {
-      setPayments(prev => prev.map(p => p.id === pay.id ? { ...p, status: 'unpaid' as PaymentStatus, paidAt: undefined } : p));
     } finally {
       setActionId(null);
     }
@@ -952,23 +1047,19 @@ function SalariesTab({ isAr, agencyId, locale }: { isAr: boolean; agencyId: stri
                         </div>
                       ) : (
                         <div className="flex items-center gap-2">
-                          <button onClick={() => openEdit(emp, pay)}
-                            className="text-xs text-slate-500 hover:text-slate-700 font-medium">
-                            {isAr ? 'تعديل' : 'Adjust'}
-                          </button>
+                          {!pay.id && (
+                            <button onClick={() => openEdit(emp, pay)}
+                              className="text-xs text-slate-500 hover:text-slate-700 font-medium">
+                              {isAr ? 'تعديل' : 'Adjust'}
+                            </button>
+                          )}
                           {pay.status === 'unpaid' ? (
                             <Button size="sm" onClick={() => markPaid(emp, pay)}
                               disabled={actionId === emp.id}>
                               {actionId === emp.id ? <Spinner size="sm" /> : <CreditCard size={13} />}
                               {isAr ? 'صرف' : 'Mark Paid'}
                             </Button>
-                          ) : (
-                            <button onClick={() => markUnpaid(pay)}
-                              disabled={actionId === pay.employeeId}
-                              className="text-xs text-slate-400 hover:text-red-600 font-medium">
-                              {isAr ? 'إلغاء الصرف' : 'Undo'}
-                            </button>
-                          )}
+                          ) : <span className="text-xs text-slate-400">{isAr ? 'صرف مثبت' : 'Posted'}</span>}
                         </div>
                       )}
                     </td>
@@ -1008,8 +1099,8 @@ function LeavesTab({ isAr, agencyId, locale }: { isAr: boolean; agencyId: string
 
   useEffect(() => {
     if (!agencyId) { setLoading(false); return; }
-    apiFetch<{ employees: Employee[] }>('/api/employees')
-      .then(data => setEmployees(data.employees.filter(e => e.isActive)))
+    fetchAllEmployees()
+      .then(data => setEmployees(data.filter(e => e.isActive)))
       .catch(() => {});
   }, [agencyId]);
 
@@ -1024,9 +1115,9 @@ function LeavesTab({ isAr, agencyId, locale }: { isAr: boolean; agencyId: string
   useEffect(() => {
     if (!agencyId) { setLoading(false); return; }
     setLoading(true);
-    apiFetch<{ leaveRequests: Array<{ id: string; agencyId: string; employeeId: string; type: string; startDate: string; endDate: string; status: string; notes: string | null; createdAt: string }> }>('/api/leave-requests')
+    fetchAllPages<{ id: string; agencyId: string; employeeId: string; type: string; startDate: string; endDate: string; status: string; notes: string | null; createdAt: string }>('/api/leave-requests', 'leaveRequests')
       .then(data => {
-        setLeaves(data.leaveRequests.map(r => ({
+        setLeaves(data.map(r => ({
           id:           r.id,
           employeeId:   r.employeeId,
           employeeName: '',                       // resolved at render via empNameMap
@@ -1289,21 +1380,19 @@ function DepartmentsTab({ isAr, agencyId, locale }: { isAr: boolean; agencyId: s
   const [nameEn, setNameEn]           = useState('');
   const [saving, setSaving]           = useState(false);
   const [deletingId, setDeletingId]   = useState<string | null>(null);
-  const seededRef = useRef(false);
+  const [tick, setTick]               = useState(0);
 
   useEffect(() => {
     if (!agencyId) { setLoading(false); return; }
-    // departments API not yet migrated — seed from defaults
-    if (!seededRef.current) {
-      seededRef.current = true;
-      setDepartments(DEFAULT_DEPARTMENTS.map((def, i) => ({ ...def, id: String(i), agencyId })));
-    }
-    setLoading(false);
-    // Fetch employees for counts
-    apiFetch<{ employees: Employee[] }>('/api/employees')
-      .then(data => setEmployees(data.employees.filter(e => e.isActive)))
-      .catch(() => {});
-  }, [agencyId]);
+    setLoading(true);
+    Promise.all([
+      apiFetch<{ departments: Department[] }>('/api/departments'),
+      fetchAllEmployees(),
+    ]).then(([departmentData, employeeData]) => {
+      setDepartments(departmentData.departments);
+      setEmployees(employeeData.filter(e => e.isActive));
+    }).finally(() => setLoading(false));
+  }, [agencyId, tick]);
 
   function openAdd() {
     setEditDept(null);
@@ -1315,7 +1404,7 @@ function DepartmentsTab({ isAr, agencyId, locale }: { isAr: boolean; agencyId: s
   function openEdit(dept: Department) {
     setEditDept(dept);
     setNameAr(dept.nameAr);
-    setNameEn(dept.nameEn);
+    setNameEn(dept.nameEn ?? '');
     setShowForm(true);
   }
 
@@ -1323,17 +1412,20 @@ function DepartmentsTab({ isAr, agencyId, locale }: { isAr: boolean; agencyId: s
     if (!nameAr) return;
     setSaving(true);
     try {
-      // departments API not yet migrated — optimistic local update
       if (editDept) {
-        setDepartments(prev => prev.map(d => d.id === editDept.id ? { ...d, nameAr, nameEn } : d));
+        await apiFetch(`/api/departments/${editDept.id}`, {
+          method: 'PATCH', body: JSON.stringify({ nameAr, nameEn }),
+        });
       } else {
-        const newDept: Department = { id: crypto.randomUUID(), nameAr, nameEn, agencyId };
-        setDepartments(prev => [...prev, newDept]);
+        await apiFetch('/api/departments', {
+          method: 'POST', body: JSON.stringify({ nameAr, nameEn }),
+        });
       }
       setShowForm(false);
       setEditDept(null);
       setNameAr('');
       setNameEn('');
+      setTick(value => value + 1);
     } finally {
       setSaving(false);
     }
@@ -1342,24 +1434,15 @@ function DepartmentsTab({ isAr, agencyId, locale }: { isAr: boolean; agencyId: s
   async function handleDelete(dept: Department) {
     setDeletingId(dept.id);
     try {
-      setDepartments(prev => prev.filter(d => d.id !== dept.id));
+      await apiFetch(`/api/departments/${dept.id}`, { method: 'DELETE' });
+      setTick(value => value + 1);
     } finally {
       setDeletingId(null);
     }
   }
 
-  // Map departments to Firestore department keys for employee counts
-  // We match department name against DEPT_LABELS or by nameAr
   function empCountForDept(dept: Department): number {
-    const key = (Object.keys(DEPT_LABELS) as EmployeeDepartment[]).find(k =>
-      DEPT_LABELS[k].ar === dept.nameAr || DEPT_LABELS[k].en === dept.nameEn
-    );
-    if (key) return employees.filter(e => e.department === key).length;
-    // fallback: match by nameAr in employee's department label
-    return employees.filter(e => {
-      const info = DEPT_LABELS[e.department];
-      return info?.ar === dept.nameAr || info?.en === dept.nameEn;
-    }).length;
+    return employees.filter(e => e.departmentId === dept.id).length;
   }
 
   return (
@@ -1652,7 +1735,7 @@ function AttendanceTab({ isAr, agencyId, locale }: { isAr: boolean; agencyId: st
 
   useEffect(() => {
     if (!agencyId) return;
-    apiFetch<{ employees: Employee[] }>('/api/employees').then(d => setEmpList(d.employees)).catch(() => {});
+    fetchAllEmployees().then(setEmpList).catch(() => {});
   }, [agencyId]);
 
   useEffect(() => {
@@ -1683,8 +1766,8 @@ function AttendanceTab({ isAr, agencyId, locale }: { isAr: boolean; agencyId: st
     setSaving(true);
     try {
       const payload: Record<string, unknown> = { employeeId: fEmpId, date: fDate, status: fStatus, notes: fNotes || undefined };
-      if (fIn)  payload['checkIn']  = `${fDate}T${fIn}:00`;
-      if (fOut) payload['checkOut'] = `${fDate}T${fOut}:00`;
+      if (fIn) payload['checkIn'] = localAttendanceTimestamp(fDate, fIn);
+      if (fOut) payload['checkOut'] = localAttendanceTimestamp(fDate, fOut, !!fIn && fOut <= fIn);
       await apiFetch('/api/employees/attendance', { method: 'POST', body: JSON.stringify(payload) });
       const q = new URLSearchParams({ month: filterMonth });
       if (filterEmp) q.set('employeeId', filterEmp);

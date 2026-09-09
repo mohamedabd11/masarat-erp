@@ -6,12 +6,14 @@
 import { NextResponse } from 'next/server';
 import { eq, and } from 'drizzle-orm';
 import { db } from '@/lib/db';
-import { leaveBalances, employeeContracts } from '@/lib/schema';
-import { verifyAuth, ApiAuthError } from '@/lib/api-auth';
+import { leaveBalances, employeeContracts, employees } from '@/lib/schema';
+import { verifyAuth, ApiAuthError, BusinessError } from '@/lib/api-auth';
+import { requireFeature } from '@/lib/feature-access';
 
 export async function GET(request: Request) {
   try {
     const { agencyId } = await verifyAuth(request);
+    await requireFeature(agencyId, 'leave_management', db);
     const url        = new URL(request.url);
     const employeeId = url.searchParams.get('employeeId');
     const year       = parseInt(url.searchParams.get('year') ?? String(new Date().getFullYear()), 10);
@@ -19,6 +21,14 @@ export async function GET(request: Request) {
     if (!employeeId) {
       return NextResponse.json({ error: 'employeeId مطلوب' }, { status: 400 });
     }
+    if (!Number.isInteger(year) || year < 1900 || year > 2100) {
+      return NextResponse.json({ error: 'السنة غير صالحة' }, { status: 400 });
+    }
+
+    const [employee] = await db.select({ id: employees.id }).from(employees)
+      .where(and(eq(employees.id, employeeId), eq(employees.agencyId, agencyId)))
+      .limit(1);
+    if (!employee) return NextResponse.json({ error: 'الموظف غير موجود' }, { status: 404 });
 
     const [bal] = await db
       .select()
@@ -65,7 +75,7 @@ export async function GET(request: Request) {
       },
     });
   } catch (err) {
-    if (err instanceof ApiAuthError) return NextResponse.json({ error: err.message }, { status: err.status });
+    if (err instanceof ApiAuthError || err instanceof BusinessError) return NextResponse.json({ error: err.message }, { status: err.status });
     return NextResponse.json({ error: 'خطأ في الخادم' }, { status: 500 });
   }
 }

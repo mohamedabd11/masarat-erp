@@ -43,6 +43,13 @@
       "when": 1787938907374,
       "tag": "0005_runtime_invariant_indexes",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1788938465670,
+      "tag": "0006_registered_schema_completion",
+      "breakpoints": true
     }
   ]
 }

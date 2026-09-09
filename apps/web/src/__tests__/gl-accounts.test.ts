@@ -36,6 +36,10 @@ describe('GL asset accounts (1xxx)', () => {
     expect(GL.prepaidExpenses.code).toBe('1130');
   });
 
+  it('GL.employeeAdvances.code === "1140"', () => {
+    expect(GL.employeeAdvances.code).toBe('1140');
+  });
+
   it('GL.inputVat.code === "1230"', () => {
     expect(GL.inputVat.code).toBe('1230');
   });
@@ -85,12 +89,21 @@ describe('GL liability accounts (2xxx)', () => {
     expect(GL.salariesPayable.code.startsWith('2')).toBe(true);
   });
 
+  it('GL.payrollDeductionsPayable.code === "2390"', () => {
+    expect(GL.payrollDeductionsPayable.code).toBe('2390');
+  });
+
   it('GL.gosiPayable.code === "2400"', () => {
     expect(GL.gosiPayable.code).toBe('2400');
   });
 
   it('GL.eosbProvision.code === "2500"', () => {
     expect(GL.eosbProvision.code).toBe('2500');
+  });
+
+  it('uses a separate EOSB payable account after settlement approval', () => {
+    expect(GL.eosbPayable.code).toBe('2510');
+    expect(GL.eosbPayable.code).not.toBe(GL.eosbProvision.code);
   });
 });
 

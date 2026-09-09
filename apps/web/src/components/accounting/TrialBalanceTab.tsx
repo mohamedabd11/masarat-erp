@@ -5,6 +5,7 @@ import { apiFetch } from '@/lib/api-client';
 import { Card } from '@/components/ui/Card';
 import { formatCurrency } from '@/lib/utils';
 import { cn } from '@/lib/utils';
+import { totalTrialBalanceRows } from '@/lib/trial-balance-totals';
 import { CheckCircle2, AlertCircle, ChevronDown, ChevronRight, Loader2 } from 'lucide-react';
 import {
   rollupTrialBalance,
@@ -131,6 +132,7 @@ export function TrialBalanceTab({ locale }: { locale: string }) {
   const grandTotalDebit = data?.grandTotalDebit  ?? 0;
   const grandTotalCredit= data?.grandTotalCredit ?? 0;
   const isBalanced      = data?.isBalanced       ?? true;
+  const balanceTotals = useMemo(() => totalTrialBalanceRows(directRows), [directRows]);
 
   return (
     <div className="space-y-5">
@@ -328,8 +330,8 @@ export function TrialBalanceTab({ locale }: { locale: string }) {
                   </td>
                   <td className="px-3 py-3.5 text-end text-sm font-black tabular-nums font-mono text-slate-900">{formatCurrency(grandTotalDebit,  fmtLocale)}</td>
                   <td className="px-3 py-3.5 text-end text-sm font-black tabular-nums font-mono text-slate-900">{formatCurrency(grandTotalCredit, fmtLocale)}</td>
-                  <td className={cn('px-3 py-3.5 text-end text-sm font-black tabular-nums font-mono', isBalanced ? 'text-brand-700' : 'text-red-600')}>{formatCurrency(grandTotalDebit,  fmtLocale)}</td>
-                  <td className={cn('pe-5 px-3 py-3.5 text-end text-sm font-black tabular-nums font-mono', isBalanced ? 'text-brand-700' : 'text-red-600')}>{formatCurrency(grandTotalCredit, fmtLocale)}</td>
+                  <td className={cn('px-3 py-3.5 text-end text-sm font-black tabular-nums font-mono', isBalanced ? 'text-brand-700' : 'text-red-600')}>{formatCurrency(balanceTotals.balanceDebit, fmtLocale)}</td>
+                  <td className={cn('pe-5 px-3 py-3.5 text-end text-sm font-black tabular-nums font-mono', isBalanced ? 'text-brand-700' : 'text-red-600')}>{formatCurrency(balanceTotals.balanceCredit, fmtLocale)}</td>
                 </tr>
               </tfoot>
             </table>

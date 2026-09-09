@@ -9,6 +9,7 @@ import { formatCurrency, formatCount } from '@/lib/utils';
 import { cn } from '@/lib/utils';
 import { apiFetch } from '@/lib/api-client';
 import { useReportsData, type MonthlyRow, type TypeMixRow } from '@/hooks/useReportsData';
+import { dashboardCsvRows } from '@/lib/reports-dashboard-model';
 import { useChartOfAccounts, type ChartAccountWithBalance as ChartAccount } from '@/hooks/useChartOfAccounts';
 import { useIncomeStatement } from '@/hooks/useIncomeStatement';
 import { ArAgingTab } from '@/components/reports/ArAgingTab';
@@ -25,7 +26,7 @@ import {
   FileText, CheckCircle2, AlertCircle, Printer,
   ChevronDown, ChevronRight, Receipt, Wallet,
   Building2, Scale, ListTree, Stamp, Calendar,
-  PieChart, Users, ChevronLeft,
+  PieChart, ChevronLeft,
 } from 'lucide-react';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -34,7 +35,6 @@ interface VatDateRange {
   from: string;
   to: string;
 }
-
 interface VatReturnData {
   period: { from: string; to: string };
   sales: { count: number; netAmount: number; vatAmount: number; grossAmount: number };
@@ -157,12 +157,12 @@ function YearNav({ year, setYear, isAr }: { year: number; setYear: (y: number) =
   const currentYear = new Date().getFullYear();
   return (
     <div className="flex items-center gap-1">
-      <button onClick={() => setYear(year - 1)}
+      <button onClick={() => setYear(year - 1)} aria-label={isAr ? 'السنة السابقة' : 'Previous year'}
         className="p-1 rounded hover:bg-slate-100 text-slate-500 transition-colors">
         <ChevronLeft size={16} />
       </button>
       <span className="text-sm font-semibold text-slate-700 w-14 text-center tabular-nums">{year}</span>
-      <button onClick={() => setYear(year + 1)} disabled={year >= currentYear}
+      <button onClick={() => setYear(year + 1)} disabled={year >= currentYear} aria-label={isAr ? 'السنة التالية' : 'Next year'}
         className="p-1 rounded hover:bg-slate-100 text-slate-500 transition-colors disabled:opacity-30">
         <ChevronRight size={16} />
       </button>
@@ -172,164 +172,112 @@ function YearNav({ year, setYear, isAr }: { year: number; setYear: (y: number) =
 
 // ─── Overview Tab ─────────────────────────────────────────────────────────────
 
-function OverviewTab({ monthly, typeMix, loading, year, setYear, isAr, fmtLocale }: {
-  monthly: MonthlyRow[]; typeMix: TypeMixRow[]; loading: boolean;
+function ReportLoadError({ isAr }: { isAr: boolean }) {
+  return <Card><p role="alert" className="text-sm text-red-700 text-center py-8">
+    {isAr ? 'تعذّر تحميل التقرير. لم تُعرض أرقام صفرية بديلة؛ أعد المحاولة.' : 'Report failed to load. No substitute zero values were shown; please retry.'}
+  </p></Card>;
+}
+
+function OverviewTab({ monthly, typeMix, loading, error, period, year, setYear, isAr, fmtLocale }: {
+  monthly: MonthlyRow[]; typeMix: TypeMixRow[]; loading: boolean; error: boolean;
+  period: { from: string; to: string } | null;
   year: number; setYear: (y: number) => void; isAr: boolean; fmtLocale: string;
 }) {
-  const totalRev  = monthly.reduce((s, m) => s + m.rev, 0);
-  const totalCost = monthly.reduce((s, m) => s + m.cost, 0);
-  const totalVat  = monthly.reduce((s, m) => s + m.vat, 0);
+  const totalRev = monthly.reduce((s, m) => s + m.rev, 0);
+  const totalVat = monthly.reduce((s, m) => s + m.vat, 0);
   const totalBook = monthly.reduce((s, m) => s + m.bookings, 0);
-  const maxRev    = Math.max(...monthly.map(m => m.rev), 1);
-
+  const totalDocs = monthly.reduce((s, m) => s + m.documents, 0);
+  const totalRevenue = monthly.reduce((s, m) => s + m.revenue, 0);
+  const totalExpenses = monthly.reduce((s, m) => s + m.expenses, 0);
+  const totalNet = monthly.reduce((s, m) => s + m.netIncome, 0);
+  const maxRev = Math.max(...monthly.map(m => Math.abs(m.rev)), 1);
   if (loading) return <LoadingPane />;
-
+  if (error) return <ReportLoadError isAr={isAr} />;
   return (
     <div className="space-y-6">
-      {/* KPIs */}
+      {period && <p className="text-xs text-slate-500">
+        {isAr ? `الفترة حتى ${period.to} · الحجوزات بتاريخ إنشائها، والفواتير بتاريخ إصدارها، والربح بتاريخ القيد`
+          : `Through ${period.to} · booking creation, invoice issue, and journal dates`}
+      </p>}
       <div className="grid grid-cols-2 xl:grid-cols-4 gap-4">
         <KpiCard icon={<TrendingUp size={20} />} iconBg="bg-brand-50" iconColor="text-brand-600"
-          label={isAr ? 'حجم الأعمال' : 'Gross Bookings'}
-          value={formatCurrency(totalRev, fmtLocale)}
-          sub={isAr ? 'إجمالي فواتير العملاء قبل الضريبة' : 'Gross customer invoices excl. VAT'} />
+          label={isAr ? 'صافي الفواتير قبل الضريبة' : 'Net Invoices excl. VAT'} value={formatCurrency(totalRev, fmtLocale)}
+          sub={isAr ? `${formatCount(totalDocs, fmtLocale)} مستند بعد الإشعارات` : `${formatCount(totalDocs, fmtLocale)} documents after notes`} />
         <KpiCard icon={<BarChart3 size={20} />} iconBg="bg-sky-50" iconColor="text-sky-600"
-          label={isAr ? 'إجمالي الحجوزات' : 'Total Bookings'}
-          value={formatCount(totalBook, fmtLocale)}
-          sub={isAr ? 'جميع الخدمات' : 'All services'} />
-        <KpiCard icon={<Wallet size={20} />} iconBg="bg-emerald-50" iconColor="text-emerald-600"
-          label={isAr ? 'إجمالي الربح الإجمالي' : 'Gross Profit'}
-          value={totalRev > 0 ? formatCurrency(totalRev - totalCost, fmtLocale) : '—'}
-          sub={totalRev > 0 ? `${Math.round(((totalRev - totalCost) / totalRev) * 100)}% ${isAr ? 'هامش' : 'margin'}` : undefined} />
+          label={isAr ? 'إجمالي الحجوزات' : 'Total Bookings'} value={formatCount(totalBook, fmtLocale)}
+          sub={isAr ? 'عمليات الحجز وليست مستندات الفوترة' : 'Booking records, not invoice documents'} />
+        <KpiCard icon={<Wallet size={20} />} iconBg={totalNet >= 0 ? 'bg-emerald-50' : 'bg-red-50'}
+          iconColor={totalNet >= 0 ? 'text-emerald-600' : 'text-red-600'}
+          label={isAr ? 'صافي الربح / الخسارة' : 'Net Profit / Loss'} value={formatCurrency(totalNet, fmtLocale)}
+          sub={isAr ? 'من القيود المحاسبية المرحلة' : 'From posted accounting journals'} />
         <KpiCard icon={<Receipt size={20} />} iconBg="bg-amber-50" iconColor="text-amber-600"
-          label={isAr ? 'ضريبة محصّلة' : 'VAT Collected'}
-          value={formatCurrency(totalVat, fmtLocale)}
-          sub={isAr ? 'صافي المستحق لهيئة الزكاة' : 'Net due to ZATCA'} />
+          label={isAr ? 'صافي ضريبة الفواتير' : 'Net Invoice VAT'} value={formatCurrency(totalVat, fmtLocale)}
+          sub={isAr ? 'بعد الإشعارات وقبل خصم ضريبة المدخلات' : 'After notes, before input VAT'} />
       </div>
-
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-        {/* Monthly bar chart */}
         <Card>
           <div className="flex items-center justify-between mb-5">
-            <h2 className="text-base font-semibold text-slate-900">{isAr ? 'حجم الأعمال الشهري' : 'Monthly Gross Bookings'}</h2>
+            <h2 className="text-base font-semibold text-slate-900">{isAr ? 'صافي الفواتير الشهري' : 'Monthly Net Invoices'}</h2>
             <YearNav year={year} setYear={setYear} isAr={isAr} />
           </div>
-          {monthly.length === 0 ? (
-            <p className="text-sm text-slate-400 text-center py-8">{isAr ? 'لا توجد بيانات لهذه السنة' : 'No data for this year'}</p>
-          ) : (
-            <div className="space-y-3.5">
-              {monthly.map(m => {
-                const widthPct = Math.round((m.rev / maxRev) * 100);
-                const profitPct = m.rev > 0 ? Math.round(((m.rev - m.cost) / m.rev) * 100) : 0;
-                return (
-                  <div key={m.month} className="flex items-center gap-3">
-                    <span className="w-12 text-xs text-slate-500 flex-shrink-0 text-end font-medium">
-                      {isAr ? m.nameAr : m.nameEn}
-                    </span>
-                    <div className="flex-1 bg-slate-100 rounded-full h-7 overflow-hidden relative">
-                      <div
-                        className="h-full bg-gradient-to-r from-brand-600 to-brand-400 rounded-full flex items-center justify-end pe-3 transition-all duration-700"
-                        style={{ width: `${widthPct}%` }}
-                      >
-                        <span className="text-xs font-semibold text-white whitespace-nowrap">
-                          {m.bookings} {isAr ? 'حجز' : 'bk'}
-                        </span>
-                      </div>
-                    </div>
-                    <div className="w-32 flex-shrink-0">
-                      <p className="text-xs font-bold text-slate-900 tabular-nums">{formatCurrency(m.rev, fmtLocale)}</p>
-                      {m.cost > 0 && <p className="text-[10px] text-emerald-600 font-medium">+{profitPct}% {isAr ? 'هامش' : 'margin'}</p>}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </Card>
-
-        {/* Service type mix */}
-        <Card>
-          <div className="flex items-center justify-between mb-5">
-            <h2 className="text-base font-semibold text-slate-900">{isAr ? 'توزيع الحجوزات حسب الخدمة' : 'Bookings by Service Type'}</h2>
-          </div>
-          {typeMix.length === 0 ? (
-            <p className="text-sm text-slate-400 text-center py-8">{isAr ? 'لا توجد حجوزات بعد' : 'No bookings yet'}</p>
-          ) : (
-            <div className="space-y-3">
-              {typeMix.map(t => (
-                <div key={t.type}>
-                  <div className="flex items-center justify-between text-sm mb-1.5">
-                    <span className="flex items-center gap-2 font-medium text-slate-700">
-                      <span className={cn('w-2 h-2 rounded-full flex-shrink-0', t.dot)} />
-                      {isAr ? t.nameAr : t.nameEn}
-                    </span>
-                    <div className="flex items-center gap-3">
-                      <span className="text-xs font-bold tabular-nums text-slate-900">{formatCount(t.count, fmtLocale)}</span>
-                      <span className="text-xs text-slate-400 w-8 text-end">{t.pct}%</span>
-                    </div>
-                  </div>
-                  <div className="w-full bg-slate-100 rounded-full h-2">
-                    <div className={cn('h-2 rounded-full transition-all duration-700', t.color)} style={{ width: `${t.pct}%` }} />
+          {monthly.length === 0 ? <p className="text-sm text-slate-400 text-center py-8">{isAr ? 'لا توجد حركة لهذه السنة' : 'No activity for this year'}</p> :
+            <div className="space-y-3.5">{monthly.map(m => {
+              const widthPct = Math.round(Math.abs(m.rev) / maxRev * 100);
+              return <div key={m.month} className="flex items-center gap-3">
+                <span className="w-12 text-xs text-slate-500 flex-shrink-0 text-end font-medium">{isAr ? m.nameAr : m.nameEn}</span>
+                <div className="flex-1 bg-slate-100 rounded-full h-7 overflow-hidden relative">
+                  <div className={cn('h-full rounded-full flex items-center justify-end pe-3 transition-all duration-700',
+                    m.rev < 0 ? 'bg-red-500' : 'bg-brand-500')} style={{ width: `${widthPct}%` }}>
+                    {widthPct > 18 && <span className="text-xs font-semibold text-white whitespace-nowrap">{m.documents} {isAr ? 'مستند' : 'docs'}</span>}
                   </div>
                 </div>
-              ))}
-            </div>
-          )}
-          <div className="mt-5 pt-4 border-t border-surface-border flex items-center justify-between">
-            <span className="text-sm font-bold text-slate-900">{isAr ? 'الإجمالي' : 'Total'}</span>
-            <span className="text-sm font-bold text-brand-700 tabular-nums">{formatCount(totalBook, fmtLocale)} {isAr ? 'حجز' : 'bookings'}</span>
+                <div className="w-32 flex-shrink-0 text-end">
+                  <p className="text-xs font-bold text-slate-900 tabular-nums">{formatCurrency(m.rev, fmtLocale)}</p>
+                  <p className={cn('text-[10px] font-medium', m.netIncome < 0 ? 'text-red-600' : 'text-emerald-600')}>
+                    {isAr ? 'صافي الربح: ' : 'Net: '}{formatCurrency(m.netIncome, fmtLocale)}
+                  </p>
+                </div>
+              </div>;
+            })}</div>}
+        </Card>
+        <Card>
+          <h2 className="text-base font-semibold text-slate-900 mb-5">{isAr ? 'توزيع الحجوزات حسب الخدمة' : 'Bookings by Service Type'}</h2>
+          {typeMix.length === 0 ? <p className="text-sm text-slate-400 text-center py-8">{isAr ? 'لا توجد حجوزات بعد' : 'No bookings yet'}</p> :
+            <div className="space-y-3">{typeMix.map(t => <div key={t.type}>
+              <div className="flex items-center justify-between text-sm mb-1.5">
+                <span className="flex items-center gap-2 font-medium text-slate-700"><span className={cn('w-2 h-2 rounded-full', t.dot)} />{isAr ? t.nameAr : t.nameEn}</span>
+                <span className="text-xs font-bold tabular-nums text-slate-900">{formatCount(t.count, fmtLocale)} · {t.pct}%</span>
+              </div>
+              <div className="w-full bg-slate-100 rounded-full h-2"><div className={cn('h-2 rounded-full', t.color)} style={{ width: `${t.pct}%` }} /></div>
+            </div>)}</div>}
+          <div className="mt-5 pt-4 border-t border-surface-border flex justify-between text-sm font-bold">
+            <span>{isAr ? 'الإجمالي' : 'Total'}</span><span className="text-brand-700">{formatCount(totalBook, fmtLocale)} {isAr ? 'حجز' : 'bookings'}</span>
           </div>
         </Card>
       </div>
-
-      {/* Detailed monthly table */}
       <Card padding="none">
         <div className="px-6 py-4 border-b border-surface-border flex items-center justify-between">
           <h2 className="text-base font-semibold text-slate-900">{isAr ? 'التقرير الشهري التفصيلي' : 'Detailed Monthly Report'}</h2>
           <YearNav year={year} setYear={setYear} isAr={isAr} />
         </div>
-        {monthly.length === 0 ? (
-          <p className="text-sm text-slate-400 text-center py-12">{isAr ? 'لا توجد فواتير لهذه السنة' : 'No invoices for this year'}</p>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="bg-slate-50 border-b border-surface-border">
-                  {[
-                    { label: isAr ? 'الشهر' : 'Month',                  align: 'start ps-6' },
-                    { label: isAr ? 'الحجوزات' : 'Bookings',            align: 'end' },
-                    { label: isAr ? 'حجم الأعمال (قبل الضريبة)' : 'Gross Bookings (excl. VAT)', align: 'end' },
-                    { label: isAr ? 'الإجمالي' : 'Grand Total',          align: 'end' },
-                    { label: isAr ? 'ضريبة VAT' : 'VAT',                align: 'end pe-6' },
-                  ].map((col, i) => (
-                    <th key={i} className={`text-${col.align} py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider`}>
-                      {col.label}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-surface-border">
-                {monthly.map(m => (
-                  <tr key={m.month} className="hover:bg-slate-50/60 transition-colors">
-                    <td className="ps-6 py-3.5 font-semibold text-slate-900">{isAr ? m.nameAr : m.nameEn}</td>
-                    <td className="py-3.5 text-end text-slate-700 tabular-nums">{formatCount(m.bookings, fmtLocale)}</td>
-                    <td className="py-3.5 text-end font-mono tabular-nums text-slate-800">{formatCurrency(m.rev, fmtLocale)}</td>
-                    <td className="py-3.5 text-end font-mono tabular-nums text-slate-700">{formatCurrency(m.grandTotal, fmtLocale)}</td>
-                    <td className="pe-6 py-3.5 text-end font-mono tabular-nums text-amber-700">{formatCurrency(m.vat, fmtLocale)}</td>
-                  </tr>
-                ))}
-              </tbody>
-              <tfoot>
-                <tr className="border-t-2 border-slate-300 bg-slate-50">
-                  <td className="ps-6 py-3.5 font-bold text-slate-900">{isAr ? 'الإجمالي' : 'Total'}</td>
-                  <td className="py-3.5 text-end font-bold text-slate-900 tabular-nums">{formatCount(totalBook, fmtLocale)}</td>
-                  <td className="py-3.5 text-end font-bold font-mono tabular-nums text-brand-700">{formatCurrency(totalRev, fmtLocale)}</td>
-                  <td className="py-3.5 text-end font-bold font-mono tabular-nums text-slate-800">{formatCurrency(monthly.reduce((s, m) => s + m.grandTotal, 0), fmtLocale)}</td>
-                  <td className="pe-6 py-3.5 text-end font-bold font-mono tabular-nums text-amber-700">{formatCurrency(totalVat, fmtLocale)}</td>
-                </tr>
-              </tfoot>
-            </table>
-          </div>
-        )}
+        {monthly.length === 0 ? <p className="text-sm text-slate-400 text-center py-12">{isAr ? 'لا توجد حركة لهذه السنة' : 'No activity for this year'}</p> :
+          <div className="overflow-x-auto"><table className="w-full text-sm whitespace-nowrap">
+            <thead><tr className="bg-slate-50 border-b border-surface-border">
+              {(isAr ? ['الشهر','الحجوزات','مستندات الفوترة','صافي الفواتير','ضريبة الفواتير','الإيرادات المحاسبية','المصروفات','صافي الربح / الخسارة']
+                : ['Month','Bookings','Invoice docs','Net invoices','Invoice VAT','Accounting revenue','Expenses','Net profit / loss'])
+                .map((label, i) => <th key={label} className={cn('py-3 px-3 text-xs font-semibold text-slate-500', i ? 'text-end' : 'text-start ps-6')}>{label}</th>)}
+            </tr></thead>
+            <tbody className="divide-y divide-surface-border">{monthly.map(m => <tr key={m.month}>
+              <td className="ps-6 py-3 font-semibold">{isAr ? m.nameAr : m.nameEn}</td>
+              <td className="px-3 py-3 text-end">{formatCount(m.bookings, fmtLocale)}</td><td className="px-3 py-3 text-end">{formatCount(m.documents, fmtLocale)}</td>
+              {[m.rev,m.vat,m.revenue,m.expenses,m.netIncome].map((value, i) => <td key={i} className={cn('px-3 py-3 text-end font-mono', i === 4 && (value < 0 ? 'text-red-700' : 'text-emerald-700'))}>{formatCurrency(value, fmtLocale)}</td>)}
+            </tr>)}</tbody>
+            <tfoot><tr className="border-t-2 border-slate-300 bg-slate-50 font-bold">
+              <td className="ps-6 py-3">{isAr ? 'الإجمالي' : 'Total'}</td>
+              <td className="px-3 py-3 text-end">{formatCount(totalBook, fmtLocale)}</td><td className="px-3 py-3 text-end">{formatCount(totalDocs, fmtLocale)}</td>
+              {[totalRev,totalVat,totalRevenue,totalExpenses,totalNet].map((value, i) => <td key={i} className="px-3 py-3 text-end font-mono">{formatCurrency(value, fmtLocale)}</td>)}
+            </tr></tfoot>
+          </table></div>}
       </Card>
     </div>
   );
@@ -353,9 +301,9 @@ function IncomeStatementTab({ accounts, isAr, fmtLocale }: { accounts: ChartAcco
     totalRevenue, totalExpense,
     grossProfit, netProfit,
     grossMargin, netMargin,
-    loading, year, quarter, setYear, setQuarter,
+    loading, error, year, quarter, setYear, setQuarter,
     fromDate, toDate,
-  } = useIncomeStatement(accounts);
+  } = useIncomeStatement();
   const [reportDepth, setReportDepth] = useState<CoaReportDepth>(3);
   const { revenueLines, expenseLines } = useMemo(() => {
     const knownCodes = new Set(accounts.map(account => account.code));
@@ -399,6 +347,7 @@ function IncomeStatementTab({ accounts, isAr, fmtLocale }: { accounts: ChartAcco
   })();
 
   if (loading) return <LoadingPane />;
+  if (error) return <ReportLoadError isAr={isAr} />;
 
   return (
     <div className="space-y-5">
@@ -412,10 +361,12 @@ function IncomeStatementTab({ accounts, isAr, fmtLocale }: { accounts: ChartAcco
           {QUARTER_OPTS.map(q => (
             <button key={q.value}
               onClick={() => setQuarter(q.value)}
+              disabled={q.value > 0 && new Date(Date.UTC(year, (q.value - 1) * 3, 1)) > new Date()}
               className={cn('px-3 py-1.5 rounded-lg text-xs font-bold transition-colors',
                 quarter === q.value
                   ? 'bg-brand-600 text-white'
-                  : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50')}>
+                  : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50',
+                'disabled:opacity-30 disabled:cursor-not-allowed')}>
               {isAr ? q.ar : q.en}
             </button>
           ))}
@@ -980,107 +931,75 @@ function BalanceSheetTab({ accounts, loadingAccounts, isAr, fmtLocale }: {
 
 // ─── Profitability Tab ────────────────────────────────────────────────────────
 
-function ProfitabilityTab({ monthly, typeMix, loading, isAr, fmtLocale }: {
-  monthly: MonthlyRow[]; typeMix: TypeMixRow[]; loading: boolean;
+
+// ─── Booking Profitability Tab ────────────────────────────────────────────────
+
+function ProfitabilityTab({ monthly, typeMix, loading, error, isAr, fmtLocale }: {
+  monthly: MonthlyRow[]; typeMix: TypeMixRow[]; loading: boolean; error: boolean;
   isAr: boolean; fmtLocale: string;
 }) {
-  const totalRev  = monthly.reduce((s, m) => s + m.rev, 0);
-  const totalVat  = monthly.reduce((s, m) => s + m.vat, 0);
-  const maxRev    = Math.max(...monthly.map(m => m.rev), 1);
-
+  const totalRev = monthly.reduce((s, m) => s + m.rev, 0);
+  const totalVat = monthly.reduce((s, m) => s + m.vat, 0);
+  const totalRevenue = monthly.reduce((s, m) => s + m.revenue, 0);
+  const totalExpenses = monthly.reduce((s, m) => s + m.expenses, 0);
+  const totalNet = monthly.reduce((s, m) => s + m.netIncome, 0);
+  const maxNet = Math.max(...monthly.map(m => Math.abs(m.netIncome)), 1);
   if (loading) return <LoadingPane />;
-
+  if (error) return <ReportLoadError isAr={isAr} />;
   return (
     <div className="space-y-6">
-      {/* KPIs */}
       <div className="grid grid-cols-2 xl:grid-cols-4 gap-4">
         <KpiCard icon={<TrendingUp size={20} />} iconBg="bg-brand-50" iconColor="text-brand-600"
-          label={isAr ? 'حجم الأعمال' : 'Gross Bookings'} value={formatCurrency(totalRev, fmtLocale)} />
+          label={isAr ? 'صافي الفواتير قبل الضريبة' : 'Net Invoices excl. VAT'} value={formatCurrency(totalRev, fmtLocale)} />
         <KpiCard icon={<Receipt size={20} />} iconBg="bg-amber-50" iconColor="text-amber-600"
-          label={isAr ? 'ضريبة محصّلة' : 'VAT Collected'} value={formatCurrency(totalVat, fmtLocale)} />
-        <KpiCard icon={<Wallet size={20} />} iconBg="bg-emerald-50" iconColor="text-emerald-600"
-          label={isAr ? 'عدد الخدمات' : 'Service Types'} value={typeMix.length} />
-        <KpiCard icon={<Users size={20} />} iconBg="bg-purple-50" iconColor="text-purple-600"
-          label={isAr ? 'عدد الأنواع' : 'Service Types'} value={typeMix.length} />
+          label={isAr ? 'صافي ضريبة الفواتير' : 'Net Invoice VAT'} value={formatCurrency(totalVat, fmtLocale)} />
+        <KpiCard icon={<Wallet size={20} />} iconBg="bg-sky-50" iconColor="text-sky-600"
+          label={isAr ? 'الإيرادات المحاسبية' : 'Accounting Revenue'} value={formatCurrency(totalRevenue, fmtLocale)} />
+        <KpiCard icon={<Scale size={20} />} iconBg={totalNet >= 0 ? 'bg-emerald-50' : 'bg-red-50'}
+          iconColor={totalNet >= 0 ? 'text-emerald-600' : 'text-red-600'}
+          label={isAr ? 'صافي الربح / الخسارة' : 'Net Profit / Loss'} value={formatCurrency(totalNet, fmtLocale)}
+          sub={isAr ? `المصروفات: ${formatCurrency(totalExpenses, fmtLocale)}` : `Expenses: ${formatCurrency(totalExpenses, fmtLocale)}`} />
       </div>
-
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-        {/* By Service (from real typeMix data) */}
         <Card>
           <h2 className="text-base font-semibold text-slate-900 mb-5">{isAr ? 'الحجوزات حسب الخدمة' : 'Bookings by Service'}</h2>
-          {typeMix.length === 0 ? (
-            <p className="text-sm text-slate-400 text-center py-8">{isAr ? 'لا توجد حجوزات بعد' : 'No bookings yet'}</p>
-          ) : (
-            <div className="space-y-4">
-              {typeMix.map(t => {
-                const maxCount = Math.max(...typeMix.map(x => x.count), 1);
-                const barW = Math.round((t.count / maxCount) * 100);
-                return (
-                  <div key={t.type}>
-                    <div className="flex items-center justify-between mb-1">
-                      <div className="flex items-center gap-2">
-                        <span className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${t.dot}`} />
-                        <span className="text-sm font-semibold text-slate-800">{isAr ? t.nameAr : t.nameEn}</span>
-                      </div>
-                      <div className="text-end flex-shrink-0">
-                        <span className="text-sm font-bold tabular-nums text-slate-900 block">{formatCount(t.count, fmtLocale)} {isAr ? 'حجز' : 'bk'}</span>
-                        <span className="text-xs text-slate-400">{t.pct}%</span>
-                      </div>
-                    </div>
-                    <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
-                      <div className={`h-full ${t.color} rounded-full transition-all duration-700`} style={{ width: `${barW}%` }} />
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
+          {typeMix.length === 0 ? <p className="text-sm text-slate-400 text-center py-8">{isAr ? 'لا توجد حجوزات بعد' : 'No bookings yet'}</p> :
+            <div className="space-y-4">{typeMix.map(t => {
+              const maxCount = Math.max(...typeMix.map(x => x.count), 1);
+              return <div key={t.type}>
+                <div className="flex items-center justify-between mb-1">
+                  <span className="flex items-center gap-2 text-sm font-semibold"><span className={cn('w-2.5 h-2.5 rounded-full', t.dot)} />{isAr ? t.nameAr : t.nameEn}</span>
+                  <span className="text-sm font-bold">{formatCount(t.count, fmtLocale)} {isAr ? 'حجز' : 'bk'} · {t.pct}%</span>
+                </div>
+                <div className="h-2 bg-slate-100 rounded-full overflow-hidden"><div className={cn('h-full rounded-full', t.color)} style={{ width: `${Math.round(t.count / maxCount * 100)}%` }} /></div>
+              </div>;
+            })}</div>}
         </Card>
-
-        {/* Bookings by agent — empty state until real data exists */}
         <Card>
-          <h2 className="text-base font-semibold text-slate-900 mb-4">{isAr ? 'أداء الموظفين' : 'Agent Performance'}</h2>
-          <p className="text-sm text-slate-400 text-center py-8">{isAr ? 'ستظهر البيانات بعد إضافة حجوزات' : 'Data will appear after adding bookings'}</p>
+          <h2 className="text-base font-semibold text-slate-900 mb-4">{isAr ? 'أداء الموظفين' : 'Employee Performance'}</h2>
+          <p className="text-sm text-slate-400 text-center py-8">{isAr ? 'يُختبر ويُستكمل في مرحلة الموظفين المخصصة' : 'Covered in the dedicated employee audit stage'}</p>
         </Card>
       </div>
-
-      {/* Monthly trend (real data) */}
-      {monthly.length > 0 && (
-        <Card>
-          <div className="flex items-center justify-between mb-5">
-            <h2 className="text-base font-semibold text-slate-900">{isAr ? 'الاتجاه الشهري — الإيرادات' : 'Monthly Revenue Trend'}</h2>
-          </div>
-          <div className="space-y-3">
-            {monthly.map(m => {
-              const revW = Math.round((m.rev / maxRev) * 100);
-              return (
-                <div key={m.month} className="grid grid-cols-[80px_1fr_120px] gap-3 items-center">
-                  <span className="text-xs font-medium text-slate-500 text-end">{isAr ? m.nameAr : m.nameEn}</span>
-                  <div className="relative h-8 bg-slate-100 rounded-lg overflow-hidden">
-                    <div className="absolute inset-y-0 start-0 bg-brand-500/20 rounded-lg transition-all" style={{ width: `${revW}%` }} />
-                    <div className="absolute inset-y-0 start-0 bg-brand-600 rounded-lg transition-all h-1.5 top-1/2 -translate-y-1/2 ms-1" style={{ width: `${revW}%` }} />
-                  </div>
-                  <div className="text-end">
-                    <p className="text-xs font-bold tabular-nums text-slate-900">{formatCurrency(m.rev, fmtLocale)}</p>
-                    <p className="text-[10px] text-slate-400">{m.bookings} {isAr ? 'حجز' : 'bk'}</p>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </Card>
-      )}
-
-      {/* Top Customers — empty state until real data exists */}
-      <Card>
-        <h2 className="text-base font-semibold text-slate-900 mb-4">{isAr ? 'أفضل العملاء' : 'Top Customers'}</h2>
-        <p className="text-sm text-slate-400 text-center py-8">{isAr ? 'ستظهر البيانات بعد إضافة حجوزات' : 'Data will appear after adding bookings'}</p>
-      </Card>
+      {monthly.length > 0 && <Card>
+        <div className="flex items-center justify-between mb-5">
+          <h2 className="text-base font-semibold text-slate-900">{isAr ? 'الاتجاه الشهري — صافي الربح / الخسارة' : 'Monthly Net Profit / Loss'}</h2>
+        </div>
+        <div className="space-y-3">{monthly.map(m => {
+          const width = Math.round(Math.abs(m.netIncome) / maxNet * 100);
+          return <div key={m.month} className="grid grid-cols-[80px_1fr_120px] gap-3 items-center">
+            <span className="text-xs font-medium text-slate-500 text-end">{isAr ? m.nameAr : m.nameEn}</span>
+            <div className="relative h-8 bg-slate-100 rounded-lg overflow-hidden">
+              <div className={cn('absolute inset-y-0 start-0 rounded-lg', m.netIncome < 0 ? 'bg-red-500/20' : 'bg-emerald-500/20')} style={{ width: `${width}%` }} />
+              <div className={cn('absolute start-0 h-1.5 top-1/2 -translate-y-1/2 ms-1 rounded-lg', m.netIncome < 0 ? 'bg-red-600' : 'bg-emerald-600')} style={{ width: `${width}%` }} />
+            </div>
+            <div className="text-end"><p className={cn('text-xs font-bold tabular-nums', m.netIncome < 0 ? 'text-red-700' : 'text-emerald-700')}>{formatCurrency(m.netIncome, fmtLocale)}</p>
+              <p className="text-[10px] text-slate-400">{isAr ? 'من القيود المرحلة' : 'posted journals'}</p></div>
+          </div>;
+        })}</div>
+      </Card>}
     </div>
   );
 }
-
-// ─── Booking Profitability Tab ────────────────────────────────────────────────
 
 interface ProfitRow {
   groupKey:     string;
@@ -1662,7 +1581,7 @@ export default function ReportsPage() {
   const { user } = useAuth();
   const agencyId = (user?.agencyId as string | undefined) ?? null;
 
-  const { monthly, typeMix, loading: loadingReports, year, setYear } = useReportsData(agencyId);
+  const { monthly, typeMix, loading: loadingReports, error: reportsError, period: reportsPeriod, year, setYear } = useReportsData(agencyId);
   const { accounts, loading: loadingAccounts } = useChartOfAccounts();
 
   const [activeTab, setActiveTab]   = useState<TabId>('overview');
@@ -1675,10 +1594,8 @@ export default function ReportsPage() {
     void (async () => {
       try {
         if (activeTab === 'overview') {
-          downloadCSV([
-            ['الشهر', 'الحجوزات', 'الإيرادات (ر.س)', 'الضريبة (ر.س)', 'الإجمالي (ر.س)'],
-            ...monthly.map(m => [m.nameAr, m.bookings, m.rev / 100, m.vat / 100, m.grandTotal / 100]),
-          ], `النظرة-العامة-${year}.csv`);
+          if (!reportsPeriod || reportsError) throw new Error('Report unavailable');
+          downloadCSV(dashboardCsvRows(monthly, reportsPeriod, isAr), `النظرة-العامة-${year}.csv`);
         } else if (activeTab === 'trial') {
           const d = await apiFetch<{ rows?: { code: string; nameAr: string; totalDebit: number; totalCredit: number }[] }>(`/api/accounting/trial-balance?asOf=${stamp}`);
           if (!d.rows) return;
@@ -1706,12 +1623,12 @@ export default function ReportsPage() {
             ...rows.map(a => [label[a.type] ?? a.type, a.code, a.nameAr, a.balanceHalalas / 100]),
           ], `الميزانية-العمومية-${stamp}.csv`);
         } else if (activeTab === 'profit') {
+          if (!reportsPeriod || reportsError) throw new Error('Report unavailable');
           downloadCSV([
-            ['الشهر', 'الحجوزات', 'الإيرادات (ر.س)', 'الضريبة (ر.س)'],
-            ...monthly.map(m => [m.nameAr, m.bookings, m.rev / 100, m.vat / 100]),
+            ...dashboardCsvRows(monthly, reportsPeriod, isAr),
             [],
-            ['الخدمة', 'عدد الحجوزات', 'النسبة %'],
-            ...typeMix.map(t => [t.nameAr, t.count, t.pct]),
+            [isAr ? 'الخدمة' : 'Service', isAr ? 'عدد الحجوزات' : 'Bookings', isAr ? 'النسبة %' : 'Percent %'],
+            ...typeMix.map(t => [isAr ? t.nameAr : t.nameEn, t.count, t.pct]),
           ], `تحليل-الربحية-${year}.csv`);
         } else if (activeTab === 'booking-profit') {
           const d = await apiFetch<{ rows: { label?: string; groupKey?: string; bookingCount: number; totalRevenue: number; totalCost: number; totalProfit: number; marginPct: number }[] }>(`/api/reports/booking-profitability?groupBy=serviceType`);
@@ -1852,7 +1769,7 @@ export default function ReportsPage() {
 
         {activeTab === 'overview' && (
           <OverviewTab monthly={monthly} typeMix={typeMix} loading={loadingReports}
-            year={year} setYear={setYear} isAr={isAr} fmtLocale={fmtLocale} />
+            error={reportsError} period={reportsPeriod} year={year} setYear={setYear} isAr={isAr} fmtLocale={fmtLocale} />
         )}
         {activeTab === 'trial' && (
           <TrialBalanceTab locale={locale} />
@@ -1867,7 +1784,7 @@ export default function ReportsPage() {
           <BalanceSheetTab accounts={accounts} loadingAccounts={loadingAccounts} isAr={isAr} fmtLocale={fmtLocale} />
         )}
         {activeTab === 'profit' && (
-          <ProfitabilityTab monthly={monthly} typeMix={typeMix} loading={loadingReports} isAr={isAr} fmtLocale={fmtLocale} />
+          <ProfitabilityTab monthly={monthly} typeMix={typeMix} loading={loadingReports} error={reportsError} isAr={isAr} fmtLocale={fmtLocale} />
         )}
         {activeTab === 'booking-profit' && (
           <BookingProfitabilityTab isAr={isAr} fmtLocale={fmtLocale} />

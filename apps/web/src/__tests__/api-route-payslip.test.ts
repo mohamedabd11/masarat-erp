@@ -1,9 +1,9 @@
 /**
  * Unit tests for POST /api/employees/payslips
  *
- * Covers the server-side GOSI computation (Saudi 2024 reform) and the
+ * Covers the server-side, effective-dated GOSI computation and the
  * negative-net guard introduced after the payroll wiring audit:
- *   - Saudi employee: employer 12% + employee 10% of (base + housing)
+ *   - Legacy Saudi employee: employer 11.75% + employee 9.75%
  *   - Expat employee: employer 2%, employee 0%
  *   - net < 0 (deductions + GOSI exceed gross) is rejected (422)
  *   - missing/invalid base salary is rejected (400)
@@ -68,7 +68,9 @@ vi.mock('@/lib/gl-accounts', () => ({
     salaryExpense:   { code: '6100', ar: 'رواتب',        en: 'Salary' },
     gosiExpense:     { code: '6200', ar: 'تأمينات',      en: 'GOSI Employer' },
     salariesPayable: { code: '2310', ar: 'رواتب مستحقة', en: 'Salaries Payable' },
+    payrollDeductionsPayable: { code: '2390', ar: 'استقطاعات', en: 'Deductions Payable' },
     gosiPayable:     { code: '2400', ar: 'تأمينات مستحقة', en: 'GOSI Payable' },
+    employeeAdvances:{ code: '1140', ar: 'سلف', en: 'Employee Advances' },
   },
 }));
 
@@ -76,13 +78,24 @@ vi.mock('drizzle-orm', () => ({
   eq:   vi.fn(() => ({})),
   and:  vi.fn((...a: unknown[]) => ({ a })),
   desc: vi.fn(() => ({})),
+  gte:  vi.fn(() => ({})),
+  lte:  vi.fn(() => ({})),
+  isNull: vi.fn(() => ({})),
+  or:   vi.fn((...a: unknown[]) => ({ a })),
+  sql:  vi.fn(() => ({})),
 }));
 
 vi.mock('@/lib/schema', () => ({
   payslips:       { id: 'id', agencyId: 'agencyId', employeeId: 'employeeId', month: 'month' },
-  employees:      { id: 'id', agencyId: 'agencyId', nameAr: 'nameAr', nationalityType: 'nationalityType' },
+  employees:      { id: 'id', agencyId: 'agencyId', nameAr: 'nameAr', nationalityType: 'nationalityType', hireDate: 'hireDate', endDate: 'endDate', isActive: 'isActive', gosiScheme: 'gosiScheme', gosiEnrollmentDate: 'gosiEnrollmentDate', sanedApplicable: 'sanedApplicable' },
+  employeeContracts: {
+    agencyId: 'agencyId', employeeId: 'employeeId', status: 'status', startDate: 'startDate', endDate: 'endDate',
+    baseSalaryHalalas: 'baseSalaryHalalas', housingAllowanceHalalas: 'housingAllowanceHalalas',
+    transportAllowanceHalalas: 'transportAllowanceHalalas', otherAllowancesHalalas: 'otherAllowancesHalalas',
+  },
   salaryAdvances: { id: 'id', agencyId: 'agencyId', employeeId: 'employeeId', deductFrom: 'deductFrom', status: 'status', amountHalalas: 'amountHalalas' },
-  agencies:       { id: 'id', gosiEmployerRateSaudi: 'x', gosiEmployeeRateSaudi: 'y', gosiEmployerRateExpat: 'z' },
+  salaryAdvanceInstallments: { id: 'id', agencyId: 'agencyId', employeeId: 'employeeId', advanceId: 'advanceId', dueMonth: 'dueMonth', status: 'status', amountHalalas: 'amountHalalas' },
+  gosiRatePeriods: { effectiveFrom: 'effectiveFrom' },
   journalEntries: {},
   journalLines:   {},
 }));
@@ -129,15 +142,21 @@ function makeRequest(body: unknown): Request {
 }
 
 const ADMIN = { uid: 'u1', agencyId: 'a1', role: 'admin' };
-const AGENCY_RATES = { gosiEmployerRateSaudi: 1200, gosiEmployeeRateSaudi: 1000, gosiEmployerRateExpat: 200 };
+const RATE_PERIODS = [
+  { scheme: 'legacy', effectiveFrom: '2022-01-01', pensionEmployeeRateBps: 900, pensionEmployerRateBps: 900, sanedEmployeeRateBps: 75, sanedEmployerRateBps: 75, occupationalEmployerRateBps: 200 },
+  { scheme: 'new', effectiveFrom: '2024-07-03', pensionEmployeeRateBps: 900, pensionEmployerRateBps: 900, sanedEmployeeRateBps: 75, sanedEmployerRateBps: 75, occupationalEmployerRateBps: 200 },
+  { scheme: 'expat', effectiveFrom: '2022-01-01', pensionEmployeeRateBps: 0, pensionEmployerRateBps: 0, sanedEmployeeRateBps: 0, sanedEmployerRateBps: 0, occupationalEmployerRateBps: 200 },
+];
 
 // Seed the four reads the route performs before the transaction, in order:
-//   1. duplicate-payslip check  2. pending advances  3. employee  4. agency rates
+//   1. duplicate-payslip check  2. pending installments  3. employee
+//   4. effective GOSI rates  5. active contract
 function seedReads(employee: Record<string, unknown>, advances: unknown[] = []) {
   mockTxSelect.next([]);          // no duplicate payslip
   mockTxSelect.next(advances);    // pending advances
-  mockTxSelect.next([employee]);  // employee
-  mockTxSelect.next([AGENCY_RATES]); // agency GOSI rates
+  mockTxSelect.next([{ hireDate: '2020-01-01', endDate: null, isActive: true, gosiScheme: 'legacy', gosiEnrollmentDate: '2020-01-01', sanedApplicable: true, ...employee }]);
+  mockTxSelect.next(RATE_PERIODS);
+  mockTxSelect.next([]);          // no active contract — use request salary components
 }
 
 describe('POST /api/employees/payslips — server-side GOSI + negative-net guard', () => {
@@ -150,15 +169,15 @@ describe('POST /api/employees/payslips — server-side GOSI + negative-net guard
     mockAssertPeriodOpen.mockResolvedValue(undefined);
   });
 
-  it('200 — موظف سعودي: تأمينات صاحب العمل 12% والموظف 10% من الأساس', async () => {
+  it('200 — موظف سعودي بالنظام السابق: 11.75% على صاحب العمل و9.75% على الموظف', async () => {
     // base = 10,000.00 SAR = 1,000,000 halalas
     seedReads({ id: 'e1', nameAr: 'أحمد', nationalityType: 'saudi' });
     const res = await POST(makeRequest({ employeeId: 'e1', month: '2025-01', baseSalaryHalalas: 1_000_000 }));
     expect(res.status).toBe(200);
     const data = await res.json();
     expect(data.success).toBe(true);
-    expect(data.gosiEmployer).toBe(120_000);      // 12% of 1,000,000
-    expect(data.netHalalas).toBe(900_000);        // gross − employee GOSI (10% = 100,000)
+    expect(data.gosiEmployer).toBe(117_500);
+    expect(data.netHalalas).toBe(902_500);
   });
 
   it('200 — موظف وافد: تأمينات صاحب العمل 2% فقط والموظف 0%', async () => {
@@ -178,8 +197,8 @@ describe('POST /api/employees/payslips — server-side GOSI + negative-net guard
     }));
     expect(res.status).toBe(200);
     const data = await res.json();
-    expect(data.gosiEmployer).toBe(120_000);      // 12% of (800,000 + 200,000)
-    expect(data.netHalalas).toBe(900_000);        // 1,000,000 gross − 100,000 employee GOSI
+    expect(data.gosiEmployer).toBe(117_500);
+    expect(data.netHalalas).toBe(902_500);
   });
 
   it('422 — يرفض صافي راتب سالب (الخصومات + التأمينات تتجاوز الإجمالي)', async () => {
@@ -190,7 +209,7 @@ describe('POST /api/employees/payslips — server-side GOSI + negative-net guard
     }));
     expect(res.status).toBe(422);
     const data = await res.json();
-    expect(data.error).toMatch(/سالب/);
+    expect(data.error).toMatch(/نصف الأجر/);
   });
 
   it('400 — يرفض راتباً أساسياً غير موجب', async () => {

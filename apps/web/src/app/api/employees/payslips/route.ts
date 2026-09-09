@@ -1,13 +1,16 @@
 import { NextResponse } from 'next/server';
-import { eq, and, desc } from 'drizzle-orm';
+import { eq, and, desc, gte, isNull, lte, or, sql } from 'drizzle-orm';
 import { db } from '@/lib/db';
-import { payslips, employees, salaryAdvances, employeeContracts, journalEntries, journalLines, agencies } from '@/lib/schema';
+import { payslips, employees, salaryAdvances, salaryAdvanceInstallments, employeeContracts, journalEntries, journalLines, gosiRatePeriods } from '@/lib/schema';
 import { verifyAuth, assertRole, ApiAuthError, BusinessError, ROLES_ADMIN_ONLY } from '@/lib/api-auth';
 import { requireFeature } from '@/lib/feature-access';
 import { logAudit } from '@/lib/audit';
 import { getNextJournalNumber } from '@/lib/invoice-counter';
 import { assertPeriodOpen } from '@/lib/period-lock';
 import { GL } from '@/lib/gl-accounts';
+import { isIsoDate, isYearMonth, monthEnd, monthStart } from '@/lib/hr-validation';
+import { buildPayrollJournal } from '@/lib/payroll-journal';
+import { calculateGosi, type GosiScheme } from '@/lib/gosi';
 
 export async function GET(request: Request) {
   try {
@@ -55,8 +58,11 @@ export async function POST(request: Request) {
     if (!body.employeeId || !body.month) {
       return NextResponse.json({ error: 'employeeId و month مطلوبان' }, { status: 400 });
     }
-    if (!/^\d{4}-\d{2}$/.test(body.month)) {
+    if (!isYearMonth(body.month)) {
       return NextResponse.json({ error: 'صيغة الشهر يجب أن تكون YYYY-MM' }, { status: 400 });
+    }
+    if (body.paymentDate && !isIsoDate(body.paymentDate)) {
+      return NextResponse.json({ error: 'تاريخ صرف الراتب غير صالح' }, { status: 400 });
     }
     // Guard every monetary input: must be a non-negative integer (halalas).
     // baseSalaryHalalas must additionally be strictly positive.
@@ -82,54 +88,91 @@ export async function POST(request: Request) {
       .limit(1);
     if (existing) return NextResponse.json({ error: `قسيمة الراتب لشهر ${body.month} موجودة مسبقاً` }, { status: 409 });
 
-    // Auto-include advance deductions for this month
-    const pendingAdvances = await db.select({ id: salaryAdvances.id, amountHalalas: salaryAdvances.amountHalalas })
-      .from(salaryAdvances)
+    // Auto-include only installments due in this month, never the full advance.
+    const pendingInstallments = await db.select({
+      id: salaryAdvanceInstallments.id,
+      advanceId: salaryAdvanceInstallments.advanceId,
+      amountHalalas: salaryAdvanceInstallments.amountHalalas,
+    })
+      .from(salaryAdvanceInstallments)
       .where(and(
-        eq(salaryAdvances.employeeId, body.employeeId),
-        eq(salaryAdvances.deductFrom, body.month),
-        eq(salaryAdvances.status, 'paid'),
-        eq(salaryAdvances.agencyId, agencyId),
+        eq(salaryAdvanceInstallments.employeeId, body.employeeId),
+        eq(salaryAdvanceInstallments.dueMonth, body.month),
+        eq(salaryAdvanceInstallments.status, 'pending'),
+        eq(salaryAdvanceInstallments.agencyId, agencyId),
       ));
-    const advanceDeduction = pendingAdvances.reduce((s, a) => s + a.amountHalalas, 0);
+    const advanceDeduction = pendingInstallments.reduce((s, row) => s + row.amountHalalas, 0);
 
-    // Fetch employee (validates it exists) and agency GOSI rates in parallel
-    const [[employee], [agency]] = await Promise.all([
-      db.select({ id: employees.id, nameAr: employees.nameAr, nationalityType: employees.nationalityType })
+    // Fetch employee, effective GOSI rate periods, and active contract in parallel.
+    const periodStart = monthStart(body.month);
+    const periodEnd = monthEnd(body.month);
+    const [[employee], ratePeriods, [contract]] = await Promise.all([
+      db.select({ id: employees.id, nameAr: employees.nameAr, nationalityType: employees.nationalityType,
+        hireDate: employees.hireDate, endDate: employees.endDate, isActive: employees.isActive,
+        gosiScheme: employees.gosiScheme, gosiEnrollmentDate: employees.gosiEnrollmentDate,
+        sanedApplicable: employees.sanedApplicable })
         .from(employees)
         .where(and(eq(employees.id, body.employeeId), eq(employees.agencyId, agencyId)))
         .limit(1),
+      db.select().from(gosiRatePeriods).where(lte(gosiRatePeriods.effectiveFrom, periodEnd)),
       db.select({
-          gosiEmployerRateSaudi: agencies.gosiEmployerRateSaudi,
-          gosiEmployeeRateSaudi: agencies.gosiEmployeeRateSaudi,
-          gosiEmployerRateExpat: agencies.gosiEmployerRateExpat,
+          baseSalaryHalalas: employeeContracts.baseSalaryHalalas,
+          housingAllowanceHalalas: employeeContracts.housingAllowanceHalalas,
+          transportAllowanceHalalas: employeeContracts.transportAllowanceHalalas,
+          otherAllowancesHalalas: employeeContracts.otherAllowancesHalalas,
         })
-        .from(agencies)
-        .where(eq(agencies.id, agencyId))
+        .from(employeeContracts)
+        .where(and(
+          eq(employeeContracts.agencyId, agencyId),
+          eq(employeeContracts.employeeId, body.employeeId),
+          eq(employeeContracts.status, 'active'),
+          lte(employeeContracts.startDate, periodEnd),
+          or(isNull(employeeContracts.endDate), gte(employeeContracts.endDate, periodStart)),
+        ))
+        .orderBy(desc(employeeContracts.startDate))
         .limit(1),
     ]);
     if (!employee) return NextResponse.json({ error: 'الموظف غير موجود' }, { status: 404 });
+    if (employee.hireDate && employee.hireDate > periodEnd) {
+      return NextResponse.json({ error: 'لا يمكن إنشاء راتب قبل تاريخ تعيين الموظف' }, { status: 422 });
+    }
+    if (employee.endDate && employee.endDate < periodStart) {
+      return NextResponse.json({ error: 'لا يمكن إنشاء راتب بعد انتهاء خدمة الموظف' }, { status: 422 });
+    }
 
-    const base      = body.baseSalaryHalalas;
-    const housing   = body.housingAllowanceHalalas   ?? 0;
-    const transport = body.transportAllowanceHalalas ?? 0;
-    const other     = body.otherAllowancesHalalas    ?? 0;
+    const base      = contract?.baseSalaryHalalas ?? body.baseSalaryHalalas;
+    const housing   = contract?.housingAllowanceHalalas ?? body.housingAllowanceHalalas ?? 0;
+    const transport = contract?.transportAllowanceHalalas ?? body.transportAllowanceHalalas ?? 0;
+    const other     = (contract?.otherAllowancesHalalas ?? 0) + (body.otherAllowancesHalalas ?? 0);
     const gross     = base + housing + transport + other;
     const deduct    = body.deductionsHalalas ?? 0;
 
-    // Compute GOSI server-side from agency-configured rates (basis points × 100).
-    // GOSI contributory wage (الأجر الخاضع) = basic + housing, capped at the
-    // statutory ceiling of 45,000 SAR/month (GOSI Law). Without this cap a
-    // high earner would over-contribute, overstating GOSI payable/expense and
-    // understating net pay.
-    const GOSI_CEILING_HALALAS = 45_000 * 100; // 45,000 SAR
-    const gosiBase         = Math.min(base + housing, GOSI_CEILING_HALALAS);
-    const isExpat          = (employee.nationalityType ?? 'saudi') === 'expat';
-    const empRateBps       = isExpat ? 0 : (agency?.gosiEmployeeRateSaudi ?? 1000);
-    const emplrRateBps     = isExpat ? (agency?.gosiEmployerRateExpat ?? 200) : (agency?.gosiEmployerRateSaudi ?? 1200);
-    const gosiEmployee     = Math.round(gosiBase * empRateBps   / 10000);
-    const gosiEmployer     = Math.round(gosiBase * emplrRateBps / 10000);
+    const scheme = (employee.nationalityType === 'expat' ? 'expat' : employee.gosiScheme) as GosiScheme;
+    const insuranceStart = employee.gosiEnrollmentDate ?? employee.hireDate;
+    if (scheme !== 'exempt' && (!insuranceStart || insuranceStart > periodEnd)) {
+      return NextResponse.json({ error: 'يجب تسجيل تاريخ بدء التأمينات للموظف قبل إنشاء قسيمة الراتب' }, { status: 422 });
+    }
+    let gosi;
+    try {
+      gosi = calculateGosi({
+        contributoryWageHalalas: base + housing,
+        scheme,
+        asOfDate: periodEnd,
+        sanedApplicable: employee.sanedApplicable,
+        periods: ratePeriods,
+      });
+    } catch {
+      return NextResponse.json({ error: 'لا توجد نسبة تأمينات نافذة لهذا الموظف في شهر الراتب' }, { status: 422 });
+    }
+    const gosiEmployee = gosi.employeeHalalas;
+    const gosiEmployer = gosi.employerHalalas;
     const net              = gross - deduct - advanceDeduction - gosiEmployee;
+
+    // Article 93 guard: ordinary total payroll deductions may not exceed half
+    // the due wage. Court-authorised exceptions require a separate workflow.
+    if (deduct + advanceDeduction + gosiEmployee > Math.floor(gross / 2)) {
+      return NextResponse.json({ error: 'إجمالي الخصومات يتجاوز نصف الأجر المستحق لهذا الشهر' }, { status: 422 });
+    }
 
     // Negative net is rejected outright. Allowing it would force netPayable to be
     // clamped to 0 while the residual-balancing block below still credits the full
@@ -146,9 +189,9 @@ export async function POST(request: Request) {
     const jeId  = crypto.randomUUID();
     const year  = Number(body.month.slice(0, 4));
     const mm    = body.month.slice(5, 7);
-    const today = body.paymentDate ?? `${body.month}-01`;
+    const today = periodEnd;
 
-    // ── GL journal entry (IAS 19) ───────────────────────────────────────────
+    // ── Payroll accrual journal ──────────────────────────────────────────────
     //  Dr 6100 Salary Expense         (gross)
     //  Dr 6200 GOSI Expense - Employer (employerGosi)        [only if > 0]
     //     Cr 2310 Salaries Payable     (net = gross - employeeGosi - deductions - advances)
@@ -156,34 +199,14 @@ export async function POST(request: Request) {
     //  Other deductions/advances reduce the cash settled to the employee, so they
     //  are netted into Salaries Payable here (the actual cash-out is recorded when
     //  the salary payment is made).
-    const netPayable = Math.max(0, net);
-    const totalGosi  = gosiEmployer + gosiEmployee;
-
-    type JLine = { code: string; ar: string; en: string; dr: number; cr: number };
-    const ln = (ac: { code: string; ar: string; en: string }, dr: number, cr: number): JLine =>
-      ({ code: ac.code, ar: ac.ar, en: ac.en, dr, cr });
-
-    const jLines: JLine[] = [ln(GL.salaryExpense, gross, 0)];
-    if (gosiEmployer > 0) jLines.push(ln(GL.gosiExpense, gosiEmployer, 0));
-    jLines.push(ln(GL.salariesPayable, 0, netPayable));
-    if (totalGosi > 0)    jLines.push(ln(GL.gosiPayable, 0, totalGosi));
-    // Balance any residual (other deductions / advances) into salaries payable so
-    // the entry always balances: total debits === total credits.
-    const totalDr = jLines.reduce((s, l) => s + l.dr, 0);
-    const totalCr = jLines.reduce((s, l) => s + l.cr, 0);
-    if (totalDr !== totalCr) {
-      // residual deductions (advances + manual deductions) credited to salaries payable
-      const payableLine = jLines.find((l) => l.code === GL.salariesPayable.code)!;
-      payableLine.cr += (totalDr - totalCr);
-    }
-    // Defensive invariant: the entry must balance and never carry a negative credit.
-    // With net >= 0 enforced above this always holds; the guard catches future regressions.
-    const balancedDr = jLines.reduce((s, l) => s + l.dr, 0);
-    const balancedCr = jLines.reduce((s, l) => s + l.cr, 0);
-    const payableLine = jLines.find((l) => l.code === GL.salariesPayable.code)!;
-    if (balancedDr !== balancedCr || payableLine.cr < 0) {
-      return NextResponse.json({ error: 'تعذّر توليد قيد رواتب متوازن' }, { status: 500 });
-    }
+    const payrollJournal = buildPayrollJournal({
+      grossHalalas: gross,
+      employeeGosiHalalas: gosiEmployee,
+      employerGosiHalalas: gosiEmployer,
+      manualDeductionsHalalas: deduct,
+      advanceDeductionHalalas: advanceDeduction,
+    });
+    const netPayable = payrollJournal.netHalalas;
 
     await db.transaction(async (tx) => {
       // Block posting the payroll journal into a closed accounting period.
@@ -194,7 +217,7 @@ export async function POST(request: Request) {
         agencyId,
         employeeId:               body.employeeId,
         month:                    body.month,
-        salaryPaymentId:          body.salaryPaymentId ?? null,
+        salaryPaymentId:          null,
         baseSalaryHalalas:        base,
         housingAllowanceHalalas:  housing,
         transportAllowanceHalalas: transport,
@@ -204,6 +227,10 @@ export async function POST(request: Request) {
         advanceDeductionHalalas:  advanceDeduction,
         gosiEmployeeHalalas:      gosiEmployee,
         gosiEmployerHalalas:      gosiEmployer,
+        gosiContributoryWageHalalas: gosi.contributoryWageHalalas,
+        gosiEmployeeRateBps:      gosi.employeeRateBps,
+        gosiEmployerRateBps:      gosi.employerRateBps,
+        gosiScheme:               gosi.scheme,
         netHalalas:               netPayable,
         components:               (body.components ?? null) as never,
         paymentDate:              body.paymentDate  ?? null,
@@ -221,37 +248,61 @@ export async function POST(request: Request) {
         source:             'salary',
         sourceId:           id,
         isPosted:           true,
-        totalDebitHalalas:  jLines.reduce((s, l) => s + l.dr, 0),
-        totalCreditHalalas: jLines.reduce((s, l) => s + l.cr, 0),
+        totalDebitHalalas:  payrollJournal.totalDebitHalalas,
+        totalCreditHalalas: payrollJournal.totalCreditHalalas,
         createdBy:          uid,
       });
 
-      for (let i = 0; i < jLines.length; i++) {
-        const l = jLines[i]!;
+      for (let i = 0; i < payrollJournal.lines.length; i++) {
+        const l = payrollJournal.lines[i]!;
         await tx.insert(journalLines).values({
           id:            crypto.randomUUID(),
           entryId:       jeId,
           agencyId,
-          accountCode:   l.code,
-          accountNameAr: l.ar,
-          accountNameEn: l.en,
-          debitHalalas:  l.dr,
-          creditHalalas: l.cr,
+          accountCode:   l.account.code,
+          accountNameAr: l.account.ar,
+          accountNameEn: l.account.en,
+          debitHalalas:  l.debitHalalas,
+          creditHalalas: l.creditHalalas,
           sortOrder:     i + 1,
         });
       }
 
-      // Mark advances as deducted
-      for (const adv of pendingAdvances) {
-        await tx.update(salaryAdvances).set({ status: 'deducted', updatedAt: new Date() })
-          .where(eq(salaryAdvances.id, adv.id));
+      // Close only the installments used in this payslip and reduce each
+      // advance's outstanding balance by the exact deducted amount.
+      const deductedByAdvance = new Map<string, number>();
+      for (const installment of pendingInstallments) {
+        const updated = await tx.update(salaryAdvanceInstallments).set({
+          status: 'deducted', payslipId: id, deductedAt: new Date(), updatedAt: new Date(),
+        }).where(and(
+          eq(salaryAdvanceInstallments.id, installment.id),
+          eq(salaryAdvanceInstallments.agencyId, agencyId),
+          eq(salaryAdvanceInstallments.status, 'pending'),
+        )).returning({ id: salaryAdvanceInstallments.id });
+        if (updated.length === 0) throw new BusinessError('تغيرت حالة أحد أقساط السلفة؛ أعد إنشاء القسيمة', 409);
+        deductedByAdvance.set(installment.advanceId, (deductedByAdvance.get(installment.advanceId) ?? 0) + installment.amountHalalas);
+      }
+      for (const [advanceId, amount] of deductedByAdvance) {
+        await tx.update(salaryAdvances).set({
+          remainingHalalas: sql`GREATEST(0, ${salaryAdvances.remainingHalalas} - ${amount})`,
+          status: sql`CASE WHEN ${salaryAdvances.remainingHalalas} <= ${amount} THEN 'deducted' ELSE ${salaryAdvances.status} END`,
+          settledAt: sql`CASE WHEN ${salaryAdvances.remainingHalalas} <= ${amount} THEN NOW() ELSE ${salaryAdvances.settledAt} END`,
+          updatedAt: new Date(),
+        }).where(and(eq(salaryAdvances.id, advanceId), eq(salaryAdvances.agencyId, agencyId)));
       }
     });
 
     await logAudit({ agencyId, userId: uid, action: 'create', resource: 'payslip', resourceId: id, after: { employeeId: body.employeeId, month: body.month, netHalalas: netPayable, gosiEmployee, gosiEmployer, journalEntryId: jeId } });
-    return NextResponse.json({ success: true, id, journalEntryId: jeId, netHalalas: netPayable, advanceDeduction, gosiEmployer });
+    return NextResponse.json({
+      success: true, id, journalEntryId: jeId, netHalalas: netPayable,
+      advanceDeduction, gosiEmployer, gosiEmployee,
+      gosiEmployeeRateBps: gosi.employeeRateBps, gosiEmployerRateBps: gosi.employerRateBps,
+    });
   } catch (err) {
     if (err instanceof ApiAuthError || err instanceof BusinessError) return NextResponse.json({ error: err.message }, { status: err.status });
+    if (err && typeof err === 'object' && 'code' in err && (err as { code: string }).code === '23505') {
+      return NextResponse.json({ error: 'قسيمة الراتب لهذا الشهر موجودة مسبقاً' }, { status: 409 });
+    }
     console.error(JSON.stringify({ event: 'payslip_create_failed', error: (err as Error).message }));
     return NextResponse.json({ error: 'خطأ في الخادم' }, { status: 500 });
   }

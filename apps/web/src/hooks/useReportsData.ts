@@ -2,37 +2,12 @@
 
 import { useState, useEffect, useMemo } from 'react';
 import { apiFetch } from '@/lib/api-client';
+import type { DashboardReport, DashboardMonth, ReportPeriod } from '@/lib/reports-dashboard-model';
 
-// ── Server response shapes (from GET /api/reports/dashboard) ───────────────────
-interface ServerMonthly {
-  month:      number;   // 1–12
-  bookings:   number;
-  rev:        number;
-  vat:        number;
-  grandTotal: number;
-  cost:       number;
-}
-interface ServerType {
-  type:  string;
-  count: number;
-  rev:   number;
-}
-interface DashboardResponse {
-  year:        number;
-  monthly:     ServerMonthly[];
-  typeMix:     ServerType[];
-}
-
-export interface MonthlyRow {
-  month:      number;
-  year:       number;
-  nameAr:     string;
-  nameEn:     string;
-  bookings:   number;
-  rev:        number;
-  cost:       number;
-  vat:        number;
-  grandTotal: number;
+export interface MonthlyRow extends DashboardMonth {
+  year: number;
+  nameAr: string;
+  nameEn: string;
 }
 
 export interface TypeMixRow {
@@ -50,6 +25,8 @@ export interface ReportsData {
   monthly:     MonthlyRow[];
   typeMix:     TypeMixRow[];
   loading:     boolean;
+  error:       boolean;
+  period:      ReportPeriod | null;
   year:        number;
   setYear:     (y: number) => void;
 }
@@ -70,58 +47,39 @@ const TYPE_META: Record<string, { nameAr: string; nameEn: string; color: string;
 };
 
 export function useReportsData(agencyId: string | null): ReportsData {
-  const [year, setYear] = useState(new Date().getFullYear());
-  const [data, setData] = useState<DashboardResponse>({ year: new Date().getFullYear(), monthly: [], typeMix: [] });
-  const [loading, setLoading] = useState(true);
+  const [year, setYear] = useState(new Date().getUTCFullYear());
+  const [result, setResult] = useState<{ agencyId: string; year: number; data: DashboardReport | null; error: boolean } | null>(null);
 
-  // Re-fetch whenever the agency or selected year changes. Aggregation now happens
-  // server-side over the full year (previously the browser truncated to 50 invoices).
   useEffect(() => {
-    if (!agencyId) { setLoading(false); return; }
+    if (!agencyId) return;
     let cancelled = false;
-    setLoading(true);
-
-    apiFetch<DashboardResponse>(`/api/reports/dashboard?year=${year}`)
-      .then((res) => { if (!cancelled) setData(res); })
-      .catch(() => { if (!cancelled) setData({ year, monthly: [], typeMix: [] }); })
-      .finally(() => { if (!cancelled) setLoading(false); });
-
+    setResult(null);
+    apiFetch<DashboardReport>(`/api/reports/dashboard?year=${year}`)
+      .then(data => { if (!cancelled) setResult({ agencyId, year, data, error: false }); })
+      .catch(() => { if (!cancelled) setResult({ agencyId, year, data: null, error: true }); });
     return () => { cancelled = true; };
   }, [agencyId, year]);
 
-  const monthly = useMemo<MonthlyRow[]>(() => {
-    const mm = new Map<number, MonthlyRow>();
-    for (let m = 0; m < 12; m++) {
-      mm.set(m, { month: m, year, nameAr: MONTH_AR[m]!, nameEn: MONTH_EN[m]!,
-        bookings: 0, rev: 0, cost: 0, vat: 0, grandTotal: 0 });
-    }
-
-    for (const r of data.monthly) {
-      const m   = r.month - 1;   // server returns 1–12; client rows are 0–11
-      const row = mm.get(m);
-      if (!row) continue;
-      row.bookings   = r.bookings;
-      row.rev        = r.rev;
-      row.vat        = r.vat;
-      row.grandTotal = r.grandTotal;
-      row.cost       = r.cost;
-    }
-
-    const nowMonth = year < new Date().getFullYear() ? 11 : new Date().getMonth();
-    return Array.from(mm.values()).filter(r => r.month <= nowMonth && r.bookings > 0);
-  }, [data.monthly, year]);
+  // Do not render or export an earlier agency/year while a new request is pending.
+  const current = result?.agencyId === agencyId && result?.year === year ? result : null;
+  const data = current?.data;
+  const loading = !!agencyId && !current;
+  const error = current?.error ?? false;
+  const monthly = useMemo<MonthlyRow[]>(() => (data?.monthly ?? []).map(row => ({
+    ...row, year, nameAr: MONTH_AR[row.month - 1]!, nameEn: MONTH_EN[row.month - 1]!,
+  })), [data, year]);
 
   const typeMix = useMemo<TypeMixRow[]>(() => {
-    const total = data.typeMix.reduce((s, v) => s + v.count, 0);
+    const total = (data?.typeMix ?? []).reduce((s, v) => s + v.count, 0);
     if (total === 0) return [];
-    return [...data.typeMix]
+    return [...(data?.typeMix ?? [])]
       .sort((a, b) => b.count - a.count)
       .map(({ type, count, rev }) => {
         const meta = TYPE_META[type] ?? TYPE_META['other']!;
         return { type, nameAr: meta.nameAr, nameEn: meta.nameEn, count, rev,
           pct: Math.round((count / total) * 100), color: meta.color, dot: meta.dot };
       });
-  }, [data.typeMix]);
+  }, [data]);
 
-  return { monthly, typeMix, loading, year, setYear };
+  return { monthly, typeMix, loading, error, period: data?.period ?? null, year, setYear };
 }

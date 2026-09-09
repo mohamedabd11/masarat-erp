@@ -1,5 +1,43 @@
-import { pgTable, text, integer, bigint, boolean, timestamp, jsonb, uniqueIndex, unique } from 'drizzle-orm/pg-core';
+import { pgTable, text, integer, bigint, boolean, timestamp, jsonb, uniqueIndex, unique, index } from 'drizzle-orm/pg-core';
 import { agencies } from './agencies';
+
+// ── Departments ──────────────────────────────────────────────────────────────
+
+export const departments = pgTable('departments', {
+  id:        text('id').primaryKey(),
+  agencyId:  text('agency_id').notNull().references(() => agencies.id, { onDelete: 'cascade' }),
+  code:      text('code').notNull(),
+  nameAr:    text('name_ar').notNull(),
+  nameEn:    text('name_en'),
+  isActive:  boolean('is_active').notNull().default(true),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+  updatedAt: timestamp('updated_at').notNull().defaultNow(),
+}, (t) => [
+  uniqueIndex('departments_agency_code_uq').on(t.agencyId, t.code),
+  uniqueIndex('departments_agency_name_ar_uq').on(t.agencyId, t.nameAr),
+]);
+
+export type Department    = typeof departments.$inferSelect;
+export type NewDepartment = typeof departments.$inferInsert;
+
+// Effective-dated statutory rates. Payroll stores the resolved rates on every
+// payslip, so a later legal-rate change never rewrites historical payroll.
+export const gosiRatePeriods = pgTable('gosi_rate_periods', {
+  id:                            text('id').primaryKey(),
+  scheme:                        text('scheme').notNull(), // legacy|new|expat
+  effectiveFrom:                 text('effective_from').notNull(),
+  pensionEmployeeRateBps:        integer('pension_employee_rate_bps').notNull().default(0),
+  pensionEmployerRateBps:        integer('pension_employer_rate_bps').notNull().default(0),
+  sanedEmployeeRateBps:          integer('saned_employee_rate_bps').notNull().default(0),
+  sanedEmployerRateBps:          integer('saned_employer_rate_bps').notNull().default(0),
+  occupationalEmployerRateBps:  integer('occupational_employer_rate_bps').notNull().default(200),
+  createdAt:                     timestamp('created_at').notNull().defaultNow(),
+}, (t) => [
+  uniqueIndex('gosi_rate_periods_scheme_date_uq').on(t.scheme, t.effectiveFrom),
+]);
+
+export type GosiRatePeriod    = typeof gosiRatePeriods.$inferSelect;
+export type NewGosiRatePeriod = typeof gosiRatePeriods.$inferInsert;
 
 export const employees = pgTable('employees', {
   id:               text('id').primaryKey(),
@@ -7,6 +45,7 @@ export const employees = pgTable('employees', {
   employeeNumber:   text('employee_number').notNull(),
   nameAr:           text('name_ar').notNull(),
   nameEn:           text('name_en'),
+  departmentId:     text('department_id').references(() => departments.id, { onDelete: 'set null' }),
   department:       text('department'),
   position:         text('position'),
   hireDate:         text('hire_date'),
@@ -19,12 +58,16 @@ export const employees = pgTable('employees', {
   bankAccountNumber: text('bank_account_number'),
   bankName:         text('bank_name'),
   nationalityType:  text('nationality_type').notNull().default('saudi'), // 'saudi' | 'expat'
+  gosiScheme:       text('gosi_scheme').notNull().default('legacy'), // legacy|new|expat|exempt
+  gosiEnrollmentDate: text('gosi_enrollment_date'),
+  sanedApplicable:  boolean('saned_applicable').notNull().default(true),
   isActive:         boolean('is_active').notNull().default(true),
   glAccountId:      text('gl_account_id'),
   createdAt:        timestamp('created_at').notNull().defaultNow(),
   updatedAt:        timestamp('updated_at').notNull().defaultNow(),
 }, (t) => ({
   agencyEmployeeNumberUq: uniqueIndex('employees_agency_number_uq').on(t.agencyId, t.employeeNumber),
+  agencyDepartmentIdx: index('employees_agency_department_idx').on(t.agencyId, t.departmentId),
 }));
 
 export type Employee    = typeof employees.$inferSelect;
@@ -109,6 +152,10 @@ export const payslips = pgTable('payslips', {
   advanceDeductionHalalas:  bigint('advance_deduction_halalas', { mode: 'number' }).notNull().default(0),
   gosiEmployeeHalalas:      bigint('gosi_employee_halalas', { mode: 'number' }).notNull().default(0),
   gosiEmployerHalalas:      bigint('gosi_employer_halalas', { mode: 'number' }).notNull().default(0),
+  gosiContributoryWageHalalas: bigint('gosi_contributory_wage_halalas', { mode: 'number' }).notNull().default(0),
+  gosiEmployeeRateBps:      integer('gosi_employee_rate_bps').notNull().default(0),
+  gosiEmployerRateBps:      integer('gosi_employer_rate_bps').notNull().default(0),
+  gosiScheme:               text('gosi_scheme'),
   netHalalas:               bigint('net_halalas', { mode: 'number' }).notNull().default(0),
   components:               jsonb('components'),                  // [{label, amountHalalas, type: addition|deduction}]
   paymentDate:              text('payment_date'),
@@ -131,10 +178,14 @@ export const salaryAdvances = pgTable('salary_advances', {
   amountHalalas:       bigint('amount_halalas', { mode: 'number' }).notNull(),
   requestDate:         text('request_date').notNull(),            // YYYY-MM-DD
   deductFrom:          text('deduct_from').notNull(),             // YYYY-MM (which month to deduct)
-  status:              text('status').notNull().default('pending'), // pending|approved|paid|deducted|rejected
+  status:              text('status').notNull().default('pending'), // pending|approved|paid|deducted|repaid|rejected
   reason:              text('reason'),
   approvedBy:          text('approved_by'),
   journalEntryId:      text('journal_entry_id'),
+  installmentCount:    integer('installment_count').notNull().default(1),
+  remainingHalalas:    bigint('remaining_halalas', { mode: 'number' }).notNull().default(0),
+  paymentMethod:       text('payment_method'),
+  settledAt:           timestamp('settled_at'),
   createdBy:           text('created_by'),
   createdAt:           timestamp('created_at').notNull().defaultNow(),
   updatedAt:           timestamp('updated_at').notNull().defaultNow(),
@@ -142,6 +193,30 @@ export const salaryAdvances = pgTable('salary_advances', {
 
 export type SalaryAdvance    = typeof salaryAdvances.$inferSelect;
 export type NewSalaryAdvance = typeof salaryAdvances.$inferInsert;
+
+export const salaryAdvanceInstallments = pgTable('salary_advance_installments', {
+  id:                text('id').primaryKey(),
+  agencyId:          text('agency_id').notNull().references(() => agencies.id, { onDelete: 'cascade' }),
+  advanceId:         text('advance_id').notNull().references(() => salaryAdvances.id, { onDelete: 'cascade' }),
+  employeeId:        text('employee_id').notNull().references(() => employees.id),
+  installmentNumber: integer('installment_number').notNull(),
+  dueMonth:          text('due_month').notNull(),
+  amountHalalas:     bigint('amount_halalas', { mode: 'number' }).notNull(),
+  status:            text('status').notNull().default('pending'), // pending|deducted|repaid|cancelled
+  payslipId:         text('payslip_id').references(() => payslips.id),
+  originalDueMonth:  text('original_due_month').notNull(),
+  deferralCount:     integer('deferral_count').notNull().default(0),
+  deductedAt:        timestamp('deducted_at'),
+  repaidAt:          timestamp('repaid_at'),
+  createdAt:         timestamp('created_at').notNull().defaultNow(),
+  updatedAt:         timestamp('updated_at').notNull().defaultNow(),
+}, (t) => [
+  uniqueIndex('salary_advance_installments_number_uq').on(t.advanceId, t.installmentNumber),
+  index('salary_advance_installments_due_idx').on(t.agencyId, t.employeeId, t.dueMonth, t.status),
+]);
+
+export type SalaryAdvanceInstallment    = typeof salaryAdvanceInstallments.$inferSelect;
+export type NewSalaryAdvanceInstallment = typeof salaryAdvanceInstallments.$inferInsert;
 
 // ── Shifts ────────────────────────────────────────────────────────────────────
 
@@ -226,3 +301,54 @@ export const eosbAccruals = pgTable('eosb_accruals', {
 
 export type EosbAccrual    = typeof eosbAccruals.$inferSelect;
 export type NewEosbAccrual = typeof eosbAccruals.$inferInsert;
+
+// Employee-level provision snapshots let termination settlement release exactly
+// that employee's provision without disturbing other employees' balances.
+export const eosbEmployeeProvisions = pgTable('eosb_employee_provisions', {
+  id:              text('id').primaryKey(),
+  agencyId:        text('agency_id').notNull().references(() => agencies.id, { onDelete: 'cascade' }),
+  accrualId:       text('accrual_id').notNull().references(() => eosbAccruals.id, { onDelete: 'cascade' }),
+  employeeId:      text('employee_id').notNull().references(() => employees.id),
+  month:           text('month').notNull(),
+  targetHalalas:   bigint('target_halalas', { mode: 'number' }).notNull().default(0),
+  changeHalalas:   bigint('change_halalas', { mode: 'number' }).notNull().default(0),
+  lastWageHalalas: bigint('last_wage_halalas', { mode: 'number' }).notNull().default(0),
+  createdAt:       timestamp('created_at').notNull().defaultNow(),
+}, (t) => [
+  uniqueIndex('eosb_employee_provisions_month_uq').on(t.agencyId, t.employeeId, t.month),
+  index('eosb_employee_provisions_latest_idx').on(t.agencyId, t.employeeId, t.month),
+]);
+
+export type EosbEmployeeProvision    = typeof eosbEmployeeProvisions.$inferSelect;
+export type NewEosbEmployeeProvision = typeof eosbEmployeeProvisions.$inferInsert;
+
+export const employeeTerminations = pgTable('employee_terminations', {
+  id:                        text('id').primaryKey(),
+  agencyId:                  text('agency_id').notNull().references(() => agencies.id, { onDelete: 'cascade' }),
+  employeeId:                text('employee_id').notNull().references(() => employees.id),
+  terminationDate:           text('termination_date').notNull(),
+  terminationType:           text('termination_type').notNull(), // contract_end|employer|resignation|article_80|force_majeure|other
+  reason:                    text('reason'),
+  status:                    text('status').notNull().default('draft'), // draft|approved|paid|cancelled
+  lastWageHalalas:           bigint('last_wage_halalas', { mode: 'number' }).notNull(),
+  baseBenefitHalalas:        bigint('base_benefit_halalas', { mode: 'number' }).notNull(),
+  entitlementRateBps:        integer('entitlement_rate_bps').notNull().default(10000),
+  settlementHalalas:         bigint('settlement_halalas', { mode: 'number' }).notNull(),
+  provisionAppliedHalalas:   bigint('provision_applied_halalas', { mode: 'number' }).notNull().default(0),
+  provisionReversedHalalas:  bigint('provision_reversed_halalas', { mode: 'number' }).notNull().default(0),
+  settlementJournalEntryId:  text('settlement_journal_entry_id'),
+  paymentJournalEntryId:     text('payment_journal_entry_id'),
+  paymentMethod:             text('payment_method'),
+  createdBy:                 text('created_by'),
+  approvedBy:                text('approved_by'),
+  paidBy:                    text('paid_by'),
+  approvedAt:                timestamp('approved_at'),
+  paidAt:                    timestamp('paid_at'),
+  createdAt:                 timestamp('created_at').notNull().defaultNow(),
+  updatedAt:                 timestamp('updated_at').notNull().defaultNow(),
+}, (t) => [
+  index('employee_terminations_employee_idx').on(t.agencyId, t.employeeId, t.createdAt),
+]);
+
+export type EmployeeTermination    = typeof employeeTerminations.$inferSelect;
+export type NewEmployeeTermination = typeof employeeTerminations.$inferInsert;

@@ -1088,52 +1088,18 @@ export default function SettingsPage() {
                 <div className="border-t border-surface-border pt-5 space-y-3">
                   <div>
                     <p className="text-sm font-semibold text-slate-700">
-                      {isAr ? 'معدلات التأمينات الاجتماعية (GOSI)' : 'GOSI Rates'}
+                      {isAr ? 'التأمينات الاجتماعية (GOSI)' : 'GOSI'}
                     </p>
                     <p className="text-xs text-slate-500 mt-0.5">
-                      {isAr ? 'القيم مخزّنة كنقاط أساس × 100 (مثال: 1200 = 12.00%). المعدلات الافتراضية وفق إصلاح 2024.' : 'Values stored as basis points × 100 (e.g. 1200 = 12.00%). Defaults follow the Saudi 2024 reform.'}
+                      {isAr
+                        ? 'تُحدد فئة كل موظف من ملفه، ويختار النظام النسبة النظامية النافذة في شهر الراتب ويحفظها في القسيمة. لم تعد النسب العامة القابلة للتعديل تُستخدم في الرواتب.'
+                        : 'Set each employee’s scheme in their profile. Payroll resolves the statutory rate effective for the salary month and snapshots it on the payslip; editable agency-wide rates are no longer used.'}
                     </p>
                   </div>
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                    <div>
-                      <label className="block text-xs font-medium text-slate-700 mb-1">
-                        {isAr ? 'صاحب العمل — سعودي (نقطة أساس)' : 'Employer — Saudi (bps)'}
-                      </label>
-                      <input
-                        type="number" min="0" max="3000" step="1"
-                        value={gosiEmployerRateSaudi}
-                        onChange={e => setGosiEmployerRateSaudi(Math.max(0, Math.min(3000, parseInt(e.target.value) || 0)))}
-                        className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
-                        dir="ltr"
-                      />
-                      <p className="text-[11px] text-slate-400 mt-0.5">{(gosiEmployerRateSaudi / 100).toFixed(2)}%</p>
-                    </div>
-                    <div>
-                      <label className="block text-xs font-medium text-slate-700 mb-1">
-                        {isAr ? 'الموظف — سعودي (نقطة أساس)' : 'Employee — Saudi (bps)'}
-                      </label>
-                      <input
-                        type="number" min="0" max="3000" step="1"
-                        value={gosiEmployeeRateSaudi}
-                        onChange={e => setGosiEmployeeRateSaudi(Math.max(0, Math.min(3000, parseInt(e.target.value) || 0)))}
-                        className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
-                        dir="ltr"
-                      />
-                      <p className="text-[11px] text-slate-400 mt-0.5">{(gosiEmployeeRateSaudi / 100).toFixed(2)}%</p>
-                    </div>
-                    <div>
-                      <label className="block text-xs font-medium text-slate-700 mb-1">
-                        {isAr ? 'صاحب العمل — وافد (نقطة أساس)' : 'Employer — Expat (bps)'}
-                      </label>
-                      <input
-                        type="number" min="0" max="3000" step="1"
-                        value={gosiEmployerRateExpat}
-                        onChange={e => setGosiEmployerRateExpat(Math.max(0, Math.min(3000, parseInt(e.target.value) || 0)))}
-                        className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
-                        dir="ltr"
-                      />
-                      <p className="text-[11px] text-slate-400 mt-0.5">{(gosiEmployerRateExpat / 100).toFixed(2)}%</p>
-                    </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
+                    <div className="rounded-lg bg-slate-50 p-3"><p className="font-semibold text-slate-700">{isAr ? 'سعودي — النظام السابق' : 'Saudi — legacy'}</p><p className="text-slate-500 mt-1">{isAr ? '9.75% موظف · 11.75% صاحب العمل' : '9.75% employee · 11.75% employer'}</p></div>
+                    <div className="rounded-lg bg-slate-50 p-3"><p className="font-semibold text-slate-700">{isAr ? 'سعودي — النظام الجديد' : 'Saudi — new system'}</p><p className="text-slate-500 mt-1">{isAr ? 'تدرج مؤرخ حتى 11% للمعاشات لكل طرف' : 'Effective-dated pension ramp to 11% per side'}</p></div>
+                    <div className="rounded-lg bg-slate-50 p-3"><p className="font-semibold text-slate-700">{isAr ? 'وافد' : 'Expatriate'}</p><p className="text-slate-500 mt-1">{isAr ? '2% أخطار مهنية على صاحب العمل' : '2% occupational risk, employer-paid'}</p></div>
                   </div>
                 </div>
 

@@ -7,8 +7,8 @@
  *
  * Tests run against a real local PostgreSQL database. They replicate the
  * server-side payroll-posting logic from:
- *   - src/app/api/employees/payslips/route.ts   (salary + GOSI journal, IAS 19)
- *   - src/app/api/employees/eosb/route.ts        (EOSB provision accrual, IAS 19)
+ *   - src/app/api/employees/payslips/route.ts   (salary + GOSI journal)
+ *   - src/app/api/employees/eosb/route.ts        (statutory EOSB estimate)
  * directly against Drizzle (no HTTP), and verify the GL invariants.
  *
  * Expected payroll journal (per payslip route):
@@ -17,9 +17,8 @@
  *      Cr 2400 GOSI Payable          (employeeGosi + employerGosi)
  *   Dr 6200 GOSI Expense - Employer  (employerGosi)
  *
- * Expected EOSB accrual journal (per eosb route):
- *   Dr 6300 EOSB Expense    (monthly accrual)
- *      Cr 2500 EOSB Provision (monthly accrual)
+ * Expected EOSB adjustment journal (per eosb route):
+ *   Dr 6300 EOSB Expense / Cr 2500 EOSB Provision for increases.
  */
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import { eq } from 'drizzle-orm';
@@ -30,6 +29,7 @@ import {
 } from '@/lib/schema';
 import { getNextJournalNumber } from '@/lib/invoice-counter';
 import { GL } from '@/lib/gl-accounts';
+import { buildPayrollJournal } from '@/lib/payroll-journal';
 
 const AGENCY_ID  = 'integ-test-payroll-01';
 const EMPLOYEE_ID = `${AGENCY_ID}-emp-1`;
@@ -37,37 +37,33 @@ const USER_ID    = 'user-payroll';
 
 /**
  * Replicates employees/payslips POST GL posting. Builds the salary journal the
- * same way the route does (gross debit, net + GOSI credits, employer GOSI debit)
- * and balances any residual into Salaries Payable.
+ * same way the route does, via the shared production journal builder.
  */
 async function runPayroll(opts: {
   month: string;                  // YYYY-MM
   baseSalaryHalalas: number;
   housingAllowanceHalalas?: number;
   deductionsHalalas?: number;
+  advanceDeductionHalalas?: number;
 }) {
   const db = getTestDb();
   const base      = opts.baseSalaryHalalas;
   const housing   = opts.housingAllowanceHalalas ?? 0;
   const gross     = base + housing;
   const deduct    = opts.deductionsHalalas ?? 0;
+  const advanceDeduction = opts.advanceDeductionHalalas ?? 0;
   const gosiBase     = base + housing;
   const gosiEmployee = Math.round(gosiBase * 0.10);     // 10% Saudi employee share
   const gosiEmployer = Math.round(gosiBase * 0.12);     // 12% Saudi employer share
-  const net          = gross - deduct - gosiEmployee;
-  const netPayable   = Math.max(0, net);
   const totalGosi    = gosiEmployer + gosiEmployee;
-
-  type JLine = { code: string; ar: string; en: string; dr: number; cr: number };
-  const ln = (ac: { code: string; ar: string; en: string }, dr: number, cr: number): JLine => ({ code: ac.code, ar: ac.ar, en: ac.en, dr, cr });
-
-  const jLines: JLine[] = [ln(GL.salaryExpense, gross, 0)];
-  if (gosiEmployer > 0) jLines.push(ln(GL.gosiExpense, gosiEmployer, 0));
-  jLines.push(ln(GL.salariesPayable, 0, netPayable));
-  if (totalGosi > 0)    jLines.push(ln(GL.gosiPayable, 0, totalGosi));
-  const dr0 = jLines.reduce((s, l) => s + l.dr, 0);
-  const cr0 = jLines.reduce((s, l) => s + l.cr, 0);
-  if (dr0 !== cr0) jLines.find(l => l.code === GL.salariesPayable.code)!.cr += (dr0 - cr0);
+  const payrollJournal = buildPayrollJournal({
+    grossHalalas: gross,
+    employeeGosiHalalas: gosiEmployee,
+    employerGosiHalalas: gosiEmployer,
+    manualDeductionsHalalas: deduct,
+    advanceDeductionHalalas: advanceDeduction,
+  });
+  const netPayable = payrollJournal.netHalalas;
 
   return db.transaction(async (tx) => {
     const year  = Number(opts.month.slice(0, 4));
@@ -79,6 +75,7 @@ async function runPayroll(opts: {
       id, agencyId: AGENCY_ID, employeeId: EMPLOYEE_ID, month: opts.month,
       baseSalaryHalalas: base, housingAllowanceHalalas: housing,
       grossHalalas: gross, deductionsHalalas: deduct,
+      advanceDeductionHalalas: advanceDeduction,
       gosiEmployeeHalalas: gosiEmployee, gosiEmployerHalalas: gosiEmployer,
       netHalalas: netPayable,
     });
@@ -87,16 +84,16 @@ async function runPayroll(opts: {
     await tx.insert(journalEntries).values({
       id: jeId, agencyId: AGENCY_ID, entryNumber: jeNumber, date: today,
       descriptionAr: `راتب ${opts.month}`, source: 'salary', sourceId: id, isPosted: true,
-      totalDebitHalalas:  jLines.reduce((s, l) => s + l.dr, 0),
-      totalCreditHalalas: jLines.reduce((s, l) => s + l.cr, 0),
+      totalDebitHalalas:  payrollJournal.totalDebitHalalas,
+      totalCreditHalalas: payrollJournal.totalCreditHalalas,
       createdBy: USER_ID,
     });
-    for (let i = 0; i < jLines.length; i++) {
-      const l = jLines[i]!;
+    for (let i = 0; i < payrollJournal.lines.length; i++) {
+      const l = payrollJournal.lines[i]!;
       await tx.insert(journalLines).values({
         id: crypto.randomUUID(), entryId: jeId, agencyId: AGENCY_ID,
-        accountCode: l.code, accountNameAr: l.ar, accountNameEn: l.en,
-        debitHalalas: l.dr, creditHalalas: l.cr, sortOrder: i + 1,
+        accountCode: l.account.code, accountNameAr: l.account.ar, accountNameEn: l.account.en,
+        debitHalalas: l.debitHalalas, creditHalalas: l.creditHalalas, sortOrder: i + 1,
       });
     }
     return { id, jeId, gross, netPayable, gosiEmployer, gosiEmployee, totalGosi };
@@ -172,7 +169,7 @@ afterAll(async () => {
 
 // ─── Tests ────────────────────────────────────────────────────────────────────
 
-describe.skipIf(SKIP_IF_NO_DB)('payroll — قيد الراتب (IAS 19)', () => {
+describe.skipIf(SKIP_IF_NO_DB)('payroll — قيد الراتب', () => {
 
   it('قيد الراتب متوازن (DR = CR)', async () => {
     const r = await runPayroll({ month: '2025-01', baseSalaryHalalas: 8_000_00, housingAllowanceHalalas: 2_000_00 });
@@ -218,9 +215,20 @@ describe.skipIf(SKIP_IF_NO_DB)('payroll — قيد الراتب (IAS 19)', () =>
     expect(r.gosiEmployer).toBe(Math.round(10_000_00 * 0.12));  // 1,200.00
   });
 
+  it('خصم السلفة والاستقطاعات يغلقان حسابيهما ولا يبقيان داخل الرواتب المستحقة', async () => {
+    const r = await runPayroll({
+      month: '2025-07', baseSalaryHalalas: 10_000_00,
+      deductionsHalalas: 250_00, advanceDeductionHalalas: 750_00,
+    });
+    const ls = await lines(r.jeId);
+    expect(ls.find(l => l.accountCode === '1140')?.creditHalalas).toBe(750_00);
+    expect(ls.find(l => l.accountCode === '2390')?.creditHalalas).toBe(250_00);
+    expect(ls.find(l => l.accountCode === '2310')?.creditHalalas).toBe(r.netPayable);
+  });
+
 });
 
-describe.skipIf(SKIP_IF_NO_DB)('payroll — مخصص مكافأة نهاية الخدمة (EOSB, IAS 19)', () => {
+describe.skipIf(SKIP_IF_NO_DB)('payroll — تقدير مخصص مكافأة نهاية الخدمة', () => {
 
   it('قيد مخصص EOSB متوازن: Dr 6300 / Cr 2500', async () => {
     const amount = 333_00;

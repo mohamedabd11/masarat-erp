@@ -6,25 +6,28 @@ import { initFirebase } from '@masarat/firebase';
 // Initialize Firebase synchronously at module-load time (client only).
 // Module-level code runs before any React useEffect, ensuring Firebase is
 // ready when useAuth's effect subscribes to onAuthStateChanged.
-let _initError = false;
-if (typeof window !== 'undefined') {
-  try {
-    const apiKey = process.env.NEXT_PUBLIC_FIREBASE_API_KEY;
-    const authDomain = process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN;
-    const projectId = process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID;
-    const storageBucket = process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET;
-    const messagingSenderId = process.env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID;
-    const appId = process.env.NEXT_PUBLIC_FIREBASE_APP_ID;
+const apiKey = process.env.NEXT_PUBLIC_FIREBASE_API_KEY;
+const authDomain = process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN;
+const projectId = process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID;
+const storageBucket = process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET;
+const messagingSenderId = process.env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID;
+const appId = process.env.NEXT_PUBLIC_FIREBASE_APP_ID;
+const hasMissingConfig = !apiKey || !authDomain || !projectId || !storageBucket || !messagingSenderId || !appId;
 
-    if (!apiKey || !authDomain || !projectId || !storageBucket || !messagingSenderId || !appId) {
-      console.error('[Firebase] Missing NEXT_PUBLIC_FIREBASE_* environment variables');
-      _initError = true;
-    } else {
+// Keep the server and the first client render identical when configuration is
+// absent. Previously this became true only in the browser and caused a full
+// hydration failure before the useful configuration message appeared.
+let _initError = hasMissingConfig;
+if (typeof window !== 'undefined') {
+  if (hasMissingConfig) {
+    console.error('[Firebase] Missing NEXT_PUBLIC_FIREBASE_* environment variables');
+  } else {
+    try {
       initFirebase({ apiKey, authDomain, projectId, storageBucket, messagingSenderId, appId });
+    } catch (err) {
+      console.error('[Firebase] Initialization failed:', err);
+      _initError = true;
     }
-  } catch (err) {
-    console.error('[Firebase] Initialization failed:', err);
-    _initError = true;
   }
 }
 
