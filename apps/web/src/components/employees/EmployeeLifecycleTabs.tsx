@@ -8,6 +8,7 @@ import { Spinner } from '@/components/ui/Spinner';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { Badge } from '@/components/ui/Badge';
 import { formatCurrency } from '@/lib/utils';
+import { canRecordTerminationPayment } from '@/lib/employee-lifecycle-ui';
 import { Banknote, FileText, Plus, UserMinus, WalletCards, X } from 'lucide-react';
 
 const inputCls = 'w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white';
@@ -222,6 +223,7 @@ export function EndOfServiceTab({ isAr, agencyId }: { isAr: boolean; agencyId: s
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [showForm, setShowForm] = useState(false);
+  const [paymentDates, setPaymentDates] = useState<Record<string, string>>({});
   const [error, setError] = useState('');
   const [tick, setTick] = useState(0);
   useEffect(() => {
@@ -240,9 +242,9 @@ export function EndOfServiceTab({ isAr, agencyId }: { isAr: boolean; agencyId: s
   async function createTermination() {
     setSaving(true); try { await apiFetch('/api/employees/terminations', { method: 'POST', body: JSON.stringify(form) }); setShowForm(false); setForm({ employeeId: '', terminationDate: '', terminationType: 'contract_end', reason: '' }); setTick(value => value + 1); } catch (err) { setError((err as Error).message); } finally { setSaving(false); }
   }
-  async function act(id: string, action: 'approve' | 'pay' | 'cancel') {
+  async function act(id: string, action: 'approve' | 'pay' | 'cancel', paymentDate?: string) {
     if (!window.confirm(isAr ? 'تأكيد تنفيذ هذا الإجراء؟' : 'Confirm this action?')) return;
-    try { await apiFetch(`/api/employees/terminations/${id}`, { method: 'PATCH', body: JSON.stringify({ action, paymentMethod: 'bank_transfer' }) }); setTick(value => value + 1); } catch (err) { setError((err as Error).message); }
+    try { await apiFetch(`/api/employees/terminations/${id}`, { method: 'PATCH', body: JSON.stringify({ action, paymentMethod: 'bank_transfer', ...(paymentDate ? { paymentDate } : {}) }) }); setTick(value => value + 1); } catch (err) { setError((err as Error).message); }
   }
   if (loading) return <div className="flex justify-center py-16"><Spinner size="lg" /></div>;
   return <div className="space-y-5"><ErrorBanner message={error} />
@@ -255,6 +257,9 @@ export function EndOfServiceTab({ isAr, agencyId }: { isAr: boolean; agencyId: s
     </div><div className="flex justify-end mt-4"><Button size="sm" onClick={createTermination} disabled={saving || !form.employeeId || !form.terminationDate}>{saving ? <Spinner size="sm" /> : <UserMinus size={15} />}{isAr ? 'إنشاء المسودة' : 'Create draft'}</Button></div></Card> : null}
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">{employees.filter(employee => employee.isActive).map(employee => <Card key={employee.id}><p className="font-semibold">{employeeName(employee, isAr)}</p><div className="grid grid-cols-2 text-sm gap-2 mt-3"><span className="text-slate-500">{isAr ? 'آخر أجر' : 'Last wage'}</span><span className="text-end">{formatCurrency(employee.lastWageHalalas, isAr ? 'ar-SA' : 'en-US')}</span><span className="text-slate-500">{isAr ? 'الاستحقاق التقديري' : 'Estimated benefit'}</span><span className="text-end font-medium">{formatCurrency(employee.eosbAmount, isAr ? 'ar-SA' : 'en-US')}</span></div></Card>)}</div>
     <h2 className="font-semibold text-slate-900">{isAr ? 'تسويات نهاية الخدمة' : 'Termination settlements'}</h2>
-    {terminations.length === 0 ? <p className="text-sm text-slate-500">{isAr ? 'لا توجد تسويات.' : 'No settlements.'}</p> : <div className="space-y-3">{terminations.map(termination => <Card key={termination.id}><div className="flex flex-wrap justify-between gap-3"><div><p className="font-semibold">{employeeName(employeeById.get(termination.employeeId), isAr)}</p><p className="text-xs text-slate-500">{termination.terminationDate} · {termination.terminationType}</p></div><div className="text-end"><Badge variant={termination.status === 'paid' ? 'success' : 'neutral'}>{termination.status}</Badge><p className="mt-1 font-bold">{formatCurrency(termination.settlementHalalas, isAr ? 'ar-SA' : 'en-US')}</p></div></div><div className="flex justify-end gap-2 mt-3">{termination.status === 'draft' ? <><Button size="sm" onClick={() => act(termination.id, 'approve')}>{isAr ? 'اعتماد' : 'Approve'}</Button><Button size="sm" variant="ghost" onClick={() => act(termination.id, 'cancel')}>{isAr ? 'إلغاء' : 'Cancel'}</Button></> : null}{termination.status === 'approved' ? <Button size="sm" onClick={() => act(termination.id, 'pay')}>{isAr ? 'تسجيل الدفع' : 'Record payment'}</Button> : null}</div></Card>)}</div>}
+    {terminations.length === 0 ? <p className="text-sm text-slate-500">{isAr ? 'لا توجد تسويات.' : 'No settlements.'}</p> : <div className="space-y-3">{terminations.map(termination => {
+      const paymentDate = paymentDates[termination.id] ?? '';
+      return <Card key={termination.id}><div className="flex flex-wrap justify-between gap-3"><div><p className="font-semibold">{employeeName(employeeById.get(termination.employeeId), isAr)}</p><p className="text-xs text-slate-500">{termination.terminationDate} · {termination.terminationType}</p></div><div className="text-end"><Badge variant={termination.status === 'paid' ? 'success' : 'neutral'}>{termination.status}</Badge><p className="mt-1 font-bold">{formatCurrency(termination.settlementHalalas, isAr ? 'ar-SA' : 'en-US')}</p></div></div><div className="flex flex-wrap items-end justify-end gap-2 mt-3">{termination.status === 'draft' ? <><Button size="sm" onClick={() => act(termination.id, 'approve')}>{isAr ? 'اعتماد' : 'Approve'}</Button><Button size="sm" variant="ghost" onClick={() => act(termination.id, 'cancel')}>{isAr ? 'إلغاء' : 'Cancel'}</Button></> : null}{termination.status === 'approved' ? <><div><label className={labelCls}>{isAr ? 'تاريخ الدفع *' : 'Payment date *'}</label><input aria-label={isAr ? 'تاريخ دفع نهاية الخدمة' : 'Termination payment date'} type="date" min={termination.terminationDate} className={inputCls} value={paymentDate} onChange={event => setPaymentDates(current => ({ ...current, [termination.id]: event.target.value }))} /></div><Button size="sm" disabled={!canRecordTerminationPayment(paymentDate, termination.terminationDate)} onClick={() => act(termination.id, 'pay', paymentDate)}>{isAr ? 'تسجيل الدفع' : 'Record payment'}</Button></> : null}</div></Card>;
+    })}</div>}
   </div>;
 }

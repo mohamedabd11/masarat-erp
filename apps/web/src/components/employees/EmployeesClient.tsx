@@ -10,6 +10,11 @@ import { EmptyState } from '@/components/ui/EmptyState';
 import { Badge } from '@/components/ui/Badge';
 import { formatCurrency } from '@/lib/utils';
 import { COUNTRIES } from '@/lib/countries';
+import {
+  grossPayrollTotal,
+  totalPayrollDeductions,
+  upsertEmployeePayment,
+} from '@/lib/payroll-ui';
 import { AdvancesTab, ContractsTab, EndOfServiceTab } from './EmployeeLifecycleTabs';
 import {
   UserCog, Plus, Search, Phone, Mail, X, Check,
@@ -860,7 +865,12 @@ function SalariesTab({ isAr, agencyId, locale }: { isAr: boolean; agencyId: stri
 
       // No payslip yet (virtual row) — create one first
       if (!payslipId) {
-        const result = await apiFetch<{ id: string; netHalalas: number }>('/api/employees/payslips', {
+        const result = await apiFetch<{
+          id: string;
+          netHalalas: number;
+          advanceDeduction: number;
+          gosiEmployee: number;
+        }>('/api/employees/payslips', {
           method: 'POST',
           body: JSON.stringify({
             employeeId:            emp.id,
@@ -875,7 +885,17 @@ function SalariesTab({ isAr, agencyId, locale }: { isAr: boolean; agencyId: stri
         // Carry the SERVER-computed net (GOSI-deducted), not the stale virtual gross —
         // otherwise a retry after a failed disbursement would re-enter the existing-
         // payslip branch and pay out gross instead of net.
-        setPayments(prev => [...prev, { ...pay, id: payslipId!, netSalary: netHalalas, status: 'unpaid' }]);
+        setPayments(prev => upsertEmployeePayment(prev, {
+          ...pay,
+          id: payslipId!,
+          deductions: totalPayrollDeductions({
+            manualHalalas: pay.deductions,
+            gosiEmployeeHalalas: result.gosiEmployee,
+            advanceHalalas: result.advanceDeduction,
+          }),
+          netSalary: netHalalas,
+          status: 'unpaid',
+        }));
       }
 
       // Record the cash disbursement
@@ -912,7 +932,12 @@ function SalariesTab({ isAr, agencyId, locale }: { isAr: boolean; agencyId: stri
         );
         return;
       }
-      setPayments(prev => prev.map(p => p.employeeId === emp.id ? { ...p, bonus, deductions, netSalary } : p));
+      setPayments(prev => upsertEmployeePayment(prev, {
+        ...pay,
+        bonus,
+        deductions,
+        netSalary,
+      }));
       setShowEditId(null);
     } finally {
       setSaving(false);
@@ -930,7 +955,10 @@ function SalariesTab({ isAr, agencyId, locale }: { isAr: boolean; agencyId: stri
     setMonth(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`);
   }
 
-  const totalBase    = rows.reduce((s, r) => s + (r.emp.salaryHalalas ?? 0), 0);
+  const totalGross   = grossPayrollTotal(rows.map(({ emp, pay }) => ({
+    baseSalaryHalalas: emp.salaryHalalas ?? 0,
+    bonusHalalas: pay.bonus ?? 0,
+  })));
   const totalPaid    = rows.filter(r => r.pay.status === 'paid').reduce((s, r) => s + r.pay.netSalary, 0);
   const totalPending = rows.filter(r => r.pay.status === 'unpaid').reduce((s, r) => s + r.pay.netSalary, 0);
 
@@ -954,15 +982,15 @@ function SalariesTab({ isAr, agencyId, locale }: { isAr: boolean; agencyId: stri
       {/* Summary cards */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <Card className="text-center py-4">
-          <p className="text-xs text-slate-500 mb-1">{isAr ? 'إجمالي الرواتب' : 'Total Payroll'}</p>
-          <p className="text-xl font-bold text-slate-900">{fmt(totalBase)}</p>
+          <p className="text-xs text-slate-500 mb-1">{isAr ? 'إجمالي الاستحقاق قبل الاستقطاعات' : 'Gross Payroll'}</p>
+          <p className="text-xl font-bold text-slate-900">{fmt(totalGross)}</p>
         </Card>
         <Card className="text-center py-4">
-          <p className="text-xs text-slate-500 mb-1">{isAr ? 'تم الصرف' : 'Total Paid'}</p>
+          <p className="text-xs text-slate-500 mb-1">{isAr ? 'صافي ما تم صرفه' : 'Net Paid'}</p>
           <p className="text-xl font-bold text-emerald-600">{fmt(totalPaid)}</p>
         </Card>
         <Card className="text-center py-4">
-          <p className="text-xs text-slate-500 mb-1">{isAr ? 'لم يُصرف بعد' : 'Total Pending'}</p>
+          <p className="text-xs text-slate-500 mb-1">{isAr ? 'صافي لم يُصرف بعد' : 'Net Pending'}</p>
           <p className="text-xl font-bold text-amber-600">{fmt(totalPending)}</p>
         </Card>
       </div>
