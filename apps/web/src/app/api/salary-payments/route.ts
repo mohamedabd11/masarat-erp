@@ -7,7 +7,7 @@ import { requireFeature } from '@/lib/feature-access';
 import { getNextJournalNumber } from '@/lib/invoice-counter';
 import { assertPeriodOpen } from '@/lib/period-lock';
 import { GL } from '@/lib/gl-accounts';
-import { isYearMonth } from '@/lib/hr-validation';
+import { dateInTimeZone, isYearMonth, payrollPostingDate } from '@/lib/hr-validation';
 
 const DEFAULT_PAGE_SIZE = 50;
 const MAX_PAGE_SIZE     = 200;
@@ -81,6 +81,10 @@ export async function POST(request: Request) {
     if (!isYearMonth(month)) {
       return NextResponse.json({ error: 'صيغة الشهر يجب أن تكون YYYY-MM' }, { status: 400 });
     }
+    const today = dateInTimeZone();
+    if (!payrollPostingDate(month, today)) {
+      return NextResponse.json({ error: 'لا يمكن صرف راتب لشهر مستقبلي' }, { status: 422 });
+    }
     const paymentMethod = body.paymentMethod ?? 'bank_transfer';
     if (!(paymentMethod in METHOD_ACCOUNT)) {
       return NextResponse.json({ error: 'طريقة صرف الراتب غير صالحة' }, { status: 400 });
@@ -130,9 +134,7 @@ export async function POST(request: Request) {
         );
       }
 
-      const now    = new Date();
-      const year   = now.getFullYear();
-      const today  = now.toISOString().split('T')[0]!;
+      const year = Number(today.slice(0, 4));
 
       await assertPeriodOpen(agencyId, today, tx);
 

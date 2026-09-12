@@ -8,7 +8,7 @@ import { logAudit } from '@/lib/audit';
 import { getNextJournalNumber } from '@/lib/invoice-counter';
 import { assertPeriodOpen } from '@/lib/period-lock';
 import { GL } from '@/lib/gl-accounts';
-import { isIsoDate, isYearMonth, monthEnd, monthStart } from '@/lib/hr-validation';
+import { dateInTimeZone, isIsoDate, isYearMonth, monthEnd, monthStart, payrollPostingDate } from '@/lib/hr-validation';
 import { buildPayrollJournal } from '@/lib/payroll-journal';
 import { calculateGosi, type GosiScheme } from '@/lib/gosi';
 
@@ -63,6 +63,10 @@ export async function POST(request: Request) {
     }
     if (body.paymentDate && !isIsoDate(body.paymentDate)) {
       return NextResponse.json({ error: 'تاريخ صرف الراتب غير صالح' }, { status: 400 });
+    }
+    const postingDate = payrollPostingDate(body.month, dateInTimeZone());
+    if (!postingDate) {
+      return NextResponse.json({ error: 'لا يمكن إنشاء قسيمة راتب لشهر مستقبلي' }, { status: 422 });
     }
     // Guard every monetary input: must be a non-negative integer (halalas).
     // baseSalaryHalalas must additionally be strictly positive.
@@ -189,7 +193,7 @@ export async function POST(request: Request) {
     const jeId  = crypto.randomUUID();
     const year  = Number(body.month.slice(0, 4));
     const mm    = body.month.slice(5, 7);
-    const today = periodEnd;
+    const today = postingDate;
 
     // ── Payroll accrual journal ──────────────────────────────────────────────
     //  Dr 6100 Salary Expense         (gross)

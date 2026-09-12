@@ -1,10 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import {
+  dateInTimeZone,
   inclusiveCalendarDays,
   isIsoDate,
   isTime24h,
   isYearMonth,
   monthEnd,
+  payrollPostingDate,
   validDaysOfWeek,
 } from '@/lib/hr-validation';
 
@@ -40,6 +42,16 @@ describe('HR input validation', () => {
     expect(monthEnd('2024-02')).toBe('2024-02-29');
     expect(monthEnd('2025-02')).toBe('2025-02-28');
     expect(monthEnd('2026-12')).toBe('2026-12-31');
+  });
+
+  it('uses Riyadh calendar date rather than UTC near midnight', () => {
+    expect(dateInTimeZone(new Date('2026-09-11T22:30:00.000Z'))).toBe('2026-09-12');
+  });
+
+  it('chooses a chronological payroll posting date and rejects future months', () => {
+    expect(payrollPostingDate('2026-08', '2026-09-12')).toBe('2026-08-31');
+    expect(payrollPostingDate('2026-09', '2026-09-12')).toBe('2026-09-12');
+    expect(payrollPostingDate('2026-10', '2026-09-12')).toBeNull();
   });
 
   it('rejects duplicate and out-of-range shift days', () => {

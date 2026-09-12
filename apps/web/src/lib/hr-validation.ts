@@ -47,6 +47,29 @@ export function monthEnd(month: string): string {
   return `${month}-${String(lastDay).padStart(2, '0')}`;
 }
 
+export function dateInTimeZone(now = new Date(), timeZone = 'Asia/Riyadh'): string {
+  const parts = new Intl.DateTimeFormat('en-US-u-ca-gregory-nu-latn', {
+    timeZone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(now);
+  const value = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  return `${value.year}-${value.month}-${value.day}`;
+}
+
+/**
+ * Returns the accounting date for a payroll accrual.
+ * Past payroll is posted at month-end, current payroll at the approval date,
+ * and future payroll is rejected so a disbursement can never precede accrual.
+ */
+export function payrollPostingDate(month: string, asOfDate: string): string | null {
+  if (!isYearMonth(month) || !isIsoDate(asOfDate)) return null;
+  const asOfMonth = asOfDate.slice(0, 7);
+  if (month > asOfMonth) return null;
+  return month === asOfMonth ? asOfDate : monthEnd(month);
+}
+
 export function parseValidTimestamp(value: unknown): Date | null {
   if (typeof value !== 'string' || !value.trim()) return null;
   const parsed = new Date(value);

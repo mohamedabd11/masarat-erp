@@ -223,4 +223,11 @@ describe('POST /api/employees/payslips — server-side GOSI + negative-net guard
     }));
     expect(res.status).toBe(400);
   });
+
+  it('422 — يرفض إنشاء قسيمة راتب لشهر مستقبلي قبل أي كتابة', async () => {
+    const res = await POST(makeRequest({ employeeId: 'e7', month: '2999-01', baseSalaryHalalas: 500_000 }));
+    expect(res.status).toBe(422);
+    expect(await res.json()).toMatchObject({ error: expect.stringMatching(/مستقبلي/) });
+    expect(mockDb.transaction).not.toHaveBeenCalled();
+  });
 });
