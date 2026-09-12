@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { eq, and, sql, desc, lte, or, isNull, gte } from 'drizzle-orm';
+import { eq, and, sql, desc, lte, or, isNull, gte, ne } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { leaveRequests, leaveBalances, employeeContracts } from '@/lib/schema';
 import { verifyAuth, assertRole, ApiAuthError, BusinessError, ROLES_MANAGER_UP } from '@/lib/api-auth';
@@ -36,6 +36,26 @@ export async function PATCH(request: Request, { params }: { params: { id: string
       const usageDelta = consumesAfter === consumesBefore ? 0 : (consumesAfter ? 1 : -1);
 
       if (usageDelta !== 0) {
+        if (usageDelta > 0) {
+          // Rejected leave can be replaced by a new request for the same dates.
+          // Therefore every later approval must repeat the overlap check. The
+          // employee-scoped advisory lock serializes approval and creation races.
+          await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtextextended(${`${agencyId}:${lockedRequest.employeeId}`}, 0))`);
+          const [overlap] = await tx
+            .select({ id: leaveRequests.id })
+            .from(leaveRequests)
+            .where(and(
+              eq(leaveRequests.agencyId, agencyId),
+              eq(leaveRequests.employeeId, lockedRequest.employeeId),
+              ne(leaveRequests.id, lockedRequest.id),
+              ne(leaveRequests.status, 'rejected'),
+              lte(leaveRequests.startDate, lockedRequest.endDate),
+              gte(leaveRequests.endDate, lockedRequest.startDate),
+            ))
+            .limit(1);
+          if (overlap) throw new BusinessError('توجد إجازة أخرى متداخلة مع هذه الفترة', 409);
+        }
+
         const year      = parseInt(lockedRequest.startDate.slice(0, 4), 10);
         const days      = lockedRequest.days ?? 1;
         const leaveType = lockedRequest.type; // annual | sick | unpaid

@@ -58,6 +58,7 @@ import { PATCH as updateEmployee } from '@/app/api/employees/[id]/route';
 import { POST as createContract } from '@/app/api/employees/contracts/route';
 import { POST as createShift } from '@/app/api/employees/shifts/route';
 import { POST as createAttendance } from '@/app/api/employees/attendance/route';
+import { PATCH as updateAttendance } from '@/app/api/employees/attendance/[id]/route';
 import { POST as createLeave } from '@/app/api/leave-requests/route';
 import { PATCH as updateLeave } from '@/app/api/leave-requests/[id]/route';
 import { POST as createAdvance } from '@/app/api/employees/advances/route';
@@ -198,6 +199,21 @@ describe.skipIf(SKIP_IF_NO_DB)('HR API lifecycle with a real local database', ()
     const [record] = await getTestDb().select().from(attendanceRecords)
       .where(and(eq(attendanceRecords.agencyId, AGENCY_ID), eq(attendanceRecords.employeeId, EMPLOYEE_ID)));
     expect(record?.workMinutes).toBe(480);
+
+    const markedAbsent = await updateAttendance(
+      request(`/api/employees/attendance/${record!.id}`, { status: 'absent' }),
+      { params: { id: record!.id } },
+    );
+    expect(markedAbsent.status).toBe(200);
+    const [absentRecord] = await getTestDb().select().from(attendanceRecords).where(eq(attendanceRecords.id, record!.id));
+    expect(absentRecord).toMatchObject({ status: 'absent', checkIn: null, checkOut: null, workMinutes: 0, overtimeMinutes: 0 });
+  });
+
+  it('rejects worked minutes on an absent attendance record', async () => {
+    const response = await createAttendance(request('/api/employees/attendance', {
+      employeeId: EMPLOYEE_ID, date: '2026-09-07', status: 'absent', workMinutes: 60,
+    }));
+    expect(response.status).toBe(400);
   });
 
   it('blocks overlapping leave and reverses the balance when an approval is reopened', async () => {
@@ -220,6 +236,42 @@ describe.skipIf(SKIP_IF_NO_DB)('HR API lifecycle with a real local database', ()
     [balance] = await getTestDb().select().from(leaveBalances)
       .where(and(eq(leaveBalances.agencyId, AGENCY_ID), eq(leaveBalances.employeeId, EMPLOYEE_ID)));
     expect(balance?.annualUsed).toBe(0);
+  });
+
+  it('rechecks overlap before a rejected leave is approved again', async () => {
+    const first = await createLeave(request('/api/leave-requests', {
+      employeeId: EMPLOYEE_ID, type: 'annual', startDate: '2026-11-01', endDate: '2026-11-02',
+    }));
+    expect(first.status).toBe(200);
+    const firstId = (await first.json() as { id: string }).id;
+    expect((await updateLeave(request(`/api/leave-requests/${firstId}`, { status: 'rejected' }), { params: { id: firstId } })).status).toBe(200);
+
+    const replacement = await createLeave(request('/api/leave-requests', {
+      employeeId: EMPLOYEE_ID, type: 'sick', startDate: '2026-11-02', endDate: '2026-11-04',
+    }));
+    expect(replacement.status).toBe(200);
+    const replacementId = (await replacement.json() as { id: string }).id;
+    expect((await updateLeave(request(`/api/leave-requests/${replacementId}`, { status: 'approved' }), { params: { id: replacementId } })).status).toBe(200);
+
+    const conflictingApproval = await updateLeave(
+      request(`/api/leave-requests/${firstId}`, { status: 'approved' }),
+      { params: { id: firstId } },
+    );
+    expect(conflictingApproval.status).toBe(409);
+    expect(await conflictingApproval.json()).toMatchObject({ error: expect.stringMatching(/متداخلة/) });
+  });
+
+  it('does not create payroll for an inactive employee', async () => {
+    await getTestDb().update(employees).set({ isActive: false }).where(eq(employees.id, EMPLOYEE_ID));
+    try {
+      const response = await createPayslip(request('/api/employees/payslips', {
+        employeeId: EMPLOYEE_ID, month: '2026-08', baseSalaryHalalas: 1_000_000,
+      }));
+      expect(response.status).toBe(422);
+      expect(await response.json()).toMatchObject({ error: expect.stringMatching(/غير نشط/) });
+    } finally {
+      await getTestDb().update(employees).set({ isActive: true }).where(eq(employees.id, EMPLOYEE_ID));
+    }
   });
 
   it('reconciles advance, deductions, payslip, payment, and EOSB journals end to end', async () => {

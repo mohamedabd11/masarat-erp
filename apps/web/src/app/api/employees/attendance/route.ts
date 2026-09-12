@@ -93,6 +93,10 @@ export async function POST(request: Request) {
     if ((status === 'absent' || status === 'on_leave') && (checkInTs || checkOutTs)) {
       return NextResponse.json({ error: 'لا تُسجل أوقات حضور لحالة غياب أو إجازة' }, { status: 400 });
     }
+    if ((status === 'absent' || status === 'on_leave')
+      && ((body.workMinutes ?? 0) > 0 || (body.overtimeMinutes ?? 0) > 0)) {
+      return NextResponse.json({ error: 'لا تُسجل دقائق عمل أو عمل إضافي لحالة غياب أو إجازة' }, { status: 400 });
+    }
     if (checkInTs && checkOutTs && checkOutTs <= checkInTs) {
       return NextResponse.json({ error: 'وقت الانصراف يجب أن يكون بعد وقت الحضور' }, { status: 400 });
     }

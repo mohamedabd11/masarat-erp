@@ -16,7 +16,7 @@ export async function PATCH(request: Request, { params }: { params: { id: string
     await requireFeature(agencyId, 'attendance', db);
 
     const body = await request.json() as Partial<{
-      checkIn: string; checkOut: string; status: string;
+      checkIn: string | null; checkOut: string | null; status: string;
       workMinutes: number; overtimeMinutes: number; notes: string; shiftId: string;
     }>;
 
@@ -40,35 +40,52 @@ export async function PATCH(request: Request, { params }: { params: { id: string
     }
 
     const patch: Record<string, unknown> = { updatedAt: new Date() };
-    const parsedCheckIn = body.checkIn !== undefined ? parseValidTimestamp(body.checkIn) : existing.checkIn;
-    const parsedCheckOut = body.checkOut !== undefined ? parseValidTimestamp(body.checkOut) : existing.checkOut;
-    if ((body.checkIn !== undefined && !parsedCheckIn) || (body.checkOut !== undefined && !parsedCheckOut)) {
+    const hasCheckIn = body.checkIn !== undefined;
+    const hasCheckOut = body.checkOut !== undefined;
+    const parsedCheckIn = hasCheckIn
+      ? (body.checkIn === null || body.checkIn === '' ? null : parseValidTimestamp(body.checkIn))
+      : existing.checkIn;
+    const parsedCheckOut = hasCheckOut
+      ? (body.checkOut === null || body.checkOut === '' ? null : parseValidTimestamp(body.checkOut))
+      : existing.checkOut;
+    if ((hasCheckIn && body.checkIn !== null && body.checkIn !== '' && !parsedCheckIn)
+      || (hasCheckOut && body.checkOut !== null && body.checkOut !== '' && !parsedCheckOut)) {
       return NextResponse.json({ error: 'وقت الحضور أو الانصراف غير صالح' }, { status: 400 });
     }
-    if (parsedCheckIn && parsedCheckOut && parsedCheckOut <= parsedCheckIn) {
-      return NextResponse.json({ error: 'وقت الانصراف يجب أن يكون بعد وقت الحضور' }, { status: 400 });
-    }
     const finalStatus = body.status ?? existing.status;
-    if ((finalStatus === 'absent' || finalStatus === 'on_leave') && (parsedCheckIn || parsedCheckOut)) {
+    const hasNoAttendance = finalStatus === 'absent' || finalStatus === 'on_leave';
+    if (hasNoAttendance && ((hasCheckIn && parsedCheckIn) || (hasCheckOut && parsedCheckOut))) {
       return NextResponse.json({ error: 'لا تُسجل أوقات حضور لحالة غياب أو إجازة' }, { status: 400 });
     }
-    if (body.checkIn  !== undefined) patch['checkIn']  = parsedCheckIn;
-    if (body.checkOut !== undefined) patch['checkOut'] = parsedCheckOut;
+    if (hasNoAttendance && ((body.workMinutes ?? 0) > 0 || (body.overtimeMinutes ?? 0) > 0)) {
+      return NextResponse.json({ error: 'لا تُسجل دقائق عمل أو عمل إضافي لحالة غياب أو إجازة' }, { status: 400 });
+    }
+    if (!hasNoAttendance && parsedCheckIn && parsedCheckOut && parsedCheckOut <= parsedCheckIn) {
+      return NextResponse.json({ error: 'وقت الانصراف يجب أن يكون بعد وقت الحضور' }, { status: 400 });
+    }
     if (body.status   !== undefined) patch['status']   = body.status;
     if (body.notes    !== undefined) patch['notes']    = body.notes;
     if (body.shiftId  !== undefined) patch['shiftId']  = body.shiftId;
 
-    // Recalculate workMinutes if both check-in/out now known
-    const checkIn  = parsedCheckIn;
-    const checkOut = parsedCheckOut;
-    if (checkIn && checkOut && body.workMinutes === undefined) {
-      const workMinutes = Math.floor((checkOut.getTime() - checkIn.getTime()) / 60000);
-      if (workMinutes > 1_440) return NextResponse.json({ error: 'مدة العمل لا يمكن أن تتجاوز 24 ساعة' }, { status: 400 });
-      patch['workMinutes'] = workMinutes;
-    } else if (body.workMinutes !== undefined) {
-      patch['workMinutes'] = body.workMinutes;
+    if (hasNoAttendance) {
+      // Changing an existing worked record to absent/on-leave must not retain
+      // stale times or minutes from its previous state.
+      patch['checkIn'] = null;
+      patch['checkOut'] = null;
+      patch['workMinutes'] = 0;
+      patch['overtimeMinutes'] = 0;
+    } else {
+      if (hasCheckIn) patch['checkIn'] = parsedCheckIn;
+      if (hasCheckOut) patch['checkOut'] = parsedCheckOut;
+      if (parsedCheckIn && parsedCheckOut && body.workMinutes === undefined) {
+        const workMinutes = Math.floor((parsedCheckOut.getTime() - parsedCheckIn.getTime()) / 60000);
+        if (workMinutes > 1_440) return NextResponse.json({ error: 'مدة العمل لا يمكن أن تتجاوز 24 ساعة' }, { status: 400 });
+        patch['workMinutes'] = workMinutes;
+      } else if (body.workMinutes !== undefined) {
+        patch['workMinutes'] = body.workMinutes;
+      }
+      if (body.overtimeMinutes !== undefined) patch['overtimeMinutes'] = body.overtimeMinutes;
     }
-    if (body.overtimeMinutes !== undefined) patch['overtimeMinutes'] = body.overtimeMinutes;
 
     await db.update(attendanceRecords)
       .set(patch as Partial<typeof attendanceRecords.$inferInsert>)

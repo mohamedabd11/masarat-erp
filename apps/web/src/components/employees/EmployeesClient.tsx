@@ -12,8 +12,10 @@ import { formatCurrency } from '@/lib/utils';
 import { COUNTRIES } from '@/lib/countries';
 import {
   grossPayrollTotal,
+  payrollCompensationForMonth,
   totalPayrollDeductions,
   upsertEmployeePayment,
+  type PayrollContractSnapshot,
 } from '@/lib/payroll-ui';
 import { AdvancesTab, ContractsTab, EndOfServiceTab } from './EmployeeLifecycleTabs';
 import {
@@ -84,6 +86,7 @@ interface SalaryPayment {
   employeeName: string;
   month: string; // 'YYYY-MM'
   baseSalary: number; // halalas
+  recurringAllowances: number; // contract housing, transport, and other allowances
   bonus: number;      // halalas
   deductions: number; // halalas
   netSalary: number;  // halalas
@@ -800,6 +803,7 @@ function EmployeesTab({ isAr, agencyId, locale }: { isAr: boolean; agencyId: str
 function SalariesTab({ isAr, agencyId, locale }: { isAr: boolean; agencyId: string; locale: string }) {
   const [month, setMonth]           = useState(currentMonth());
   const [employees, setEmployees]   = useState<Employee[]>([]);
+  const [contracts, setContracts]   = useState<PayrollContractSnapshot[]>([]);
   const [payments, setPayments]     = useState<SalaryPayment[]>([]);
   const [loading, setLoading]       = useState(true);
   const [actionId, setActionId]     = useState<string | null>(null);
@@ -822,37 +826,49 @@ function SalariesTab({ isAr, agencyId, locale }: { isAr: boolean; agencyId: stri
     if (!agencyId) { setLoading(false); return; }
     setLoading(true);
     Promise.all([
-      apiFetch<{ payslips: Array<{ id: string; employeeId: string; baseSalaryHalalas: number; otherAllowancesHalalas: number; deductionsHalalas: number; advanceDeductionHalalas: number; gosiEmployeeHalalas: number; netHalalas: number }> }>(`/api/employees/payslips?month=${month}`),
+      apiFetch<{ payslips: Array<{ id: string; employeeId: string; baseSalaryHalalas: number; housingAllowanceHalalas: number; transportAllowanceHalalas: number; otherAllowancesHalalas: number; deductionsHalalas: number; advanceDeductionHalalas: number; gosiEmployeeHalalas: number; netHalalas: number }> }>(`/api/employees/payslips?month=${month}`),
       fetchAllPages<{ employeeId: string; month: string }>(`/api/salary-payments?month=${month}`, 'salaryPayments'),
-    ]).then(([psData, spData]) => {
+      apiFetch<{ contracts: PayrollContractSnapshot[] }>('/api/employees/contracts')
+        .catch(() => ({ contracts: [] as PayrollContractSnapshot[] })),
+    ]).then(([psData, spData, contractData]) => {
+      setContracts(contractData.contracts);
       const paidEmpIds = new Set(spData.map(p => p.employeeId));
       setPayments(psData.payslips.map(ps => ({
-        id:           ps.id,
-        employeeId:   ps.employeeId,
-        employeeName: ps.employeeId,
-        month,
-        baseSalary:   ps.baseSalaryHalalas,
-        bonus:        ps.otherAllowancesHalalas,
-        // Show GOSI + advance repayments alongside manual deductions so the
-        // displayed Net reconciles with the server-computed net (which subtracts them).
-        deductions:   ps.deductionsHalalas + (ps.gosiEmployeeHalalas ?? 0) + (ps.advanceDeductionHalalas ?? 0),
-        netSalary:    ps.netHalalas,
-        status:       (paidEmpIds.has(ps.employeeId) ? 'paid' : 'unpaid') as PaymentStatus,
-        agencyId,
-      })));
+          id:           ps.id,
+          employeeId:   ps.employeeId,
+          employeeName: ps.employeeId,
+          month,
+          baseSalary:   ps.baseSalaryHalalas,
+          recurringAllowances: ps.housingAllowanceHalalas + ps.transportAllowanceHalalas + ps.otherAllowancesHalalas,
+          bonus:        0,
+          // Show GOSI + advance repayments alongside manual deductions so the
+          // displayed Net reconciles with the server-computed net (which subtracts them).
+          deductions:   ps.deductionsHalalas + (ps.gosiEmployeeHalalas ?? 0) + (ps.advanceDeductionHalalas ?? 0),
+          netSalary:    ps.netHalalas,
+          status:       (paidEmpIds.has(ps.employeeId) ? 'paid' : 'unpaid') as PaymentStatus,
+          agencyId,
+        })));
     }).catch(() => {}).finally(() => setLoading(false));
   }, [agencyId, month]);
 
-  // Build merged rows: one per active employee, creating payment doc if missing
+  // Build one row per active employee, including a virtual row until a payslip is created.
   const rows = employees.map(emp => {
     const pay = payments.find(p => p.employeeId === emp.id);
     if (pay) return { emp, pay };
-    // virtual unpaid row (not yet in Firestore)
+    const compensation = payrollCompensationForMonth({
+      employeeId: emp.id,
+      employeeSalaryHalalas: emp.salaryHalalas ?? 0,
+      month,
+      contracts,
+    });
+    // Virtual unpaid row (not persisted yet).
     const virtual: SalaryPayment = {
       id: '', employeeId: emp.id,
       employeeName: isAr ? emp.nameAr : (emp.nameEn || emp.nameAr),
-      month, baseSalary: emp.salaryHalalas ?? 0,
-      bonus: 0, deductions: 0, netSalary: emp.salaryHalalas ?? 0,
+      month, baseSalary: compensation.baseSalaryHalalas,
+      recurringAllowances: compensation.recurringAllowancesHalalas,
+      bonus: 0, deductions: 0,
+      netSalary: compensation.baseSalaryHalalas + compensation.recurringAllowancesHalalas,
       status: 'unpaid', agencyId,
     };
     return { emp, pay: virtual };
@@ -871,6 +887,9 @@ function SalariesTab({ isAr, agencyId, locale }: { isAr: boolean; agencyId: stri
           netHalalas: number;
           advanceDeduction: number;
           gosiEmployee: number;
+          baseSalaryHalalas: number;
+          recurringAllowancesHalalas: number;
+          manualBonusHalalas: number;
         }>('/api/employees/payslips', {
           method: 'POST',
           body: JSON.stringify({
@@ -889,6 +908,9 @@ function SalariesTab({ isAr, agencyId, locale }: { isAr: boolean; agencyId: stri
         setPayments(prev => upsertEmployeePayment(prev, {
           ...pay,
           id: payslipId!,
+          baseSalary: result.baseSalaryHalalas,
+          recurringAllowances: result.recurringAllowancesHalalas,
+          bonus: result.manualBonusHalalas,
           deductions: totalPayrollDeductions({
             manualHalalas: pay.deductions,
             gosiEmployeeHalalas: result.gosiEmployee,
@@ -924,7 +946,7 @@ function SalariesTab({ isAr, agencyId, locale }: { isAr: boolean; agencyId: stri
     try {
       const bonus      = salaryToHalalas(editBonus);
       const deductions = salaryToHalalas(editDeduct);
-      const netSalary  = (emp.salaryHalalas ?? 0) + bonus - deductions;
+      const netSalary  = pay.baseSalary + pay.recurringAllowances + bonus - deductions;
       if (netSalary < 0) {
         alert(
           isAr
@@ -956,8 +978,9 @@ function SalariesTab({ isAr, agencyId, locale }: { isAr: boolean; agencyId: stri
     setMonth(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`);
   }
 
-  const totalGross   = grossPayrollTotal(rows.map(({ emp, pay }) => ({
-    baseSalaryHalalas: emp.salaryHalalas ?? 0,
+  const totalGross   = grossPayrollTotal(rows.map(({ pay }) => ({
+    baseSalaryHalalas: pay.baseSalary,
+    recurringAllowancesHalalas: pay.recurringAllowances,
     bonusHalalas: pay.bonus ?? 0,
   })));
   const totalPaid    = rows.filter(r => r.pay.status === 'paid').reduce((s, r) => s + r.pay.netSalary, 0);
@@ -1020,7 +1043,7 @@ function SalariesTab({ isAr, agencyId, locale }: { isAr: boolean; agencyId: stri
                 {[
                   isAr ? 'الموظف' : 'Employee',
                   isAr ? 'الراتب الأساسي' : 'Base Salary',
-                  isAr ? 'بونص' : 'Bonus',
+                  isAr ? 'البدلات والمكافآت' : 'Allowances & Bonus',
                   isAr ? 'خصومات' : 'Deductions',
                   isAr ? 'الصافي' : 'Net Salary',
                   isAr ? 'الحالة' : 'Status',
@@ -1037,10 +1060,10 @@ function SalariesTab({ isAr, agencyId, locale }: { isAr: boolean; agencyId: stri
                 const name    = isAr ? emp.nameAr : (emp.nameEn || emp.nameAr);
                 const editing = showEditId === emp.id;
                 // For a committed payslip use the server-authoritative net (GOSI-deducted);
-                // for a virtual/unsaved row estimate it from base + bonus − deductions.
+                // for a virtual/unsaved row estimate it from base + allowances + bonus − deductions.
                 const net     = pay.id
                   ? (pay.netSalary ?? 0)
-                  : ((emp.salaryHalalas ?? 0) + (pay.bonus ?? 0) - (pay.deductions ?? 0));
+                  : (pay.baseSalary + pay.recurringAllowances + (pay.bonus ?? 0) - (pay.deductions ?? 0));
                 return (
                   <tr key={emp.id} className="hover:bg-slate-50 transition-colors">
                     <td className="px-4 py-3">
@@ -1051,12 +1074,15 @@ function SalariesTab({ isAr, agencyId, locale }: { isAr: boolean; agencyId: stri
                         <span className="font-medium text-slate-900">{name}</span>
                       </div>
                     </td>
-                    <td className="px-4 py-3 text-slate-700 whitespace-nowrap">{fmt(emp.salaryHalalas ?? 0)}</td>
+                    <td className="px-4 py-3 text-slate-700 whitespace-nowrap">{fmt(pay.baseSalary)}</td>
                     <td className="px-4 py-3 text-emerald-600 whitespace-nowrap">
                       {editing ? (
-                        <input value={editBonus} onChange={e => setEditBonus(e.target.value)}
-                          className="w-24 rounded border border-slate-200 px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-brand-500" dir="ltr" />
-                      ) : fmt(pay.bonus ?? 0)}
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs text-slate-500">{fmt(pay.recurringAllowances)} +</span>
+                          <input value={editBonus} onChange={e => setEditBonus(e.target.value)}
+                            className="w-24 rounded border border-slate-200 px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-brand-500" dir="ltr" />
+                        </div>
+                      ) : fmt(pay.recurringAllowances + (pay.bonus ?? 0))}
                     </td>
                     <td className="px-4 py-3 text-red-500 whitespace-nowrap">
                       {editing ? (

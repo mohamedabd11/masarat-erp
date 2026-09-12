@@ -153,6 +153,22 @@ describe.skipIf(SKIP_IF_NO_DB)('persistent HR lifecycle on a real local database
     }));
     expect(overlapping.status).toBe(409);
 
+    const zeroBase = await updateContract(request(`/api/employees/contracts/${firstId}`, {
+      baseSalaryHalalas: 0,
+    }), { params: { id: firstId } });
+    const excessiveLeave = await updateContract(request(`/api/employees/contracts/${firstId}`, {
+      annualLeaveDays: 366,
+    }), { params: { id: firstId } });
+    const blankNumber = await updateContract(request(`/api/employees/contracts/${firstId}`, {
+      contractNumber: '   ',
+    }), { params: { id: firstId } });
+    await getTestDb().update(employeeContracts).set({
+      contractNumber: 'V2-EXPAT-01', baseSalaryHalalas: 800_000, annualLeaveDays: 21,
+    }).where(eq(employeeContracts.id, firstId));
+    expect(zeroBase.status).toBe(400);
+    expect(excessiveLeave.status).toBe(400);
+    expect(blankNumber.status).toBe(400);
+
     const closed = await updateContract(request(`/api/employees/contracts/${firstId}`, {
       endDate: '2026-12-31', status: 'expired',
     }), { params: { id: firstId } });

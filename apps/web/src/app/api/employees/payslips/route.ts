@@ -137,6 +137,13 @@ export async function POST(request: Request) {
         .limit(1),
     ]);
     if (!employee) return NextResponse.json({ error: 'الموظف غير موجود' }, { status: 404 });
+    // A manually disabled employee (without an employment end date) must not
+    // receive new payroll. Former employees remain eligible for legitimate
+    // arrears in months covered by their end date; the date guards below enforce
+    // that boundary precisely.
+    if (!employee.isActive && !employee.endDate) {
+      return NextResponse.json({ error: 'لا يمكن إنشاء راتب لموظف غير نشط' }, { status: 422 });
+    }
     if (employee.hireDate && employee.hireDate > periodEnd) {
       return NextResponse.json({ error: 'لا يمكن إنشاء راتب قبل تاريخ تعيين الموظف' }, { status: 422 });
     }
@@ -300,6 +307,9 @@ export async function POST(request: Request) {
     return NextResponse.json({
       success: true, id, journalEntryId: jeId, netHalalas: netPayable,
       advanceDeduction, gosiEmployer, gosiEmployee,
+      baseSalaryHalalas: base,
+      recurringAllowancesHalalas: housing + transport + (contract?.otherAllowancesHalalas ?? 0),
+      manualBonusHalalas: body.otherAllowancesHalalas ?? 0,
       gosiEmployeeRateBps: gosi.employeeRateBps, gosiEmployerRateBps: gosi.employerRateBps,
     });
   } catch (err) {

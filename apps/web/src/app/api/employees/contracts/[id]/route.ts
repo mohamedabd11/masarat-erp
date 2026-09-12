@@ -36,8 +36,17 @@ export async function PATCH(request: Request, { params }: { params: { id: string
     }
     if (body.type !== undefined && (typeof body.type !== 'string' || !TYPES.has(body.type))) return NextResponse.json({ error: 'نوع العقد غير صالح' }, { status: 400 });
     if (body.status !== undefined && (typeof body.status !== 'string' || !STATUSES.has(body.status))) return NextResponse.json({ error: 'حالة العقد غير صالحة' }, { status: 400 });
-    for (const field of ['baseSalaryHalalas', 'housingAllowanceHalalas', 'transportAllowanceHalalas', 'otherAllowancesHalalas', 'annualLeaveDays'] as const) {
+    if (body.contractNumber !== undefined && (typeof body.contractNumber !== 'string' || !body.contractNumber.trim() || body.contractNumber.length > 64)) {
+      return NextResponse.json({ error: 'رقم العقد غير صالح' }, { status: 400 });
+    }
+    if (body.baseSalaryHalalas !== undefined && (!isNonNegativeInteger(body.baseSalaryHalalas) || body.baseSalaryHalalas <= 0)) {
+      return NextResponse.json({ error: 'الراتب الأساسي يجب أن يكون رقماً صحيحاً موجباً' }, { status: 400 });
+    }
+    for (const field of ['housingAllowanceHalalas', 'transportAllowanceHalalas', 'otherAllowancesHalalas'] as const) {
       if (body[field] !== undefined && !isNonNegativeInteger(body[field])) return NextResponse.json({ error: `${field} غير صالح` }, { status: 400 });
+    }
+    if (body.annualLeaveDays !== undefined && (!isNonNegativeInteger(body.annualLeaveDays) || body.annualLeaveDays > 365)) {
+      return NextResponse.json({ error: 'رصيد الإجازة السنوي يجب أن يكون بين 0 و365 يوماً' }, { status: 400 });
     }
     if (body.workingDaysPerWeek !== undefined && (!Number.isInteger(body.workingDaysPerWeek) || Number(body.workingDaysPerWeek) < 1 || Number(body.workingDaysPerWeek) > 7)) return NextResponse.json({ error: 'أيام العمل يجب أن تكون بين 1 و7' }, { status: 400 });
     if (body.workingHoursPerDay !== undefined && (!Number.isInteger(body.workingHoursPerDay) || Number(body.workingHoursPerDay) < 1 || Number(body.workingHoursPerDay) > 24)) return NextResponse.json({ error: 'ساعات العمل يجب أن تكون بين 1 و24' }, { status: 400 });

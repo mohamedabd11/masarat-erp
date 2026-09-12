@@ -151,12 +151,12 @@ const RATE_PERIODS = [
 // Seed the four reads the route performs before the transaction, in order:
 //   1. duplicate-payslip check  2. pending installments  3. employee
 //   4. effective GOSI rates  5. active contract
-function seedReads(employee: Record<string, unknown>, advances: unknown[] = []) {
+function seedReads(employee: Record<string, unknown>, advances: unknown[] = [], contracts: unknown[] = []) {
   mockTxSelect.next([]);          // no duplicate payslip
   mockTxSelect.next(advances);    // pending advances
   mockTxSelect.next([{ hireDate: '2020-01-01', endDate: null, isActive: true, gosiScheme: 'legacy', gosiEnrollmentDate: '2020-01-01', sanedApplicable: true, ...employee }]);
   mockTxSelect.next(RATE_PERIODS);
-  mockTxSelect.next([]);          // no active contract — use request salary components
+  mockTxSelect.next(contracts);   // active contract snapshot, when present
 }
 
 describe('POST /api/employees/payslips — server-side GOSI + negative-net guard', () => {
@@ -199,6 +199,31 @@ describe('POST /api/employees/payslips — server-side GOSI + negative-net guard
     const data = await res.json();
     expect(data.gosiEmployer).toBe(117_500);
     expect(data.netHalalas).toBe(902_500);
+  });
+
+  it('200 — يعيد راتب العقد والبدلات والمكافأة اليدوية بصورة قابلة للمطابقة في الواجهة', async () => {
+    seedReads(
+      { id: 'e-contract', nameAr: 'موظف بعقد', nationalityType: 'saudi' },
+      [],
+      [{
+        baseSalaryHalalas: 900_000,
+        housingAllowanceHalalas: 100_000,
+        transportAllowanceHalalas: 50_000,
+        otherAllowancesHalalas: 25_000,
+      }],
+    );
+    const res = await POST(makeRequest({
+      employeeId: 'e-contract', month: '2025-02', baseSalaryHalalas: 800_000,
+      otherAllowancesHalalas: 20_000,
+    }));
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({
+      baseSalaryHalalas: 900_000,
+      recurringAllowancesHalalas: 175_000,
+      manualBonusHalalas: 20_000,
+      gosiEmployee: 97_500,
+      netHalalas: 997_500,
+    });
   });
 
   it('422 — يرفض صافي راتب سالب (الخصومات + التأمينات تتجاوز الإجمالي)', async () => {
