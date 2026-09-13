@@ -68,9 +68,11 @@ export async function PATCH(request: Request, { params }: { params: { id: string
       .where(and(eq(bankAccounts.id, params.id), eq(bankAccounts.agencyId, agencyId)));
     if (!account) return NextResponse.json({ error: 'الحساب غير موجود' }, { status: 404 });
 
-    await db.update(bankAccounts)
-      .set({ isActive: body.isActive } as never)
-      .where(and(eq(bankAccounts.id, params.id), eq(bankAccounts.agencyId, agencyId)));
+    await db.transaction(async (tx) => {
+      await tx.update(bankAccounts)
+        .set({ isActive: body.isActive } as never)
+        .where(and(eq(bankAccounts.id, params.id), eq(bankAccounts.agencyId, agencyId)));
+    });
 
     await logAudit({
       agencyId, userId: uid,

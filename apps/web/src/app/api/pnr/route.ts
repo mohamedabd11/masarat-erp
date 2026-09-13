@@ -92,7 +92,8 @@ export async function POST(request: Request) {
     }
 
     const id = crypto.randomUUID();
-    await db.insert(pnrRecords).values({
+    await db.transaction(async (tx) => {
+      await tx.insert(pnrRecords).values({
       id,
       agencyId,
       pnrCode:        body.pnrCode.trim().toUpperCase(),
@@ -113,7 +114,8 @@ export async function POST(request: Request) {
       customerId:     body.customerId     ?? null,
       expiresAt:      body.expiresAt ? new Date(body.expiresAt) : null,
       notes:          body.notes          ?? null,
-      createdBy:      uid,
+        createdBy:      uid,
+      });
     });
 
     await logAudit({ agencyId, userId: uid, action: 'create', resource: 'pnr', resourceId: id, after: { pnrCode: body.pnrCode } });

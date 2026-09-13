@@ -54,7 +54,7 @@ export async function POST(req: Request, { params }: RouteCtx) {
     }
 
     const now = new Date();
-    const [created] = await db.insert(bookingPassengers).values({
+    const [created] = await db.transaction(async (tx) => tx.insert(bookingPassengers).values({
       id:             crypto.randomUUID(),
       agencyId,
       bookingId,
@@ -71,7 +71,7 @@ export async function POST(req: Request, { params }: RouteCtx) {
       createdAt:      now,
       updatedAt:      now,
       createdBy:      uid,
-    }).returning();
+    }).returning());
 
     return NextResponse.json({ passenger: created }, { status: 201 });
   } catch (err) {

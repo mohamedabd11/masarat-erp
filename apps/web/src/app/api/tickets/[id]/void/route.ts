@@ -67,10 +67,10 @@ export async function POST(
     // provider call. The conditional UPDATE + row lock guarantees that two
     // concurrent void requests cannot both pass — the loser matches 0 rows and
     // aborts, so the provider is never called twice for one ticket.
-    const claim = await db.update(tickets)
+    const claim = await db.transaction(async (tx) => tx.update(tickets)
       .set({ status: 'pending_void', updatedAt: new Date() })
       .where(and(eq(tickets.id, params.id), eq(tickets.agencyId, agencyId), eq(tickets.status, 'active')))
-      .returning({ id: tickets.id });
+      .returning({ id: tickets.id }));
     if (claim.length === 0) {
       return NextResponse.json({ error: 'التذكرة قيد المعالجة أو لم تعد نشطة' }, { status: 409 });
     }
@@ -81,9 +81,11 @@ export async function POST(
       await provider.voidTicket(ticket.ticketNumber, credentials);
     } catch (providerErr) {
       // Provider rejected — roll back to active; user must retry
-      await db.update(tickets)
-        .set({ status: 'active', updatedAt: new Date() })
-        .where(eq(tickets.id, params.id));
+      await db.transaction(async (tx) => {
+        await tx.update(tickets)
+          .set({ status: 'active', updatedAt: new Date() })
+          .where(and(eq(tickets.id, params.id), eq(tickets.agencyId, agencyId)));
+      });
 
       const errorMsg = (providerErr as Error).message;
       logProviderSync({ agencyId, provider: providerCode, operation: 'void_ticket', status: 'failed', referenceId: params.id, errorMessage: errorMsg, durationMs: Date.now() - t0 });
@@ -101,7 +103,7 @@ export async function POST(
         voidedAt:  new Date(),
         voidedBy:  uid,
         updatedAt: new Date(),
-      }).where(eq(tickets.id, params.id));
+      }).where(and(eq(tickets.id, params.id), eq(tickets.agencyId, agencyId)));
 
       await tx.update(ticketCoupons)
         .set({ couponStatus: 'void', updatedAt: new Date() })

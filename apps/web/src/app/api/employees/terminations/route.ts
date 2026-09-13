@@ -46,31 +46,36 @@ export async function POST(request: Request) {
     if (['article_80', 'other'].includes(body.terminationType) && !body.reason?.trim()) {
       return NextResponse.json({ error: 'يجب توثيق سبب نهاية الخدمة لهذا النوع' }, { status: 400 });
     }
+    const employeeId = body.employeeId;
+    const terminationDate = body.terminationDate;
+    const terminationType = body.terminationType;
     const [[employee], [contract]] = await Promise.all([
       db.select({ id: employees.id, hireDate: employees.hireDate, salary: employees.salaryHalalas })
-        .from(employees).where(and(eq(employees.id, body.employeeId), eq(employees.agencyId, agencyId))).limit(1),
+        .from(employees).where(and(eq(employees.id, employeeId), eq(employees.agencyId, agencyId))).limit(1),
       db.select({
         base: employeeContracts.baseSalaryHalalas, housing: employeeContracts.housingAllowanceHalalas,
         transport: employeeContracts.transportAllowanceHalalas, other: employeeContracts.otherAllowancesHalalas,
       }).from(employeeContracts).where(and(
-        eq(employeeContracts.agencyId, agencyId), eq(employeeContracts.employeeId, body.employeeId),
-        lte(employeeContracts.startDate, body.terminationDate),
-        or(isNull(employeeContracts.endDate), gte(employeeContracts.endDate, body.terminationDate)),
+        eq(employeeContracts.agencyId, agencyId), eq(employeeContracts.employeeId, employeeId),
+        lte(employeeContracts.startDate, terminationDate),
+        or(isNull(employeeContracts.endDate), gte(employeeContracts.endDate, terminationDate)),
       )).orderBy(desc(employeeContracts.startDate)).limit(1),
     ]);
     if (!employee) return NextResponse.json({ error: 'الموظف غير موجود' }, { status: 404 });
     if (!employee.hireDate) return NextResponse.json({ error: 'يجب تسجيل تاريخ تعيين الموظف أولاً' }, { status: 422 });
-    if (body.terminationDate < employee.hireDate) return NextResponse.json({ error: 'تاريخ نهاية الخدمة يسبق تاريخ التعيين' }, { status: 422 });
+    if (terminationDate < employee.hireDate) return NextResponse.json({ error: 'تاريخ نهاية الخدمة يسبق تاريخ التعيين' }, { status: 422 });
     const lastWage = contract ? contract.base + contract.housing + contract.transport + contract.other : employee.salary;
     if (lastWage <= 0) return NextResponse.json({ error: 'يجب تسجيل آخر أجر للموظف قبل التسوية' }, { status: 422 });
-    const calculation = calculateTerminationSettlement(lastWage, employee.hireDate, body.terminationDate, body.terminationType);
+    const calculation = calculateTerminationSettlement(lastWage, employee.hireDate, terminationDate, terminationType);
     const id = crypto.randomUUID();
-    await db.insert(employeeTerminations).values({
-      id, agencyId, employeeId: employee.id, terminationDate: body.terminationDate,
-      terminationType: body.terminationType, reason: body.reason?.trim() || null,
-      lastWageHalalas: lastWage, baseBenefitHalalas: calculation.baseBenefitHalalas,
-      entitlementRateBps: calculation.entitlementRateBps, settlementHalalas: calculation.settlementHalalas,
-      createdBy: uid,
+    await db.transaction(async (tx) => {
+      await tx.insert(employeeTerminations).values({
+        id, agencyId, employeeId: employee.id, terminationDate,
+        terminationType, reason: body.reason?.trim() || null,
+        lastWageHalalas: lastWage, baseBenefitHalalas: calculation.baseBenefitHalalas,
+        entitlementRateBps: calculation.entitlementRateBps, settlementHalalas: calculation.settlementHalalas,
+        createdBy: uid,
+      });
     });
     await logAudit({ agencyId, userId: uid, action: 'create', resource: 'employee_termination', resourceId: id, after: { ...body, ...calculation } });
     return NextResponse.json({ success: true, id, ...calculation }, { status: 201 });

@@ -87,9 +87,11 @@ export async function PATCH(req: Request, { params }: RouteCtx) {
       if (!STRIP.has(k)) patch[k] = v;
     }
 
-    await db.update(groupTrips)
-      .set(patch as Partial<typeof groupTrips.$inferInsert>)
-      .where(and(eq(groupTrips.id, id), eq(groupTrips.agencyId, agencyId)));
+    await db.transaction(async (tx) => {
+      await tx.update(groupTrips)
+        .set(patch as Partial<typeof groupTrips.$inferInsert>)
+        .where(and(eq(groupTrips.id, id), eq(groupTrips.agencyId, agencyId)));
+    });
 
     return NextResponse.json({ success: true });
   } catch (err) {
@@ -117,9 +119,11 @@ export async function DELETE(req: Request, { params }: RouteCtx) {
       return NextResponse.json({ error: 'لا يمكن إلغاء رحلة مكتملة' }, { status: 422 });
     }
 
-    await db.update(groupTrips)
-      .set({ status: 'cancelled', updatedAt: new Date() })
-      .where(and(eq(groupTrips.id, id), eq(groupTrips.agencyId, agencyId)));
+    await db.transaction(async (tx) => {
+      await tx.update(groupTrips)
+        .set({ status: 'cancelled', updatedAt: new Date() })
+        .where(and(eq(groupTrips.id, id), eq(groupTrips.agencyId, agencyId)));
+    });
 
     return NextResponse.json({ success: true });
   } catch (err) {

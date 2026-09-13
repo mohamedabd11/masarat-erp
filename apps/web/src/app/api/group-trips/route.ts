@@ -91,7 +91,7 @@ export async function POST(req: Request) {
     }
 
     const now = new Date();
-    const [trip] = await db.insert(groupTrips).values({
+    const [trip] = await db.transaction(async (tx) => tx.insert(groupTrips).values({
       id:                    crypto.randomUUID(),
       agencyId,
       name,
@@ -105,7 +105,7 @@ export async function POST(req: Request) {
       createdBy:             uid,
       createdAt:             now,
       updatedAt:             now,
-    }).returning();
+    }).returning());
 
     return NextResponse.json({ trip }, { status: 201 });
   } catch (err) {

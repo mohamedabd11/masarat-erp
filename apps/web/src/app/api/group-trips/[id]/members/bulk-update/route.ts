@@ -48,14 +48,14 @@ export async function POST(req: Request, { params }: RouteCtx) {
     if (visaStatus) updates['visaStatus'] = visaStatus;
     if (status)     updates['status']     = status;
 
-    const updated = await db.update(groupTripMembers)
+    const updated = await db.transaction(async (tx) => tx.update(groupTripMembers)
       .set(updates)
       .where(and(
         inArray(groupTripMembers.id, memberIds),
         eq(groupTripMembers.groupTripId, groupTripId),
         eq(groupTripMembers.agencyId, agencyId),
       ))
-      .returning({ id: groupTripMembers.id });
+      .returning({ id: groupTripMembers.id }));
 
     return NextResponse.json({ updatedCount: updated.length });
   } catch (err) {

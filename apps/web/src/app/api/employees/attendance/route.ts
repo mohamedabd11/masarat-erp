@@ -108,19 +108,21 @@ export async function POST(request: Request) {
       if (workMinutes > 1_440) return NextResponse.json({ error: 'مدة العمل لا يمكن أن تتجاوز 24 ساعة' }, { status: 400 });
     }
 
-    await db.insert(attendanceRecords).values({
-      id,
-      agencyId,
-      employeeId:      body.employeeId,
-      shiftId:         body.shiftId    ?? null,
-      date:            body.date,
-      checkIn:         checkInTs,
-      checkOut:        checkOutTs,
-      status,
-      workMinutes,
-      overtimeMinutes: body.overtimeMinutes ?? 0,
-      notes:           body.notes    ?? null,
-      createdBy:       uid,
+    await db.transaction(async (tx) => {
+      await tx.insert(attendanceRecords).values({
+        id,
+        agencyId,
+        employeeId:      body.employeeId,
+        shiftId:         body.shiftId    ?? null,
+        date:            body.date,
+        checkIn:         checkInTs,
+        checkOut:        checkOutTs,
+        status,
+        workMinutes,
+        overtimeMinutes: body.overtimeMinutes ?? 0,
+        notes:           body.notes    ?? null,
+        createdBy:       uid,
+      });
     });
 
     await logAudit({ agencyId, userId: uid, action: 'create', resource: 'attendance', resourceId: id, after: { employeeId: body.employeeId, date: body.date, status } });

@@ -110,24 +110,26 @@ export async function POST(request: Request) {
       .limit(1);
     if (overlap) return NextResponse.json({ error: 'توجد فترة عقد نشط متداخلة لهذا الموظف' }, { status: 409 });
 
-    await db.insert(employeeContracts).values({
-      id,
-      agencyId,
-      employeeId:                body.employeeId,
-      contractNumber: contractNumber.trim(),
-      type,
-      startDate:                 body.startDate,
-      endDate:                   body.endDate                   ?? null,
-      baseSalaryHalalas:         body.baseSalaryHalalas,
-      housingAllowanceHalalas:   body.housingAllowanceHalalas   ?? 0,
-      transportAllowanceHalalas: body.transportAllowanceHalalas ?? 0,
-      otherAllowancesHalalas:    body.otherAllowancesHalalas    ?? 0,
-      salaryComponents:          (body.salaryComponents         ?? null) as never,
-      workingDaysPerWeek:        workingDays,
-      workingHoursPerDay:        workingHours,
-      annualLeaveDays,
-      notes:                     body.notes                     ?? null,
-      createdBy:                 uid,
+    await db.transaction(async (tx) => {
+      await tx.insert(employeeContracts).values({
+        id,
+        agencyId,
+        employeeId:                body.employeeId,
+        contractNumber: contractNumber.trim(),
+        type,
+        startDate:                 body.startDate,
+        endDate:                   body.endDate                   ?? null,
+        baseSalaryHalalas:         body.baseSalaryHalalas,
+        housingAllowanceHalalas:   body.housingAllowanceHalalas   ?? 0,
+        transportAllowanceHalalas: body.transportAllowanceHalalas ?? 0,
+        otherAllowancesHalalas:    body.otherAllowancesHalalas    ?? 0,
+        salaryComponents:          (body.salaryComponents         ?? null) as never,
+        workingDaysPerWeek:        workingDays,
+        workingHoursPerDay:        workingHours,
+        annualLeaveDays,
+        notes:                     body.notes                     ?? null,
+        createdBy:                 uid,
+      });
     });
 
     await logAudit({ agencyId, userId: uid, action: 'create', resource: 'employee_contract', resourceId: id, after: { employeeId: body.employeeId, contractNumber } });

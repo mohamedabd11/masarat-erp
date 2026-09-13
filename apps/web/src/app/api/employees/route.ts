@@ -83,28 +83,30 @@ export async function POST(request: Request) {
     if (body.sanedApplicable !== undefined && typeof body.sanedApplicable !== 'boolean') {
       return NextResponse.json({ error: 'حالة شمول ساند غير صالحة' }, { status: 400 });
     }
-    let departmentCode = body.department?.trim() || null;
-    if (body.departmentId) {
-      const [department] = await db.select({ code: departments.code }).from(departments)
-        .where(and(eq(departments.id, body.departmentId), eq(departments.agencyId, agencyId), eq(departments.isActive, true)))
-        .limit(1);
-      if (!department) return NextResponse.json({ error: 'القسم غير موجود أو غير نشط' }, { status: 422 });
-      departmentCode = department.code;
-    }
     const id = crypto.randomUUID();
     const empNum = body.employeeNumber?.trim() || `EMP-${Date.now()}`;
     if (empNum.length > 64) return NextResponse.json({ error: 'رقم الموظف طويل جداً' }, { status: 400 });
-    await db.insert(employees).values({
-      id, agencyId, employeeNumber: empNum,
-      nameAr, nameEn: body.nameEn?.trim() || null,
-      departmentId: body.departmentId || null, department: departmentCode, position: body.position?.trim() || null,
-      hireDate: body.hireDate || null, salaryHalalas: body.salaryHalalas ?? 0,
-      phone: body.phone?.trim() || null, email: body.email?.trim() || null,
-      nationalId: body.nationalId?.trim() || null, iqamaNumber: body.iqamaNumber?.trim() || null,
-      nationalityType: body.nationalityType,
-      gosiScheme,
-      gosiEnrollmentDate: body.gosiEnrollmentDate || null,
-      sanedApplicable: body.nationalityType === 'expat' || gosiScheme === 'exempt' ? false : (body.sanedApplicable ?? true),
+    await db.transaction(async (tx) => {
+      let departmentCode = body.department?.trim() || null;
+      if (body.departmentId) {
+        const [department] = await tx.select({ code: departments.code }).from(departments)
+          .where(and(eq(departments.id, body.departmentId), eq(departments.agencyId, agencyId), eq(departments.isActive, true)))
+          .limit(1);
+        if (!department) throw new BusinessError('القسم غير موجود أو غير نشط', 422);
+        departmentCode = department.code;
+      }
+      await tx.insert(employees).values({
+        id, agencyId, employeeNumber: empNum,
+        nameAr, nameEn: body.nameEn?.trim() || null,
+        departmentId: body.departmentId || null, department: departmentCode, position: body.position?.trim() || null,
+        hireDate: body.hireDate || null, salaryHalalas: body.salaryHalalas ?? 0,
+        phone: body.phone?.trim() || null, email: body.email?.trim() || null,
+        nationalId: body.nationalId?.trim() || null, iqamaNumber: body.iqamaNumber?.trim() || null,
+        nationalityType: body.nationalityType,
+        gosiScheme,
+        gosiEnrollmentDate: body.gosiEnrollmentDate || null,
+        sanedApplicable: body.nationalityType === 'expat' || gosiScheme === 'exempt' ? false : (body.sanedApplicable ?? true),
+      });
     });
     return NextResponse.json({ success: true, id });
   } catch (err) {

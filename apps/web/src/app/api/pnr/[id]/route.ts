@@ -69,9 +69,11 @@ export async function PATCH(request: Request, { params }: { params: { id: string
       patch['cancelledBy'] = uid;
     }
 
-    await db.update(pnrRecords)
-      .set(patch as Partial<typeof pnrRecords.$inferInsert>)
-      .where(and(eq(pnrRecords.id, params.id), eq(pnrRecords.agencyId, agencyId)));
+    await db.transaction(async (tx) => {
+      await tx.update(pnrRecords)
+        .set(patch as Partial<typeof pnrRecords.$inferInsert>)
+        .where(and(eq(pnrRecords.id, params.id), eq(pnrRecords.agencyId, agencyId)));
+    });
 
     await logAudit({
       agencyId,
@@ -115,9 +117,11 @@ export async function DELETE(request: Request, { params }: { params: { id: strin
     if (!existing) return NextResponse.json({ error: 'PNR غير موجود' }, { status: 404 });
 
     // Soft-delete only — PNR records are financial commitments
-    await db.update(pnrRecords)
-      .set({ deletedAt: new Date(), updatedAt: new Date() })
-      .where(and(eq(pnrRecords.id, params.id), eq(pnrRecords.agencyId, agencyId)));
+    await db.transaction(async (tx) => {
+      await tx.update(pnrRecords)
+        .set({ deletedAt: new Date(), updatedAt: new Date() })
+        .where(and(eq(pnrRecords.id, params.id), eq(pnrRecords.agencyId, agencyId)));
+    });
 
     await logAudit({ agencyId, userId: uid, action: 'delete', resource: 'pnr', resourceId: params.id, before: existing });
     return NextResponse.json({ success: true });

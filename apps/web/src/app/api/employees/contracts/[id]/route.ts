@@ -67,7 +67,10 @@ export async function PATCH(request: Request, { params }: { params: { id: string
       if (key === 'endDate' || key === 'startDate') continue;
       (patch as Record<string, unknown>)[key] = typeof value === 'string' ? value.trim() || null : value;
     }
-    await db.update(employeeContracts).set(patch).where(and(eq(employeeContracts.id, existing.id), eq(employeeContracts.agencyId, agencyId)));
+    await db.transaction(async (tx) => {
+      await tx.update(employeeContracts).set(patch)
+        .where(and(eq(employeeContracts.id, existing.id), eq(employeeContracts.agencyId, agencyId)));
+    });
     await logAudit({ agencyId, userId: uid, action: 'update', resource: 'employee_contract', resourceId: existing.id, before: existing, after: patch });
     return NextResponse.json({ success: true });
   } catch (err) {

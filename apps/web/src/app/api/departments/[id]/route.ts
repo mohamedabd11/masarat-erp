@@ -23,9 +23,9 @@ export async function PATCH(request: Request, { params }: { params: { id: string
       patch.isActive = body.isActive;
     }
     if (Object.keys(patch).length === 1) return NextResponse.json({ error: 'لا توجد تعديلات للحفظ' }, { status: 400 });
-    const rows = await db.update(departments).set(patch)
+    const rows = await db.transaction(async (tx) => tx.update(departments).set(patch)
       .where(and(eq(departments.id, params.id), eq(departments.agencyId, agencyId)))
-      .returning({ id: departments.id });
+      .returning({ id: departments.id }));
     if (rows.length === 0) return NextResponse.json({ error: 'القسم غير موجود' }, { status: 404 });
     return NextResponse.json({ success: true });
   } catch (err) {
@@ -40,12 +40,14 @@ export async function DELETE(request: Request, { params }: { params: { id: strin
     const { agencyId, role } = await verifyAuth(request);
     assertRole(role, [...ROLES_MANAGER_UP]);
     await requireFeature(agencyId, 'employees', db);
-    const [used] = await db.select({ id: employees.id }).from(employees)
-      .where(and(eq(employees.agencyId, agencyId), eq(employees.departmentId, params.id))).limit(1);
-    if (used) return NextResponse.json({ error: 'لا يمكن حذف قسم مرتبط بموظفين؛ يمكنك تعطيله بدلاً من ذلك' }, { status: 422 });
-    const rows = await db.delete(departments)
-      .where(and(eq(departments.id, params.id), eq(departments.agencyId, agencyId)))
-      .returning({ id: departments.id });
+    const rows = await db.transaction(async (tx) => {
+      const [used] = await tx.select({ id: employees.id }).from(employees)
+        .where(and(eq(employees.agencyId, agencyId), eq(employees.departmentId, params.id))).limit(1);
+      if (used) throw new BusinessError('لا يمكن حذف قسم مرتبط بموظفين؛ يمكنك تعطيله بدلاً من ذلك', 422);
+      return tx.delete(departments)
+        .where(and(eq(departments.id, params.id), eq(departments.agencyId, agencyId)))
+        .returning({ id: departments.id });
+    });
     if (rows.length === 0) return NextResponse.json({ error: 'القسم غير موجود' }, { status: 404 });
     return NextResponse.json({ success: true });
   } catch (err) {

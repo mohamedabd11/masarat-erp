@@ -87,9 +87,11 @@ export async function PATCH(request: Request, { params }: { params: { id: string
       if (body.overtimeMinutes !== undefined) patch['overtimeMinutes'] = body.overtimeMinutes;
     }
 
-    await db.update(attendanceRecords)
-      .set(patch as Partial<typeof attendanceRecords.$inferInsert>)
-      .where(and(eq(attendanceRecords.id, params.id), eq(attendanceRecords.agencyId, agencyId)));
+    await db.transaction(async (tx) => {
+      await tx.update(attendanceRecords)
+        .set(patch as Partial<typeof attendanceRecords.$inferInsert>)
+        .where(and(eq(attendanceRecords.id, params.id), eq(attendanceRecords.agencyId, agencyId)));
+    });
 
     await logAudit({ agencyId, userId: uid, action: 'update', resource: 'attendance', resourceId: params.id, before: existing, after: patch });
     return NextResponse.json({ success: true });

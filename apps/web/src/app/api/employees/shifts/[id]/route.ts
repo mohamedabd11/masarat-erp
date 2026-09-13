@@ -68,7 +68,9 @@ export async function DELETE(request: Request, { params }: { params: { id: strin
       .limit(1);
     if (used) return NextResponse.json({ error: 'لا يمكن حذف وردية مرتبطة بسجلات حضور؛ قم بتعطيلها بدلاً من الحذف' }, { status: 422 });
 
-    await db.delete(shifts).where(and(eq(shifts.id, params.id), eq(shifts.agencyId, agencyId)));
+    await db.transaction(async (tx) => {
+      await tx.delete(shifts).where(and(eq(shifts.id, params.id), eq(shifts.agencyId, agencyId)));
+    });
     return NextResponse.json({ success: true });
   } catch (err) {
     if (err instanceof ApiAuthError || err instanceof BusinessError) return NextResponse.json({ error: err.message }, { status: err.status });

@@ -96,12 +96,14 @@ export async function PATCH(
       patch.testedAt   = null;
     }
 
-    await db.update(providerCredentials)
-      .set(patch as Partial<typeof providerCredentials.$inferInsert>)
-      .where(and(
-        eq(providerCredentials.id, params.id),
-        eq(providerCredentials.agencyId, agencyId),
-      ));
+    await db.transaction(async (tx) => {
+      await tx.update(providerCredentials)
+        .set(patch as Partial<typeof providerCredentials.$inferInsert>)
+        .where(and(
+          eq(providerCredentials.id, params.id),
+          eq(providerCredentials.agencyId, agencyId),
+        ));
+    });
 
     await logAudit({
       agencyId,
@@ -144,11 +146,13 @@ export async function DELETE(
       return NextResponse.json({ error: 'التكوين غير موجود' }, { status: 404 });
     }
 
-    await db.delete(providerCredentials)
-      .where(and(
-        eq(providerCredentials.id, params.id),
-        eq(providerCredentials.agencyId, agencyId),
-      ));
+    await db.transaction(async (tx) => {
+      await tx.delete(providerCredentials)
+        .where(and(
+          eq(providerCredentials.id, params.id),
+          eq(providerCredentials.agencyId, agencyId),
+        ));
+    });
 
     await logAudit({
       agencyId,

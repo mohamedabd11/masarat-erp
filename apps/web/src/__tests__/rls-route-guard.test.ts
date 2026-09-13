@@ -8,7 +8,7 @@
  * transaction therefore get NO RLS, so tenant isolation still rests on every
  * query carrying an `agencyId` predicate. This static guard is that backstop.
  *
- * Two checks:
+ * Three checks:
  *   1. WRITE path — every `.update()` / `.delete()` on a tenant table must be
  *      scoped by `agencyId` or the table's primary-key `id`. This is the exact
  *      class of bug behind the CRIT-7 cross-tenant IDOR.
@@ -17,6 +17,10 @@
  *      so a forged id cannot read another agency's row (IDOR-on-read). Static,
  *      list-style reads (no dynamic segment) are out of scope here — they are far
  *      less IDOR-prone and would swamp the guard with aggregate/join noise.
+ *   3. AUTHENTICATED WRITE path — tenant-table mutations in ordinary agency API
+ *      routes must use `tx`, never bare `db`, so the transaction-bound RLS
+ *      context is active. Admin/auth/jobs are separately scoped system routes
+ *      that intentionally run without an agency request context.
  *
  * Rules:
  *   • A statement is SAFE if it references `agencyId`, OR scopes by the table's
@@ -53,6 +57,13 @@ function walk(dir: string): string[] {
 
 interface Violation { file: string; line: number; op: string; table: string; }
 
+const SYSTEM_ROUTE_PREFIXES = ['app/api/admin/', 'app/api/auth/', 'app/api/jobs/'];
+
+function relativeApiPath(file: string): string {
+  const normalized = file.replaceAll('\\', '/');
+  return normalized.slice(normalized.indexOf('app/api'));
+}
+
 function scanFile(file: string): Violation[] {
   const src = readFileSync(file, 'utf8');
   const re = /\b(?:db|tx)\.(update|delete)\(\s*([A-Za-z_]\w*)/g;
@@ -71,7 +82,7 @@ function scanFile(file: string): Violation[] {
     const hasAgency = /agencyId/.test(win);
     const hasPkId   = new RegExp(`\\b${table}\\.id\\b`).test(win);
     if (!hasAgency && !hasPkId) {
-      violations.push({ file: file.slice(file.indexOf('app/api')), line: src.slice(0, start).split('\n').length, op, table });
+      violations.push({ file: relativeApiPath(file), line: src.slice(0, start).split('\n').length, op, table });
     }
   }
   return violations;
@@ -97,8 +108,25 @@ function scanReadsInDynamicRoute(file: string): Violation[] {
     const hasAgency = /agencyId/.test(win);
     const hasPkId   = new RegExp(`\\b${table}\\.id\\b`).test(win);
     if (!hasAgency && !hasPkId) {
-      violations.push({ file: file.slice(file.indexOf('app/api')), line: src.slice(0, start).split('\n').length, op: 'read', table });
+      violations.push({ file: relativeApiPath(file), line: src.slice(0, start).split('\n').length, op: 'read', table });
     }
+  }
+  return violations;
+}
+
+function scanDirectTenantWrites(file: string): Violation[] {
+  const relative = relativeApiPath(file);
+  if (SYSTEM_ROUTE_PREFIXES.some(prefix => relative.startsWith(prefix))) return [];
+
+  const src = readFileSync(file, 'utf8');
+  const re = /\bdb\.(insert|update|delete)\(\s*([A-Za-z_]\w*)/g;
+  const violations: Violation[] = [];
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(src))) {
+    const op = m[1]!;
+    const table = m[2]!;
+    if (NON_TENANT.has(table) || PARENT_SCOPED_TABLES.has(table)) continue;
+    violations.push({ file: relative, line: src.slice(0, m.index).split('\n').length, op, table });
   }
   return violations;
 }
@@ -129,6 +157,19 @@ describe('RLS app-layer guard (CRIT-6) — tenant access must be agency- or PK-s
         `Found ${violations.length} dynamic-route read(s) of a tenant table with no agencyId predicate ` +
         `(RLS is fail-open on non-transactional reads, so a forged id could read another agency's row).\n` +
         `Add eq(<table>.agencyId, agencyId) to the WHERE clause:\n${report}`,
+      );
+    }
+    expect(violations).toEqual([]);
+  });
+
+  it('ordinary agency routes mutate tenant tables only through an RLS-bound transaction', () => {
+    const files = walk(API_ROOT);
+    const violations = files.flatMap(scanDirectTenantWrites);
+    if (violations.length > 0) {
+      const report = violations.map(v => `  ${v.file}:${v.line} → db.${v.op}(${v.table})`).join('\n');
+      throw new Error(
+        `Found ${violations.length} tenant write(s) outside an RLS-bound transaction.\n` +
+        `Open db.transaction(...) after verifyAuth and perform the mutation through tx:\n${report}`,
       );
     }
     expect(violations).toEqual([]);

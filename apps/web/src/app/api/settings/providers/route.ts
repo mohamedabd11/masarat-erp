@@ -83,13 +83,16 @@ export async function POST(request: Request) {
 
     const id = crypto.randomUUID();
 
-    await db.insert(providerCredentials).values({
-      id,
-      agencyId,
-      providerCode: body.providerCode,
-      label:        body.label?.trim() || null,
-      credentials:  await encryptJson(body.credentials),  // encrypted at rest
-      isActive:     body.isActive ?? true,
+    const encryptedCredentials = await encryptJson(body.credentials);
+    await db.transaction(async (tx) => {
+      await tx.insert(providerCredentials).values({
+        id,
+        agencyId,
+        providerCode: body.providerCode,
+        label:        body.label?.trim() || null,
+        credentials:  encryptedCredentials,  // encrypted at rest
+        isActive:     body.isActive ?? true,
+      });
     });
 
     await logAudit({

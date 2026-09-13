@@ -27,7 +27,9 @@ export async function DELETE(req: Request, { params }: RouteCtx) {
       }
     }
 
-    await db.delete(documents).where(and(eq(documents.id, params.id), eq(documents.agencyId, agencyId)));
+    await db.transaction(async (tx) => {
+      await tx.delete(documents).where(and(eq(documents.id, params.id), eq(documents.agencyId, agencyId)));
+    });
 
     return NextResponse.json({ ok: true });
   } catch (err) {

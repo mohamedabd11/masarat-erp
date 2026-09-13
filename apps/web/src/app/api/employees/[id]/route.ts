@@ -106,8 +106,10 @@ export async function PATCH(request: Request, { params }: { params: { id: string
       return NextResponse.json({ error: 'تاريخ نهاية الخدمة لا يمكن أن يسبق تاريخ التعيين' }, { status: 400 });
     }
 
-    await db.update(employees).set(patch as Partial<typeof employees.$inferInsert>)
-      .where(and(eq(employees.id, params.id), eq(employees.agencyId, agencyId)));
+    await db.transaction(async (tx) => {
+      await tx.update(employees).set(patch as Partial<typeof employees.$inferInsert>)
+        .where(and(eq(employees.id, params.id), eq(employees.agencyId, agencyId)));
+    });
     return NextResponse.json({ success: true });
   } catch (err) {
     if (err instanceof ApiAuthError || err instanceof BusinessError) return NextResponse.json({ error: err.message }, { status: err.status });
@@ -124,21 +126,20 @@ export async function DELETE(request: Request, { params }: { params: { id: strin
     assertRole(role, [...ROLES_MANAGER_UP]);
     await requireFeature(agencyId, 'employees', db);
 
-    const [hasSalary] = await db
-      .select({ id: salaryPayments.id })
-      .from(salaryPayments)
-      .where(and(eq(salaryPayments.employeeId, params.id), eq(salaryPayments.agencyId, agencyId)))
-      .limit(1);
-    if (hasSalary) {
-      return NextResponse.json(
-        { error: 'لا يمكن حذف الموظف لوجود مدفوعات راتب مرتبطة به. قم بتعطيله بدلاً من الحذف.' },
-        { status: 422 },
-      );
-    }
+    const deleted = await db.transaction(async (tx) => {
+      const [hasSalary] = await tx
+        .select({ id: salaryPayments.id })
+        .from(salaryPayments)
+        .where(and(eq(salaryPayments.employeeId, params.id), eq(salaryPayments.agencyId, agencyId)))
+        .limit(1);
+      if (hasSalary) {
+        throw new BusinessError('لا يمكن حذف الموظف لوجود مدفوعات راتب مرتبطة به. قم بتعطيله بدلاً من الحذف.', 422);
+      }
 
-    const deleted = await db.delete(employees)
-      .where(and(eq(employees.id, params.id), eq(employees.agencyId, agencyId)))
-      .returning({ id: employees.id });
+      return tx.delete(employees)
+        .where(and(eq(employees.id, params.id), eq(employees.agencyId, agencyId)))
+        .returning({ id: employees.id });
+    });
     if (deleted.length === 0) return NextResponse.json({ error: 'الموظف غير موجود' }, { status: 404 });
     return NextResponse.json({ success: true });
   } catch (err) {

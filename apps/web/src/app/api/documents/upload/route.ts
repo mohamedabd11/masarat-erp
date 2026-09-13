@@ -57,7 +57,7 @@ export async function POST(req: Request) {
     });
 
     const now = new Date();
-    const [doc] = await db.insert(documents).values({
+    const [doc] = await db.transaction(async (tx) => tx.insert(documents).values({
       id:         crypto.randomUUID(),
       agencyId,
       entityType,
@@ -68,7 +68,7 @@ export async function POST(req: Request) {
       mimeType:   file.type || null,
       uploadedBy: uid,
       createdAt:  now,
-    }).returning();
+    }).returning());
 
     return NextResponse.json({ document: doc }, { status: 201 });
   } catch (err) {

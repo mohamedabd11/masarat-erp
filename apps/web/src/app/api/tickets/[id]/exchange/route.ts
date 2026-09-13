@@ -92,10 +92,10 @@ export async function POST(
     // guarantees that two concurrent exchange requests cannot both pass — the
     // loser matches 0 rows and aborts, so the provider is never called twice
     // (which would issue two new tickets for the same exchange).
-    const claim = await db.update(tickets)
+    const claim = await db.transaction(async (tx) => tx.update(tickets)
       .set({ status: 'pending_exchange', updatedAt: new Date() })
       .where(and(eq(tickets.id, params.id), eq(tickets.agencyId, agencyId), eq(tickets.status, 'active')))
-      .returning({ id: tickets.id });
+      .returning({ id: tickets.id }));
     if (claim.length === 0) {
       return NextResponse.json({ error: 'التذكرة قيد المعالجة أو لم تعد نشطة' }, { status: 409 });
     }
@@ -116,9 +116,11 @@ export async function POST(
       );
     } catch (providerErr) {
       // Provider failed — roll back to active (exchange didn't happen)
-      await db.update(tickets)
-        .set({ status: 'active', updatedAt: new Date() })
-        .where(eq(tickets.id, params.id));
+      await db.transaction(async (tx) => {
+        await tx.update(tickets)
+          .set({ status: 'active', updatedAt: new Date() })
+          .where(and(eq(tickets.id, params.id), eq(tickets.agencyId, agencyId)));
+      });
 
       const errorMsg = (providerErr as Error).message;
       logProviderSync({ agencyId, provider: providerCode, operation: 'exchange_ticket', status: 'failed', referenceId: params.id, errorMessage: errorMsg, durationMs: Date.now() - t0 });
@@ -131,12 +133,14 @@ export async function POST(
     // Store Phase 2 result BEFORE Phase 3
     // If Phase 3 fails, the reconcile cron reads this payload to replay Phase 3
     // without a second provider call — critical for exchange integrity
-    await db.update(tickets)
-      .set({
-        pendingOperationPayload: exchangeResult as never,
-        updatedAt:               new Date(),
-      })
-      .where(eq(tickets.id, params.id));
+    await db.transaction(async (tx) => {
+      await tx.update(tickets)
+        .set({
+          pendingOperationPayload: exchangeResult as never,
+          updatedAt:               new Date(),
+        })
+        .where(and(eq(tickets.id, params.id), eq(tickets.agencyId, agencyId)));
+    });
 
     // Phase 3: atomic commit — two-ticket operation
     const newTicketId  = crypto.randomUUID();
@@ -145,7 +149,7 @@ export async function POST(
     const [targetPnr] = await db
       .select()
       .from(pnrRecords)
-      .where(eq(pnrRecords.id, targetPnrId));
+      .where(and(eq(pnrRecords.id, targetPnrId), eq(pnrRecords.agencyId, agencyId)));
 
     await db.transaction(async (tx) => {
       // Mark old ticket as exchanged
@@ -153,7 +157,7 @@ export async function POST(
         status:                  'exchanged',
         pendingOperationPayload: null,
         updatedAt:               new Date(),
-      }).where(eq(tickets.id, params.id));
+      }).where(and(eq(tickets.id, params.id), eq(tickets.agencyId, agencyId)));
 
       // Old coupons → void
       await tx.update(ticketCoupons)

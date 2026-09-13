@@ -71,10 +71,10 @@ export async function POST(
     // Phase 1: atomically CLAIM the ticket (only if still active) before any
     // provider call. The conditional UPDATE + row lock prevents two concurrent
     // refunds from both calling the provider — the loser matches 0 rows.
-    const claim = await db.update(tickets)
+    const claim = await db.transaction(async (tx) => tx.update(tickets)
       .set({ status: 'pending_refund', updatedAt: new Date() })
       .where(and(eq(tickets.id, params.id), eq(tickets.agencyId, agencyId), eq(tickets.status, 'active')))
-      .returning({ id: tickets.id });
+      .returning({ id: tickets.id }));
     if (claim.length === 0) {
       return NextResponse.json({ error: 'التذكرة قيد المعالجة أو لم تعد نشطة' }, { status: 409 });
     }
@@ -90,9 +90,11 @@ export async function POST(
       );
     } catch (providerErr) {
       // Roll back to active — refund not confirmed
-      await db.update(tickets)
-        .set({ status: 'active', updatedAt: new Date() })
-        .where(eq(tickets.id, params.id));
+      await db.transaction(async (tx) => {
+        await tx.update(tickets)
+          .set({ status: 'active', updatedAt: new Date() })
+          .where(and(eq(tickets.id, params.id), eq(tickets.agencyId, agencyId)));
+      });
 
       const errorMsg = (providerErr as Error).message;
       logProviderSync({ agencyId, provider: providerCode, operation: 'refund_ticket', status: 'failed', referenceId: params.id, errorMessage: errorMsg, durationMs: Date.now() - t0 });
@@ -108,7 +110,7 @@ export async function POST(
         status:     'refunded',
         refundedAt: new Date(),
         updatedAt:  new Date(),
-      }).where(eq(tickets.id, params.id));
+      }).where(and(eq(tickets.id, params.id), eq(tickets.agencyId, agencyId)));
 
       await tx.update(ticketCoupons)
         .set({ couponStatus: 'refunded', updatedAt: new Date() })

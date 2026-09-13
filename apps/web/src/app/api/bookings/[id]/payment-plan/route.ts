@@ -174,9 +174,11 @@ export async function DELETE(req: Request, { params }: RouteCtx) {
       .limit(1);
     if (!plan) return NextResponse.json({ error: 'لا توجد خطة أقساط نشطة لهذا الحجز' }, { status: 404 });
 
-    await db.update(paymentPlans)
-      .set({ status: 'cancelled', updatedAt: new Date() })
-      .where(and(eq(paymentPlans.id, plan.id), eq(paymentPlans.agencyId, agencyId)));
+    await db.transaction(async (tx) => {
+      await tx.update(paymentPlans)
+        .set({ status: 'cancelled', updatedAt: new Date() })
+        .where(and(eq(paymentPlans.id, plan.id), eq(paymentPlans.agencyId, agencyId)));
+    });
 
     return NextResponse.json({ success: true });
   } catch (err) {

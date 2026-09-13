@@ -54,12 +54,14 @@ export async function PATCH(req: Request, { params }: RouteCtx) {
       if (!STRIP.has(k)) patch[k] = v;
     }
 
-    await db.update(groupTripMembers)
-      .set(patch as Partial<typeof groupTripMembers.$inferInsert>)
-      .where(and(
-        eq(groupTripMembers.id, memberId),
-        eq(groupTripMembers.agencyId, agencyId),
-      ));
+    await db.transaction(async (tx) => {
+      await tx.update(groupTripMembers)
+        .set(patch as Partial<typeof groupTripMembers.$inferInsert>)
+        .where(and(
+          eq(groupTripMembers.id, memberId),
+          eq(groupTripMembers.agencyId, agencyId),
+        ));
+    });
 
     return NextResponse.json({ success: true });
   } catch (err) {
@@ -92,11 +94,13 @@ export async function DELETE(req: Request, { params }: RouteCtx) {
       ));
     if (!member) return NextResponse.json({ error: 'العضو غير موجود' }, { status: 404 });
 
-    await db.delete(groupTripMembers)
-      .where(and(
-        eq(groupTripMembers.id, memberId),
-        eq(groupTripMembers.agencyId, agencyId),
-      ));
+    await db.transaction(async (tx) => {
+      await tx.delete(groupTripMembers)
+        .where(and(
+          eq(groupTripMembers.id, memberId),
+          eq(groupTripMembers.agencyId, agencyId),
+        ));
+    });
 
     return NextResponse.json({ success: true });
   } catch (err) {

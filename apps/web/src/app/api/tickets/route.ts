@@ -143,7 +143,7 @@ export async function POST(request: Request) {
     // above is only a fast-path 409; under a race the loser gets 0 rows back here
     // and returns 409 WITHOUT calling the GDS — so the BSP ticket is issued once.
     const ticketId = crypto.randomUUID();
-    const claimed = await db.insert(tickets).values({
+    const claimed = await db.transaction(async (tx) => tx.insert(tickets).values({
       id:              ticketId,
       agencyId,
       pnrId:           body.pnrId,
@@ -158,7 +158,7 @@ export async function POST(request: Request) {
       taxHalalas:      body.taxHalalas   ?? pnr.taxHalalas,
       totalHalalas:    body.totalHalalas ?? pnr.totalHalalas,
       issuedBy:        uid,
-    }).onConflictDoNothing().returning({ id: tickets.id });
+    }).onConflictDoNothing().returning({ id: tickets.id }));
 
     if (claimed.length === 0) {
       return NextResponse.json(
@@ -174,9 +174,11 @@ export async function POST(request: Request) {
       issuanceResult = await provider.issueTicket(pnr.pnrCode, credentials);
     } catch (providerErr) {
       // Provider failed — mark ticket void so it doesn't appear in reconciliation
-      await db.update(tickets)
-        .set({ status: 'void', updatedAt: new Date() })
-        .where(and(eq(tickets.id, ticketId), eq(tickets.agencyId, agencyId)));
+      await db.transaction(async (tx) => {
+        await tx.update(tickets)
+          .set({ status: 'void', updatedAt: new Date() })
+          .where(and(eq(tickets.id, ticketId), eq(tickets.agencyId, agencyId)));
+      });
 
       const errorMsg = (providerErr as Error).message;
       logProviderSync({ agencyId, provider: providerCode, operation: 'issue_ticket', status: 'failed', referenceId: ticketId, errorMessage: errorMsg, durationMs: Date.now() - t0 });
@@ -193,9 +195,11 @@ export async function POST(request: Request) {
       ) ?? (issuanceResult.tickets.length === 1 ? issuanceResult.tickets[0] : undefined);
 
     if (!issuedTicket) {
-      await db.update(tickets)
-        .set({ status: 'void', updatedAt: new Date() })
-        .where(and(eq(tickets.id, ticketId), eq(tickets.agencyId, agencyId)));
+      await db.transaction(async (tx) => {
+        await tx.update(tickets)
+          .set({ status: 'void', updatedAt: new Date() })
+          .where(and(eq(tickets.id, ticketId), eq(tickets.agencyId, agencyId)));
+      });
 
       logProviderSync({ agencyId, provider: providerCode, operation: 'issue_ticket', status: 'failed', referenceId: ticketId, errorMessage: `passenger not found in provider response: ${body.passengerName}`, durationMs });
       void logTravelEvent({ agencyId, eventType: 'ticket_issue_failed', provider: providerCode, resourceId: ticketId, resourceType: 'ticket', actorId: uid, payload: { reason: 'passenger_not_in_response', pnrCode: pnr.pnrCode } });

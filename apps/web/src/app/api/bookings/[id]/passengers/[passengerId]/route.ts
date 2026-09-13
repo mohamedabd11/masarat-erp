@@ -43,13 +43,13 @@ export async function PATCH(req: Request, { params }: RouteCtx) {
     str('nameEn'); str('gender'); str('passportNumber'); str('passportExpiry');
     str('nationality'); str('dateOfBirth'); str('nationalId'); str('notes');
 
-    const [updated] = await db.update(bookingPassengers)
+    const [updated] = await db.transaction(async (tx) => tx.update(bookingPassengers)
       .set(patch as never)
       .where(and(
         eq(bookingPassengers.id, params.passengerId),
         eq(bookingPassengers.agencyId, agencyId),
       ))
-      .returning();
+      .returning());
 
     return NextResponse.json({ passenger: updated });
   } catch (err) {
@@ -74,10 +74,12 @@ export async function DELETE(req: Request, { params }: RouteCtx) {
       ));
     if (!existing) return NextResponse.json({ error: 'المسافر غير موجود' }, { status: 404 });
 
-    await db.delete(bookingPassengers).where(and(
-      eq(bookingPassengers.id, params.passengerId),
-      eq(bookingPassengers.agencyId, agencyId),
-    ));
+    await db.transaction(async (tx) => {
+      await tx.delete(bookingPassengers).where(and(
+        eq(bookingPassengers.id, params.passengerId),
+        eq(bookingPassengers.agencyId, agencyId),
+      ));
+    });
 
     return NextResponse.json({ success: true });
   } catch (err) {

@@ -34,7 +34,9 @@ export async function POST(request: Request) {
     const code = normalizeCode(body.code || body.nameEn || `dept_${Date.now()}`);
     if (!code) return NextResponse.json({ error: 'رمز القسم غير صالح' }, { status: 400 });
     const id = crypto.randomUUID();
-    await db.insert(departments).values({ id, agencyId, code, nameAr, nameEn: body.nameEn?.trim() || null });
+    await db.transaction(async (tx) => {
+      await tx.insert(departments).values({ id, agencyId, code, nameAr, nameEn: body.nameEn?.trim() || null });
+    });
     return NextResponse.json({ success: true, id }, { status: 201 });
   } catch (err) {
     if (err instanceof ApiAuthError || err instanceof BusinessError) return NextResponse.json({ error: err.message }, { status: err.status });

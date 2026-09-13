@@ -78,7 +78,7 @@ export async function POST(req: Request, { params }: RouteCtx) {
     }
 
     const now = new Date();
-    const [member] = await db.insert(groupTripMembers).values({
+    const [member] = await db.transaction(async (tx) => tx.insert(groupTripMembers).values({
       id:             crypto.randomUUID(),
       agencyId,
       groupTripId,
@@ -97,7 +97,7 @@ export async function POST(req: Request, { params }: RouteCtx) {
       createdBy:      uid,
       createdAt:      now,
       updatedAt:      now,
-    }).returning();
+    }).returning());
 
     return NextResponse.json({ member }, { status: 201 });
   } catch (err) {

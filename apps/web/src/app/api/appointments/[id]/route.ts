@@ -47,9 +47,11 @@ export async function PATCH(request: Request, { params }: { params: { id: string
     }
     if (body.scheduledAt) patch['scheduledAt'] = new Date(body.scheduledAt);
 
-    await db.update(appointments)
-      .set(patch as Partial<typeof appointments.$inferInsert>)
-      .where(and(eq(appointments.id, params.id), eq(appointments.agencyId, agencyId)));
+    await db.transaction(async (tx) => {
+      await tx.update(appointments)
+        .set(patch as Partial<typeof appointments.$inferInsert>)
+        .where(and(eq(appointments.id, params.id), eq(appointments.agencyId, agencyId)));
+    });
 
     await logAudit({ agencyId, userId: uid, action: 'update', resource: 'appointment', resourceId: params.id, before: existing, after: patch });
     return NextResponse.json({ success: true });
@@ -66,7 +68,9 @@ export async function DELETE(request: Request, { params }: { params: { id: strin
     const [existing] = await db.select().from(appointments)
       .where(and(eq(appointments.id, params.id), eq(appointments.agencyId, agencyId)));
     if (!existing) return NextResponse.json({ error: 'الموعد غير موجود' }, { status: 404 });
-    await db.delete(appointments).where(and(eq(appointments.id, params.id), eq(appointments.agencyId, agencyId)));
+    await db.transaction(async (tx) => {
+      await tx.delete(appointments).where(and(eq(appointments.id, params.id), eq(appointments.agencyId, agencyId)));
+    });
     await logAudit({ agencyId, userId: uid, action: 'delete', resource: 'appointment', resourceId: params.id, before: existing });
     return NextResponse.json({ success: true });
   } catch (err) {

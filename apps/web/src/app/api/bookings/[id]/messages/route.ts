@@ -58,7 +58,7 @@ export async function POST(req: Request, { params }: RouteCtx) {
     }
 
     const now = new Date();
-    const [created] = await db.insert(customerMessages).values({
+    const [created] = await db.transaction(async (tx) => tx.insert(customerMessages).values({
       id:             crypto.randomUUID(),
       agencyId,
       bookingId,
@@ -71,7 +71,7 @@ export async function POST(req: Request, { params }: RouteCtx) {
       sentAt:         now,
       sentBy:         uid,
       createdAt:      now,
-    }).returning();
+    }).returning());
 
     return NextResponse.json({ message: created }, { status: 201 });
   } catch (err) {

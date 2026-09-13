@@ -82,20 +82,22 @@ export async function POST(request: Request) {
     }
 
     const id = crypto.randomUUID();
-    await db.insert(appointments).values({
-      id,
-      agencyId,
-      title:        body.title.trim(),
-      scheduledAt:  new Date(body.scheduledAt),
-      type,
-      customerId:   body.customerId   ?? null,
-      customerName: body.customerName ?? null,
-      assignedTo:   body.assignedTo   ?? null,
-      description:  body.description  ?? null,
-      durationMin:  body.durationMin  ?? 30,
-      location:     body.location     ?? null,
-      notes:        body.notes        ?? null,
-      createdBy:    uid,
+    await db.transaction(async (tx) => {
+      await tx.insert(appointments).values({
+        id,
+        agencyId,
+        title:        body.title.trim(),
+        scheduledAt:  new Date(body.scheduledAt),
+        type,
+        customerId:   body.customerId   ?? null,
+        customerName: body.customerName ?? null,
+        assignedTo:   body.assignedTo   ?? null,
+        description:  body.description  ?? null,
+        durationMin:  body.durationMin  ?? 30,
+        location:     body.location     ?? null,
+        notes:        body.notes        ?? null,
+        createdBy:    uid,
+      });
     });
 
     await logAudit({ agencyId, userId: uid, action: 'create', resource: 'appointment', resourceId: id, after: { title: body.title } });

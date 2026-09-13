@@ -102,14 +102,14 @@ export async function PATCH(req: Request, { params }: RouteCtx) {
       return NextResponse.json({ error: 'لا توجد حقول للتحديث' }, { status: 400 });
     }
 
-    const [updated] = await db.update(bookingLines)
+    const [updated] = await db.transaction(async (tx) => tx.update(bookingLines)
       .set(updates)
       .where(and(
         eq(bookingLines.id, lineId),
         eq(bookingLines.bookingId, bookingId),
         eq(bookingLines.agencyId, agencyId),
       ))
-      .returning();
+      .returning());
 
     return NextResponse.json({ line: updated });
   } catch (err) {

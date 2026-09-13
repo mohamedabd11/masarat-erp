@@ -51,11 +51,13 @@ export async function POST(request: Request) {
     });
 
     const id = crypto.randomUUID();
-    await db.insert(quotes).values({
-      id,
-      agencyId,
-      createdBy:    uid,
-      ...prepared,
+    await db.transaction(async (tx) => {
+      await tx.insert(quotes).values({
+        id,
+        agencyId,
+        createdBy: uid,
+        ...prepared,
+      });
     });
     return NextResponse.json({ success: true, id });
   } catch (err) {

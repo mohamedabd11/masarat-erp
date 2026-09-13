@@ -47,26 +47,30 @@ export async function POST(
     } catch (testErr) {
       const errorMsg = (testErr as Error).message;
 
-      await db.update(providerCredentials)
-        .set({
-          testedAt:   now,
-          testStatus: 'failed',
-          testError:  errorMsg.slice(0, 1000),  // cap at 1000 chars
-          updatedAt:  now,
-        })
-        .where(eq(providerCredentials.id, params.id));
+      await db.transaction(async (tx) => {
+        await tx.update(providerCredentials)
+          .set({
+            testedAt:   now,
+            testStatus: 'failed',
+            testError:  errorMsg.slice(0, 1000),  // cap at 1000 chars
+            updatedAt:  now,
+          })
+          .where(and(eq(providerCredentials.id, params.id), eq(providerCredentials.agencyId, agencyId)));
+      });
 
       return NextResponse.json({ success: false, error: errorMsg }, { status: 502 });
     }
 
-    await db.update(providerCredentials)
-      .set({
-        testedAt:   now,
-        testStatus: 'success',
-        testError:  null,
-        updatedAt:  now,
-      })
-      .where(eq(providerCredentials.id, params.id));
+    await db.transaction(async (tx) => {
+      await tx.update(providerCredentials)
+        .set({
+          testedAt:   now,
+          testStatus: 'success',
+          testError:  null,
+          updatedAt:  now,
+        })
+        .where(and(eq(providerCredentials.id, params.id), eq(providerCredentials.agencyId, agencyId)));
+    });
 
     return NextResponse.json({ success: true, latencyMs });
   } catch (err) {
