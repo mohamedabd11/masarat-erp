@@ -10,6 +10,7 @@ import { EmptyState } from '@/components/ui/EmptyState';
 import { Badge } from '@/components/ui/Badge';
 import { formatCurrency } from '@/lib/utils';
 import { COUNTRIES } from '@/lib/countries';
+import { attendanceTimeInput, buildAttendanceMutation } from '@/lib/employee-lifecycle-ui';
 import {
   grossPayrollTotal,
   payrollCompensationForMonth,
@@ -22,7 +23,7 @@ import {
   UserCog, Plus, Search, Phone, Mail, X, Check,
   Banknote, CalendarDays, Building2, ChevronLeft, ChevronRight,
   ThumbsUp, ThumbsDown, CreditCard, Users,
-  Clock, UserCheck,
+  Clock, Pencil, UserCheck,
 } from 'lucide-react';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -213,12 +214,6 @@ async function fetchAllPages<T>(path: string, key: string): Promise<T[]> {
 async function fetchAllEmployees(): Promise<Employee[]> {
   const rows = await fetchAllPages<ApiEmployee>('/api/employees', 'employees');
   return rows.map(normalizeEmployee);
-}
-
-function localAttendanceTimestamp(date: string, time: string, addDay = false): string {
-  const [year, month, day] = date.split('-').map(Number) as [number, number, number];
-  const [hour, minute] = time.split(':').map(Number) as [number, number];
-  return new Date(year, month - 1, day + (addDay ? 1 : 0), hour, minute, 0, 0).toISOString();
 }
 
 // input class reuse
@@ -1789,7 +1784,9 @@ function AttendanceTab({ isAr, agencyId, locale }: { isAr: boolean; agencyId: st
   const [filterMonth, setFilterMonth] = useState(currentMonth());
   const [filterEmp, setFilterEmp]     = useState('');
   const [showForm, setShowForm]       = useState(false);
+  const [editRecord, setEditRecord]   = useState<AttendanceRecord | null>(null);
   const [saving, setSaving]           = useState(false);
+  const [error, setError]             = useState('');
   const [fEmpId, setFEmpId]           = useState('');
   const [fDate, setFDate]             = useState(today);
   const [fStatus, setFStatus]         = useState('present');
@@ -1808,7 +1805,9 @@ function AttendanceTab({ isAr, agencyId, locale }: { isAr: boolean; agencyId: st
     const q = new URLSearchParams({ month: filterMonth });
     if (filterEmp) q.set('employeeId', filterEmp);
     apiFetch<{ attendance: AttendanceRecord[] }>(`/api/employees/attendance?${q}`)
-      .then(d => setRecords(d.attendance)).catch(() => {}).finally(() => setLoading(false));
+      .then(d => { setRecords(d.attendance); setError(''); })
+      .catch((err: Error) => setError(err.message))
+      .finally(() => setLoading(false));
   }, [agencyId, filterMonth, filterEmp]);
 
   function empName(id: string) {
@@ -1825,24 +1824,80 @@ function AttendanceTab({ isAr, agencyId, locale }: { isAr: boolean; agencyId: st
     return `${Math.floor(m / 60)}h ${m % 60}m`;
   }
 
+  function openAdd() {
+    setEditRecord(null);
+    setFEmpId('');
+    setFDate(today);
+    setFStatus('present');
+    setFIn('');
+    setFOut('');
+    setFNotes('');
+    setError('');
+    setShowForm(true);
+  }
+
+  function openEdit(record: AttendanceRecord) {
+    setEditRecord(record);
+    setFEmpId(record.employeeId);
+    setFDate(record.date);
+    setFStatus(record.status);
+    setFIn(attendanceTimeInput(record.checkIn));
+    setFOut(attendanceTimeInput(record.checkOut));
+    setFNotes(record.notes ?? '');
+    setError('');
+    setShowForm(true);
+  }
+
+  function closeForm() {
+    setShowForm(false);
+    setEditRecord(null);
+  }
+
+  function changeStatus(status: string) {
+    setFStatus(status);
+    if (status === 'absent' || status === 'on_leave') {
+      setFIn('');
+      setFOut('');
+    }
+  }
+
   async function handleSave() {
     if (!fEmpId || !fDate) return;
     setSaving(true);
+    setError('');
     try {
-      const payload: Record<string, unknown> = { employeeId: fEmpId, date: fDate, status: fStatus, notes: fNotes || undefined };
-      if (fIn) payload['checkIn'] = localAttendanceTimestamp(fDate, fIn);
-      if (fOut) payload['checkOut'] = localAttendanceTimestamp(fDate, fOut, !!fIn && fOut <= fIn);
-      await apiFetch('/api/employees/attendance', { method: 'POST', body: JSON.stringify(payload) });
-      const q = new URLSearchParams({ month: filterMonth });
+      const mode = editRecord ? 'edit' : 'create';
+      const payload = buildAttendanceMutation({
+        employeeId: fEmpId,
+        date: fDate,
+        status: fStatus,
+        checkIn: fIn,
+        checkOut: fOut,
+        notes: fNotes,
+      }, mode);
+      await apiFetch(editRecord ? `/api/employees/attendance/${editRecord.id}` : '/api/employees/attendance', {
+        method: editRecord ? 'PATCH' : 'POST',
+        body: JSON.stringify(payload),
+      });
+      const selectedMonth = fDate.slice(0, 7);
+      const q = new URLSearchParams({ month: selectedMonth });
       if (filterEmp) q.set('employeeId', filterEmp);
       const d = await apiFetch<{ attendance: AttendanceRecord[] }>(`/api/employees/attendance?${q}`);
       setRecords(d.attendance);
-      setShowForm(false);
-    } catch (e) { console.error(e); } finally { setSaving(false); }
+      setFilterMonth(selectedMonth);
+      closeForm();
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setSaving(false);
+    }
   }
+
+  const timeDisabled = fStatus === 'absent' || fStatus === 'on_leave';
 
   return (
     <div className="space-y-5">
+      {error ? <div role="alert" className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div> : null}
       <Card>
         <div className="flex flex-wrap gap-3 items-end">
           <div><label className={labelCls}>{isAr ? 'الشهر' : 'Month'}</label>
@@ -1852,7 +1907,7 @@ function AttendanceTab({ isAr, agencyId, locale }: { isAr: boolean; agencyId: st
               <option value="">{isAr ? 'جميع الموظفين' : 'All Employees'}</option>
               {empList.map(e => <option key={e.id} value={e.id}>{isAr ? e.nameAr : (e.nameEn || e.nameAr)}</option>)}
             </select></div>
-          <Button size="sm" onClick={() => { setFEmpId(''); setFDate(today); setFStatus('present'); setFIn(''); setFOut(''); setFNotes(''); setShowForm(true); }}>
+          <Button size="sm" onClick={openAdd}>
             <Plus size={15} />{isAr ? 'تسجيل حضور' : 'Record'}
           </Button>
         </div>
@@ -1861,34 +1916,37 @@ function AttendanceTab({ isAr, agencyId, locale }: { isAr: boolean; agencyId: st
       {showForm && (
         <Card>
           <div className="flex items-center justify-between mb-4">
-            <h2 className="font-semibold text-slate-900">{isAr ? 'تسجيل حضور' : 'Record Attendance'}</h2>
-            <button onClick={() => setShowForm(false)} className="text-slate-400 hover:text-slate-600"><X size={18} /></button>
+            <h2 className="font-semibold text-slate-900">
+              {editRecord ? (isAr ? 'تعديل سجل الحضور' : 'Edit Attendance') : (isAr ? 'تسجيل حضور' : 'Record Attendance')}
+            </h2>
+            <button aria-label={isAr ? 'إغلاق' : 'Close'} onClick={closeForm} className="text-slate-400 hover:text-slate-600"><X size={18} /></button>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
             <div><label className={labelCls}>{isAr ? 'الموظف *' : 'Employee *'}</label>
-              <select value={fEmpId} onChange={e => setFEmpId(e.target.value)} className={inputCls}>
+              <select value={fEmpId} onChange={e => setFEmpId(e.target.value)} disabled={Boolean(editRecord)} className={`${inputCls} disabled:bg-slate-50 disabled:text-slate-500`}>
                 <option value="">{isAr ? 'اختر' : 'Select'}</option>
                 {empList.map(e => <option key={e.id} value={e.id}>{isAr ? e.nameAr : (e.nameEn || e.nameAr)}</option>)}
               </select></div>
             <div><label className={labelCls}>{isAr ? 'التاريخ *' : 'Date *'}</label>
-              <input type="date" value={fDate} onChange={e => setFDate(e.target.value)} className={inputCls} /></div>
+              <input type="date" value={fDate} onChange={e => setFDate(e.target.value)} disabled={Boolean(editRecord)} className={`${inputCls} disabled:bg-slate-50 disabled:text-slate-500`} /></div>
             <div><label className={labelCls}>{isAr ? 'الحالة' : 'Status'}</label>
-              <select value={fStatus} onChange={e => setFStatus(e.target.value)} className={inputCls}>
+              <select value={fStatus} onChange={e => changeStatus(e.target.value)} className={inputCls}>
                 {Object.entries(ATT_STATUS_AR).map(([k, v]) => (
                   <option key={k} value={k}>{isAr ? v : ATT_STATUS_EN[k]}</option>
                 ))}
               </select></div>
             <div><label className={labelCls}>{isAr ? 'وقت الدخول' : 'Check-in'}</label>
-              <input type="time" value={fIn} onChange={e => setFIn(e.target.value)} className={inputCls} /></div>
+              <input type="time" value={fIn} onChange={e => setFIn(e.target.value)} disabled={timeDisabled} className={`${inputCls} disabled:bg-slate-50`} /></div>
             <div><label className={labelCls}>{isAr ? 'وقت الخروج' : 'Check-out'}</label>
-              <input type="time" value={fOut} onChange={e => setFOut(e.target.value)} className={inputCls} /></div>
+              <input type="time" value={fOut} onChange={e => setFOut(e.target.value)} disabled={timeDisabled} className={`${inputCls} disabled:bg-slate-50`} /></div>
             <div><label className={labelCls}>{isAr ? 'ملاحظات' : 'Notes'}</label>
               <input value={fNotes} onChange={e => setFNotes(e.target.value)} className={inputCls} /></div>
           </div>
           <div className="flex gap-3 mt-4 justify-end">
-            <Button variant="ghost" size="sm" onClick={() => setShowForm(false)}>{isAr ? 'إلغاء' : 'Cancel'}</Button>
+            <Button variant="ghost" size="sm" onClick={closeForm}>{isAr ? 'إلغاء' : 'Cancel'}</Button>
             <Button size="sm" onClick={handleSave} disabled={saving || !fEmpId}>
-              {saving ? <Spinner size="sm" /> : <Check size={14} />}{isAr ? 'حفظ' : 'Save'}
+              {saving ? <Spinner size="sm" /> : <Check size={14} />}
+              {editRecord ? (isAr ? 'حفظ التعديلات' : 'Save Changes') : (isAr ? 'حفظ' : 'Save')}
             </Button>
           </div>
         </Card>
@@ -1912,6 +1970,7 @@ function AttendanceTab({ isAr, agencyId, locale }: { isAr: boolean; agencyId: st
                   <th className="px-4 py-3 text-start text-xs font-semibold text-slate-500 uppercase tracking-wide hidden sm:table-cell">{isAr ? 'خروج' : 'Out'}</th>
                   <th className="px-4 py-3 text-start text-xs font-semibold text-slate-500 uppercase tracking-wide">{isAr ? 'الحالة' : 'Status'}</th>
                   <th className="px-4 py-3 text-end text-xs font-semibold text-slate-500 uppercase tracking-wide hidden md:table-cell">{isAr ? 'ساعات' : 'Hours'}</th>
+                  <th className="px-4 py-3 text-end text-xs font-semibold text-slate-500 uppercase tracking-wide">{isAr ? 'إجراء' : 'Action'}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
@@ -1927,6 +1986,11 @@ function AttendanceTab({ isAr, agencyId, locale }: { isAr: boolean; agencyId: st
                       </span>
                     </td>
                     <td className="px-4 py-3.5 text-end text-slate-500 tabular-nums hidden md:table-cell">{fmtMins(rec.workMinutes ?? 0)}</td>
+                    <td className="px-4 py-3.5 text-end">
+                      <button type="button" onClick={() => openEdit(rec)} className="inline-flex items-center gap-1 text-xs font-medium text-brand-600 hover:text-brand-800">
+                        <Pencil size={13} />{isAr ? 'تعديل' : 'Edit'}
+                      </button>
+                    </td>
                   </tr>
                 ))}
               </tbody>

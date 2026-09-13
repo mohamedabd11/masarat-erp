@@ -9,7 +9,7 @@ import { EmptyState } from '@/components/ui/EmptyState';
 import { Badge } from '@/components/ui/Badge';
 import { formatCurrency } from '@/lib/utils';
 import { canRecordTerminationPayment } from '@/lib/employee-lifecycle-ui';
-import { Banknote, FileText, Plus, UserMinus, WalletCards, X } from 'lucide-react';
+import { Banknote, FileText, Pencil, Plus, UserMinus, WalletCards, X } from 'lucide-react';
 
 const inputCls = 'w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white';
 const labelCls = 'block text-xs font-medium text-slate-700 mb-1';
@@ -56,7 +56,35 @@ interface Contract {
   housingAllowanceHalalas: number;
   transportAllowanceHalalas: number;
   otherAllowancesHalalas: number;
+  workingDaysPerWeek: number;
+  workingHoursPerDay: number;
+  annualLeaveDays: number;
   status: string;
+  notes: string | null;
+}
+
+interface ContractForm {
+  employeeId: string;
+  contractNumber: string;
+  type: string;
+  startDate: string;
+  endDate: string;
+  base: string;
+  housing: string;
+  transport: string;
+  other: string;
+  workingDays: string;
+  workingHours: string;
+  annualLeave: string;
+  notes: string;
+}
+
+function emptyContractForm(): ContractForm {
+  return {
+    employeeId: '', contractNumber: '', type: 'full_time', startDate: '', endDate: '',
+    base: '', housing: '', transport: '', other: '', workingDays: '5', workingHours: '8',
+    annualLeave: '21', notes: '',
+  };
 }
 
 export function ContractsTab({ isAr, agencyId }: { isAr: boolean; agencyId: string }) {
@@ -65,9 +93,10 @@ export function ContractsTab({ isAr, agencyId }: { isAr: boolean; agencyId: stri
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [showForm, setShowForm] = useState(false);
+  const [editContract, setEditContract] = useState<Contract | null>(null);
   const [error, setError] = useState('');
   const [tick, setTick] = useState(0);
-  const [form, setForm] = useState({ employeeId: '', contractNumber: '', type: 'full_time', startDate: '', endDate: '', base: '', housing: '', transport: '', other: '', workingDays: '5', workingHours: '8', annualLeave: '21' });
+  const [form, setForm] = useState<ContractForm>(emptyContractForm);
 
   useEffect(() => {
     if (!agencyId) return;
@@ -80,25 +109,64 @@ export function ContractsTab({ isAr, agencyId }: { isAr: boolean; agencyId: stri
 
   const employeeById = useMemo(() => new Map(employees.map(employee => [employee.id, employee])), [employees]);
 
+  function openAdd() {
+    setEditContract(null);
+    setForm(emptyContractForm());
+    setError('');
+    setShowForm(true);
+  }
+
+  function openEdit(contract: Contract) {
+    setEditContract(contract);
+    setForm({
+      employeeId: contract.employeeId,
+      contractNumber: contract.contractNumber,
+      type: contract.type,
+      startDate: contract.startDate,
+      endDate: contract.endDate ?? '',
+      base: String(contract.baseSalaryHalalas / 100),
+      housing: String(contract.housingAllowanceHalalas / 100),
+      transport: String(contract.transportAllowanceHalalas / 100),
+      other: String(contract.otherAllowancesHalalas / 100),
+      workingDays: String(contract.workingDaysPerWeek),
+      workingHours: String(contract.workingHoursPerDay),
+      annualLeave: String(contract.annualLeaveDays),
+      notes: contract.notes ?? '',
+    });
+    setError('');
+    setShowForm(true);
+  }
+
+  function closeForm() {
+    setShowForm(false);
+    setEditContract(null);
+  }
+
   async function save() {
-    if (!form.employeeId || !form.startDate || !form.base) return;
+    if (!form.employeeId || !form.startDate || Number(form.base) <= 0) return;
     setSaving(true);
+    setError('');
     try {
-      await apiFetch('/api/employees/contracts', {
-        method: 'POST',
-        body: JSON.stringify({
-          employeeId: form.employeeId, contractNumber: form.contractNumber || undefined, type: form.type,
-          startDate: form.startDate, endDate: form.endDate || undefined,
-          baseSalaryHalalas: Math.round(Number(form.base) * 100),
-          housingAllowanceHalalas: Math.round(Number(form.housing || 0) * 100),
-          transportAllowanceHalalas: Math.round(Number(form.transport || 0) * 100),
-          otherAllowancesHalalas: Math.round(Number(form.other || 0) * 100),
-          workingDaysPerWeek: Number(form.workingDays), workingHoursPerDay: Number(form.workingHours),
-          annualLeaveDays: Number(form.annualLeave),
-        }),
+      const payload = {
+        contractNumber: form.contractNumber.trim() || undefined,
+        type: form.type,
+        startDate: form.startDate,
+        endDate: form.endDate || (editContract ? null : undefined),
+        baseSalaryHalalas: Math.round(Number(form.base) * 100),
+        housingAllowanceHalalas: Math.round(Number(form.housing || 0) * 100),
+        transportAllowanceHalalas: Math.round(Number(form.transport || 0) * 100),
+        otherAllowancesHalalas: Math.round(Number(form.other || 0) * 100),
+        workingDaysPerWeek: Number(form.workingDays),
+        workingHoursPerDay: Number(form.workingHours),
+        annualLeaveDays: Number(form.annualLeave),
+        notes: form.notes.trim() || null,
+      };
+      await apiFetch(editContract ? `/api/employees/contracts/${editContract.id}` : '/api/employees/contracts', {
+        method: editContract ? 'PATCH' : 'POST',
+        body: JSON.stringify(editContract ? payload : { ...payload, employeeId: form.employeeId }),
       });
-      setShowForm(false);
-      setForm({ employeeId: '', contractNumber: '', type: 'full_time', startDate: '', endDate: '', base: '', housing: '', transport: '', other: '', workingDays: '5', workingHours: '8', annualLeave: '21' });
+      closeForm();
+      setForm(emptyContractForm());
       setTick(value => value + 1);
     } catch (err) {
       setError((err as Error).message);
@@ -106,6 +174,27 @@ export function ContractsTab({ isAr, agencyId }: { isAr: boolean; agencyId: stri
       setSaving(false);
     }
   }
+
+  const canSave = Boolean(
+    form.employeeId
+    && form.startDate
+    && Number.isFinite(Number(form.base))
+    && Number(form.base) > 0
+    && [form.housing, form.transport, form.other]
+      .every(value => Number.isFinite(Number(value || 0)) && Number(value || 0) >= 0)
+    && Number.isInteger(Number(form.workingDays))
+    && Number(form.workingDays) >= 1
+    && Number(form.workingDays) <= 7
+    && Number.isInteger(Number(form.workingHours))
+    && Number(form.workingHours) >= 1
+    && Number(form.workingHours) <= 24
+    && Number.isInteger(Number(form.annualLeave))
+    && Number(form.annualLeave) >= 0
+    && Number(form.annualLeave) <= 365
+    && (!form.endDate || form.endDate >= form.startDate)
+    && (!editContract || Boolean(form.contractNumber.trim()))
+    && form.contractNumber.length <= 64
+  );
 
   async function closeContract(contract: Contract) {
     const endDate = window.prompt(isAr ? 'أدخل تاريخ نهاية العقد بصيغة YYYY-MM-DD' : 'Enter contract end date (YYYY-MM-DD)', new Date().toISOString().slice(0, 10));
@@ -123,29 +212,33 @@ export function ContractsTab({ isAr, agencyId }: { isAr: boolean; agencyId: stri
   if (loading) return <div className="flex justify-center py-16"><Spinner size="lg" /></div>;
   return <div className="space-y-5">
     <ErrorBanner message={error} />
-    <div className="flex justify-end"><Button size="sm" onClick={() => setShowForm(true)}><Plus size={15} />{isAr ? 'عقد جديد' : 'New contract'}</Button></div>
+    <div className="flex justify-end"><Button size="sm" onClick={openAdd}><Plus size={15} />{isAr ? 'عقد جديد' : 'New contract'}</Button></div>
     {showForm ? <Card>
-      <div className="flex items-center justify-between mb-4"><h2 className="font-semibold">{isAr ? 'إضافة عقد موظف' : 'Add employee contract'}</h2><button aria-label={isAr ? 'إغلاق' : 'Close'} onClick={() => setShowForm(false)}><X size={18} /></button></div>
+      <div className="flex items-center justify-between mb-4"><h2 className="font-semibold">{editContract ? (isAr ? 'تعديل عقد الموظف' : 'Edit employee contract') : (isAr ? 'إضافة عقد موظف' : 'Add employee contract')}</h2><button aria-label={isAr ? 'إغلاق' : 'Close'} onClick={closeForm}><X size={18} /></button></div>
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-        <div><label className={labelCls}>{isAr ? 'الموظف *' : 'Employee *'}</label><select className={inputCls} value={form.employeeId} onChange={event => setForm(current => ({ ...current, employeeId: event.target.value }))}><option value="">—</option>{employees.filter(employee => employee.isActive).map(employee => <option key={employee.id} value={employee.id}>{employeeName(employee, isAr)}</option>)}</select></div>
-        <div><label className={labelCls}>{isAr ? 'رقم العقد' : 'Contract number'}</label><input className={inputCls} value={form.contractNumber} onChange={event => setForm(current => ({ ...current, contractNumber: event.target.value }))} /></div>
+        <div><label className={labelCls}>{isAr ? 'الموظف *' : 'Employee *'}</label><select disabled={Boolean(editContract)} className={`${inputCls} disabled:bg-slate-50 disabled:text-slate-500`} value={form.employeeId} onChange={event => setForm(current => ({ ...current, employeeId: event.target.value }))}><option value="">—</option>{employees.filter(employee => employee.isActive || employee.id === editContract?.employeeId).map(employee => <option key={employee.id} value={employee.id}>{employeeName(employee, isAr)}</option>)}</select></div>
+        <div><label className={labelCls}>{isAr ? `رقم العقد${editContract ? ' *' : ''}` : `Contract number${editContract ? ' *' : ''}`}</label><input maxLength={64} className={inputCls} value={form.contractNumber} onChange={event => setForm(current => ({ ...current, contractNumber: event.target.value }))} /></div>
         <div><label className={labelCls}>{isAr ? 'النوع' : 'Type'}</label><select className={inputCls} value={form.type} onChange={event => setForm(current => ({ ...current, type: event.target.value }))}><option value="full_time">{isAr ? 'دوام كامل' : 'Full time'}</option><option value="part_time">{isAr ? 'دوام جزئي' : 'Part time'}</option><option value="contract">{isAr ? 'محدد المدة' : 'Contract'}</option><option value="intern">{isAr ? 'تدريب' : 'Intern'}</option></select></div>
         <div><label className={labelCls}>{isAr ? 'تاريخ البداية *' : 'Start date *'}</label><input type="date" className={inputCls} value={form.startDate} onChange={event => setForm(current => ({ ...current, startDate: event.target.value }))} /></div>
         <div><label className={labelCls}>{isAr ? 'تاريخ النهاية' : 'End date'}</label><input type="date" className={inputCls} value={form.endDate} onChange={event => setForm(current => ({ ...current, endDate: event.target.value }))} /></div>
-        <div><label className={labelCls}>{isAr ? 'الراتب الأساسي (ر.س.) *' : 'Base salary (SAR) *'}</label><input type="number" min="0" className={inputCls} value={form.base} onChange={event => setForm(current => ({ ...current, base: event.target.value }))} /></div>
+        <div><label className={labelCls}>{isAr ? 'الراتب الأساسي (ر.س.) *' : 'Base salary (SAR) *'}</label><input type="number" min="0.01" step="0.01" className={inputCls} value={form.base} onChange={event => setForm(current => ({ ...current, base: event.target.value }))} /></div>
         <div><label className={labelCls}>{isAr ? 'بدل السكن' : 'Housing allowance'}</label><input type="number" min="0" className={inputCls} value={form.housing} onChange={event => setForm(current => ({ ...current, housing: event.target.value }))} /></div>
         <div><label className={labelCls}>{isAr ? 'بدل النقل' : 'Transport allowance'}</label><input type="number" min="0" className={inputCls} value={form.transport} onChange={event => setForm(current => ({ ...current, transport: event.target.value }))} /></div>
         <div><label className={labelCls}>{isAr ? 'بدلات أخرى' : 'Other allowances'}</label><input type="number" min="0" className={inputCls} value={form.other} onChange={event => setForm(current => ({ ...current, other: event.target.value }))} /></div>
         <div><label className={labelCls}>{isAr ? 'أيام العمل أسبوعيًا' : 'Days per week'}</label><input type="number" min="1" max="7" className={inputCls} value={form.workingDays} onChange={event => setForm(current => ({ ...current, workingDays: event.target.value }))} /></div>
         <div><label className={labelCls}>{isAr ? 'ساعات العمل يوميًا' : 'Hours per day'}</label><input type="number" min="1" max="24" className={inputCls} value={form.workingHours} onChange={event => setForm(current => ({ ...current, workingHours: event.target.value }))} /></div>
-        <div><label className={labelCls}>{isAr ? 'رصيد الإجازة السنوي' : 'Annual leave days'}</label><input type="number" min="0" className={inputCls} value={form.annualLeave} onChange={event => setForm(current => ({ ...current, annualLeave: event.target.value }))} /></div>
+        <div><label className={labelCls}>{isAr ? 'رصيد الإجازة السنوي' : 'Annual leave days'}</label><input type="number" min="0" max="365" className={inputCls} value={form.annualLeave} onChange={event => setForm(current => ({ ...current, annualLeave: event.target.value }))} /></div>
+        <div className="sm:col-span-2 lg:col-span-3"><label className={labelCls}>{isAr ? 'ملاحظات' : 'Notes'}</label><input className={inputCls} value={form.notes} onChange={event => setForm(current => ({ ...current, notes: event.target.value }))} /></div>
       </div>
-      <div className="flex justify-end mt-4"><Button size="sm" onClick={save} disabled={saving || !form.employeeId || !form.startDate || !form.base}>{saving ? <Spinner size="sm" /> : <FileText size={15} />}{isAr ? 'حفظ العقد' : 'Save contract'}</Button></div>
+      <div className="flex gap-3 justify-end mt-4"><Button size="sm" variant="ghost" onClick={closeForm}>{isAr ? 'إلغاء' : 'Cancel'}</Button><Button size="sm" onClick={save} disabled={saving || !canSave}>{saving ? <Spinner size="sm" /> : <FileText size={15} />}{editContract ? (isAr ? 'حفظ التعديلات' : 'Save changes') : (isAr ? 'حفظ العقد' : 'Save contract')}</Button></div>
     </Card> : null}
     {contracts.length === 0 ? <EmptyState icon={<FileText size={48} />} title={isAr ? 'لا توجد عقود' : 'No contracts'} description={isAr ? 'أضف أول عقد موظف' : 'Add the first employee contract'} /> : <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">{contracts.map(contract => <Card key={contract.id}>
       <div className="flex justify-between gap-3"><div><p className="font-semibold text-slate-900">{employeeName(employeeById.get(contract.employeeId), isAr)}</p><p className="text-xs text-slate-500 mt-1">{contract.contractNumber} · {contract.startDate} — {contract.endDate || (isAr ? 'مفتوح' : 'Open')}</p></div><Badge variant={contract.status === 'active' ? 'success' : 'neutral'}>{contract.status}</Badge></div>
       <div className="mt-3 grid grid-cols-2 gap-2 text-sm"><span className="text-slate-500">{isAr ? 'الراتب الأساسي' : 'Base salary'}</span><span className="font-medium text-end">{formatCurrency(contract.baseSalaryHalalas, isAr ? 'ar-SA' : 'en-US')}</span><span className="text-slate-500">{isAr ? 'إجمالي البدلات' : 'Allowances'}</span><span className="font-medium text-end">{formatCurrency(contract.housingAllowanceHalalas + contract.transportAllowanceHalalas + contract.otherAllowancesHalalas, isAr ? 'ar-SA' : 'en-US')}</span></div>
-      {contract.status === 'active' ? <div className="flex justify-end mt-3"><Button size="sm" variant="ghost" onClick={() => closeContract(contract)}>{isAr ? 'إغلاق العقد' : 'Close contract'}</Button></div> : null}
+      <div className="flex justify-end gap-2 mt-3">
+        <Button size="sm" variant="ghost" onClick={() => openEdit(contract)}><Pencil size={14} />{isAr ? 'تعديل' : 'Edit'}</Button>
+        {contract.status === 'active' ? <Button size="sm" variant="ghost" onClick={() => closeContract(contract)}>{isAr ? 'إغلاق العقد' : 'Close contract'}</Button> : null}
+      </div>
     </Card>)}</div>}
   </div>;
 }
