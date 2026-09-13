@@ -6,7 +6,8 @@ import { Card } from '@/components/ui/Card';
 import { formatCurrency } from '@/lib/utils';
 import { cn } from '@/lib/utils';
 import { totalTrialBalanceRows } from '@/lib/trial-balance-totals';
-import { CheckCircle2, AlertCircle, ChevronDown, ChevronRight, Loader2 } from 'lucide-react';
+import { downloadCSV } from '@/lib/csv-download';
+import { CheckCircle2, AlertCircle, ChevronDown, ChevronRight, Download, Loader2 } from 'lucide-react';
 import {
   rollupTrialBalance,
   type CoaHierarchyAccount,
@@ -134,6 +135,25 @@ export function TrialBalanceTab({ locale }: { locale: string }) {
   const isBalanced      = data?.isBalanced       ?? true;
   const balanceTotals = useMemo(() => totalTrialBalanceRows(directRows), [directRows]);
 
+  function handleExport() {
+    if (!data) return;
+    downloadCSV([
+      isAr
+        ? ['الكود', 'الحساب', 'المستوى', 'نوع السطر', 'إجمالي مدين', 'إجمالي دائن', 'رصيد مدين', 'رصيد دائن']
+        : ['Code', 'Account', 'Level', 'Row Type', 'Total Debit', 'Total Credit', 'Debit Balance', 'Credit Balance'],
+      ...rows.map(row => [
+        row.code,
+        isAr ? row.nameAr : (row.nameEn || row.nameAr),
+        row.level,
+        row.isSummary ? (isAr ? 'تجميعي' : 'Summary') : (isAr ? 'ترحيلي' : 'Posting'),
+        row.totalDebit / 100,
+        row.totalCredit / 100,
+        Math.max(0, row.totalDebit - row.totalCredit) / 100,
+        Math.max(0, row.totalCredit - row.totalDebit) / 100,
+      ]),
+    ], `${isAr ? 'ميزان-المراجعة' : 'trial-balance'}-${data.asOf}.csv`);
+  }
+
   return (
     <div className="space-y-5">
       {/* ── Date controls ─────────────────────────────────────────────────── */}
@@ -180,6 +200,14 @@ export function TrialBalanceTab({ locale }: { locale: string }) {
               <option value="all">{isAr ? 'كل المستويات — تفصيلي' : 'All levels — detailed'}</option>
             </select>
           </div>
+          <button
+            onClick={handleExport}
+            disabled={!data || loading}
+            className="px-3 py-2 rounded-lg border border-slate-200 bg-white text-sm font-medium text-slate-600 hover:bg-slate-50 transition-colors disabled:opacity-50 inline-flex items-center gap-2"
+          >
+            <Download size={14} />
+            {isAr ? 'تصدير CSV' : 'Export CSV'}
+          </button>
           {data?.asOf && (
             <p className="text-xs text-slate-400 self-end pb-2">
               {isAr ? `كما في: ${data.asOf}` : `As of: ${data.asOf}`}

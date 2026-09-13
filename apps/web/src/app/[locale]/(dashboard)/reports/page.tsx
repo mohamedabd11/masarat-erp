@@ -8,6 +8,7 @@ import { Spinner } from '@/components/ui/Spinner';
 import { formatCurrency, formatCount } from '@/lib/utils';
 import { cn } from '@/lib/utils';
 import { apiFetch } from '@/lib/api-client';
+import { downloadCSV } from '@/lib/csv-download';
 import { useReportsData, type MonthlyRow, type TypeMixRow } from '@/hooks/useReportsData';
 import { dashboardCsvRows } from '@/lib/reports-dashboard-model';
 import { useChartOfAccounts, type ChartAccountWithBalance as ChartAccount } from '@/hooks/useChartOfAccounts';
@@ -78,17 +79,6 @@ const VAT_QUICK_PERIODS: { id: string; labelAr: string; labelEn: string; from: s
   { id: 'q4', labelAr: `ر٤ ${VAT_REPORT_YEAR}`, labelEn: `Q4 ${VAT_REPORT_YEAR}`, from: `${VAT_REPORT_YEAR}-10-01`, to: `${VAT_REPORT_YEAR}-12-31` },
   { id: 'fy', labelAr: `سنوي ${VAT_REPORT_YEAR}`, labelEn: `FY ${VAT_REPORT_YEAR}`, from: `${VAT_REPORT_YEAR}-01-01`, to: `${VAT_REPORT_YEAR}-12-31` },
 ];
-
-// ─── CSV Export Helper ────────────────────────────────────────────────────────
-
-function downloadCSV(rows: (string | number)[][], filename: string) {
-  const csv = rows.map(r => r.map(c => `"${String(c).replace(/"/g, '""')}"`).join(',')).join('\n');
-  const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' });
-  const url  = URL.createObjectURL(blob);
-  const a    = document.createElement('a');
-  a.href = url; a.download = filename; a.click();
-  URL.revokeObjectURL(url);
-}
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -334,9 +324,17 @@ function IncomeStatementTab({ accounts, isAr, fmtLocale }: { accounts: ChartAcco
 
   function handleExport() {
     downloadCSV([
-      ['النوع', 'الكود', 'البند', 'المبلغ (ر.س)'],
-      ...revenueLines.map(l => ['إيرادات', l.code, l.nameAr, l.halalas / 100]),
-      ...expenseLines.map(l => ['مصروفات', l.code, l.nameAr, l.halalas / 100]),
+      isAr
+        ? ['النوع', 'الكود', 'البند', 'المستوى', 'نوع السطر', 'المبلغ (ر.س)']
+        : ['Type', 'Code', 'Account', 'Level', 'Row Type', 'Amount (SAR)'],
+      ...revenueLines.map(line => [
+        isAr ? 'إيرادات' : 'Revenue', line.code, isAr ? line.nameAr : (line.nameEn || line.nameAr), line.level,
+        line.isSummary ? (isAr ? 'تجميعي' : 'Summary') : (isAr ? 'ترحيلي' : 'Posting'), line.halalas / 100,
+      ]),
+      ...expenseLines.map(line => [
+        isAr ? 'مصروفات' : 'Expenses', line.code, isAr ? line.nameAr : (line.nameEn || line.nameAr), line.level,
+        line.isSummary ? (isAr ? 'تجميعي' : 'Summary') : (isAr ? 'ترحيلي' : 'Posting'), line.halalas / 100,
+      ]),
     ], `قائمة-الدخل-${year}${quarter > 0 ? `-Q${quarter}` : ''}.csv`);
   }
 
@@ -835,12 +833,36 @@ function BalanceSheetTab({ accounts, loadingAccounts, isAr, fmtLocale }: {
   const totalLiabEquity = totalLiabilities + totalEquity + netProfit;
   const balanced = Math.abs(totalAssets - totalLiabEquity) < 1;
 
+  function handleExport() {
+    const accountRows = (classification: string, rows: CoaAmountRow[]) => rows.map(account => [
+      classification,
+      account.code,
+      isAr ? account.nameAr : (account.nameEn || account.nameAr),
+      account.level,
+      account.isSummary ? (isAr ? 'تجميعي' : 'Summary') : (isAr ? 'ترحيلي' : 'Posting'),
+      account.amount / 100,
+    ]);
+    downloadCSV([
+      isAr
+        ? ['التصنيف', 'الكود', 'الحساب', 'المستوى', 'نوع السطر', 'الرصيد (ر.س)']
+        : ['Classification', 'Code', 'Account', 'Level', 'Row Type', 'Balance (SAR)'],
+      ...accountRows(isAr ? 'أصول' : 'Assets', assetAccounts),
+      ...accountRows(isAr ? 'التزامات' : 'Liabilities', liabilityAccounts),
+      ...accountRows(isAr ? 'حقوق ملكية' : 'Equity', equityAccounts),
+      [isAr ? 'حقوق ملكية' : 'Equity', '', isAr ? 'صافي ربح الفترة الحالية' : 'Current Period Net Profit', '', '', netProfit / 100],
+    ], `${isAr ? 'الميزانية-العمومية' : 'balance-sheet'}-${new Date().toISOString().slice(0, 10)}.csv`);
+  }
+
   if (loadingAccounts) return <LoadingPane />;
 
   return (
     <div className="space-y-6">
-      <div className="flex justify-end">
+      <div className="flex justify-end items-center gap-2 flex-wrap">
         <ReportDepthSelect value={reportDepth} onChange={setReportDepth} isAr={isAr} />
+        <button onClick={handleExport}
+          className="inline-flex items-center gap-1.5 text-xs text-slate-500 hover:text-slate-700 border border-slate-200 rounded-lg px-3 py-1.5 hover:bg-slate-50 transition-colors">
+          <Download size={13} />{isAr ? 'تصدير CSV' : 'Export CSV'}
+        </button>
       </div>
       {/* Summary chips */}
       <div className="grid grid-cols-3 gap-4">
@@ -1596,15 +1618,10 @@ export default function ReportsPage() {
         if (activeTab === 'overview') {
           if (!reportsPeriod || reportsError) throw new Error('Report unavailable');
           downloadCSV(dashboardCsvRows(monthly, reportsPeriod, isAr), `النظرة-العامة-${year}.csv`);
-        } else if (activeTab === 'trial') {
-          const d = await apiFetch<{ rows?: { code: string; nameAr: string; totalDebit: number; totalCredit: number }[] }>(`/api/accounting/trial-balance?asOf=${stamp}`);
-          if (!d.rows) return;
-          downloadCSV([
-            ['الكود', 'الحساب', 'مدين', 'دائن'],
-            ...d.rows.map(a => [a.code, a.nameAr, a.totalDebit / 100, a.totalCredit / 100]),
-          ], `ميزان-المراجعة-${stamp}.csv`);
-        } else if (activeTab === 'pl' || activeTab === 'ar') {
-          alert(isAr ? 'استخدم زر "تصدير CSV" داخل هذا التقرير' : 'Use the "Export CSV" button inside this report tab');
+        } else if (activeTab === 'trial' || activeTab === 'pl' || activeTab === 'ar' || activeTab === 'bs') {
+          alert(isAr
+            ? 'استخدم زر "تصدير CSV" داخل التقرير ليطابق مستوى العرض والفترة المختارين'
+            : 'Use the "Export CSV" button inside the report so the selected depth and period are preserved');
         } else if (activeTab === 'vat') {
           const d = await apiFetch<VatReturnData>(`/api/reports/vat-return?from=${vatRange.from}&to=${vatRange.to}`);
           downloadCSV([
@@ -1615,13 +1632,6 @@ export default function ReportsPage() {
             ['صافي الضريبة المستحقة', 0, d.summary.netVatPayable / 100],
             ['فرق المطابقة مع الفواتير', 0, d.reconciliation.difference / 100],
           ], `الاقرار-الضريبي-${vatRange.from}-${vatRange.to}.csv`);
-        } else if (activeTab === 'bs') {
-          const label: Record<string, string> = { asset: 'أصول', liability: 'خصوم', equity: 'حقوق ملكية', revenue: 'إيرادات', expense: 'مصروفات' };
-          const rows = accounts.filter(a => a.balanceHalalas !== 0).sort((a, b) => a.code.localeCompare(b.code));
-          downloadCSV([
-            ['التصنيف', 'الكود', 'الحساب', 'الرصيد (ر.س)'],
-            ...rows.map(a => [label[a.type] ?? a.type, a.code, a.nameAr, a.balanceHalalas / 100]),
-          ], `الميزانية-العمومية-${stamp}.csv`);
         } else if (activeTab === 'profit') {
           if (!reportsPeriod || reportsError) throw new Error('Report unavailable');
           downloadCSV([

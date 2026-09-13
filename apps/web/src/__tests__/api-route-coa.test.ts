@@ -52,6 +52,7 @@ vi.mock('drizzle-orm', () => ({
   and: vi.fn((...conditions: unknown[]) => ({ conditions })),
   asc: vi.fn(),
   sum: vi.fn(),
+  sql: vi.fn(() => ({})),
 }));
 
 vi.mock('@/lib/schema', () => ({
@@ -67,6 +68,7 @@ const {
   insertedValues,
   updatedValues,
   mockDeleteWhere,
+  mockExecute,
   mockDb,
 } = vi.hoisted(() => {
   const results: unknown[][] = [];
@@ -91,19 +93,25 @@ const {
     }),
   });
   const mockDeleteWhere = vi.fn().mockResolvedValue([]);
+  const mockSelect = vi.fn().mockImplementation(() => makeSelectChain(results.shift() ?? []));
+  const mockInsert = vi.fn().mockReturnValue({
+    values: vi.fn().mockImplementation((value: unknown) => {
+      inserted.push(value);
+      return Promise.resolve([]);
+    }),
+  });
+  const mockUpdate = vi.fn().mockImplementation(makeUpdateChain);
+  const mockDelete = vi.fn().mockReturnValue({ where: mockDeleteWhere });
+  const mockExecute = vi.fn().mockResolvedValue([]);
   const transactionDb = {
-    update: vi.fn().mockImplementation(makeUpdateChain),
+    select: mockSelect,
+    insert: mockInsert,
+    update: mockUpdate,
+    delete: mockDelete,
+    execute: mockExecute,
   };
   const mockDb = {
-    select: vi.fn().mockImplementation(() => makeSelectChain(results.shift() ?? [])),
-    insert: vi.fn().mockReturnValue({
-      values: vi.fn().mockImplementation((value: unknown) => {
-        inserted.push(value);
-        return Promise.resolve([]);
-      }),
-    }),
-    update: vi.fn().mockImplementation(makeUpdateChain),
-    delete: vi.fn().mockReturnValue({ where: mockDeleteWhere }),
+    ...transactionDb,
     transaction: vi.fn().mockImplementation((run: (tx: typeof transactionDb) => Promise<unknown>) => run(transactionDb)),
   };
 
@@ -112,6 +120,7 @@ const {
     insertedValues: inserted,
     updatedValues: updated,
     mockDeleteWhere,
+    mockExecute,
     mockDb,
   };
 });
@@ -176,6 +185,7 @@ describe('chart-of-accounts mutation routes', () => {
     expect(response.status).toBe(200);
     expect(insertedValues).toHaveLength(1);
     expect(insertedValues[0]).toMatchObject({ code: '1000', level: 1, allowDirectEntry: false });
+    expect(mockExecute).toHaveBeenCalledOnce();
   });
 
   it('يرفض رصيداً افتتاحياً مباشراً لحساب تجميعي', async () => {
@@ -198,6 +208,7 @@ describe('chart-of-accounts mutation routes', () => {
 
     expect(response.status).toBe(200);
     expect(updatedValues[0]).toMatchObject({ nameAr: 'النقدية', parentId: 'parent', level: 2 });
+    expect(mockExecute).toHaveBeenCalledOnce();
   });
 
   it('يمنع نقل الحساب داخل أحد فروعه', async () => {
@@ -249,6 +260,7 @@ describe('chart-of-accounts mutation routes', () => {
 
     expect(response.status).toBe(200);
     expect(mockDeleteWhere).toHaveBeenCalledOnce();
+    expect(mockExecute).toHaveBeenCalledOnce();
   });
 
   it('يمنع حذف حساب النظام أو حساب له قيود', async () => {

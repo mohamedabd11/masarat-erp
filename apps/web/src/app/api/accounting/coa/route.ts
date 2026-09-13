@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { eq, asc, sum } from 'drizzle-orm';
+import { eq, asc, sum, sql } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { chartOfAccounts, journalLines } from '@/lib/schema';
 import { verifyAuth, assertRole, ApiAuthError, BusinessError, ROLES_ACCOUNTANT_UP } from '@/lib/api-auth';
@@ -69,37 +69,43 @@ export async function POST(request: Request) {
     }
 
     const id = crypto.randomUUID();
-    const existing = await db.select().from(chartOfAccounts).where(eq(chartOfAccounts.agencyId, agencyId));
-    const proposed: CoaHierarchyAccount = {
-      id,
-      code,
-      nameAr: body.nameAr.trim(),
-      nameEn: body.nameEn?.trim() || null,
-      type: body.type,
-      parentId: body.parentId || null,
-      level: 1,
-      allowDirectEntry,
-      isActive: true,
-    };
-    let level: number;
-    try {
-      level = calculateHierarchyLevels([...existing as CoaHierarchyAccount[], proposed]).get(id) ?? 1;
-    } catch (hierarchyError) {
-      throw new BusinessError((hierarchyError as Error).message, 400);
-    }
+    await db.transaction(async tx => {
+      // Serialize hierarchy mutations per agency. Without this lock, two valid
+      // concurrent changes could be checked against stale copies of the tree.
+      await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtextextended(${`coa:${agencyId}`}, 0))`);
 
-    await db.insert(chartOfAccounts).values({
-      id,
-      agencyId,
-      code,
-      nameAr: proposed.nameAr,
-      nameEn: proposed.nameEn,
-      type: body.type,
-      subType: body.subType?.trim() || null,
-      parentId: proposed.parentId,
-      level,
-      allowDirectEntry: proposed.allowDirectEntry,
-      openingBalanceHalalas,
+      const existing = await tx.select().from(chartOfAccounts).where(eq(chartOfAccounts.agencyId, agencyId));
+      const proposed: CoaHierarchyAccount = {
+        id,
+        code,
+        nameAr: body.nameAr.trim(),
+        nameEn: body.nameEn?.trim() || null,
+        type: body.type,
+        parentId: body.parentId || null,
+        level: 1,
+        allowDirectEntry,
+        isActive: true,
+      };
+      let level: number;
+      try {
+        level = calculateHierarchyLevels([...existing as CoaHierarchyAccount[], proposed]).get(id) ?? 1;
+      } catch (hierarchyError) {
+        throw new BusinessError((hierarchyError as Error).message, 400);
+      }
+
+      await tx.insert(chartOfAccounts).values({
+        id,
+        agencyId,
+        code,
+        nameAr: proposed.nameAr,
+        nameEn: proposed.nameEn,
+        type: body.type,
+        subType: body.subType?.trim() || null,
+        parentId: proposed.parentId,
+        level,
+        allowDirectEntry: proposed.allowDirectEntry,
+        openingBalanceHalalas,
+      });
     });
     return NextResponse.json({ success: true, id });
   } catch (err) {
