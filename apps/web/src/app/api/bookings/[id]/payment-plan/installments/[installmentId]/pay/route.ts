@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { eq, and, ne, sql } from 'drizzle-orm';
+import { eq, and, inArray, sql } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { bookings, invoices, payments, paymentPlans, paymentPlanInstallments, journalEntries, journalLines } from '@/lib/schema';
 import { verifyAuth, assertRole, ApiAuthError, BusinessError, ROLES_ACCOUNTANT_UP } from '@/lib/api-auth';
@@ -42,17 +42,33 @@ export async function POST(req: Request, { params }: RouteCtx) {
             eq(paymentPlanInstallments.bookingId, bookingId),
           ));
         if (!installment) throw new BusinessError('القسط غير موجود', 404);
-        if (installment.status === 'paid') throw new BusinessError('هذا القسط مدفوع بالفعل', 400);
+        if (!['pending', 'overdue'].includes(installment.status)) {
+          throw new BusinessError('هذا القسط غير قابل للدفع', 422);
+        }
+
+        const [plan] = await tx.select({ status: paymentPlans.status })
+          .from(paymentPlans)
+          .where(and(
+            eq(paymentPlans.id, installment.planId),
+            eq(paymentPlans.agencyId, agencyId),
+            eq(paymentPlans.bookingId, bookingId),
+          ));
+        if (!plan) throw new BusinessError('خطة الأقساط غير موجودة', 404);
+        if (plan.status !== 'active') throw new BusinessError('خطة الأقساط غير نشطة', 422);
 
         const amountHalalas = installment.amountHalalas;
 
         // ── 2. Fetch invoice ──────────────────────────────────────────────────
         const [invoice] = await tx.select()
           .from(invoices)
-          .where(and(eq(invoices.id, installment.invoiceId), eq(invoices.agencyId, agencyId)));
+          .where(and(
+            eq(invoices.id, installment.invoiceId),
+            eq(invoices.agencyId, agencyId),
+            eq(invoices.bookingId, bookingId),
+          ));
         if (!invoice) throw new BusinessError('الفاتورة غير موجودة', 404);
-        if (invoice.status === 'cancelled' || invoice.status === 'refunded' || invoice.status === 'credit_noted') {
-          throw new BusinessError('لا يمكن تسجيل دفعة على فاتورة ملغاة أو مستردة أو مُصدر بها إشعار دائن', 422);
+        if (!['issued', 'partial', 'overdue'].includes(invoice.status)) {
+          throw new BusinessError('لا يمكن تسجيل دفعة على فاتورة غير قابلة للتحصيل', 422);
         }
 
         // Also block payment when the underlying booking is cancelled — the
@@ -60,7 +76,8 @@ export async function POST(req: Request, { params }: RouteCtx) {
         const [booking] = await tx.select({ status: bookings.status })
           .from(bookings)
           .where(and(eq(bookings.id, bookingId), eq(bookings.agencyId, agencyId)));
-        if (booking && booking.status === 'cancelled') {
+        if (!booking) throw new BusinessError('الحجز غير موجود', 404);
+        if (booking.status === 'cancelled') {
           throw new BusinessError('لا يمكن تسجيل دفعة على حجز ملغي', 422);
         }
 
@@ -127,6 +144,8 @@ export async function POST(req: Request, { params }: RouteCtx) {
           })
           .where(and(
             eq(invoices.id, invoice.id),
+            eq(invoices.agencyId, agencyId),
+            sql`${invoices.status} IN ('issued', 'partial', 'overdue')`,
             sql`(${invoices.totalHalalas} - ${invoices.paidHalalas}) >= ${amountHalalas}`,
           ))
           .returning({ paidHalalas: invoices.paidHalalas, totalHalalas: invoices.totalHalalas });
@@ -146,7 +165,9 @@ export async function POST(req: Request, { params }: RouteCtx) {
           .set({ status: 'paid', paidAt: now, paymentId, updatedAt: now })
           .where(and(
             eq(paymentPlanInstallments.id, installmentId),
-            ne(paymentPlanInstallments.status, 'paid'),
+            eq(paymentPlanInstallments.agencyId, agencyId),
+            eq(paymentPlanInstallments.bookingId, bookingId),
+            inArray(paymentPlanInstallments.status, ['pending', 'overdue']),
           ))
           .returning({ id: paymentPlanInstallments.id });
         if (flipped.length === 0) {
@@ -154,14 +175,6 @@ export async function POST(req: Request, { params }: RouteCtx) {
         }
 
         // ── 9. Check if plan is complete ──────────────────────────────────────
-        const unpaid = await tx.select({ id: paymentPlanInstallments.id })
-          .from(paymentPlanInstallments)
-          .where(and(
-            eq(paymentPlanInstallments.planId, installment.planId),
-            eq(paymentPlanInstallments.agencyId, agencyId),
-          ))
-          .then((rows) => rows.filter((r) => r.id !== installmentId));
-
         // After our update the current installment is paid; check remaining
         const allPaidNow = (await tx.select({ id: paymentPlanInstallments.id, status: paymentPlanInstallments.status })
           .from(paymentPlanInstallments)

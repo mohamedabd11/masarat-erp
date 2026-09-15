@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { eq, and, sql, ne, asc } from 'drizzle-orm';
+import { eq, and, sql, inArray, asc } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { bookings, bookingLines, agencies, invoices, journalEntries, journalLines, customers, suppliers } from '@/lib/schema';
 import { verifyAuth, assertRole, ApiAuthError, BusinessError, ROLES_ACCOUNTANT_UP } from '@/lib/api-auth';
@@ -147,8 +147,13 @@ export async function POST(request: Request) {
         }
 
         // ── 4. Zero-amount guard ────────────────────────────────────────────
-        if (finalGrandTotal === 0) {
-          throw new BusinessError('لا يمكن إصدار فاتورة بمبلغ صفر — يرجى تحديث سعر الحجز أولاً', 400);
+        if (
+          !Number.isSafeInteger(subtotalExclVat) ||
+          !Number.isSafeInteger(totalVat) ||
+          !Number.isSafeInteger(finalGrandTotal) ||
+          subtotalExclVat < 0 || totalVat < 0 || finalGrandTotal <= 0
+        ) {
+          throw new BusinessError('لا يمكن إصدار فاتورة بمبلغ صفر أو غير صالح — يرجى تحديث سعر الحجز أولاً', 400);
         }
         if (Math.abs(subtotalExclVat + totalVat - finalGrandTotal) > 100) {
           throw new BusinessError('خطأ في تقريب المبالغ — الفرق يتجاوز الحد المسموح (1 ر.س)', 400);
@@ -171,13 +176,17 @@ export async function POST(request: Request) {
             .where(and(
               eq(invoices.customerId, booking.customerId),
               eq(invoices.agencyId, agencyId),
-              ne(invoices.status, 'paid'),
-              ne(invoices.status, 'cancelled'),
+              inArray(invoices.status, ['issued', 'partial', 'overdue']),
             ));
 
-            if ((outstanding + finalGrandTotal) > customer.creditLimitHalalas) {
+            const outstandingHalalas = Number(outstanding ?? 0);
+            if (!Number.isSafeInteger(outstandingHalalas) || outstandingHalalas < 0) {
+              throw new BusinessError('تعذر التحقق من الرصيد المستحق للعميل', 500);
+            }
+
+            if ((outstandingHalalas + finalGrandTotal) > customer.creditLimitHalalas) {
               throw new BusinessError(
-                `تجاوز حد الائتمان: الرصيد المستحق ${(outstanding / 100).toFixed(2)} ر.س + الفاتورة الجديدة ${(finalGrandTotal / 100).toFixed(2)} ر.س يتجاوز الحد ${(customer.creditLimitHalalas / 100).toFixed(2)} ر.س`,
+                `تجاوز حد الائتمان: الرصيد المستحق ${(outstandingHalalas / 100).toFixed(2)} ر.س + الفاتورة الجديدة ${(finalGrandTotal / 100).toFixed(2)} ر.س يتجاوز الحد ${(customer.creditLimitHalalas / 100).toFixed(2)} ر.س`,
                 400,
               );
             }
@@ -346,7 +355,7 @@ export async function POST(request: Request) {
         // Update booking status
         await tx.update(bookings)
           .set({ status: 'completed', updatedAt: now })
-          .where(eq(bookings.id, bookingId));
+          .where(and(eq(bookings.id, bookingId), eq(bookings.agencyId, agencyId)));
 
         // Record idempotency (authoritative, inside the tx — see markIdempotencyComplete)
         await markIdempotencyComplete(tx, agencyId, 'createInvoice', idempKey, { invoiceId, invoiceNumber });

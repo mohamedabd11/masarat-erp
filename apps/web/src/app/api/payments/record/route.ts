@@ -18,6 +18,11 @@ interface PaymentRecordBody {
   idempotencyKey?: string;
 }
 
+const VALID_PAYMENT_METHODS = new Set<PaymentRecordBody['paymentMethod']>([
+  'cash', 'bank_transfer', 'card', 'online',
+]);
+const COLLECTIBLE_INVOICE_STATUSES = new Set(['issued', 'partial', 'overdue']);
+
 export async function POST(request: Request) {
   try {
     const { uid, agencyId, role } = await verifyAuth(request);
@@ -33,6 +38,9 @@ export async function POST(request: Request) {
     if (!Number.isInteger(amountHalalas) || amountHalalas <= 0) {
       return NextResponse.json({ error: 'مبلغ الدفعة غير صالح' }, { status: 400 });
     }
+    if (!VALID_PAYMENT_METHODS.has(paymentMethod)) {
+      return NextResponse.json({ error: 'طريقة الدفع غير صالحة' }, { status: 400 });
+    }
 
     const result = await withIdempotency(idempKey, agencyId, 'processPayment', async () => {
       return db.transaction(async (tx) => {
@@ -46,13 +54,12 @@ export async function POST(request: Request) {
           and(eq(invoices.id, invoiceId), eq(invoices.agencyId, agencyId)),
         );
         if (!invoice) throw new BusinessError(`الفاتورة ${invoiceId} غير موجودة`, 404);
-        if (bookingId && invoice.bookingId && invoice.bookingId !== bookingId) throw new BusinessError('الفاتورة لا تنتمي لهذا الحجز', 400);
-        // A cancelled/refunded/fully-credited invoice has had its receivable
-        // reversed — recording a payment would credit AR that no longer exists
-        // (negative AR / unbalanced TB).
-        if (invoice.status === 'cancelled' || invoice.status === 'refunded' || invoice.status === 'credit_noted') {
-          const label = invoice.status === 'cancelled' ? 'ملغاة' : invoice.status === 'refunded' ? 'مستردة' : 'مُصدر بها إشعار دائن';
-          throw new BusinessError(`لا يمكن تسجيل دفعة على فاتورة ${label}`, 422);
+        if (bookingId && invoice.bookingId !== bookingId) throw new BusinessError('الفاتورة لا تنتمي لهذا الحجز', 400);
+        // Only issued receivables can be collected. Draft/pending invoices have
+        // not created AR yet; paid/cancelled/refunded/credited invoices have no
+        // collectible balance even if a stale paid total says otherwise.
+        if (!COLLECTIBLE_INVOICE_STATUSES.has(invoice.status)) {
+          throw new BusinessError('لا يمكن تسجيل دفعة على فاتورة غير قابلة للتحصيل', 422);
         }
 
         // ── 2. Validate (fast-fail before any writes) ──────────────────────
@@ -76,7 +83,7 @@ export async function POST(request: Request) {
           id:            paymentId,
           agencyId,
           invoiceId,
-          bookingId,
+          bookingId:     invoice.bookingId ?? null,
           customerId:    invoice.customerId ?? null,
           customerName:  invoice.buyerNameAr ?? '',
           amountHalalas,
@@ -123,6 +130,8 @@ export async function POST(request: Request) {
           .where(
             and(
               eq(invoices.id, invoiceId),
+              eq(invoices.agencyId, agencyId),
+              sql`${invoices.status} IN ('issued', 'partial', 'overdue')`,
               sql`(${invoices.totalHalalas} - ${invoices.paidHalalas}) >= ${amountHalalas}`,
             ),
           )

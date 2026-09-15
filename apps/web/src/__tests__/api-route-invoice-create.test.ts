@@ -324,6 +324,35 @@ describe('POST /api/invoices/create', () => {
     expect(data.error).toMatch(/صفر/);
   });
 
+  it('400 إذا كان المبلغ الإجمالي سالباً حتى لو كانت بيانات الحجز قديمة أو تالفة', async () => {
+    mockVerifyAuth.mockResolvedValue(DEFAULT_USER);
+    mockAssertRole.mockReturnValue(undefined);
+    mockCheckRateLimit.mockResolvedValue({ success: true });
+    mockAssertPeriodOpen.mockResolvedValue(undefined);
+    mockTxSelect.next([{ ...BOOKING, totalPriceHalalas: -100 }]);
+    mockTxSelect.next([AGENCY]);
+    mockTxSelect.next([]);
+    mockTxSelect.next([]);
+    const res = await POST(makeRequest({ bookingId: 'booking-1' }));
+    expect(res.status).toBe(400);
+  });
+
+  it('يقرأ الرصيد المستحق الرقمي من PostgreSQL دون دمج نصي خاطئ عند فحص حد الائتمان', async () => {
+    mockVerifyAuth.mockResolvedValue(DEFAULT_USER);
+    mockAssertRole.mockReturnValue(undefined);
+    mockCheckRateLimit.mockResolvedValue({ success: true });
+    mockAssertPeriodOpen.mockResolvedValue(undefined);
+    mockTxSelect.next([{ ...BOOKING, customerId: 'cust-credit' }]);
+    mockTxSelect.next([AGENCY]);
+    mockTxSelect.next([]); // booking lines
+    mockTxSelect.next([]); // no existing invoice
+    mockTxSelect.next([{ creditLimitHalalas: 20_000, vatNumber: null }]);
+    mockTxSelect.next([{ outstanding: '5000' }]); // bigint SUM returned by PostgreSQL
+
+    const res = await POST(makeRequest({ bookingId: 'booking-1' }));
+    expect(res.status).toBe(200); // 5,000 + 11,500 = 16,500 < 20,000
+  });
+
   // ── Happy path ────────────────────────────────────────────────────────────────
 
   it('200 — فاتورة ناجحة مع invoiceId و invoiceNumber', async () => {

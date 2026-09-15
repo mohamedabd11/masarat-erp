@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { eq, and, sql } from 'drizzle-orm';
 import { db } from '@/lib/db';
-import { supplierPayments, suppliers, journalEntries, journalLines } from '@/lib/schema';
+import { agencies, bookings, supplierPayments, suppliers, journalEntries, journalLines } from '@/lib/schema';
 import { verifyAuth, assertRole, ApiAuthError, BusinessError, ROLES_ACCOUNTANT_UP } from '@/lib/api-auth';
 import { getNextPaymentVoucherNumber, getNextJournalNumber } from '@/lib/invoice-counter';
 import { assertPeriodOpen } from '@/lib/period-lock';
@@ -32,6 +32,9 @@ interface SupplierPaymentBody {
   vatAmountHalalas?: number;  // optional: VAT portion of the payment (for Input VAT claim)
 }
 
+const VALID_EXPENSE_CATEGORIES = new Set(Object.keys(SUPPLIER_PAYMENT_EXPENSE_ACCOUNT));
+const VALID_PAYMENT_METHODS = new Set(Object.keys(PAYMENT_METHOD_ACCOUNT));
+
 // Debit (expense) and credit (payment-method) account maps are centralized in
 // gl-accounts.ts (L7) so create + reverse share one source of truth. See
 // SUPPLIER_PAYMENT_EXPENSE_ACCOUNT for the per-category posting rationale.
@@ -52,6 +55,37 @@ export async function POST(request: Request) {
     if (!payeeName || !expenseCategory || !paymentMethod) {
       return NextResponse.json({ error: 'بيانات مطلوبة ناقصة' }, { status: 400 });
     }
+    if (!VALID_EXPENSE_CATEGORIES.has(expenseCategory)) {
+      return NextResponse.json({ error: 'تصنيف المصروف غير صالح' }, { status: 400 });
+    }
+    if (!VALID_PAYMENT_METHODS.has(paymentMethod)) {
+      return NextResponse.json({ error: 'طريقة الدفع غير صالحة' }, { status: 400 });
+    }
+    if (!Number.isInteger(vatAmount) || vatAmount < 0) {
+      return NextResponse.json({ error: 'مبلغ ضريبة المدخلات غير صالح' }, { status: 400 });
+    }
+    if (fxOriginalHalalas !== undefined &&
+        (!Number.isSafeInteger(fxOriginalHalalas) || fxOriginalHalalas <= 0)) {
+      return NextResponse.json({ error: 'القيمة الأصلية للعملة غير صالحة' }, { status: 400 });
+    }
+
+    const normalizedForeignCurrency = foreignCurrency?.trim().toUpperCase() ?? null;
+    if (normalizedForeignCurrency && !/^[A-Z]{3}$/.test(normalizedForeignCurrency)) {
+      return NextResponse.json({ error: 'رمز العملة الأجنبية غير صالح' }, { status: 400 });
+    }
+    if (foreignAmountMinor !== undefined &&
+        (!Number.isSafeInteger(foreignAmountMinor) || foreignAmountMinor <= 0)) {
+      return NextResponse.json({ error: 'مبلغ العملة الأجنبية غير صالح' }, { status: 400 });
+    }
+    if ((normalizedForeignCurrency == null) !== (foreignAmountMinor == null)) {
+      return NextResponse.json({ error: 'يجب إدخال العملة الأجنبية ومبلغها معاً' }, { status: 400 });
+    }
+    if (fxOriginalHalalas !== undefined && normalizedForeignCurrency == null) {
+      return NextResponse.json({ error: 'القيمة الأصلية تتطلب بيانات العملة الأجنبية' }, { status: 400 });
+    }
+    if (vatAmount > 0 && normalizedForeignCurrency != null) {
+      return NextResponse.json({ error: 'لا يمكن الجمع بين ضريبة المدخلات وتسوية عملة أجنبية في سند واحد' }, { status: 400 });
+    }
 
     const today0 = new Date().toISOString().split('T')[0]!;
 
@@ -62,11 +96,11 @@ export async function POST(request: Request) {
     let appliedFxRate:    number | null = null;  // decimal (e.g. 3.75), for the response
     let appliedFxRateDate: string | null = null;
 
-    if (foreignCurrency && foreignAmountMinor && foreignAmountMinor > 0 && !amountHalalas) {
-      const fxRow = await lookupFxRate(agencyId, foreignCurrency, 'SAR', today0, db);
+    if (normalizedForeignCurrency && foreignAmountMinor && !amountHalalas) {
+      const fxRow = await lookupFxRate(agencyId, normalizedForeignCurrency, 'SAR', today0, db);
       if (!fxRow) {
         return NextResponse.json(
-          { error: `لا يوجد سعر صرف محدّث لـ ${foreignCurrency.toUpperCase()}/SAR. أضف سعر الصرف أولاً من إدارة الأسعار.` },
+          { error: `لا يوجد سعر صرف محدّث لـ ${normalizedForeignCurrency}/SAR. أضف سعر الصرف أولاً من إدارة الأسعار.` },
           { status: 422 },
         );
       }
@@ -78,6 +112,9 @@ export async function POST(request: Request) {
     if (!Number.isInteger(resolvedAmountHalalas) || resolvedAmountHalalas <= 0) {
       return NextResponse.json({ error: 'مبلغ الدفعة غير صالح' }, { status: 400 });
     }
+    if (vatAmount >= resolvedAmountHalalas) {
+      return NextResponse.json({ error: 'مبلغ ضريبة المدخلات يجب أن يكون أقل من إجمالي الدفعة' }, { status: 400 });
+    }
 
     // Idempotency: a retry/double-click with the same key replays the first
     // result instead of disbursing cash twice. The completion marker is written
@@ -85,6 +122,30 @@ export async function POST(request: Request) {
     const idempKey = body.idempotencyKey ?? crypto.randomUUID();
     const result = await withIdempotency(idempKey, agencyId, 'supplierPayment', () => db.transaction(async (tx: Tx) => {
       await assertPeriodOpen(agencyId, today0, tx);
+
+      const [agency] = await tx.select({ isVatRegistered: agencies.isVatRegistered })
+        .from(agencies)
+        .where(eq(agencies.id, agencyId));
+      if (!agency) throw new BusinessError('الوكالة غير موجودة', 404);
+      if (vatAmount > 0 && !agency.isVatRegistered) {
+        throw new BusinessError('لا يمكن المطالبة بضريبة مدخلات لمنشأة غير مسجلة ضريبياً', 422);
+      }
+
+      if (supplierId) {
+        const [supplier] = await tx.select({ id: suppliers.id }).from(suppliers).where(and(
+          eq(suppliers.id, supplierId), eq(suppliers.agencyId, agencyId),
+        ));
+        if (!supplier) throw new BusinessError('المورد غير موجود في هذه الوكالة', 404);
+      }
+
+      let trustedBookingNumber = bookingNumber ?? null;
+      if (bookingId) {
+        const [booking] = await tx.select({ id: bookings.id, bookingNumber: bookings.bookingNumber })
+          .from(bookings)
+          .where(and(eq(bookings.id, bookingId), eq(bookings.agencyId, agencyId)));
+        if (!booking) throw new BusinessError('الحجز غير موجود في هذه الوكالة', 404);
+        trustedBookingNumber = booking.bookingNumber;
+      }
 
       const now   = new Date();
       const year  = now.getFullYear();
@@ -110,7 +171,7 @@ export async function POST(request: Request) {
         reference:       reference    ?? null,
         voucherNumber,
         expenseCategory,
-        bookingNumber:   bookingNumber ?? null,
+        bookingNumber:   trustedBookingNumber,
         date:            today,
         status:          'completed',
         journalEntryId:  jeId,
@@ -128,8 +189,8 @@ export async function POST(request: Request) {
         ? fxOriginalHalalas
         : resolvedAmountHalalas;
 
-      const fxNote = foreignCurrency
-        ? ` (${foreignCurrency}${foreignAmountMinor != null ? ' ' + (foreignAmountMinor / 100).toFixed(2) : ''}${appliedFxRate ? ' @ ' + appliedFxRate.toFixed(4) : ''})`
+      const fxNote = normalizedForeignCurrency
+        ? ` (${normalizedForeignCurrency}${foreignAmountMinor != null ? ' ' + (foreignAmountMinor / 100).toFixed(2) : ''}${appliedFxRate ? ' @ ' + appliedFxRate.toFixed(4) : ''})`
         : '';
 
       await tx.insert(journalEntries).values({

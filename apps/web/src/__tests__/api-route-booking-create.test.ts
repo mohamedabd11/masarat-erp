@@ -208,4 +208,90 @@ describe('POST /api/bookings/create', () => {
     });
     expect(mockTransaction).not.toHaveBeenCalled();
   });
+
+  it.each([
+    ['unit price', { unitPriceExclVatHalalas: 10_000.5, unitCostHalalas: 8_000, quantity: 1 }],
+    ['unit cost',  { unitPriceExclVatHalalas: 10_000, unitCostHalalas: 8_000.5, quantity: 1 }],
+    ['quantity',   { unitPriceExclVatHalalas: 10_000, unitCostHalalas: 8_000, quantity: 1.5 }],
+  ])('rejects fractional %s instead of rounding or failing in the database', async (_label, line) => {
+    const response = await POST(new Request('http://localhost/api/bookings/create', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        type: 'flight',
+        customerName: { ar: 'عميل تجريبي' },
+        pricing: { revenueModel: 'agent', currency: 'SAR' },
+        lines: [{
+          description: 'تذكرة اختبار',
+          serviceType: 'flight',
+          revenueModel: 'agent',
+          vatCategory: 'O',
+          vatRateBps: 0,
+          ...line,
+        }],
+      }),
+    }));
+
+    expect(response.status).toBe(400);
+    expect(mockTransaction).not.toHaveBeenCalled();
+  });
+
+  it('rejects an unsupported service type inside an explicit booking line', async () => {
+    const response = await POST(new Request('http://localhost/api/bookings/create', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        type: 'flight',
+        customerName: { ar: 'عميل تجريبي' },
+        pricing: { revenueModel: 'agent', currency: 'SAR' },
+        lines: [{
+          description: 'سطر غير صالح',
+          serviceType: 'not-a-service',
+          revenueModel: 'agent',
+          quantity: 1,
+          unitPriceExclVatHalalas: 10_000,
+          unitCostHalalas: 8_000,
+          vatCategory: 'O',
+          vatRateBps: 0,
+        }],
+      }),
+    }));
+
+    expect(response.status).toBe(400);
+    expect(mockTransaction).not.toHaveBeenCalled();
+  });
+
+  it('stores VAT and agency fee derived from explicit lines, not stale client totals', async () => {
+    mockAgencySelect.mockResolvedValue([{ isVatRegistered: true, vatRate: 15 }]);
+    const response = await POST(new Request('http://localhost/api/bookings/create', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        type: 'flight',
+        customerName: { ar: 'عميل ضريبي' },
+        pricing: {
+          revenueModel: 'agent', currency: 'sar',
+          serviceFee: 999_999, vatAmount: 999_999,
+        },
+        lines: [{
+          description: 'تذكرة مع رسوم',
+          serviceType: 'flight', revenueModel: 'agent', quantity: 1,
+          unitPriceExclVatHalalas: 110_000,
+          unitCostHalalas: 100_000,
+          vatCategory: 'S', vatRateBps: 1_500,
+        }],
+      }),
+    }));
+
+    expect(response.status).toBe(200);
+    expect(inserted.get('bookings')?.[0]).toMatchObject({
+      totalPriceHalalas: 111_500,
+      profitHalalas: 10_000,
+      details: expect.objectContaining({
+        serviceFee: 10_000,
+        vatAmount: 1_500,
+        currency: 'SAR',
+      }),
+    });
+  });
 });

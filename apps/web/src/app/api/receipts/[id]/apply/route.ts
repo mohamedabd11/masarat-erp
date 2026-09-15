@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { eq, and, sql } from 'drizzle-orm';
 import { db } from '@/lib/db';
-import { receiptVouchers, invoices, journalEntries, journalLines } from '@/lib/schema';
+import { receiptVouchers, invoices, bookings, journalEntries, journalLines } from '@/lib/schema';
 import { verifyAuth, assertRole, ApiAuthError, BusinessError, ROLES_ACCOUNTANT_UP } from '@/lib/api-auth';
 import { getNextJournalNumber } from '@/lib/invoice-counter';
 import { assertPeriodOpen } from '@/lib/period-lock';
@@ -9,6 +9,7 @@ import { GL } from '@/lib/gl-accounts';
 
 const AC_DEPOSITS   = GL.customerDeposits;  // 2300
 const AC_RECEIVABLE = GL.receivable;        // 1120
+const COLLECTIBLE_INVOICE_STATUSES = new Set(['issued', 'partial', 'overdue']);
 
 interface ApplyBody {
   invoiceId: string;
@@ -47,6 +48,9 @@ export async function POST(
       const [inv] = await tx.select().from(invoices)
         .where(and(eq(invoices.id, invoiceId), eq(invoices.agencyId, agencyId)));
       if (!inv) throw new BusinessError('الفاتورة غير موجودة', 404);
+      if (!COLLECTIBLE_INVOICE_STATUSES.has(inv.status)) {
+        throw new BusinessError('لا يمكن تطبيق الوديعة على فاتورة غير قابلة للتحصيل', 422);
+      }
 
       const outstanding = inv.totalHalalas - inv.paidHalalas;
       if (voucher.amountHalalas > outstanding) {
@@ -94,14 +98,25 @@ export async function POST(
         .where(and(
           eq(invoices.id, invoiceId),
           eq(invoices.agencyId, agencyId),
+          sql`${invoices.status} IN ('issued', 'partial', 'overdue')`,
           sql`(${invoices.totalHalalas} - ${invoices.paidHalalas}) >= ${amount}`,
         ))
         .returning({ id: invoices.id });
       if (!updatedInv) throw new BusinessError('تعارض متزامن — حاول مرة أخرى', 409);
 
+      if (inv.bookingId) {
+        await tx.update(bookings)
+          .set({ paidHalalas: sql`${bookings.paidHalalas} + ${amount}`, updatedAt: now })
+          .where(and(eq(bookings.id, inv.bookingId), eq(bookings.agencyId, agencyId)));
+      }
+
       // Link the voucher to the invoice so it can't be double-applied.
       await tx.update(receiptVouchers)
-        .set({ invoiceId })
+        .set({
+          invoiceId,
+          bookingId: inv.bookingId ?? null,
+          customerId: inv.customerId ?? voucher.customerId ?? null,
+        })
         .where(and(eq(receiptVouchers.id, voucher.id), eq(receiptVouchers.agencyId, agencyId)));
 
       return { voucherId: voucher.id, invoiceId, appliedHalalas: amount, journalEntryId: jeId };

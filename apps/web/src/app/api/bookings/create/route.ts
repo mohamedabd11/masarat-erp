@@ -58,9 +58,26 @@ function prepareLineInput(
   const description = String(raw['description'] ?? '').trim();
   if (!description) return { error: `lines[${index}].description مطلوب` };
 
-  const rawPrice = raw['unitPriceExclVatHalalas'];
-  if (rawPrice === undefined || rawPrice === null || Number(rawPrice) < 0) {
-    return { error: `lines[${index}].unitPriceExclVatHalalas مطلوب ويجب أن يكون >= 0` };
+  const serviceType = String(raw['serviceType'] ?? fallbackServiceType);
+  if (!VALID_SERVICE_TYPES.has(serviceType)) {
+    return { error: `lines[${index}].serviceType غير صالح` };
+  }
+
+  const quantity  = Number(raw['quantity'] ?? 1);
+  const unitPrice = Number(raw['unitPriceExclVatHalalas']);
+  const unitCost  = Number(raw['unitCostHalalas'] ?? 0);
+  const sortOrder = Number(raw['sortOrder'] ?? index);
+  if (!Number.isSafeInteger(quantity) || quantity <= 0) {
+    return { error: `lines[${index}].quantity يجب أن يكون عدداً صحيحاً موجباً` };
+  }
+  if (!Number.isSafeInteger(unitPrice) || unitPrice < 0) {
+    return { error: `lines[${index}].unitPriceExclVatHalalas مطلوب ويجب أن يكون عدداً صحيحاً >= 0` };
+  }
+  if (!Number.isSafeInteger(unitCost) || unitCost < 0) {
+    return { error: `lines[${index}].unitCostHalalas يجب أن يكون عدداً صحيحاً >= 0` };
+  }
+  if (!Number.isSafeInteger(sortOrder) || sortOrder < 0) {
+    return { error: `lines[${index}].sortOrder غير صالح` };
   }
 
   const vatCat = String(raw['vatCategory'] ?? 'S') as VatCategory;
@@ -72,20 +89,23 @@ function prepareLineInput(
     return { error: `lines[${index}].revenueModel يجب أن يكون agent أو principal` };
   }
 
-  const quantity  = Math.max(1, Math.round(Number(raw['quantity'] ?? 1)));
-  const unitPrice = Number(rawPrice);
-  const unitCost  = Math.max(0, Number(raw['unitCostHalalas'] ?? 0));
   const vatRateBps = Number(raw['vatRateBps'] ?? VAT_RATE_BPS[vatCat]);
   if (!Number.isInteger(vatRateBps) || !VALID_VAT_RATES_BPS.has(vatRateBps)) {
     return { error: `lines[${index}].vatRateBps غير مدعوم` };
   }
   const totalPrice = unitPrice * quantity;
   const totalCost  = unitCost  * quantity;
+  if (!Number.isSafeInteger(totalPrice) || !Number.isSafeInteger(totalCost)) {
+    return { error: `lines[${index}] يتجاوز نطاق المبالغ الآمن` };
+  }
   const vatBase    = revenueModel === 'agent' ? Math.max(0, totalPrice - totalCost) : totalPrice;
   const vatHalalas = Math.round(vatBase * vatRateBps / 10000);
+  if (!Number.isSafeInteger(vatHalalas)) {
+    return { error: `lines[${index}].vatHalalas يتجاوز نطاق المبالغ الآمن` };
+  }
 
   return {
-    serviceType:              String(raw['serviceType'] ?? fallbackServiceType),
+    serviceType,
     description,
     supplierId:               String(raw['supplierId']   ?? '') || null,
     supplierName:             String(raw['supplierName'] ?? '') || null,
@@ -103,7 +123,7 @@ function prepareLineInput(
     operationalStatus:        String(raw['operationalStatus']  ?? 'pending'),
     pnrReference:             String(raw['pnrReference']  ?? '') || null,
     voucherNumber:            String(raw['voucherNumber'] ?? '') || null,
-    sortOrder:                Number(raw['sortOrder'] ?? index),
+    sortOrder,
     notes:                    String(raw['notes'] ?? '') || null,
   };
 }
@@ -139,6 +159,7 @@ export async function POST(request: Request) {
 
     const pricing        = (body['pricing'] ?? {}) as Record<string, unknown>;
     const revenueModel   = String(pricing['revenueModel'] ?? 'principal');
+    const currency       = String(pricing['currency'] ?? 'SAR').trim().toUpperCase();
     const vatAmountHalalas = Number(pricing['vatAmount'] ?? 0);
     const vatCategoryFromPricing = String(
       pricing['vatCategory'] ?? (agency.isVatRegistered ? 'S' : 'O'),
@@ -161,6 +182,9 @@ export async function POST(request: Request) {
 
     if (!VALID_REVENUE_MODELS.has(revenueModel)) {
       return NextResponse.json({ error: 'نموذج الإيراد يجب أن يكون وكيل أو أصيل' }, { status: 400 });
+    }
+    if (!/^[A-Z]{3}$/.test(currency)) {
+      return NextResponse.json({ error: 'رمز العملة غير صالح' }, { status: 400 });
     }
     if (!VALID_VAT_CATEGORIES.has(vatCategoryFromPricing)) {
       return NextResponse.json({ error: 'فئة الضريبة غير صالحة' }, { status: 400 });
@@ -235,6 +259,13 @@ export async function POST(request: Request) {
     // Booking totals are derived from lines (single source of truth)
     const derivedTotal  = preparedLines.reduce((s, l) => s + l.totalPriceExclVatHalalas + l.vatHalalas, 0);
     const derivedCost   = preparedLines.reduce((s, l) => s + l.totalCostHalalas, 0);
+    const derivedVat    = preparedLines.reduce((s, l) => s + l.vatHalalas, 0);
+    const derivedAgentFee = preparedLines.reduce(
+      (sum, line) => sum + (line.revenueModel === 'agent'
+        ? Math.max(0, line.totalPriceExclVatHalalas - line.totalCostHalalas)
+        : 0),
+      0,
+    );
     const derivedProfit = preparedLines.reduce(
       (sum, line) => sum + line.totalPriceExclVatHalalas - line.totalCostHalalas,
       0,
@@ -285,8 +316,6 @@ export async function POST(request: Request) {
       const customerNameAr = typeof cn === 'object' ? (cn?.['ar'] ?? '') : (cn ?? '');
       const customerNameEn = typeof cn === 'object' ? (cn?.['en'] ?? '') : '';
 
-      const serviceFeeHalalas = Number(pricing['serviceFee'] ?? 0);
-
       // Merge pricing fields into details JSONB so they survive round-trips
       const mergedDetails = {
         ...serviceDetails,
@@ -296,9 +325,9 @@ export async function POST(request: Request) {
         supplierName,
         supplierRef,
         revenueModel,
-        serviceFee:  serviceFeeHalalas,
-        vatAmount:   vatAmountHalalas,
-        currency:    String(pricing['currency'] ?? 'SAR'),
+        serviceFee:  derivedAgentFee,
+        vatAmount:   derivedVat,
+        currency,
       };
 
       await tx.insert(bookings).values({
@@ -370,7 +399,7 @@ export async function POST(request: Request) {
     await logAudit({
       agencyId, userId: uid, action: 'create', resource: 'booking',
       resourceId: result.bookingId,
-      after: { bookingNumber: result.bookingNumber, serviceType, totalPriceHalalas: Number(body['pricing'] ? (body['pricing'] as Record<string, unknown>)['totalAmount'] : 0) },
+      after: { bookingNumber: result.bookingNumber, serviceType, totalPriceHalalas: derivedTotal },
     });
 
     return NextResponse.json(result);

@@ -4,6 +4,26 @@ import type { DB, Tx } from '@/lib/db';
 
 type DbOrTx = DB | Tx;
 
+/** Canonical ISO-4217-style code used by storage and lookups. */
+export function normalizeCurrencyCode(value: unknown): string | null {
+  const code = typeof value === 'string' ? value.trim().toUpperCase() : '';
+  return /^[A-Z]{3}$/.test(code) ? code : null;
+}
+
+/** Strict YYYY-MM-DD validation, including real calendar-day boundaries. */
+export function isIsoDateOnly(value: unknown): value is string {
+  if (typeof value !== 'string') return false;
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  if (!match) return false;
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const date = new Date(Date.UTC(year, month - 1, day));
+  return date.getUTCFullYear() === year
+    && date.getUTCMonth() === month - 1
+    && date.getUTCDate() === day;
+}
+
 /**
  * Returns the most recent exchange rate for (fromCurrency → toCurrency)
  * that has effectiveDate <= asOfDate, or null if none exists.
@@ -17,13 +37,17 @@ export async function lookupFxRate(
   asOfDate:     string,   // YYYY-MM-DD
   dbOrTx:       DbOrTx,
 ): Promise<{ storedRate: number; effectiveDate: string } | null> {
+  const normalizedFrom = normalizeCurrencyCode(fromCurrency);
+  const normalizedTo = normalizeCurrencyCode(toCurrency);
+  if (!normalizedFrom || !normalizedTo || !isIsoDateOnly(asOfDate)) return null;
+
   const [row] = await dbOrTx
     .select({ storedRate: exchangeRates.rate, effectiveDate: exchangeRates.effectiveDate })
     .from(exchangeRates)
     .where(and(
       eq(exchangeRates.agencyId, agencyId),
-      eq(exchangeRates.fromCurrency, fromCurrency.toUpperCase()),
-      eq(exchangeRates.toCurrency,   toCurrency.toUpperCase()),
+      eq(exchangeRates.fromCurrency, normalizedFrom),
+      eq(exchangeRates.toCurrency,   normalizedTo),
       lte(exchangeRates.effectiveDate, asOfDate),
     ))
     .orderBy(desc(exchangeRates.effectiveDate))

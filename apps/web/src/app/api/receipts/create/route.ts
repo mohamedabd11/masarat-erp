@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { eq, and, sql } from 'drizzle-orm';
 import { db } from '@/lib/db';
-import { receiptVouchers, journalEntries, journalLines, invoices } from '@/lib/schema';
+import { receiptVouchers, journalEntries, journalLines, invoices, bookings } from '@/lib/schema';
 import { verifyAuth, assertRole, ApiAuthError, BusinessError, ROLES_ACCOUNTANT_UP } from '@/lib/api-auth';
 import { getNextReceiptNumber, getNextJournalNumber } from '@/lib/invoice-counter';
 import { assertPeriodOpen } from '@/lib/period-lock';
@@ -34,6 +34,8 @@ const METHOD_ACCOUNT: Record<string, { code: string; ar: string; en: string }> =
 };
 const AC_DEPOSITS   = GL.customerDeposits;
 const AC_RECEIVABLE = GL.receivable;
+const VALID_PAYMENT_METHODS = new Set(Object.keys(METHOD_ACCOUNT));
+const COLLECTIBLE_INVOICE_STATUSES = new Set(['issued', 'partial', 'overdue']);
 
 export async function POST(request: Request) {
   try {
@@ -58,6 +60,9 @@ export async function POST(request: Request) {
     if (!Number.isInteger(amountHalalas) || amountHalalas <= 0) {
       return NextResponse.json({ error: 'مبلغ الدفعة غير صالح' }, { status: 400 });
     }
+    if (!VALID_PAYMENT_METHODS.has(paymentMethod)) {
+      return NextResponse.json({ error: 'طريقة الدفع غير صالحة' }, { status: 400 });
+    }
 
     const result = await withIdempotency(idempKey, agencyId, 'createReceipt', async () => db.transaction(async (tx) => {
       const now   = new Date();
@@ -70,7 +75,10 @@ export async function POST(request: Request) {
       const jeNumber      = await getNextJournalNumber(agencyId, year, tx);
       const voucherId     = crypto.randomUUID();
       const jeId          = crypto.randomUUID();
-      const paymentAc     = METHOD_ACCOUNT[paymentMethod] ?? METHOD_ACCOUNT['cash']!;
+      const paymentAc     = METHOD_ACCOUNT[paymentMethod]!;
+      let receiptCustomerName = customerNameAr;
+      let receiptCustomerId: string | null = null;
+      let receiptBookingId: string | null = null;
 
       // If the receipt is applied to a specific invoice, credit Accounts Receivable
       // (settling the customer's debt). Otherwise credit Customer Deposits (a future
@@ -80,6 +88,9 @@ export async function POST(request: Request) {
         const [inv] = await tx.select().from(invoices)
           .where(and(eq(invoices.id, invoiceId), eq(invoices.agencyId, agencyId)));
         if (!inv) throw new BusinessError('الفاتورة غير موجودة', 404);
+        if (!COLLECTIBLE_INVOICE_STATUSES.has(inv.status)) {
+          throw new BusinessError('لا يمكن تحصيل فاتورة غير قابلة للتحصيل', 422);
+        }
         const outstanding = inv.totalHalalas - inv.paidHalalas;
         if (amountHalalas > outstanding) {
           throw new BusinessError(
@@ -88,6 +99,9 @@ export async function POST(request: Request) {
           );
         }
         creditAc = AC_RECEIVABLE;
+        receiptCustomerName = inv.buyerNameAr || customerNameAr;
+        receiptCustomerId = inv.customerId ?? null;
+        receiptBookingId = inv.bookingId ?? null;
 
         const [updatedInv] = await tx.update(invoices)
           .set({
@@ -97,20 +111,30 @@ export async function POST(request: Request) {
           })
           .where(and(
             eq(invoices.id, invoiceId),
+            eq(invoices.agencyId, agencyId),
+            sql`${invoices.status} IN ('issued', 'partial', 'overdue')`,
             sql`(${invoices.totalHalalas} - ${invoices.paidHalalas}) >= ${amountHalalas}`,
           ))
           .returning({ id: invoices.id });
         if (!updatedInv) throw new BusinessError('تعارض متزامن — حاول مرة أخرى', 409);
+
+        if (inv.bookingId) {
+          await tx.update(bookings)
+            .set({ paidHalalas: sql`${bookings.paidHalalas} + ${amountHalalas}`, updatedAt: now })
+            .where(and(eq(bookings.id, inv.bookingId), eq(bookings.agencyId, agencyId)));
+        }
       }
 
       await tx.insert(receiptVouchers).values({
         id:           voucherId,
         agencyId,
         voucherNumber,
-        customerName: customerNameAr,
+        customerId:   receiptCustomerId,
+        customerName: receiptCustomerName,
         amountHalalas,
         method:       paymentMethod,
         description:  description ?? null,
+        bookingId:    receiptBookingId,
         invoiceId:    invoiceId ?? null,
         date:         today,
         journalEntryId: jeId,
@@ -122,7 +146,7 @@ export async function POST(request: Request) {
         agencyId,
         entryNumber:        jeNumber,
         date:               today,
-        descriptionAr:      `سند قبض ${voucherNumber} — ${customerNameAr}`,
+        descriptionAr:      `سند قبض ${voucherNumber} — ${receiptCustomerName}`,
         source:             'receipt',
         sourceId:           voucherId,
         isPosted:           true,

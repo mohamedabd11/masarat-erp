@@ -3,6 +3,7 @@ import { eq, and, desc } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { exchangeRates } from '@/lib/schema';
 import { verifyAuth, assertRole, ApiAuthError, ROLES_ACCOUNTANT_UP } from '@/lib/api-auth';
+import { isIsoDateOnly, normalizeCurrencyCode } from '@/lib/fx';
 
 // GET /api/banking/rates?currency=USD&toCurrency=SAR
 // Returns all stored rates (latest first), optionally filtered by fromCurrency.
@@ -42,20 +43,29 @@ export async function POST(request: Request) {
     const { agencyId, role } = await verifyAuth(request);
     assertRole(role, [...ROLES_ACCOUNTANT_UP]);
     const body = await request.json() as { fromCurrency: string; toCurrency?: string; rate: number; effectiveDate: string };
-    if (!body.fromCurrency || !body.rate || !body.effectiveDate) {
+    if (!body.fromCurrency || body.rate == null || !body.effectiveDate) {
       return NextResponse.json({ error: 'بيانات ناقصة' }, { status: 400 });
+    }
+    const fromCurrency = normalizeCurrencyCode(body.fromCurrency);
+    const toCurrency = normalizeCurrencyCode(body.toCurrency ?? 'SAR');
+    if (!fromCurrency || !toCurrency || fromCurrency === toCurrency) {
+      return NextResponse.json({ error: 'رموز العملات غير صالحة' }, { status: 400 });
     }
     if (!Number.isFinite(body.rate) || body.rate <= 0) {
       return NextResponse.json({ error: 'سعر الصرف غير صالح' }, { status: 400 });
     }
-    if (Number.isNaN(Date.parse(body.effectiveDate))) {
+    const storedRate = Math.round(body.rate * 10000);
+    if (!Number.isSafeInteger(storedRate) || storedRate <= 0) {
+      return NextResponse.json({ error: 'دقة سعر الصرف غير صالحة' }, { status: 400 });
+    }
+    if (!isIsoDateOnly(body.effectiveDate)) {
       return NextResponse.json({ error: 'تاريخ غير صالح' }, { status: 400 });
     }
     const id = crypto.randomUUID();
     await db.transaction(async (tx) => {
       await tx.insert(exchangeRates).values({
-        id, agencyId, fromCurrency: body.fromCurrency, toCurrency: body.toCurrency ?? 'SAR',
-        rate: Math.round(body.rate * 10000), effectiveDate: body.effectiveDate,
+        id, agencyId, fromCurrency, toCurrency,
+        rate: storedRate, effectiveDate: body.effectiveDate,
       });
     });
     return NextResponse.json({ success: true, id });

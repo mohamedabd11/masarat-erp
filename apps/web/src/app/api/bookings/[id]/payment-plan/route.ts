@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { eq, and, ne } from 'drizzle-orm';
+import { eq, and, inArray } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { bookings, invoices, paymentPlans, paymentPlanInstallments } from '@/lib/schema';
 import { verifyAuth, assertRole, ApiAuthError, BusinessError, ROLES_AGENT_UP, ROLES_MANAGER_UP } from '@/lib/api-auth';
@@ -65,7 +65,7 @@ export async function POST(req: Request, { params }: RouteCtx) {
       .where(and(
         eq(invoices.bookingId, bookingId),
         eq(invoices.agencyId, agencyId),
-        ne(invoices.status, 'cancelled'),
+        inArray(invoices.status, ['issued', 'partial', 'overdue']),
       ))
       .limit(1);
     if (!invoice) {
@@ -97,7 +97,7 @@ export async function POST(req: Request, { params }: RouteCtx) {
     }
 
     const firstDueDate = (body['firstDueDate'] as string | undefined)?.trim();
-    if (!firstDueDate || !/^\d{4}-\d{2}-\d{2}$/.test(firstDueDate)) {
+    if (!firstDueDate || !isIsoDateOnly(firstDueDate)) {
       return NextResponse.json({ error: 'تاريخ أول قسط مطلوب بصيغة YYYY-MM-DD' }, { status: 400 });
     }
     const today = new Date().toISOString().split('T')[0]!;
@@ -155,6 +155,13 @@ export async function POST(req: Request, { params }: RouteCtx) {
     console.error(JSON.stringify({ event: 'payment_plan_create_failed', error: String(err) }));
     return NextResponse.json({ error: 'خطأ في الخادم' }, { status: 500 });
   }
+}
+
+function isIsoDateOnly(value: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const [year, month, day] = value.split('-').map(Number);
+  const date = new Date(Date.UTC(year!, month! - 1, day!));
+  return date.getUTCFullYear() === year && date.getUTCMonth() === month! - 1 && date.getUTCDate() === day;
 }
 
 // ── DELETE — cancel the active plan ─────────────────────────────────────────

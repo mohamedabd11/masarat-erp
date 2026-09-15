@@ -14,7 +14,7 @@
 import { NextResponse } from 'next/server';
 import { eq, and, isNull, sql } from 'drizzle-orm';
 import { db } from '@/lib/db';
-import { invoices, receiptVouchers, journalEntries, journalLines } from '@/lib/schema';
+import { invoices, bookings, receiptVouchers, journalEntries, journalLines } from '@/lib/schema';
 import { verifyAuth, assertRole, ApiAuthError, BusinessError, ROLES_ACCOUNTANT_UP } from '@/lib/api-auth';
 import { logAudit } from '@/lib/audit';
 import { getNextJournalNumber } from '@/lib/invoice-counter';
@@ -22,6 +22,7 @@ import { assertPeriodOpen } from '@/lib/period-lock';
 
 const AC_DEPOSITS    = { code: '2300', ar: 'ودائع العملاء',          en: 'Customer Deposits' };
 const AC_RECEIVABLE  = { code: '1120', ar: 'ذمم مدينة - عملاء',      en: 'Accounts Receivable' };
+const COLLECTIBLE_INVOICE_STATUSES = new Set(['issued', 'partial', 'overdue']);
 
 export async function POST(
   request: Request,
@@ -35,13 +36,21 @@ export async function POST(
     if (!body.voucherId) {
       return NextResponse.json({ error: 'voucherId مطلوب' }, { status: 400 });
     }
+    if (
+      body.amountHalalas !== undefined &&
+      (!Number.isSafeInteger(body.amountHalalas) || body.amountHalalas <= 0)
+    ) {
+      return NextResponse.json({ error: 'مبلغ التطبيق غير صالح' }, { status: 400 });
+    }
 
     const result = await db.transaction(async (tx) => {
       // ── 1. Load & validate invoice ─────────────────────────────────────────
       const [invoice] = await tx.select().from(invoices)
         .where(and(eq(invoices.id, params.id), eq(invoices.agencyId, agencyId)));
       if (!invoice) throw new BusinessError('الفاتورة غير موجودة', 404);
-      if (invoice.status === 'cancelled') throw new BusinessError('لا يمكن التطبيق على فاتورة ملغاة', 400);
+      if (!COLLECTIBLE_INVOICE_STATUSES.has(invoice.status)) {
+        throw new BusinessError('لا يمكن تطبيق دفعة على فاتورة غير قابلة للتحصيل', 422);
+      }
 
       const remainingDue = invoice.totalHalalas - (invoice.paidHalalas ?? 0);
       if (remainingDue <= 0) throw new BusinessError('الفاتورة مسددة بالكامل بالفعل', 400);
@@ -61,11 +70,19 @@ export async function POST(
       }
 
       // ── 3. Determine apply amount ─────────────────────────────────────────
-      const applyAmount = body.amountHalalas
-        ? Math.min(body.amountHalalas, voucher.amountHalalas, remainingDue)
-        : Math.min(voucher.amountHalalas, remainingDue);
-
-      if (applyAmount <= 0) throw new BusinessError('مبلغ التطبيق غير صالح', 400);
+      // The current schema can mark a voucher only as unapplied or fully linked;
+      // it cannot retain a residual deposit balance. Therefore a partial amount
+      // would silently strand the remainder. Apply the whole voucher or reject.
+      if (body.amountHalalas !== undefined && body.amountHalalas !== voucher.amountHalalas) {
+        throw new BusinessError('يجب تطبيق كامل مبلغ سند القبض؛ التطبيق الجزئي غير مدعوم حالياً', 400);
+      }
+      if (!Number.isSafeInteger(voucher.amountHalalas) || voucher.amountHalalas <= 0) {
+        throw new BusinessError('مبلغ سند القبض غير صالح', 400);
+      }
+      if (voucher.amountHalalas > remainingDue) {
+        throw new BusinessError('مبلغ سند القبض يتجاوز المتبقي على الفاتورة', 400);
+      }
+      const applyAmount = voucher.amountHalalas;
 
       // ── 4. Journal entry: Dr 2300 / Cr 1120 ─────────────────────────────
       const now      = new Date();
@@ -118,6 +135,8 @@ export async function POST(
         })
         .where(and(
           eq(invoices.id, invoice.id),
+          eq(invoices.agencyId, agencyId),
+          sql`${invoices.status} IN ('issued', 'partial', 'overdue')`,
           sql`(${invoices.totalHalalas} - ${invoices.paidHalalas}) >= ${applyAmount}`,
         ))
         .returning({ paidHalalas: invoices.paidHalalas, status: invoices.status });
@@ -125,13 +144,23 @@ export async function POST(
       const newPaid   = updatedInv.paidHalalas;
       const newStatus = updatedInv.status;
 
+      if (invoice.bookingId) {
+        await tx.update(bookings)
+          .set({ paidHalalas: sql`${bookings.paidHalalas} + ${applyAmount}`, updatedAt: now })
+          .where(and(eq(bookings.id, invoice.bookingId), eq(bookings.agencyId, agencyId)));
+      }
+
       // ── 6. Link voucher to invoice ────────────────────────────────────────
       // Atomic claim: only succeeds if the voucher is still unapplied. Two
       // concurrent requests reading the same unapplied voucher (step 2) cannot
       // both reach here — the loser matches 0 rows and the whole transaction
       // rolls back, so the advance is never double-applied.
       const [claimed] = await tx.update(receiptVouchers)
-        .set({ invoiceId: invoice.id })
+        .set({
+          invoiceId: invoice.id,
+          bookingId: invoice.bookingId ?? null,
+          customerId: invoice.customerId ?? voucher.customerId ?? null,
+        })
         .where(and(
           eq(receiptVouchers.id, body.voucherId),
           eq(receiptVouchers.agencyId, agencyId),

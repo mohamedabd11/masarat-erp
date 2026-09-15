@@ -100,17 +100,26 @@ export async function POST(
 
       // If the voucher was linked to an invoice, reduce paidHalalas and update status
       if (orig.invoiceId) {
-        await tx.update(invoices)
+        const [updatedInvoice] = await tx.update(invoices)
           .set({
-            paidHalalas: sql`GREATEST(0, ${invoices.paidHalalas} - ${amountHalalas})`,
+            paidHalalas: sql`${invoices.paidHalalas} - ${amountHalalas}`,
             status: sql`CASE
-              WHEN GREATEST(0, ${invoices.paidHalalas} - ${amountHalalas}) <= 0 THEN 'refunded'
-              WHEN GREATEST(0, ${invoices.paidHalalas} - ${amountHalalas}) < ${invoices.totalHalalas} THEN 'partial'
+              WHEN ${invoices.paidHalalas} - ${amountHalalas} <= 0 THEN 'issued'
+              WHEN ${invoices.paidHalalas} - ${amountHalalas} < ${invoices.totalHalalas} THEN 'partial'
               ELSE ${invoices.status}
             END`,
             updatedAt: now,
           })
-          .where(and(eq(invoices.id, orig.invoiceId), eq(invoices.agencyId, agencyId)));
+          .where(and(
+            eq(invoices.id, orig.invoiceId),
+            eq(invoices.agencyId, agencyId),
+            sql`${invoices.status} IN ('paid', 'partial')`,
+            sql`${invoices.paidHalalas} >= ${amountHalalas}`,
+          ))
+          .returning({ id: invoices.id });
+        if (!updatedInvoice) {
+          throw new BusinessError('تعذّر عكس السند — حالة الفاتورة أو رصيدها تغير، راجعها ثم حاول مجدداً', 409);
+        }
       }
 
       // Sync booking.paidHalalas if this receipt was linked to a booking

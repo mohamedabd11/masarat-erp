@@ -21,11 +21,12 @@ import { NextResponse } from 'next/server';
 import { eq, and, ne, sql } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { bankAccounts, exchangeRates, journalEntries, journalLines } from '@/lib/schema';
-import { verifyAuth, assertRole, ApiAuthError, ROLES_ACCOUNTANT_UP } from '@/lib/api-auth';
+import { verifyAuth, assertRole, ApiAuthError, BusinessError, ROLES_ACCOUNTANT_UP } from '@/lib/api-auth';
 import { getNextJournalNumber } from '@/lib/invoice-counter';
 import { assertPeriodOpen } from '@/lib/period-lock';
 import { logAudit } from '@/lib/audit';
 import { GL } from '@/lib/gl-accounts';
+import { isIsoDateOnly } from '@/lib/fx';
 
 // Use the centralized FX accounts (4900 gain / 5900 loss) — single source of truth.
 const FX_GAIN_CODE = GL.fxGain.code;  // 4900
@@ -45,24 +46,8 @@ export async function POST(request: Request) {
     const body = await request.json() as { revaluationDate?: string; dryRun?: boolean };
     const revalDate = body.revaluationDate ?? new Date().toISOString().slice(0, 10);
     const dryRun    = body.dryRun === true;
-
-    // Idempotency check — skip if a revaluation entry already exists for this date
-    if (!dryRun) {
-      const [existing] = await db
-        .select({ id: journalEntries.id })
-        .from(journalEntries)
-        .where(and(
-          eq(journalEntries.agencyId, agencyId),
-          eq(journalEntries.source, 'fx_revaluation'),
-          eq(journalEntries.date, revalDate),
-        ))
-        .limit(1);
-      if (existing) {
-        return NextResponse.json({
-          message: `تم إعادة التقييم بالفعل في ${revalDate}`,
-          alreadyDone: true,
-        });
-      }
+    if (!isIsoDateOnly(revalDate)) {
+      return NextResponse.json({ error: 'تاريخ إعادة التقييم غير صالح' }, { status: 400 });
     }
 
     // Fetch all non-SAR bank accounts
@@ -239,6 +224,7 @@ export async function POST(request: Request) {
     });
   } catch (err) {
     if (err instanceof ApiAuthError) return NextResponse.json({ error: err.message }, { status: err.status });
+    if (err instanceof BusinessError) return NextResponse.json({ error: err.message }, { status: err.status });
     console.error(JSON.stringify({ event: 'fx_revaluation_error', error: String(err) }));
     return NextResponse.json({ error: 'خطأ في الخادم' }, { status: 500 });
   }

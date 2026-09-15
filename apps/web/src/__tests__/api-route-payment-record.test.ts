@@ -207,6 +207,12 @@ describe('POST /api/payments/record', () => {
     expect(res.status).toBe(400);
   });
 
+  it('400 لطريقة دفع غير معروفة بدلاً من تسجيلها وربطها بحساب مختلف', async () => {
+    const res = await POST(makeRequest({ ...VALID_BODY, paymentMethod: 'crypto' }));
+    expect(res.status).toBe(400);
+    expect(mockDb.transaction).not.toHaveBeenCalled();
+  });
+
   // ── Business rules ────────────────────────────────────────────────────────────
 
   it('404 إذا لم توجد الفاتورة', async () => {
@@ -230,6 +236,23 @@ describe('POST /api/payments/record', () => {
     const data = await res.json();
     expect(data.error).toMatch(/لا تنتمي/);
   });
+
+  it('400 إذا حاول الطلب إرفاق حجز بفاتورة مباشرة غير مرتبطة بحجز', async () => {
+    mockTxSelect.next([{ ...INVOICE, bookingId: null }]);
+    const res = await POST(makeRequest({ ...VALID_BODY, bookingId: 'booking-1' }));
+    expect(res.status).toBe(400);
+    const data = await res.json();
+    expect(data.error).toMatch(/لا تنتمي/);
+  });
+
+  it.each(['draft', 'pending', 'paid', 'cancelled', 'refunded', 'credit_noted'])(
+    '422 عند محاولة تحصيل فاتورة حالتها %s', async (status) => {
+      mockTxSelect.next([{ ...INVOICE, status }]);
+      const res = await POST(makeRequest(VALID_BODY));
+      expect(res.status).toBe(422);
+      expect(mockDb.transaction).toHaveBeenCalledTimes(1);
+    },
+  );
 
   // ── Payment methods ───────────────────────────────────────────────────────────
 
