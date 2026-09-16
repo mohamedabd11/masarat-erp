@@ -170,7 +170,7 @@ export async function POST(request: Request) {
 
           if (customer && customer.creditLimitHalalas > 0) {
             const [{ outstanding }] = await tx.select({
-              outstanding: sql<number>`coalesce(sum(${invoices.totalHalalas} - ${invoices.paidHalalas}), 0)`,
+              outstanding: sql<number>`coalesce(sum(${invoices.totalHalalas} - ${invoices.paidHalalas} - ${invoices.creditedHalalas}), 0)`,
             })
             .from(invoices)
             .where(and(

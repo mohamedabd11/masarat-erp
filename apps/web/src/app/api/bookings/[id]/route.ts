@@ -22,7 +22,14 @@ export async function GET(request: Request, { params }: { params: { id: string }
     // Fetch the booking's live (non-cancelled) invoice ID so the detail page
     // can show payment / refund actions without a separate request.
     const [liveInvoice] = await db
-      .select({ id: invoices.id, invoiceNumber: invoices.invoiceNumber })
+      .select({
+        id: invoices.id,
+        invoiceNumber: invoices.invoiceNumber,
+        status: invoices.status,
+        totalHalalas: invoices.totalHalalas,
+        paidHalalas: invoices.paidHalalas,
+        creditedHalalas: invoices.creditedHalalas,
+      })
       .from(invoices)
       .where(and(
         eq(invoices.bookingId, params.id),
@@ -44,6 +51,10 @@ export async function GET(request: Request, { params }: { params: { id: string }
       supplierRef:  String(det['supplierRef']  ?? '') || null,
       invoiceIds:    liveInvoice ? [liveInvoice.id] : [],
       invoiceNumber: liveInvoice?.invoiceNumber ?? null,
+      invoiceStatus: liveInvoice?.status ?? null,
+      invoiceTotalHalalas: liveInvoice?.totalHalalas ?? null,
+      invoicePaidHalalas: liveInvoice?.paidHalalas ?? null,
+      invoiceCreditedHalalas: liveInvoice?.creditedHalalas ?? null,
       pricing: {
         revenueModel: String(det['revenueModel'] ?? 'principal'),
         currency:     String(det['currency']     ?? 'SAR'),

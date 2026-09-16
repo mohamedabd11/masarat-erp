@@ -51,7 +51,7 @@ vi.mock('drizzle-orm', () => ({
   isNull: vi.fn(() => ({})), sql: vi.fn((strings: TemplateStringsArray) => strings.join('')),
 }));
 vi.mock('@/lib/schema', () => ({
-  invoices: { _name: 'invoices', id: 'id', agencyId: 'agencyId', status: 'status', paidHalalas: 'paidHalalas', totalHalalas: 'totalHalalas' },
+  invoices: { _name: 'invoices', id: 'id', agencyId: 'agencyId', status: 'status', paidHalalas: 'paidHalalas', creditedHalalas: 'creditedHalalas', totalHalalas: 'totalHalalas' },
   receiptVouchers: { _name: 'receiptVouchers', id: 'id', agencyId: 'agencyId', invoiceId: 'invoiceId' },
   bookings: { _name: 'bookings', id: 'id', agencyId: 'agencyId', paidHalalas: 'paidHalalas' },
   journalEntries: { _name: 'journalEntries' }, journalLines: { _name: 'journalLines' },
@@ -61,7 +61,7 @@ import { POST } from '@/app/api/invoices/[id]/apply-advance/route';
 
 const INVOICE = {
   id: 'inv-1', agencyId: 'agency-1', invoiceNumber: 'INV-1', bookingId: 'booking-1', customerId: 'cust-1',
-  totalHalalas: 10_000, paidHalalas: 0, status: 'issued',
+  totalHalalas: 10_000, paidHalalas: 0, creditedHalalas: 0, status: 'issued',
 };
 const VOUCHER = {
   id: 'receipt-1', agencyId: 'agency-1', voucherNumber: 'RCT-1', customerId: 'cust-1',
@@ -96,6 +96,12 @@ describe('تطبيق الدفعة المقدمة', () => {
   it('لا يسمح بتطبيق جزء من سند ثم فقدان الجزء المتبقي', async () => {
     mocks.selected.push([INVOICE], [VOUCHER]);
     const res = await POST(request({ voucherId: 'receipt-1', amountHalalas: 2_000 }), { params: { id: 'inv-1' } });
+    expect(res.status).toBe(400);
+  });
+
+  it('يرفض تطبيق سند يتجاوز الرصيد بعد إشعار دائن جزئي', async () => {
+    mocks.selected.push([{ ...INVOICE, creditedHalalas: 6_000, status: 'partial' }], [VOUCHER]);
+    const res = await POST(request({ voucherId: 'receipt-1' }), { params: { id: 'inv-1' } });
     expect(res.status).toBe(400);
   });
 

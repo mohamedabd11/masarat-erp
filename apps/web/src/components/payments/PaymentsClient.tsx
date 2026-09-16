@@ -1,10 +1,10 @@
 'use client';
 
 import { useEffect, useState, useMemo } from 'react';
-import { useFirestoreBookings } from '@/hooks/useFirestoreBookings';
+import { useFirestoreBookings, type BookingListItem } from '@/hooks/useFirestoreBookings';
 import { useAuth } from '@masarat/firebase';
 import { apiFetch } from '@/lib/api-client';
-import type { Booking } from '@/lib/schema';
+import { collectibleBalance } from '@/lib/invoice-presentation';
 import { Card } from '@/components/ui/Card';
 import { Spinner } from '@/components/ui/Spinner';
 import { EmptyState } from '@/components/ui/EmptyState';
@@ -20,10 +20,18 @@ import Link from 'next/link';
 interface PaymentsClientProps { locale: string }
 type PaymentFilter = 'all' | 'unpaid' | 'partial' | 'paid' | 'refunded';
 
-function paymentStatus(b: Booking): string {
-  if (b.status === 'cancelled' || b.status === 'refunded') return 'refunded';
-  if (b.paidHalalas <= 0) return 'unpaid';
-  if (b.paidHalalas >= b.totalPriceHalalas) return 'paid';
+function paymentAmounts(b: BookingListItem) {
+  const total = b.invoiceTotalHalalas ?? b.totalPriceHalalas;
+  const paid = b.invoicePaidHalalas ?? b.paidHalalas;
+  const credited = b.invoiceCreditedHalalas ?? 0;
+  return { total, paid, credited, due: collectibleBalance({ totalHalalas: total, paidHalalas: paid, creditedHalalas: credited }) };
+}
+
+function paymentStatus(b: BookingListItem): string {
+  if (b.status === 'cancelled' || b.status === 'refunded' || b.invoiceStatus === 'refunded' || b.invoiceStatus === 'credit_noted') return 'refunded';
+  const { paid, credited, due } = paymentAmounts(b);
+  if (paid + credited <= 0) return 'unpaid';
+  if (due === 0) return 'paid';
   return 'partial';
 }
 
@@ -64,8 +72,8 @@ export function PaymentsClient({ locale }: PaymentsClientProps) {
   }, [user?.agencyId]);
 
   const activeBookings = bookings.filter(b => b.status !== 'cancelled' && b.status !== 'refunded');
-  const totalPaid = summary?.netCollected ?? activeBookings.reduce((s, b) => s + b.paidHalalas, 0);
-  const totalDue  = summary?.outstanding  ?? activeBookings.reduce((s, b) => s + Math.max(0, b.totalPriceHalalas - b.paidHalalas), 0);
+  const totalPaid = summary?.netCollected ?? activeBookings.reduce((s, b) => s + paymentAmounts(b).paid, 0);
+  const totalDue  = summary?.outstanding  ?? activeBookings.reduce((s, b) => s + paymentAmounts(b).due, 0);
   const collectionRate = (totalPaid + totalDue) > 0 ? Math.round((totalPaid / (totalPaid + totalDue)) * 100) : 0;
 
   const now   = Date.now();
@@ -73,7 +81,7 @@ export function PaymentsClient({ locale }: PaymentsClientProps) {
     const buckets: number[] = [0, 0, 0, 0, 0];
     bookings.forEach(b => {
       if (b.status === 'cancelled' || b.status === 'refunded') return;
-      const outstanding = Math.max(0, b.totalPriceHalalas - b.paidHalalas);
+      const outstanding = paymentAmounts(b).due;
       if (outstanding <= 0) return;
       const created = new Date(b.createdAt as unknown as string).getTime();
       const ageDays = Math.floor((now - created) / 86_400_000);
@@ -200,10 +208,8 @@ export function PaymentsClient({ locale }: PaymentsClientProps) {
           <MobileList>
             {filtered.map(b => {
               const name    = isAr ? (b.customerNameAr ?? '') : (b.customerNameEn ?? b.customerNameAr ?? '');
-              const paidAmt = b.paidHalalas;
-              const dueAmt  = b.status === 'cancelled' || b.status === 'refunded'
-                ? 0
-                : Math.max(0, b.totalPriceHalalas - paidAmt);
+              const { paid: paidAmt, due: dueAmt } = paymentAmounts(b);
+              const displayedDue = b.status === 'cancelled' || b.status === 'refunded' ? 0 : dueAmt;
               const status  = paymentStatus(b);
               return (
                 <MobileListItem key={b.id} href={`/${locale}/bookings/${b.id}`}>
@@ -216,7 +222,7 @@ export function PaymentsClient({ locale }: PaymentsClientProps) {
                     <span className="text-xs text-slate-400">{formatDate(b.createdAt as unknown as string, fmtLocale)}</span>
                     <span className="inline-flex items-center gap-2">
                       {paidAmt > 0 && <span className="text-xs font-semibold tabular-nums text-emerald-700">{formatCurrency(paidAmt, fmtLocale)}</span>}
-                      {dueAmt > 0 && <span className="text-sm font-bold tabular-nums text-red-600">{isAr ? 'مستحق ' : 'Due '}{formatCurrency(dueAmt, fmtLocale)}</span>}
+                      {displayedDue > 0 && <span className="text-sm font-bold tabular-nums text-red-600">{isAr ? 'مستحق ' : 'Due '}{formatCurrency(displayedDue, fmtLocale)}</span>}
                     </span>
                   </MobileItemFooter>
                 </MobileListItem>
@@ -241,11 +247,9 @@ export function PaymentsClient({ locale }: PaymentsClientProps) {
               <tbody className="divide-y divide-surface-border">
                 {filtered.map(b => {
                   const name    = isAr ? (b.customerNameAr ?? '') : (b.customerNameEn ?? b.customerNameAr ?? '');
-                  const paidAmt = b.paidHalalas;
-                  const dueAmt  = b.status === 'cancelled' || b.status === 'refunded'
-                    ? 0
-                    : Math.max(0, b.totalPriceHalalas - paidAmt);
-                  const pct     = b.totalPriceHalalas > 0 ? Math.min(100, Math.round((paidAmt / b.totalPriceHalalas) * 100)) : 0;
+                  const { total, paid: paidAmt, credited, due } = paymentAmounts(b);
+                  const dueAmt  = b.status === 'cancelled' || b.status === 'refunded' ? 0 : due;
+                  const pct     = total > 0 ? Math.min(100, Math.round(((paidAmt + credited) / total) * 100)) : 0;
                   const status  = paymentStatus(b);
 
                   return (

@@ -6,6 +6,7 @@ export interface CreditNoteJournalInput {
   originalLines: OriginalJournalLine[];
   originalTotalHalalas: number;
   originalPaidHalalas: number;
+  originalCreditedHalalas?: number;
   creditNoteTotalHalalas: number;
   creditNoteVatHalalas?: number;
 }
@@ -37,7 +38,10 @@ function row(
 
 /** Reverse an original invoice journal pro-rata and preserve its account mix. */
 export function buildCreditNoteJournalLines(input: CreditNoteJournalInput): CreditNoteJournalLine[] {
-  const { originalLines, originalTotalHalalas, originalPaidHalalas, creditNoteTotalHalalas } = input;
+  const {
+    originalLines, originalTotalHalalas, originalPaidHalalas,
+    creditNoteTotalHalalas, originalCreditedHalalas = 0,
+  } = input;
   if (!Number.isInteger(originalTotalHalalas) || originalTotalHalalas <= 0) {
     throw new BusinessError('إجمالي الفاتورة الأصلية غير صالح', 422);
   }
@@ -65,9 +69,21 @@ export function buildCreditNoteJournalLines(input: CreditNoteJournalInput): Cred
     }
   }
 
-  const paidRatio = Math.min(1, Math.max(0, originalPaidHalalas / originalTotalHalalas));
-  const depositsPortion = Math.round(creditNoteTotalHalalas * paidRatio);
-  const receivablePortion = creditNoteTotalHalalas - depositsPortion;
+  if (!Number.isInteger(originalPaidHalalas) || originalPaidHalalas < 0
+      || !Number.isInteger(originalCreditedHalalas) || originalCreditedHalalas < 0) {
+    throw new BusinessError('أرصدة الفاتورة الأصلية غير صالحة', 422);
+  }
+
+  // A credit note first reduces the genuinely open receivable. Only the amount
+  // above that balance becomes a refundable customer deposit. A proportional
+  // split is incorrect: it can leave AR open while creating a deposit for the
+  // same customer and makes the subledger disagree with the GL.
+  const openReceivable = Math.max(
+    0,
+    originalTotalHalalas - originalPaidHalalas - originalCreditedHalalas,
+  );
+  const receivablePortion = Math.min(creditNoteTotalHalalas, openReceivable);
+  const depositsPortion = creditNoteTotalHalalas - receivablePortion;
   if (receivablePortion > 0) lines.push({ ...GL.receivable, dr: 0, cr: receivablePortion });
   if (depositsPortion > 0) lines.push({ ...GL.customerDeposits, dr: 0, cr: depositsPortion });
 

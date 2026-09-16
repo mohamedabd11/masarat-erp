@@ -52,7 +52,7 @@ export async function POST(
         throw new BusinessError('لا يمكن تطبيق الوديعة على فاتورة غير قابلة للتحصيل', 422);
       }
 
-      const outstanding = inv.totalHalalas - inv.paidHalalas;
+      const outstanding = inv.totalHalalas - inv.paidHalalas - inv.creditedHalalas;
       if (voucher.amountHalalas > outstanding) {
         throw new BusinessError(
           `مبلغ الوديعة (${voucher.amountHalalas / 100} ر.س) يتجاوز المتبقي على الفاتورة (${outstanding / 100} ر.س)`,
@@ -92,14 +92,14 @@ export async function POST(
       const [updatedInv] = await tx.update(invoices)
         .set({
           paidHalalas: sql`${invoices.paidHalalas} + ${amount}`,
-          status:      sql`CASE WHEN ${invoices.paidHalalas} + ${amount} >= ${invoices.totalHalalas} THEN 'paid' ELSE ${invoices.status} END`,
+          status:      sql`CASE WHEN ${invoices.paidHalalas} + ${amount} + ${invoices.creditedHalalas} >= ${invoices.totalHalalas} THEN 'paid' ELSE ${invoices.status} END`,
           updatedAt:   now,
         })
         .where(and(
           eq(invoices.id, invoiceId),
           eq(invoices.agencyId, agencyId),
           sql`${invoices.status} IN ('issued', 'partial', 'overdue')`,
-          sql`(${invoices.totalHalalas} - ${invoices.paidHalalas}) >= ${amount}`,
+          sql`(${invoices.totalHalalas} - ${invoices.paidHalalas} - ${invoices.creditedHalalas}) >= ${amount}`,
         ))
         .returning({ id: invoices.id });
       if (!updatedInv) throw new BusinessError('تعارض متزامن — حاول مرة أخرى', 409);

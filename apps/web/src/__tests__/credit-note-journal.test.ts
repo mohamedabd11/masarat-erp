@@ -56,16 +56,30 @@ describe('credit-note journal reversal', () => {
     expect(credit(rows, '1120')).toBe(1_615);
   });
 
-  it('splits the customer credit between AR and deposits using the paid ratio', () => {
+  it('credits open AR first and only sends the excess to customer deposits', () => {
     const rows = buildCreditNoteJournalLines({
       originalLines: [line('1120', 11_500, 0), line('4100', 0, 10_000), line('2200', 0, 1_500)],
       originalTotalHalalas: 11_500,
       originalPaidHalalas: 4_600,
+      originalCreditedHalalas: 0,
       creditNoteTotalHalalas: 5_750,
     });
 
-    expect(credit(rows, '2300')).toBe(2_300);
-    expect(credit(rows, '1120')).toBe(3_450);
+    expect(credit(rows, '1120')).toBe(5_750);
+    expect(credit(rows, '2300')).toBe(0);
+  });
+
+  it('uses customer deposits only for the part above the remaining AR after earlier credits', () => {
+    const rows = buildCreditNoteJournalLines({
+      originalLines: [line('1120', 11_500, 0), line('4100', 0, 10_000), line('2200', 0, 1_500)],
+      originalTotalHalalas: 11_500,
+      originalPaidHalalas: 8_000,
+      originalCreditedHalalas: 3_000,
+      creditNoteTotalHalalas: 2_000,
+    });
+
+    expect(credit(rows, '1120')).toBe(500);
+    expect(credit(rows, '2300')).toBe(1_500);
   });
 
   it('rejects VAT that does not match the original invoice proportion', () => {

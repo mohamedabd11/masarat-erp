@@ -17,6 +17,7 @@ interface Props {
   customerPhone?: string | null;
   totalHalalas: number;
   paidHalalas: number;
+  creditedHalalas?: number;
   locale: string;
   isCancelled: boolean;
 }
@@ -42,6 +43,7 @@ export function BookingMessagesSection({
   customerPhone,
   totalHalalas,
   paidHalalas,
+  creditedHalalas = 0,
   locale,
   isCancelled,
 }: Props) {
@@ -58,7 +60,7 @@ export function BookingMessagesSection({
   const [saveError, setSaveError]             = useState<string | null>(null);
   const [copied, setCopied]                   = useState(false);
 
-  const remainingSAR = halalasToSAR(Math.max(0, totalHalalas - paidHalalas));
+  const remainingSAR = halalasToSAR(Math.max(0, totalHalalas - paidHalalas - creditedHalalas));
   const amountSAR    = halalasToSAR(paidHalalas);
 
   const buildVars = useCallback(() => ({

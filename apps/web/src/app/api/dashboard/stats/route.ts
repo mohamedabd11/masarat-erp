@@ -104,7 +104,7 @@ export async function GET(request: Request) {
 
     // ── AR outstanding ────────────────────────────────────────────────────────
     const arRows = await db
-      .select({ total: invoices.totalHalalas, paid: invoices.paidHalalas })
+      .select({ total: invoices.totalHalalas, paid: invoices.paidHalalas, credited: invoices.creditedHalalas })
       .from(invoices)
       .where(and(
         eq(invoices.agencyId, agencyId),
@@ -112,7 +112,7 @@ export async function GET(request: Request) {
         sql`${invoices.status} IN ('issued','partial','overdue')`,
       ));
 
-    const arOutstanding = arRows.reduce((s, r) => s + Math.max(0, r.total - r.paid), 0);
+    const arOutstanding = arRows.reduce((s, r) => s + Math.max(0, r.total - r.paid - r.credited), 0);
 
     // ── Active / pending bookings this month ──────────────────────────────────
     const bkRows = await db

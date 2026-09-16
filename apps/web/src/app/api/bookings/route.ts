@@ -57,6 +57,10 @@ export async function GET(request: Request) {
         // invoice info
         invoiceId:         invoices.id,
         invoiceNumber:     invoices.invoiceNumber,
+        invoiceStatus:     invoices.status,
+        invoiceTotalHalalas: invoices.totalHalalas,
+        invoicePaidHalalas: invoices.paidHalalas,
+        invoiceCreditedHalalas: invoices.creditedHalalas,
       })
       .from(bookings)
       .leftJoin(invoices, and(

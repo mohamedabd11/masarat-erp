@@ -164,4 +164,12 @@ describe('POST /api/invoices/credit-note — balance guard (C7)', () => {
     const res = await POST(makeRequest({ subtotalHalalas: 0, reason: 'خطأ' }));
     expect(res.status).toBe(400);
   });
+
+  it('400 — يرفض ضريبة سالبة أو مبلغاً يتجاوز المجال العددي الآمن', async () => {
+    const negativeVat = await POST(makeRequest({ subtotalHalalas: 1_000, vatHalalas: -1, reason: 'ضريبة غير صالحة' }));
+    expect(negativeVat.status).toBe(400);
+
+    const unsafe = await POST(makeRequest({ subtotalHalalas: Number.MAX_SAFE_INTEGER + 1, reason: 'مبلغ غير آمن' }));
+    expect(unsafe.status).toBe(400);
+  });
 });

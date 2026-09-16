@@ -57,7 +57,7 @@ export async function GET(request: Request) {
         outstanding: sql<number>`cast(coalesce(sum(case
           when ${invoices.type} = '381' then 0
           when ${invoices.status} not in ('issued','partial','overdue') then 0
-          else greatest(${invoices.totalHalalas} - ${invoices.paidHalalas}, 0)
+          else greatest(${invoices.totalHalalas} - ${invoices.paidHalalas} - ${invoices.creditedHalalas}, 0)
         end), 0) as double precision)`,
       })
       .from(invoices)

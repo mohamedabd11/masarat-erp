@@ -679,6 +679,7 @@ async function main() {
     const refundPolicy = validateRefundPolicy({
       bookingId: demoId('booking-flight'), invoiceBookingId: demoId('booking-flight'),
       invoiceType: '388', invoiceStatus: 'paid', originalTotalHalalas: SAR(1615), paidHalalas: SAR(1615),
+      creditedHalalas: 0, cancelledHalalas: 0,
       refundAmountHalalas: refundCash, cancellationFeeHalalas: cancellationFee,
     });
     const refundDocument = buildRefundDocument({
@@ -724,8 +725,14 @@ async function main() {
       method: 'bank_transfer', voucherNumber: creditNoteNumber, date: today,
       journalEntryId: jeId, createdBy: 'seed', notes: 'استرداد جزئي تجريبي',
     }).onConflictDoNothing();
-    const remainingPaid = SAR(1615) - refundPolicy.claimedPaidHalalas;
-    await db.update(invoices).set({ paidHalalas: remainingPaid, status: 'partial', updatedAt: new Date() }).where(and(
+    const remainingPaid = refundPolicy.newPaidHalalas;
+    await db.update(invoices).set({
+      paidHalalas: remainingPaid,
+      creditedHalalas: refundPolicy.newCreditedHalalas,
+      cancelledHalalas: refundPolicy.newCancelledHalalas,
+      status: refundPolicy.newOutstandingHalalas === 0 ? 'paid' : 'partial',
+      updatedAt: new Date(),
+    }).where(and(
       eq(invoices.id, origInvId), eq(invoices.agencyId, agencyId),
     ));
     await db.update(bookings).set({ paidHalalas: remainingPaid, updatedAt: new Date() }).where(and(

@@ -5,6 +5,16 @@ import { useAuth } from '@masarat/firebase';
 import { apiFetch } from '@/lib/api-client';
 import type { Booking } from '@/lib/schema';
 
+export type BookingListItem = Booking & {
+  invoiceId?: string | null;
+  invoiceNumber?: string | null;
+  invoiceStatus?: string | null;
+  invoiceTotalHalalas?: number | null;
+  invoicePaidHalalas?: number | null;
+  invoiceCreditedHalalas?: number | null;
+  hasInvoice?: boolean;
+};
+
 interface UseFirestoreBookingsOptions {
   status?: string;
   type?: string;
@@ -12,7 +22,7 @@ interface UseFirestoreBookingsOptions {
 }
 
 export interface BookingsState {
-  bookings: Booking[];
+  bookings: BookingListItem[];
   loading: boolean;
   error: string | null;
   lastDoc: null;
@@ -24,7 +34,7 @@ export interface BookingsState {
 
 export function useFirestoreBookings(options: UseFirestoreBookingsOptions = {}): BookingsState {
   const { user } = useAuth();
-  const [bookings, setBookings] = useState<Booking[]>([]);
+  const [bookings, setBookings] = useState<BookingListItem[]>([]);
   const [loading, setLoading]   = useState(true);
   const [error, setError]       = useState<string | null>(null);
   const refreshRef = useRef(0);
@@ -39,7 +49,7 @@ export function useFirestoreBookings(options: UseFirestoreBookingsOptions = {}):
     if (options.status) params.set('status', options.status);
     if (options.type)   params.set('type',   options.type);
 
-    apiFetch<{ bookings: Booking[] }>(`/api/bookings?${params}`)
+    apiFetch<{ bookings: BookingListItem[] }>(`/api/bookings?${params}`)
       .then(data => {
         if (!cancelled) { setBookings(data.bookings); setError(null); }
       })

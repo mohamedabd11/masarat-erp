@@ -107,6 +107,24 @@ export async function register() {
     `ALTER TABLE invoices ADD COLUMN IF NOT EXISTS original_invoice_id TEXT`,
     `ALTER TABLE invoices ADD COLUMN IF NOT EXISTS deferred_until TEXT`,
     `ALTER TABLE invoices ADD COLUMN IF NOT EXISTS revenue_recognized_at TEXT`,
+    `ALTER TABLE invoices ADD COLUMN IF NOT EXISTS credited_halalas BIGINT NOT NULL DEFAULT 0`,
+    `ALTER TABLE invoices ADD COLUMN IF NOT EXISTS cancelled_halalas BIGINT NOT NULL DEFAULT 0`,
+    `UPDATE invoices original
+       SET credited_halalas = GREATEST(original.credited_halalas, LEAST(original.total_halalas, credits.total_credit)),
+           cancelled_halalas = CASE
+             WHEN original.status = 'refunded' THEN original.total_halalas
+             ELSE GREATEST(original.cancelled_halalas, LEAST(original.total_halalas, credits.total_credit))
+           END
+       FROM (
+         SELECT original_invoice_id, COALESCE(SUM(total_halalas), 0)::bigint AS total_credit
+         FROM invoices
+         WHERE type = '381' AND status <> 'cancelled' AND original_invoice_id IS NOT NULL
+         GROUP BY original_invoice_id
+       ) credits
+       WHERE original.id = credits.original_invoice_id`,
+    `UPDATE invoices
+       SET cancelled_halalas = total_halalas
+       WHERE status = 'refunded' AND cancelled_halalas < total_halalas`,
 
     // quotes: conversion tracking
     `ALTER TABLE quotes ADD COLUMN IF NOT EXISTS converted_to_booking_id TEXT`,

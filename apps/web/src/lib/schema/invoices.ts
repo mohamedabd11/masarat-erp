@@ -31,6 +31,12 @@ export const invoices = pgTable('invoices', {
   vatHalalas:        bigint('vat_halalas', { mode: 'number' }).notNull().default(0),
   totalHalalas:      bigint('total_halalas', { mode: 'number' }).notNull().default(0),
   paidHalalas:       bigint('paid_halalas', { mode: 'number' }).notNull().default(0),
+  // Net value of linked credit notes that reduces the collectible invoice
+  // balance. Kept on the original invoice for atomic payment/refund guards.
+  creditedHalalas:   bigint('credited_halalas', { mode: 'number' }).notNull().default(0),
+  // Gross portion of the original supply already unwound before retained
+  // cancellation fees. Prevents sequential partial refunds over-reversing GL.
+  cancelledHalalas:  bigint('cancelled_halalas', { mode: 'number' }).notNull().default(0),
   // dates
   issueDate:         text('issue_date').notNull(),            // YYYY-MM-DD
   supplyDate:        text('supply_date'),

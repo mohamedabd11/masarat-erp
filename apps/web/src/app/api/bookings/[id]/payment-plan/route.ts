@@ -60,7 +60,12 @@ export async function POST(req: Request, { params }: RouteCtx) {
     }
 
     // Must have a live invoice
-    const [invoice] = await db.select({ id: invoices.id, totalHalalas: invoices.totalHalalas, paidHalalas: invoices.paidHalalas })
+    const [invoice] = await db.select({
+      id: invoices.id,
+      totalHalalas: invoices.totalHalalas,
+      paidHalalas: invoices.paidHalalas,
+      creditedHalalas: invoices.creditedHalalas,
+    })
       .from(invoices)
       .where(and(
         eq(invoices.bookingId, bookingId),
@@ -72,7 +77,7 @@ export async function POST(req: Request, { params }: RouteCtx) {
       return NextResponse.json({ error: 'يجب إصدار الفاتورة أولاً قبل إنشاء خطة الأقساط' }, { status: 400 });
     }
 
-    const remainingHalalas = invoice.totalHalalas - invoice.paidHalalas;
+    const remainingHalalas = invoice.totalHalalas - invoice.paidHalalas - invoice.creditedHalalas;
     if (remainingHalalas <= 0) {
       return NextResponse.json({ error: 'الفاتورة مدفوعة بالكامل — لا حاجة لخطة أقساط' }, { status: 400 });
     }

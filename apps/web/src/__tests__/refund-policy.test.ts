@@ -8,6 +8,8 @@ const base = {
   invoiceStatus: 'paid',
   originalTotalHalalas: 11_500_00,
   paidHalalas: 11_500_00,
+  creditedHalalas: 0,
+  cancelledHalalas: 0,
   refundAmountHalalas: 11_000_00,
   cancellationFeeHalalas: 500_00,
 };
@@ -78,5 +80,39 @@ describe('validateRefundPolicy', () => {
   it('rejects a second refund after the invoice is already refunded', () => {
     expect(() => validateRefundPolicy({ ...base, invoiceStatus: 'refunded' }))
       .toThrow(/لا تسمح بالاسترداد/);
+  });
+
+  it('rejects cumulative cancellation beyond the original supply', () => {
+    expect(() => validateRefundPolicy({
+      ...base,
+      paidHalalas: 5_750_00,
+      cancelledHalalas: 8_000_00,
+      refundAmountHalalas: 1_000_00,
+      cancellationFeeHalalas: 500_00,
+      requestedCancelledTotalHalalas: 4_000_00,
+      invoiceStatus: 'partial',
+    })).toThrow(/إجمالي الجزء الملغى/);
+  });
+
+  it('rejects a full cancellation that leaves unexplained retained cash', () => {
+    expect(() => validateRefundPolicy({
+      ...base,
+      refundAmountHalalas: 5_750_00,
+      cancellationFeeHalalas: 0,
+      requestedCancelledTotalHalalas: 11_500_00,
+    })).toThrow(/رصيد مدفوع غير مبرر/);
+  });
+
+  it('allows retained cash only when it is the declared cancellation fee', () => {
+    const result = validateRefundPolicy({
+      ...base,
+      refundAmountHalalas: 10_500_00,
+      cancellationFeeHalalas: 1_000_00,
+      requestedCancelledTotalHalalas: 11_500_00,
+    });
+
+    expect(result.newPaidHalalas).toBe(1_000_00);
+    expect(result.newCreditedHalalas).toBe(10_500_00);
+    expect(result.newOutstandingHalalas).toBe(0);
   });
 });

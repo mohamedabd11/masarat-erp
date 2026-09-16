@@ -21,10 +21,10 @@ describe('registered database migration chain', () => {
     expect(activeSql).toEqual(tags.map(tag => `${tag}.sql`).sort());
   });
 
-  it('keeps the latest schema snapshot aligned with the registered completion', () => {
+  it('keeps the latest schema snapshot aligned with the registered migration', () => {
     const last = journal.entries.at(-1);
-    expect(last).toMatchObject({ idx: 6, tag: '0006_registered_schema_completion' });
-    expect(readdirSync(join(migrationsDir, 'meta'))).toContain('0006_snapshot.json');
+    expect(last).toMatchObject({ idx: 7, tag: '0007_clever_living_mummy' });
+    expect(readdirSync(join(migrationsDir, 'meta'))).toContain('0007_snapshot.json');
   });
 
   it('keeps data backfills and tenant protection in the registered HR migration', () => {
@@ -34,5 +34,13 @@ describe('registered database migration chain', () => {
     expect(sql).toContain("WHERE sa.status IN ('paid', 'deducted', 'repaid')");
     expect(sql).toContain('employee_terminations_open_uq');
     expect(sql).toContain('FORCE ROW LEVEL SECURITY');
+  });
+
+  it('registers and backfills invoice credit and cancellation balances', () => {
+    const sql = readFileSync(join(migrationsDir, '0007_clever_living_mummy.sql'), 'utf8');
+    expect(sql).toContain('ADD COLUMN "credited_halalas"');
+    expect(sql).toContain('ADD COLUMN "cancelled_halalas"');
+    expect(sql).toContain('SUM("total_halalas")');
+    expect(sql).toContain('WHERE "status" = \'refunded\'');
   });
 });

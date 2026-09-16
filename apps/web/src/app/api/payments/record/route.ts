@@ -63,7 +63,7 @@ export async function POST(request: Request) {
         }
 
         // ── 2. Validate (fast-fail before any writes) ──────────────────────
-        const currentDue = invoice.totalHalalas - invoice.paidHalalas;
+        const currentDue = invoice.totalHalalas - invoice.paidHalalas - invoice.creditedHalalas;
         if (amountHalalas > currentDue) {
           throw new BusinessError(`المبلغ (${amountHalalas / 100} ر.س) يتجاوز المستحق (${currentDue / 100} ر.س)`, 400);
         }
@@ -124,7 +124,7 @@ export async function POST(request: Request) {
         const [updatedInvoice] = await tx.update(invoices)
           .set({
             paidHalalas: sql`${invoices.paidHalalas} + ${amountHalalas}`,
-            status: sql`CASE WHEN ${invoices.paidHalalas} + ${amountHalalas} >= ${invoices.totalHalalas} THEN 'paid' ELSE 'partial' END`,
+            status: sql`CASE WHEN ${invoices.paidHalalas} + ${amountHalalas} + ${invoices.creditedHalalas} >= ${invoices.totalHalalas} THEN 'paid' ELSE 'partial' END`,
             updatedAt: now,
           })
           .where(
@@ -132,10 +132,10 @@ export async function POST(request: Request) {
               eq(invoices.id, invoiceId),
               eq(invoices.agencyId, agencyId),
               sql`${invoices.status} IN ('issued', 'partial', 'overdue')`,
-              sql`(${invoices.totalHalalas} - ${invoices.paidHalalas}) >= ${amountHalalas}`,
+              sql`(${invoices.totalHalalas} - ${invoices.paidHalalas} - ${invoices.creditedHalalas}) >= ${amountHalalas}`,
             ),
           )
-          .returning({ paidHalalas: invoices.paidHalalas, totalHalalas: invoices.totalHalalas });
+          .returning({ paidHalalas: invoices.paidHalalas, creditedHalalas: invoices.creditedHalalas, totalHalalas: invoices.totalHalalas });
 
         if (!updatedInvoice) {
           throw new BusinessError('تعذّر تسجيل الدفعة — قد تكون دفعة أخرى سجّلت في نفس الوقت، حاول مجدداً', 400);
@@ -159,7 +159,7 @@ export async function POST(request: Request) {
         return {
           paymentId,
           receiptNumber,
-          remainingDueHalalas: updatedInvoice.totalHalalas - newPaidHalalas,
+          remainingDueHalalas: updatedInvoice.totalHalalas - newPaidHalalas - updatedInvoice.creditedHalalas,
           invoiceStatus: isFullyPaid ? 'fully_paid' : 'partial',
         };
       });

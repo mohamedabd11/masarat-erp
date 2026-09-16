@@ -23,7 +23,7 @@ const mocks = vi.hoisted(() => {
     update: vi.fn((table: { _name: string }) => {
       updated.push(table._name);
       const rows = table._name === 'invoices'
-        ? [{ paidHalalas: 5_000, totalHalalas: 10_000 }]
+        ? [{ paidHalalas: 5_000, creditedHalalas: 0, totalHalalas: 10_000 }]
         : table._name === 'paymentPlanInstallments' ? [{ id: 'inst-1' }] : [];
       const value = chain(rows);
       value.set = vi.fn().mockReturnValue(value);
@@ -54,7 +54,7 @@ vi.mock('drizzle-orm', () => ({
 }));
 vi.mock('@/lib/schema', () => ({
   bookings: { _name: 'bookings', id: 'id', agencyId: 'agencyId', status: 'status', paidHalalas: 'paidHalalas' },
-  invoices: { _name: 'invoices', id: 'id', agencyId: 'agencyId', bookingId: 'bookingId', status: 'status', paidHalalas: 'paidHalalas', totalHalalas: 'totalHalalas' },
+  invoices: { _name: 'invoices', id: 'id', agencyId: 'agencyId', bookingId: 'bookingId', status: 'status', paidHalalas: 'paidHalalas', creditedHalalas: 'creditedHalalas', totalHalalas: 'totalHalalas' },
   payments: { _name: 'payments' }, paymentPlans: { _name: 'paymentPlans', id: 'id', agencyId: 'agencyId', bookingId: 'bookingId', status: 'status' },
   paymentPlanInstallments: { _name: 'paymentPlanInstallments', id: 'id', agencyId: 'agencyId', bookingId: 'bookingId', planId: 'planId', status: 'status' },
   journalEntries: { _name: 'journalEntries' }, journalLines: { _name: 'journalLines' },
@@ -63,7 +63,7 @@ vi.mock('@/lib/schema', () => ({
 import { POST } from '@/app/api/bookings/[id]/payment-plan/installments/[installmentId]/pay/route';
 
 const INSTALLMENT = { id: 'inst-1', agencyId: 'agency-1', bookingId: 'booking-1', invoiceId: 'inv-1', planId: 'plan-1', installmentNumber: 1, amountHalalas: 5_000, status: 'pending' };
-const INVOICE = { id: 'inv-1', agencyId: 'agency-1', bookingId: 'booking-1', invoiceNumber: 'INV-1', customerId: 'cust-1', buyerNameAr: 'عميل', totalHalalas: 10_000, paidHalalas: 0, status: 'issued' };
+const INVOICE = { id: 'inv-1', agencyId: 'agency-1', bookingId: 'booking-1', invoiceNumber: 'INV-1', customerId: 'cust-1', buyerNameAr: 'عميل', totalHalalas: 10_000, paidHalalas: 0, creditedHalalas: 0, status: 'issued' };
 const context = { params: { id: 'booking-1', installmentId: 'inst-1' } };
 function request() {
   return new Request('http://localhost/api/bookings/booking-1/payment-plan/installments/inst-1/pay', {
@@ -87,6 +87,17 @@ describe('دفع أقساط العملاء', () => {
     mocks.selected.push([INSTALLMENT], [{ status: 'active' }], [{ ...INVOICE, status: 'draft' }]);
     const res = await POST(request(), context);
     expect(res.status).toBe(422);
+  });
+
+  it('يرفض قسطاً يتجاوز الرصيد بعد إشعار دائن جزئي', async () => {
+    mocks.selected.push(
+      [INSTALLMENT],
+      [{ status: 'active' }],
+      [{ ...INVOICE, creditedHalalas: 6_000, status: 'partial' }],
+      [{ status: 'confirmed' }],
+    );
+    const res = await POST(request(), context);
+    expect(res.status).toBe(400);
   });
 
   it('يحدّث الفاتورة والحجز والقسط عند الدفع الصحيح', async () => {

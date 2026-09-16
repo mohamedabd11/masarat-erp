@@ -3,6 +3,7 @@ export interface InvoicePresentationInput {
   status: string;
   totalHalalas: number;
   paidHalalas: number;
+  creditedHalalas?: number;
 }
 
 export function vatCategoryLabel(category: string | null | undefined, isAr: boolean): string {
@@ -71,10 +72,16 @@ export function signedInvoiceTotal(invoice: Pick<InvoicePresentationInput, 'type
   return isCreditNote(invoice) ? -invoice.totalHalalas : invoice.totalHalalas;
 }
 
+export function collectibleBalance(
+  invoice: Pick<InvoicePresentationInput, 'totalHalalas' | 'paidHalalas' | 'creditedHalalas'>,
+): number {
+  return Math.max(0, invoice.totalHalalas - invoice.paidHalalas - (invoice.creditedHalalas ?? 0));
+}
+
 export function invoiceOutstanding(invoice: InvoicePresentationInput): number {
   if (isCreditNote(invoice) || NON_RECEIVABLE_STATUSES.has(invoice.status)) return 0;
   if (!['issued', 'partial', 'overdue'].includes(invoice.status)) return 0;
-  return Math.max(0, invoice.totalHalalas - invoice.paidHalalas);
+  return collectibleBalance(invoice);
 }
 
 export function isReceivableInvoice(invoice: InvoicePresentationInput): boolean {

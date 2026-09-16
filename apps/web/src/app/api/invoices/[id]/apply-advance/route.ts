@@ -52,7 +52,7 @@ export async function POST(
         throw new BusinessError('لا يمكن تطبيق دفعة على فاتورة غير قابلة للتحصيل', 422);
       }
 
-      const remainingDue = invoice.totalHalalas - (invoice.paidHalalas ?? 0);
+      const remainingDue = invoice.totalHalalas - (invoice.paidHalalas ?? 0) - invoice.creditedHalalas;
       if (remainingDue <= 0) throw new BusinessError('الفاتورة مسددة بالكامل بالفعل', 400);
 
       // ── 2. Load & validate receipt voucher ────────────────────────────────
@@ -130,14 +130,14 @@ export async function POST(
       const [updatedInv] = await tx.update(invoices)
         .set({
           paidHalalas: sql`${invoices.paidHalalas} + ${applyAmount}`,
-          status: sql`CASE WHEN ${invoices.paidHalalas} + ${applyAmount} >= ${invoices.totalHalalas} THEN 'paid' ELSE 'partial' END`,
+          status: sql`CASE WHEN ${invoices.paidHalalas} + ${applyAmount} + ${invoices.creditedHalalas} >= ${invoices.totalHalalas} THEN 'paid' ELSE 'partial' END`,
           updatedAt: now,
         })
         .where(and(
           eq(invoices.id, invoice.id),
           eq(invoices.agencyId, agencyId),
           sql`${invoices.status} IN ('issued', 'partial', 'overdue')`,
-          sql`(${invoices.totalHalalas} - ${invoices.paidHalalas}) >= ${applyAmount}`,
+          sql`(${invoices.totalHalalas} - ${invoices.paidHalalas} - ${invoices.creditedHalalas}) >= ${applyAmount}`,
         ))
         .returning({ paidHalalas: invoices.paidHalalas, status: invoices.status });
       if (!updatedInv) throw new BusinessError('تعذّر تطبيق الدفعة المقدمة — تعارض متزامن، حاول مجدداً', 409);

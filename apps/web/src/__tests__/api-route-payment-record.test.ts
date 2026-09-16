@@ -63,7 +63,7 @@ vi.mock('drizzle-orm', () => ({
 }));
 
 vi.mock('@/lib/schema', () => ({
-  invoices:        { id: 'id', agencyId: 'agencyId', paidHalalas: 'paidHalalas', totalHalalas: 'totalHalalas' },
+  invoices:        { id: 'id', agencyId: 'agencyId', paidHalalas: 'paidHalalas', creditedHalalas: 'creditedHalalas', totalHalalas: 'totalHalalas' },
   bookings:        { id: 'id', paidHalalas: 'paidHalalas' },
   payments:        {},
   journalEntries:  {},
@@ -100,7 +100,7 @@ const { mockTxSelect, mockTxUpdateResult, mockDb } = vi.hoisted(() => {
   };
 
   // UPDATE chain — resolves to configurable result (needed for .set().where().returning())
-  const updateResult = { value: [{ paidHalalas: 115_00, totalHalalas: 115_00 }] };
+  const updateResult = { value: [{ paidHalalas: 115_00, creditedHalalas: 0, totalHalalas: 115_00 }] };
   const makeUpdateChain = () => {
     const p = new Promise<unknown[]>((res) => res(updateResult.value));
     const c: Record<string, unknown> = {};
@@ -150,6 +150,7 @@ const INVOICE = {
   id: 'inv-1', agencyId: 'agency-1', invoiceNumber: 'INV-2024-000001',
   bookingId: 'booking-1', customerId: null, buyerNameAr: 'أحمد',
   totalHalalas: 115_00, paidHalalas: 0, status: 'issued',
+  creditedHalalas: 0,
 };
 
 const VALID_BODY = { invoiceId: 'inv-1', amountHalalas: 115_00, paymentMethod: 'cash' as const };
@@ -161,7 +162,7 @@ describe('POST /api/payments/record', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockTxSelect.results.length = 0;
-    mockTxUpdateResult.value = [{ paidHalalas: 115_00, totalHalalas: 115_00 }];
+    mockTxUpdateResult.value = [{ paidHalalas: 115_00, creditedHalalas: 0, totalHalalas: 115_00 }];
     mockVerifyAuth.mockResolvedValue(DEFAULT_USER);
     mockAssertRole.mockReturnValue(undefined);
   });
@@ -237,6 +238,20 @@ describe('POST /api/payments/record', () => {
     expect(data.error).toMatch(/لا تنتمي/);
   });
 
+  it('400 إذا تجاوز المبلغ الرصيد بعد خصم إشعار دائن جزئي', async () => {
+    mockTxSelect.next([{
+      ...INVOICE,
+      totalHalalas: 100_00,
+      paidHalalas: 30_00,
+      creditedHalalas: 20_00,
+      status: 'partial',
+    }]);
+    const res = await POST(makeRequest({ ...VALID_BODY, amountHalalas: 51_00 }));
+    expect(res.status).toBe(400);
+    const data = await res.json();
+    expect(data.error).toMatch(/50/);
+  });
+
   it('400 إذا حاول الطلب إرفاق حجز بفاتورة مباشرة غير مرتبطة بحجز', async () => {
     mockTxSelect.next([{ ...INVOICE, bookingId: null }]);
     const res = await POST(makeRequest({ ...VALID_BODY, bookingId: 'booking-1' }));
@@ -278,7 +293,7 @@ describe('POST /api/payments/record', () => {
 
   it('200 — دفعة كاملة: invoiceStatus = fully_paid', async () => {
     mockTxSelect.next([INVOICE]);
-    mockTxUpdateResult.value = [{ paidHalalas: 115_00, totalHalalas: 115_00 }];
+    mockTxUpdateResult.value = [{ paidHalalas: 115_00, creditedHalalas: 0, totalHalalas: 115_00 }];
     const res = await POST(makeRequest(VALID_BODY));
     const data = await res.json();
     expect(data.invoiceStatus).toBe('fully_paid');
@@ -287,7 +302,7 @@ describe('POST /api/payments/record', () => {
 
   it('200 — دفعة جزئية: invoiceStatus = partial', async () => {
     mockTxSelect.next([INVOICE]);
-    mockTxUpdateResult.value = [{ paidHalalas: 50_00, totalHalalas: 115_00 }];
+    mockTxUpdateResult.value = [{ paidHalalas: 50_00, creditedHalalas: 0, totalHalalas: 115_00 }];
     const res = await POST(makeRequest({ ...VALID_BODY, amountHalalas: 50_00 }));
     const data = await res.json();
     expect(data.invoiceStatus).toBe('partial');

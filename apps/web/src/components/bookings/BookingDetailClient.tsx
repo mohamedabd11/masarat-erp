@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/Button';
 import { BookingStatusBadge } from '@/components/ui/StatusBadge';
 import { Spinner } from '@/components/ui/Spinner';
 import { formatCurrency, formatDate } from '@/lib/utils';
+import { collectibleBalance } from '@/lib/invoice-presentation';
 import { BookingActions } from './BookingActions';
 import { BookingPassengersSection } from './BookingPassengersSection';
 import { BookingMessagesSection } from './BookingMessagesSection';
@@ -228,7 +229,14 @@ export function BookingDetailClient({ locale, bookingId }: BookingDetailClientPr
 
   const pricing = booking.pricing ?? {};
   const grandTotalHalalas = booking.totalPriceHalalas ?? booking.grandTotalHalalas ?? pricing.totalAmount ?? 0;
-  const paidHalalas = booking.paidHalalas ?? booking.totalPaid ?? 0;
+  const financialTotalHalalas = booking.invoiceTotalHalalas ?? grandTotalHalalas;
+  const paidHalalas = booking.invoicePaidHalalas ?? booking.paidHalalas ?? booking.totalPaid ?? 0;
+  const creditedHalalas = booking.invoiceCreditedHalalas ?? 0;
+  const outstandingHalalas = collectibleBalance({
+    totalHalalas: financialTotalHalalas,
+    paidHalalas,
+    creditedHalalas,
+  });
 
   // Dates and passengers are stored inside the details JSONB
   const det = (booking.details ?? {}) as Record<string, unknown>;
@@ -242,8 +250,8 @@ export function BookingDetailClient({ locale, bookingId }: BookingDetailClientPr
 
   const isCompleted = booking.status === 'completed';
   const isCancelled = booking.status === 'cancelled';
-  const isPaid      = grandTotalHalalas > 0 && paidHalalas >= grandTotalHalalas;
-  const isPartial   = paidHalalas > 0 && !isPaid;
+  const isPaid      = financialTotalHalalas > 0 && outstandingHalalas === 0;
+  const isPartial   = paidHalalas + creditedHalalas > 0 && !isPaid;
   const hasInvoice  = !!existingInvoiceId;
 
   const progressSteps: Step[] = [
@@ -264,10 +272,10 @@ export function BookingDetailClient({ locale, bookingId }: BookingDetailClientPr
       labelEn: isPaid ? 'Fully Paid'    : isPartial ? 'Partial'   : 'Payment',
       status:  isPaid ? 'done' : isPartial ? 'partial' : hasInvoice ? 'current' : 'pending',
       subAr:   isPartial
-        ? `${formatCurrency(paidHalalas, 'ar-SA')} / ${formatCurrency(grandTotalHalalas, 'ar-SA')}`
+        ? `${formatCurrency(paidHalalas + creditedHalalas, 'ar-SA')} / ${formatCurrency(financialTotalHalalas, 'ar-SA')}`
         : undefined,
       subEn:   isPartial
-        ? `${formatCurrency(paidHalalas, 'en-SA')} / ${formatCurrency(grandTotalHalalas, 'en-SA')}`
+        ? `${formatCurrency(paidHalalas + creditedHalalas, 'en-SA')} / ${formatCurrency(financialTotalHalalas, 'en-SA')}`
         : undefined,
     },
     {
@@ -428,6 +436,7 @@ export function BookingDetailClient({ locale, bookingId }: BookingDetailClientPr
             customerPhone={booking.customerPhone ?? null}
             totalHalalas={grandTotalHalalas}
             paidHalalas={paidHalalas}
+            creditedHalalas={creditedHalalas}
             locale={locale}
             isCancelled={booking.status === 'cancelled'}
           />
@@ -547,16 +556,22 @@ export function BookingDetailClient({ locale, bookingId }: BookingDetailClientPr
                 <span>{isAr ? 'المدفوع' : 'Paid'}</span>
                 <span>{formatCurrency(paidHalalas, isAr ? 'ar-SA' : 'en-SA')}</span>
               </div>
+              {creditedHalalas > 0 && (
+                <div className="flex justify-between text-purple-700 font-medium">
+                  <span>{isAr ? 'الإشعارات الدائنة' : 'Credit Notes'}</span>
+                  <span>{formatCurrency(creditedHalalas, isAr ? 'ar-SA' : 'en-SA')}</span>
+                </div>
+              )}
               {isCancelled && (
                 <div className="flex justify-between text-purple-700 font-semibold">
                   <span>{isAr ? 'الحالة المالية' : 'Financial Status'}</span>
                   <span>{isAr ? 'مسترد وملغى' : 'Refunded & Cancelled'}</span>
                 </div>
               )}
-              {!isCancelled && grandTotalHalalas - paidHalalas > 0 && (
+              {!isCancelled && outstandingHalalas > 0 && (
                 <div className="flex justify-between text-red-600 font-medium">
                   <span>{isAr ? 'المتبقي' : 'Due'}</span>
-                  <span>{formatCurrency(grandTotalHalalas - paidHalalas, isAr ? 'ar-SA' : 'en-SA')}</span>
+                  <span>{formatCurrency(outstandingHalalas, isAr ? 'ar-SA' : 'en-SA')}</span>
                 </div>
               )}
             </div>
@@ -568,7 +583,7 @@ export function BookingDetailClient({ locale, bookingId }: BookingDetailClientPr
               grandTotalHalalas={grandTotalHalalas}
               paidHalalas={paidHalalas}
               onPaidChange={(newPaid) => {
-                setBooking((current) => current ? { ...current, paidHalalas: newPaid } : current);
+                setBooking((current) => current ? { ...current, paidHalalas: newPaid, invoicePaidHalalas: newPaid } : current);
               }}
               onRefunded={() => {
                 setBooking((current) => current ? { ...current, paidHalalas: 0, status: 'cancelled' } : current);

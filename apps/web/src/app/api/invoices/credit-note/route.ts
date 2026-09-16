@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { eq, and, ne, sql } from 'drizzle-orm';
+import { eq, and, sql } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { invoices, journalEntries, journalLines, bookingLines, suppliers } from '@/lib/schema';
 import { verifyAuth, assertRole, ApiAuthError, BusinessError, ROLES_MANAGER_UP } from '@/lib/api-auth';
@@ -40,17 +40,19 @@ export async function POST(request: Request) {
     if (!body.reason?.trim()) {
       return NextResponse.json({ error: 'سبب الإشعار الدائن مطلوب' }, { status: 400 });
     }
-    if (!Number.isInteger(body.subtotalHalalas) || body.subtotalHalalas <= 0) {
+    if (!Number.isSafeInteger(body.subtotalHalalas) || body.subtotalHalalas <= 0) {
       return NextResponse.json({ error: 'المبلغ غير صالح' }, { status: 400 });
     }
-
-    let originalInvoice: typeof invoices.$inferSelect | null = null;
-    if (body.originalInvoiceId) {
-      const [orig] = await db.select().from(invoices)
-        .where(and(eq(invoices.id, body.originalInvoiceId), eq(invoices.agencyId, agencyId)));
-      if (!orig) return NextResponse.json({ error: 'الفاتورة الأصلية غير موجودة' }, { status: 404 });
-      if (orig.status === 'cancelled') return NextResponse.json({ error: 'الفاتورة الأصلية ملغاة' }, { status: 422 });
-      originalInvoice = orig;
+    const requestedVat = body.vatHalalas ?? 0;
+    const requestedTotal = body.totalHalalas ?? body.subtotalHalalas + requestedVat;
+    if (!Number.isSafeInteger(requestedVat) || requestedVat < 0
+        || !Number.isSafeInteger(requestedTotal) || requestedTotal <= 0) {
+      return NextResponse.json({ error: 'قيمة الضريبة أو الإجمالي غير صالحة' }, { status: 400 });
+    }
+    if (requestedTotal !== body.subtotalHalalas + requestedVat) {
+      return NextResponse.json({
+        error: 'القيد المحاسبي للإشعار الدائن غير متوازن — يجب أن يساوي الإجمالي المبلغ الخاضع للضريبة مضافاً إليه الضريبة',
+      }, { status: 422 });
     }
 
     // Idempotency: a retry with the same key replays the first credit note
@@ -64,25 +66,52 @@ export async function POST(request: Request) {
       await assertPeriodOpen(agencyId, today, tx);
 
       const subtotalEarly = body.subtotalHalalas;
-      const totalEarly    = body.totalHalalas ?? subtotalEarly + (body.vatHalalas ?? 0);
-      // Ceiling: cumulative credit notes against an original invoice may never
-      // exceed its total — otherwise repeat submissions over-credit the customer
-      // and drive revenue/VAT arbitrarily negative.
-      let fullyCredited = false;
+      const totalEarly    = requestedTotal;
+      let originalInvoice: typeof invoices.$inferSelect | null = null;
+      if (body.originalInvoiceId) {
+        const [orig] = await tx.select().from(invoices)
+          .where(and(eq(invoices.id, body.originalInvoiceId), eq(invoices.agencyId, agencyId)));
+        if (!orig) throw new BusinessError('الفاتورة الأصلية غير موجودة', 404);
+        if (!['380', '388'].includes(orig.type)) {
+          throw new BusinessError('لا يمكن إصدار إشعار دائن على إشعار دائن أو مدين', 422);
+        }
+        if (['cancelled', 'refunded', 'credit_noted'].includes(orig.status)) {
+          throw new BusinessError('حالة الفاتورة الأصلية لا تسمح بإصدار إشعار دائن', 422);
+        }
+        originalInvoice = orig;
+      }
+
+      // Atomically reserve the credit against the original invoice. Keeping the
+      // cumulative credited/cancelled amounts on that row closes the race where
+      // two simultaneous notes both observed the same pre-credit sum.
       if (originalInvoice && body.originalInvoiceId) {
-        const [agg] = await tx
-          .select({ s: sql<number>`coalesce(sum(${invoices.totalHalalas}), 0)` })
-          .from(invoices)
+        const claimed = await tx.update(invoices)
+          .set({
+            creditedHalalas: sql`${invoices.creditedHalalas} + ${totalEarly}`,
+            cancelledHalalas: sql`${invoices.cancelledHalalas} + ${totalEarly}`,
+            status: sql`CASE
+              WHEN ${invoices.creditedHalalas} + ${totalEarly} >= ${invoices.totalHalalas}
+                THEN 'credit_noted'
+              WHEN ${invoices.paidHalalas} + ${invoices.creditedHalalas} + ${totalEarly} >= ${invoices.totalHalalas}
+                THEN 'paid'
+              WHEN ${invoices.status} = 'issued' THEN 'partial'
+              ELSE ${invoices.status}
+            END`,
+            updatedAt: now,
+          })
           .where(and(
+            eq(invoices.id, body.originalInvoiceId),
             eq(invoices.agencyId, agencyId),
-            eq(invoices.type, '381'),
-            eq(invoices.originalInvoiceId, body.originalInvoiceId),
-          ));
-        const alreadyCredited = Number(agg?.s ?? 0);
-        if (alreadyCredited + totalEarly > originalInvoice.totalHalalas) {
+            sql`${invoices.type} IN ('380','388')`,
+            sql`${invoices.status} IN ('issued','partial','paid')`,
+            sql`${invoices.creditedHalalas} + ${totalEarly} <= ${invoices.totalHalalas}`,
+            sql`${invoices.cancelledHalalas} + ${totalEarly} <= ${invoices.totalHalalas}`,
+          ))
+          .returning();
+        if (claimed.length === 0) {
           throw new BusinessError('إجمالي الإشعارات الدائنة يتجاوز قيمة الفاتورة الأصلية', 422);
         }
-        fullyCredited = alreadyCredited + totalEarly >= originalInvoice.totalHalalas;
+        originalInvoice = claimed[0]!;
       }
 
       const invNum = await getNextInvoiceNumber(agencyId, 'creditNote' as InvoiceType, year, tx);
@@ -91,8 +120,8 @@ export async function POST(request: Request) {
       const jeId   = crypto.randomUUID();
 
       const subtotal = body.subtotalHalalas;
-      const vat      = body.vatHalalas ?? 0;
-      const total    = body.totalHalalas ?? subtotal + vat;
+      const vat      = requestedVat;
+      const total    = requestedTotal;
 
       // Mirror every account in the original invoice. This preserves mixed
       // agent/principal invoices, supplier AP, COGS and deferred revenue instead
@@ -171,9 +200,8 @@ export async function POST(request: Request) {
       // Standard reversal: Dr Revenue / Dr VAT Payable / Cr AR (or Customer Deposits)
       // COGS reversal (if original booked cost): Cr COGS (5000) / Dr AP (2000)
 
-      // IFRS 15.116: proportional split between AR (unpaid portion) and Customer
-      // Deposits (paid portion). A fully paid invoice credits 100% to deposits;
-      // a fully unpaid one credits 100% to AR.
+      // Reduce the customer's open AR first. Any excess credit becomes a
+      // refundable customer deposit rather than a negative receivable.
       type JL = { id: string; entryId: string; agencyId: string; accountCode: string; accountNameAr: string; accountNameEn: string; debitHalalas: number; creditHalalas: number; sortOrder: number };
 
       const builtLines = originalInvoice && originalJournalLines.length > 0
@@ -181,6 +209,7 @@ export async function POST(request: Request) {
             originalLines: originalJournalLines,
             originalTotalHalalas: originalInvoice.totalHalalas,
             originalPaidHalalas: originalInvoice.paidHalalas,
+            originalCreditedHalalas: originalInvoice.creditedHalalas - total,
             creditNoteTotalHalalas: total,
             creditNoteVatHalalas: vat,
           })
@@ -248,21 +277,6 @@ export async function POST(request: Request) {
             .set({ balanceHalalas: sql`${suppliers.balanceHalalas} - ${amount}`, updatedAt: now })
             .where(and(eq(suppliers.id, supplierId), eq(suppliers.agencyId, agencyId)));
         }
-      }
-
-      // HIGH-1: once cumulative credit notes fully credit the original invoice,
-      // mark it 'credit_noted' so it stops counting as outstanding AR / against the
-      // credit limit and no further payment can be recorded against it. Without
-      // this the original stayed 'issued' with its full balance still collectible,
-      // double-counting the receivable the credit note just reversed in the GL.
-      if (fullyCredited && body.originalInvoiceId) {
-        await tx.update(invoices)
-          .set({ status: 'credit_noted', updatedAt: now })
-          .where(and(
-            eq(invoices.id, body.originalInvoiceId),
-            eq(invoices.agencyId, agencyId),
-            ne(invoices.status, 'cancelled'),
-          ));
       }
 
       await markIdempotencyComplete(tx, agencyId, 'creditNote', idempKey, { invoiceId: invId, invoiceNumber: invNum });

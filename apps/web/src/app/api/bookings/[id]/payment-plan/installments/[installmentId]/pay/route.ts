@@ -81,7 +81,7 @@ export async function POST(req: Request, { params }: RouteCtx) {
           throw new BusinessError('لا يمكن تسجيل دفعة على حجز ملغي', 422);
         }
 
-        const remaining = invoice.totalHalalas - invoice.paidHalalas;
+        const remaining = invoice.totalHalalas - invoice.paidHalalas - invoice.creditedHalalas;
         if (amountHalalas > remaining) {
           throw new BusinessError(`مبلغ القسط (${amountHalalas / 100} ر.س) يتجاوز المتبقي (${remaining / 100} ر.س)`, 400);
         }
@@ -139,16 +139,16 @@ export async function POST(req: Request, { params }: RouteCtx) {
         const [updatedInv] = await tx.update(invoices)
           .set({
             paidHalalas: sql`${invoices.paidHalalas} + ${amountHalalas}`,
-            status: sql`CASE WHEN ${invoices.paidHalalas} + ${amountHalalas} >= ${invoices.totalHalalas} THEN 'paid' ELSE 'partial' END`,
+            status: sql`CASE WHEN ${invoices.paidHalalas} + ${amountHalalas} + ${invoices.creditedHalalas} >= ${invoices.totalHalalas} THEN 'paid' ELSE 'partial' END`,
             updatedAt: now,
           })
           .where(and(
             eq(invoices.id, invoice.id),
             eq(invoices.agencyId, agencyId),
             sql`${invoices.status} IN ('issued', 'partial', 'overdue')`,
-            sql`(${invoices.totalHalalas} - ${invoices.paidHalalas}) >= ${amountHalalas}`,
+            sql`(${invoices.totalHalalas} - ${invoices.paidHalalas} - ${invoices.creditedHalalas}) >= ${amountHalalas}`,
           ))
-          .returning({ paidHalalas: invoices.paidHalalas, totalHalalas: invoices.totalHalalas });
+          .returning({ paidHalalas: invoices.paidHalalas, creditedHalalas: invoices.creditedHalalas, totalHalalas: invoices.totalHalalas });
 
         if (!updatedInv) throw new BusinessError('تعذّر تسجيل الدفعة — تعارض متزامن، حاول مجدداً', 409);
 
@@ -195,7 +195,7 @@ export async function POST(req: Request, { params }: RouteCtx) {
         return {
           paymentId,
           receiptNumber,
-          remainingDueHalalas: updatedInv.totalHalalas - updatedInv.paidHalalas,
+          remainingDueHalalas: updatedInv.totalHalalas - updatedInv.paidHalalas - updatedInv.creditedHalalas,
         };
       });
     });

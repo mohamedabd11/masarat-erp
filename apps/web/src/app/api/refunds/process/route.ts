@@ -90,6 +90,8 @@ export async function POST(request: Request) {
           invoiceStatus: invoice.status,
           originalTotalHalalas: invoice.totalHalalas,
           paidHalalas: invoice.paidHalalas,
+          creditedHalalas: invoice.creditedHalalas,
+          cancelledHalalas: invoice.cancelledHalalas,
           refundAmountHalalas,
           cancellationFeeHalalas,
           requestedCancelledTotalHalalas: body.cancelledTotalHalalas,
@@ -269,24 +271,25 @@ export async function POST(request: Request) {
           });
         }
 
-        // Update original invoice atomically: consume BOTH the cash returned and
-        // the retained cancellation fee from the amount paid against the original
-        // travel service. The fee is reclassified to account 4200 above; leaving it
-        // in paidHalalas would make the same funds refundable a second time and
-        // would keep a fully-cancelled booking active whenever a fee was retained.
+        // Update the original invoice atomically. Only cash actually returned is
+        // removed from paidHalalas; a retained cancellation fee remains collected
+        // against the net invoice. creditedHalalas reduces the customer balance,
+        // while cancelledHalalas prevents sequential partial refunds from reversing
+        // more original revenue/cost than the invoice ever contained.
         // The current DB balance must still cover the whole claim. This guards
         // against a concurrent refund (different idempotency key) double-spending
         // the same paid amount (lost update). 0 rows → another refund won the race
         // → the whole transaction rolls back (no double credit note / cash-out).
         const refundClaim = await tx.update(invoices)
           .set({
-            paidHalalas: sql`${invoices.paidHalalas} - ${refundPolicy.claimedPaidHalalas}`,
+            paidHalalas: refundPolicy.newPaidHalalas,
+            creditedHalalas: refundPolicy.newCreditedHalalas,
+            cancelledHalalas: refundPolicy.newCancelledHalalas,
             status: refundPolicy.isFullCancellation
               ? 'refunded'
-              : sql`CASE
-                  WHEN ${invoices.paidHalalas} - ${refundPolicy.claimedPaidHalalas} <= 0 THEN 'issued'
-                  WHEN ${invoices.paidHalalas} - ${refundPolicy.claimedPaidHalalas} < ${invoices.totalHalalas} THEN 'partial'
-                  ELSE 'paid' END`,
+              : refundPolicy.newOutstandingHalalas === 0
+                ? 'paid'
+                : (refundPolicy.newPaidHalalas > 0 || refundPolicy.newCreditedHalalas > 0 ? 'partial' : 'issued'),
             updatedAt: now,
           } as never)
           .where(and(
@@ -294,6 +297,8 @@ export async function POST(request: Request) {
             eq(invoices.agencyId, agencyId),
             sql`${invoices.status} IN ('issued','partial','paid')`,
             sql`${invoices.paidHalalas} >= ${refundPolicy.claimedPaidHalalas}`,
+            sql`${invoices.creditedHalalas} + ${creditNoteTotal} <= ${invoices.totalHalalas}`,
+            sql`${invoices.cancelledHalalas} + ${cancelledTotal} <= ${invoices.totalHalalas}`,
           ))
           .returning({ paidHalalas: invoices.paidHalalas });
         if (refundClaim.length === 0) {
@@ -347,11 +352,11 @@ export async function POST(request: Request) {
               eq(paymentPlans.status, 'active'),
             ));
         } else {
-          // Partial refund → consume the refunded cash AND the reclassified fee
-          // from the booking's travel-service payments; booking stays active.
+          // Partial refund → remove only cash returned. The retained fee stays
+          // collected and the booking remains active.
           await tx.update(bookings)
             .set({
-              paidHalalas: sql`GREATEST(0, ${bookings.paidHalalas} - ${refundPolicy.claimedPaidHalalas})`,
+              paidHalalas: sql`GREATEST(0, ${bookings.paidHalalas} - ${refundAmountHalalas})`,
               updatedAt: now,
             })
             .where(and(eq(bookings.id, bookingId), eq(bookings.agencyId, agencyId)));

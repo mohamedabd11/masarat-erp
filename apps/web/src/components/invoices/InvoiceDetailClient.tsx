@@ -42,6 +42,7 @@ interface FirestoreInvoice {
   // Postgres uses status for payment status; no separate paymentStatus field
   paymentStatus?: string;
   paidHalalas: number;
+  creditedHalalas: number;
   subtotalHalalas: number;
   vatHalalas: number;
   totalHalalas: number;

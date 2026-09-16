@@ -50,6 +50,13 @@
       "when": 1788938465670,
       "tag": "0006_registered_schema_completion",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1789456425937,
+      "tag": "0007_clever_living_mummy",
+      "breakpoints": true
     }
   ]
 }

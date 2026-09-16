@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  collectibleBalance,
   invoiceDocumentLabel,
   invoiceOutstanding,
   signedInvoiceTotal,
@@ -9,10 +10,10 @@ import {
 
 describe('invoice presentation after refunds', () => {
   const original = {
-    type: '380', status: 'refunded', totalHalalas: 115_000, paidHalalas: 0,
+    type: '380', status: 'refunded', totalHalalas: 115_000, paidHalalas: 0, creditedHalalas: 100_000,
   };
   const creditNote = {
-    type: '381', status: 'issued', totalHalalas: 100_000, paidHalalas: 100_000,
+    type: '381', status: 'issued', totalHalalas: 100_000, paidHalalas: 100_000, creditedHalalas: 0,
   };
 
   it('treats credit notes as deductions from invoiced value', () => {
@@ -25,6 +26,21 @@ describe('invoice presentation after refunds', () => {
     expect(invoiceOutstanding(original)).toBe(0);
     expect(invoiceOutstanding(creditNote)).toBe(0);
     expect(summarizeInvoiceDocuments([original, creditNote]).totalOutstanding).toBe(0);
+  });
+
+  it('deducts partial credit notes from the collectible balance', () => {
+    expect(invoiceOutstanding({
+      type: '388', status: 'partial', totalHalalas: 100_000,
+      paidHalalas: 30_000, creditedHalalas: 20_000,
+    })).toBe(50_000);
+  });
+
+  it('calculates a booking-facing balance from cash and credits together', () => {
+    expect(collectibleBalance({
+      totalHalalas: 100_000,
+      paidHalalas: 60_000,
+      creditedHalalas: 40_000,
+    })).toBe(0);
   });
 });
 

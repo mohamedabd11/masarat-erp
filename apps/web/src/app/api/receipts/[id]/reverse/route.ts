@@ -45,11 +45,59 @@ export async function POST(
       await assertPeriodOpen(agencyId, today, tx);
 
       const { amountHalalas, method, customerName, voucherNumber } = orig;
-      // Use AR (1120) if the receipt was invoice-linked; Customer Deposits (2300) if standalone
-      const originalCreditAc = orig.invoiceId
-        ? GL.receivable
-        : GL.customerDeposits;
       const paymentAc  = METHOD_ACCOUNT[method] ?? METHOD_ACCOUNT['cash']!;
+
+      // Claim the invoice balance before writing the reversal. When a credit note
+      // has already turned part of the customer's payment into a deposit, return
+      // that deposit first and reopen AR only for the rest. This keeps the GL and
+      // invoice subledger equal after any payment/credit/reversal sequence.
+      let customerDebitLines: Array<{ code: string; ar: string; en: string; amount: number }> = [
+        { ...GL.customerDeposits, amount: amountHalalas },
+      ];
+      if (orig.invoiceId) {
+        const [updatedInvoice] = await tx.update(invoices)
+          .set({
+            paidHalalas: sql`${invoices.paidHalalas} - ${amountHalalas}`,
+            status: sql`CASE
+              WHEN ${invoices.creditedHalalas} >= ${invoices.totalHalalas} THEN 'credit_noted'
+              WHEN ${invoices.paidHalalas} - ${amountHalalas} + ${invoices.creditedHalalas} >= ${invoices.totalHalalas} THEN 'paid'
+              WHEN ${invoices.paidHalalas} - ${amountHalalas} <= 0 AND ${invoices.creditedHalalas} = 0 THEN 'issued'
+              ELSE 'partial'
+            END`,
+            updatedAt: now,
+          })
+          .where(and(
+            eq(invoices.id, orig.invoiceId),
+            eq(invoices.agencyId, agencyId),
+            sql`${invoices.status} IN ('paid', 'partial', 'credit_noted')`,
+            sql`${invoices.paidHalalas} >= ${amountHalalas}`,
+          ))
+          .returning({
+            id: invoices.id,
+            totalHalalas: invoices.totalHalalas,
+            paidHalalas: invoices.paidHalalas,
+            creditedHalalas: invoices.creditedHalalas,
+          });
+        if (!updatedInvoice) {
+          throw new BusinessError('تعذّر عكس السند — حالة الفاتورة أو رصيدها تغير، راجعها ثم حاول مجدداً', 409);
+        }
+
+        const depositsBefore = Math.max(
+          0,
+          updatedInvoice.paidHalalas + amountHalalas + updatedInvoice.creditedHalalas - updatedInvoice.totalHalalas,
+        );
+        const depositsAfter = Math.max(
+          0,
+          updatedInvoice.paidHalalas + updatedInvoice.creditedHalalas - updatedInvoice.totalHalalas,
+        );
+        const depositDebit = Math.min(amountHalalas, depositsBefore - depositsAfter);
+        const receivableDebit = amountHalalas - depositDebit;
+        customerDebitLines = [
+          ...(depositDebit > 0 ? [{ ...GL.customerDeposits, amount: depositDebit }] : []),
+          ...(receivableDebit > 0 ? [{ ...GL.receivable, amount: receivableDebit }] : []),
+        ];
+      }
+
       const revNumber  = await getNextReceiptNumber(agencyId, year, tx);
       const jeNumber   = await getNextJournalNumber(agencyId, year, tx);
       const reversalId = crypto.randomUUID();
@@ -70,7 +118,8 @@ export async function POST(
         createdBy:        uid,
       });
 
-      // Reversal journal: Credit cash/bank (money goes out), Debit customer deposits (liability decreases)
+      // Reversal journal: credit cash/bank (money goes out), debit the customer
+      // deposit first and then AR for any newly reopened invoice balance.
       await tx.insert(journalEntries).values({
         id:                 jeId,
         agencyId,
@@ -86,41 +135,17 @@ export async function POST(
       });
 
       await tx.insert(journalLines).values([
-        {
+        ...customerDebitLines.map((line, index) => ({
           id: crypto.randomUUID(), entryId: jeId, agencyId,
-          accountCode: originalCreditAc.code, accountNameAr: originalCreditAc.ar, accountNameEn: originalCreditAc.en,
-          debitHalalas: amountHalalas, creditHalalas: 0, sortOrder: 1,
-        },
+          accountCode: line.code, accountNameAr: line.ar, accountNameEn: line.en,
+          debitHalalas: line.amount, creditHalalas: 0, sortOrder: index + 1,
+        })),
         {
           id: crypto.randomUUID(), entryId: jeId, agencyId,
           accountCode: paymentAc.code, accountNameAr: paymentAc.ar, accountNameEn: paymentAc.en,
-          debitHalalas: 0, creditHalalas: amountHalalas, sortOrder: 2,
+          debitHalalas: 0, creditHalalas: amountHalalas, sortOrder: customerDebitLines.length + 1,
         },
       ]);
-
-      // If the voucher was linked to an invoice, reduce paidHalalas and update status
-      if (orig.invoiceId) {
-        const [updatedInvoice] = await tx.update(invoices)
-          .set({
-            paidHalalas: sql`${invoices.paidHalalas} - ${amountHalalas}`,
-            status: sql`CASE
-              WHEN ${invoices.paidHalalas} - ${amountHalalas} <= 0 THEN 'issued'
-              WHEN ${invoices.paidHalalas} - ${amountHalalas} < ${invoices.totalHalalas} THEN 'partial'
-              ELSE ${invoices.status}
-            END`,
-            updatedAt: now,
-          })
-          .where(and(
-            eq(invoices.id, orig.invoiceId),
-            eq(invoices.agencyId, agencyId),
-            sql`${invoices.status} IN ('paid', 'partial')`,
-            sql`${invoices.paidHalalas} >= ${amountHalalas}`,
-          ))
-          .returning({ id: invoices.id });
-        if (!updatedInvoice) {
-          throw new BusinessError('تعذّر عكس السند — حالة الفاتورة أو رصيدها تغير، راجعها ثم حاول مجدداً', 409);
-        }
-      }
 
       // Sync booking.paidHalalas if this receipt was linked to a booking
       if (orig.bookingId) {

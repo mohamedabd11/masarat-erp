@@ -20,6 +20,9 @@ const mocks = vi.hoisted(() => {
   const selectResults: unknown[][] = [];
   const inserted: Array<{ table: string; values: unknown }> = [];
   const updated: Array<{ table: string; values: unknown }> = [];
+  const invoiceUpdateResult = {
+    value: [{ id: 'inv-1', totalHalalas: 10_000, paidHalalas: 0, creditedHalalas: 0 }] as unknown[],
+  };
 
   const chain = (rows: unknown[]) => {
     const promise = Promise.resolve(rows);
@@ -41,7 +44,7 @@ const mocks = vi.hoisted(() => {
       return value;
     }),
     update: vi.fn((table: { _name?: string }) => {
-      const rows = table._name === 'invoices' ? [{ id: 'inv-1' }] : [];
+      const rows = table._name === 'invoices' ? invoiceUpdateResult.value : [];
       const value = chain(rows);
       value.set = vi.fn((values: unknown) => {
         updated.push({ table: table._name ?? 'unknown', values });
@@ -60,6 +63,7 @@ const mocks = vi.hoisted(() => {
     db,
     inserted,
     updated,
+    invoiceUpdateResult,
     selectResults,
     verifyAuth: vi.fn(),
     assertRole: vi.fn(),
@@ -97,7 +101,7 @@ vi.mock('drizzle-orm', () => ({
 }));
 vi.mock('@/lib/schema', () => ({
   receiptVouchers: { _name: 'receiptVouchers', id: 'id', agencyId: 'agencyId', invoiceId: 'invoiceId', originalVoucherId: 'originalVoucherId' },
-  invoices: { _name: 'invoices', id: 'id', agencyId: 'agencyId', paidHalalas: 'paidHalalas', totalHalalas: 'totalHalalas', status: 'status' },
+  invoices: { _name: 'invoices', id: 'id', agencyId: 'agencyId', paidHalalas: 'paidHalalas', creditedHalalas: 'creditedHalalas', totalHalalas: 'totalHalalas', status: 'status' },
   bookings: { _name: 'bookings', id: 'id', agencyId: 'agencyId', paidHalalas: 'paidHalalas' },
   journalEntries: { _name: 'journalEntries' },
   journalLines: { _name: 'journalLines' },
@@ -109,7 +113,7 @@ import { POST as reverseReceipt } from '@/app/api/receipts/[id]/reverse/route';
 
 const INVOICE = {
   id: 'inv-1', agencyId: 'agency-1', invoiceNumber: 'INV-1', bookingId: 'booking-1',
-  buyerNameAr: 'العميل الصحيح', totalHalalas: 10_000, paidHalalas: 0, status: 'issued',
+  buyerNameAr: 'العميل الصحيح', totalHalalas: 10_000, paidHalalas: 0, creditedHalalas: 0, status: 'issued',
 };
 const VOUCHER = {
   id: 'receipt-1', agencyId: 'agency-1', voucherNumber: 'RCT-1', amountHalalas: 5_000,
@@ -128,6 +132,7 @@ describe('دورة سند القبض', () => {
     mocks.selectResults.length = 0;
     mocks.inserted.length = 0;
     mocks.updated.length = 0;
+    mocks.invoiceUpdateResult.value = [{ id: 'inv-1', totalHalalas: 10_000, paidHalalas: 0, creditedHalalas: 0 }];
     mocks.verifyAuth.mockResolvedValue({ uid: 'user-1', agencyId: 'agency-1', role: 'accountant' });
   });
 
@@ -161,6 +166,14 @@ describe('دورة سند القبض', () => {
     expect(mocks.updated.some((item) => item.table === 'bookings')).toBe(true);
   });
 
+  it('يرفض سنداً يتجاوز الرصيد بعد إشعار دائن جزئي', async () => {
+    mocks.selectResults.push([{ ...INVOICE, creditedHalalas: 4_000, status: 'partial' }]);
+    const res = await createReceipt(request('/api/receipts/create', {
+      customerNameAr: 'عميل', amountHalalas: 6_001, paymentMethod: 'cash', invoiceId: 'inv-1',
+    }));
+    expect(res.status).toBe(400);
+  });
+
   it.each(['draft', 'pending', 'paid', 'cancelled', 'refunded', 'credit_noted'])(
     'يرفض تطبيق وديعة على فاتورة حالتها %s', async (status) => {
       mocks.selectResults.push([VOUCHER], [{ ...INVOICE, status }]);
@@ -184,6 +197,18 @@ describe('دورة سند القبض', () => {
       .toEqual(expect.objectContaining({ invoiceId: 'inv-1', bookingId: 'booking-1' }));
   });
 
+  it('يرفض تطبيق وديعة تتجاوز الرصيد بعد إشعار دائن جزئي', async () => {
+    mocks.selectResults.push(
+      [{ ...VOUCHER, amountHalalas: 5_000 }],
+      [{ ...INVOICE, creditedHalalas: 6_000, status: 'partial' }],
+    );
+    const res = await applyReceipt(
+      request('/api/receipts/receipt-1/apply', { invoiceId: 'inv-1' }),
+      { params: { id: 'receipt-1' } },
+    );
+    expect(res.status).toBe(400);
+  });
+
   it('يعيد الفاتورة إلى صادرة عند عكس تحصيلها بالكامل ويزامن الحجز', async () => {
     mocks.selectResults.push([{
       ...VOUCHER,
@@ -198,5 +223,33 @@ describe('دورة سند القبض', () => {
     expect(invoiceUpdate.status).toContain("'issued'");
     expect(invoiceUpdate.status).not.toContain("'refunded'");
     expect(mocks.updated.some((item) => item.table === 'bookings')).toBe(true);
+  });
+
+  it('يعكس وديعة العميل أولاً ثم يعيد فتح صافي الذمم بعد إشعار دائن', async () => {
+    mocks.selectResults.push([{
+      ...VOUCHER,
+      amountHalalas: 10_000,
+      invoiceId: 'inv-1', bookingId: 'booking-1', method: 'cash', customerName: 'العميل',
+    }], []);
+    mocks.invoiceUpdateResult.value = [{
+      id: 'inv-1', totalHalalas: 10_000, paidHalalas: 0, creditedHalalas: 2_000,
+    }];
+
+    const res = await reverseReceipt(
+      request('/api/receipts/receipt-1/reverse', { reason: 'إلغاء التحصيل بعد إشعار دائن' }),
+      { params: { id: 'receipt-1' } },
+    );
+    expect(res.status).toBe(200);
+
+    const lines = mocks.inserted.find((item) => item.table === 'journalLines')?.values as Array<{
+      accountCode: string; debitHalalas: number; creditHalalas: number;
+    }>;
+    const debitFor = (code: string) => lines
+      .filter(line => line.accountCode === code)
+      .reduce((sum, line) => sum + line.debitHalalas, 0);
+    expect(debitFor('2300')).toBe(2_000);
+    expect(debitFor('1120')).toBe(8_000);
+    expect(lines.reduce((sum, line) => sum + line.debitHalalas, 0))
+      .toBe(lines.reduce((sum, line) => sum + line.creditHalalas, 0));
   });
 });
