@@ -146,7 +146,7 @@ export default function AuthActionPage() {
     return (
       <div className="w-full max-w-sm space-y-6">
         <div className="flex justify-center mb-2">
-          <MasaratLogo size={120} variant="full" />
+          <MasaratLogo size={120} variant="full" alt={isAr ? 'مسارات — نظام إدارة وكالات السفر' : 'Masarat — Travel Agency ERP'} />
         </div>
 
         <div>

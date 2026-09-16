@@ -16,7 +16,7 @@ export default function AuthLayout({ children, params: { locale } }: { children:
         <div className="max-w-sm text-center relative z-10">
           {/* Real logo on a white card (replaces the "م" placeholder) */}
           <div className="bg-white rounded-3xl shadow-2xl px-8 py-6 mx-auto mb-8 w-fit">
-            <MasaratLogo size={120} variant="full" />
+            <MasaratLogo size={120} variant="full" alt={isAr ? 'مسارات — نظام إدارة وكالات السفر' : 'Masarat — Travel Agency ERP'} />
           </div>
 
           <p className="text-lg text-brand-100">

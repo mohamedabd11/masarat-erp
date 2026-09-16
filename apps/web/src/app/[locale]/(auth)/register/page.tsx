@@ -131,7 +131,7 @@ export default function RegisterPage() {
   return (
     <div className="w-full max-w-md">
       <div className="flex justify-center mb-8 lg:hidden">
-        <MasaratLogo size={52} variant="full" />
+          <MasaratLogo size={52} variant="full" alt={isAr ? 'مسارات — نظام إدارة وكالات السفر' : 'Masarat — Travel Agency ERP'} />
       </div>
 
       <div className="mb-6">

@@ -96,10 +96,10 @@ export default function LoginPage() {
     <div className="w-full max-w-sm">
       {/* Logo */}
       <div className="flex justify-center mb-8 lg:hidden">
-        <MasaratLogo size={140} variant="full" />
+        <MasaratLogo size={140} variant="full" alt={isAr ? 'مسارات — نظام إدارة وكالات السفر' : 'Masarat — Travel Agency ERP'} />
       </div>
       <div className="hidden lg:flex justify-center mb-8">
-        <MasaratLogo size={160} variant="full" />
+        <MasaratLogo size={160} variant="full" alt={isAr ? 'مسارات — نظام إدارة وكالات السفر' : 'Masarat — Travel Agency ERP'} />
       </div>
 
       {resetMode ? (

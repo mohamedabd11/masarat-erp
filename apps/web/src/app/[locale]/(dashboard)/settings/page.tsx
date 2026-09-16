@@ -11,6 +11,7 @@ import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Badge } from '@/components/ui/Badge';
 import { cn } from '@/lib/utils';
+import { formatTrialDaysRemaining, remainingDaysUnit } from '@/lib/subscription-copy';
 import { validateVatSettings, vatSettingsIssueMessage } from '@/lib/vat-settings';
 import {
   Building2,
@@ -1533,7 +1534,6 @@ export default function SettingsPage() {
                         <p className="text-sm font-medium text-slate-900">
                           {isAr ? svc.ar : svc.en}
                         </p>
-                        <p className="text-xs text-slate-400">{isAr ? svc.en : svc.ar}</p>
                       </div>
                       <ToggleSwitch
                         checked={defaultToggles[svc.id] ?? true}
@@ -1543,7 +1543,7 @@ export default function SettingsPage() {
                             [svc.id]: !(prev[svc.id] ?? true),
                           }))
                         }
-                        label={`Toggle ${svc.en}`}
+                        label={isAr ? `تبديل حالة ${svc.ar}` : `Toggle ${svc.en}`}
                       />
                     </div>
                   ))}
@@ -2170,9 +2170,7 @@ export default function SettingsPage() {
 
             const statusLine = (() => {
               if (isTrial && daysRemaining !== null) {
-                return isAr
-                  ? `متبقي ${daysRemaining} ${daysRemaining === 1 ? 'يوم' : 'أيام'} على انتهاء الفترة التجريبية`
-                  : `${daysRemaining} day${daysRemaining === 1 ? '' : 's'} left in free trial`;
+                return formatTrialDaysRemaining(daysRemaining, locale);
               }
               if (isLifetime)  return isAr ? 'اشتراك مدى الحياة — لا تنتهي صلاحيته' : 'Lifetime subscription — never expires';
               if (subStatus === 'active')  return isAr ? 'اشتراك نشط' : 'Active subscription';
@@ -2206,7 +2204,7 @@ export default function SettingsPage() {
                       )}>
                         <p className={cn('text-3xl font-bold', daysRemaining <= 3 ? 'text-red-600' : 'text-amber-600')}>{daysRemaining}</p>
                         <p className={cn('text-xs mt-0.5', daysRemaining <= 3 ? 'text-red-500' : 'text-amber-500')}>
-                          {isAr ? 'يوم متبقي' : 'days left'}
+                          {remainingDaysUnit(daysRemaining, locale)}
                         </p>
                       </div>
                     )}

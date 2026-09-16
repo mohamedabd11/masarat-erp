@@ -5,6 +5,7 @@ import { useLocale } from 'next-intl';
 import { useSubscription } from '@/providers/SubscriptionProvider';
 import { Clock, MessageCircle, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { formatTrialDaysRemaining } from '@/lib/subscription-copy';
 
 const WA_NUMBER    = '249969837823';
 const DISMISS_KEY  = 'masarat_trial_banner_dismissed_v2';
@@ -47,9 +48,7 @@ export function TrialBanner() {
       <div className="flex items-center gap-2 min-w-0">
         <Clock size={15} className="flex-shrink-0" />
         <span className="truncate">
-          {isAr
-            ? `متبقي ${daysRemaining} ${daysRemaining === 1 ? 'يوم' : 'أيام'} على انتهاء الفترة التجريبية`
-            : `${daysRemaining} day${daysRemaining === 1 ? '' : 's'} remaining in your free trial`}
+          {formatTrialDaysRemaining(daysRemaining, locale)}
         </span>
       </div>
 

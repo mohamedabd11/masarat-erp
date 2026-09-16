@@ -236,8 +236,8 @@ export function Sidebar({ collapsed = false, onClose }: SidebarProps) {
         collapsed ? 'h-16 px-2' : 'h-32 px-6',
       )}>
         {collapsed
-          ? <MasaratLogo size={42} variant="icon" />
-          : <MasaratLogo size={110} variant="full" />
+          ? <MasaratLogo size={42} variant="icon" alt={isAr ? 'مسارات' : 'Masarat'} />
+          : <MasaratLogo size={110} variant="full" alt={isAr ? 'مسارات — نظام إدارة وكالات السفر' : 'Masarat — Travel Agency ERP'} />
         }
       </div>
 

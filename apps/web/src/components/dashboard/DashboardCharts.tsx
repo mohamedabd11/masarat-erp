@@ -33,6 +33,13 @@ const TYPE_LABELS_AR: Record<string, string> = {
   flight:'طيران', hotel:'فندق', umrah:'عمرة', hajj:'حج',
   visa:'تأشيرة', family_visit:'زيارة عائلية', package:'باقة سياحية',
   insurance:'تأمين', transfer:'نقل', cruise:'بحرية', flight_hotel:'طيران+فندق',
+  transport:'نقل',
+};
+const TYPE_LABELS_EN: Record<string, string> = {
+  flight:'Flight', hotel:'Hotel', umrah:'Umrah', hajj:'Hajj',
+  visa:'Visa', family_visit:'Family Visit', package:'Tour Package',
+  insurance:'Insurance', transfer:'Transport', transport:'Transport',
+  cruise:'Cruise', flight_hotel:'Flight + Hotel',
 };
 
 interface MonthPoint { month: string; revenue: number; }
@@ -127,7 +134,7 @@ export function DashboardCharts({ locale }: { locale: string }) {
           .sort((a, b) => b[1] - a[1])
           .slice(0, 7)
           .map(([key, val]) => ({
-            name:  isAr ? (TYPE_LABELS_AR[key] ?? key) : key,
+            name:  isAr ? (TYPE_LABELS_AR[key] ?? 'أخرى') : (TYPE_LABELS_EN[key] ?? 'Other'),
             value: val,
             color: TYPE_COLORS[key] ?? '#94a3b8',
           }));

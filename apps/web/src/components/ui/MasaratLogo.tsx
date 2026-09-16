@@ -6,9 +6,11 @@ interface MasaratLogoProps {
   /** 'icon' = circular crop of icon only | 'full' = full logo with text */
   variant?: 'icon' | 'full';
   className?: string;
+  /** Localized accessible description for the logo */
+  alt?: string;
 }
 
-export function MasaratLogo({ size = 40, variant = 'icon', className }: MasaratLogoProps) {
+export function MasaratLogo({ size = 40, variant = 'icon', className, alt = 'Masarat' }: MasaratLogoProps) {
   if (variant === 'icon') {
     return (
       <div
@@ -25,7 +27,7 @@ export function MasaratLogo({ size = 40, variant = 'icon', className }: MasaratL
       >
         <Image
           src="/masarat-logo.png"
-          alt="مسارات"
+          alt={alt}
           fill
           sizes={`${size}px`}
           style={{ objectFit: 'cover', objectPosition: '50% 20%', transform: 'scale(1.6)', transformOrigin: '50% 25%' }}
@@ -40,7 +42,7 @@ export function MasaratLogo({ size = 40, variant = 'icon', className }: MasaratL
     <div className={className} style={{ flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
       <Image
         src="/masarat-logo.png"
-        alt="مسارات — نظام إدارة وكالات السفر"
+        alt={alt}
         width={size}
         height={size}
         style={{ objectFit: 'contain', width: 'auto', height: size }}

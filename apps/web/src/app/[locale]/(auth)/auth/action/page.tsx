@@ -189,7 +189,7 @@ function ResetPasswordForm({
   return (
     <div className="w-full max-w-sm">
       <div className="flex justify-center mb-8">
-        <MasaratLogo size={120} variant="full" />
+        <MasaratLogo size={120} variant="full" alt={isAr ? 'مسارات — نظام إدارة وكالات السفر' : 'Masarat — Travel Agency ERP'} />
       </div>
 
       <div className="mb-7">

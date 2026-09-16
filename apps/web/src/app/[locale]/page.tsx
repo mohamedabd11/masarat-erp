@@ -74,7 +74,7 @@ export default function LandingPage() {
       <header className="border-b border-slate-200 bg-white/80 backdrop-blur">
         <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-3 sm:px-6">
           <a href={`/${locale}`} className="flex items-center gap-2.5 group">
-            <MasaratLogo size={48} variant="full" />
+            <MasaratLogo size={48} variant="full" alt={L('مسارات — نظام إدارة وكالات السفر', 'Masarat — Travel Agency ERP')} />
             <span className="text-lg font-bold text-slate-900 group-hover:text-brand-700 transition-colors hidden sm:block">
               {L('مسارات', 'Masarat')}
             </span>
@@ -151,7 +151,7 @@ export default function LandingPage() {
 
       {/* ── Footer ──────────────────────────────────────────────────────────── */}
       <footer className="mx-auto max-w-6xl px-4 py-10 text-center sm:px-6">
-        <div className="flex justify-center"><MasaratLogo size={36} variant="full" /></div>
+        <div className="flex justify-center"><MasaratLogo size={36} variant="full" alt={L('مسارات — نظام إدارة وكالات السفر', 'Masarat — Travel Agency ERP')} /></div>
         <p className="mt-4 text-xs text-slate-400">
           {L('نظام مسارات © 2026 — جميع الحقوق محفوظة', 'Masarat ERP © 2026 — All rights reserved')}
         </p>

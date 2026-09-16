@@ -505,7 +505,7 @@ export function InvoiceDetailClient({ locale, invoiceId }: InvoiceDetailClientPr
                     <span className="text-slate-700 font-medium">{formatCurrency(subtotalExclVat, fmtLocale)}</span>
                   </div>
                   <div className="flex items-center justify-between text-sm">
-                    <span className="text-slate-500">{isAr ? 'ضريبة القيمة المضافة (15%)' : 'VAT (15%)'}</span>
+                    <span className="text-slate-500">{isAr ? 'ضريبة القيمة المضافة' : 'VAT'}</span>
                     <span className="text-slate-700 font-medium">{formatCurrency(totalVat, fmtLocale)}</span>
                   </div>
                 </>
