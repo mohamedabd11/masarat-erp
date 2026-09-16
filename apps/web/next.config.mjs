@@ -81,6 +81,9 @@ const nextConfig = {
 export default withSentryConfig(withNextIntl(nextConfig), {
   silent: true,
   hideSourceMaps: true,
+  sourcemaps: {
+    deleteSourcemapsAfterUpload: true,
+  },
   disableLogger: true,
   automaticVercelMonitors: false,
   autoInstrumentMiddleware: false,

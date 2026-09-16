@@ -7,6 +7,9 @@ const REQUIRED_ENV_KEYS = [
   'FIREBASE_SERVICE_ACCOUNT_JSON',
   'ENCRYPTION_KEY',
   'SUPER_ADMIN_EMAIL',
+  'CRON_SECRET',
+  'UPSTASH_REDIS_REST_URL',
+  'UPSTASH_REDIS_REST_TOKEN',
 ] as const;
 
 beforeEach(() => {
@@ -41,6 +44,19 @@ describe('validateEnv', () => {
     vi.stubEnv('ADMIN_DATABASE_URL', '');
 
     expect(() => validateEnv()).toThrow(/ADMIN_DATABASE_URL/);
+  });
+
+  it.each([
+    'CRON_SECRET',
+    'UPSTASH_REDIS_REST_URL',
+    'UPSTASH_REDIS_REST_TOKEN',
+  ] as const)('requires %s for production readiness', (missingKey) => {
+    vi.stubEnv('NODE_ENV', 'production');
+    vi.stubEnv('VERCEL_ENV', 'production');
+    for (const key of REQUIRED_ENV_KEYS) vi.stubEnv(key, 'configured');
+    vi.stubEnv(missingKey, '');
+
+    expect(() => validateEnv()).toThrow(new RegExp(missingKey));
   });
 
   it('still requires secrets for a local production-mode server', () => {

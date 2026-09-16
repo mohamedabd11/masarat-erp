@@ -3,6 +3,7 @@
 import { useEffect } from 'react';
 import { useLocale } from 'next-intl';
 import { Button } from '@/components/ui/Button';
+import { captureAppError } from '@/lib/error-reporting';
 
 export default function Error({
   error,
@@ -14,7 +15,7 @@ export default function Error({
   const isAr = useLocale() === 'ar';
 
   useEffect(() => {
-    console.error(error);
+    captureAppError(error);
   }, [error]);
 
   return (
