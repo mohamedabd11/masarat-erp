@@ -1,7 +1,7 @@
 # Database migration chain
 
 `meta/_journal.json` is the only authoritative execution order. The active
-chain is deliberately contiguous from journal index 0 through 7:
+chain is deliberately contiguous from journal index 0 through 8:
 
 1. `0000_safe_puff_adder`
 2. `0001_quotes_conversion_tracking`
@@ -11,6 +11,7 @@ chain is deliberately contiguous from journal index 0 through 7:
 6. `0005_runtime_invariant_indexes`
 7. `0006_registered_schema_completion`
 8. `0007_clever_living_mummy`
+9. `0008_normalize_credited_invoice_status`
 
 Files under `archive/legacy-unregistered` are retained for audit history only.
 They were never registered in the Drizzle journal and must not be executed.

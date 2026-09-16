@@ -948,6 +948,20 @@ WHERE original.id = credits.original_invoice_id;
 UPDATE invoices
 SET cancelled_halalas = total_halalas
 WHERE status = 'refunded' AND cancelled_halalas < total_halalas;
+UPDATE invoices
+SET status = CASE
+      WHEN credited_halalas >= total_halalas THEN 'credit_noted'
+      ELSE 'paid'
+    END,
+    updated_at = NOW()
+WHERE type IN ('380', '388')
+  AND status IN ('issued', 'partial', 'overdue', 'paid')
+  AND credited_halalas > 0
+  AND paid_halalas + credited_halalas >= total_halalas
+  AND status IS DISTINCT FROM CASE
+        WHEN credited_halalas >= total_halalas THEN 'credit_noted'
+        ELSE 'paid'
+      END;
 
 -- ══ QUOTES: conversion tracking ══════════════════════════════════════════════
 ALTER TABLE quotes ADD COLUMN IF NOT EXISTS converted_to_booking_id TEXT;

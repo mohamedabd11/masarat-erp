@@ -23,8 +23,8 @@ describe('registered database migration chain', () => {
 
   it('keeps the latest schema snapshot aligned with the registered migration', () => {
     const last = journal.entries.at(-1);
-    expect(last).toMatchObject({ idx: 7, tag: '0007_clever_living_mummy' });
-    expect(readdirSync(join(migrationsDir, 'meta'))).toContain('0007_snapshot.json');
+    expect(last).toMatchObject({ idx: 8, tag: '0008_normalize_credited_invoice_status' });
+    expect(readdirSync(join(migrationsDir, 'meta'))).toContain('0008_snapshot.json');
   });
 
   it('keeps data backfills and tenant protection in the registered HR migration', () => {
@@ -42,5 +42,12 @@ describe('registered database migration chain', () => {
     expect(sql).toContain('ADD COLUMN "cancelled_halalas"');
     expect(sql).toContain('SUM("total_halalas")');
     expect(sql).toContain('WHERE "status" = \'refunded\'');
+  });
+
+  it('normalizes legacy invoices settled by credited balances', () => {
+    const sql = readFileSync(join(migrationsDir, '0008_normalize_credited_invoice_status.sql'), 'utf8');
+    expect(sql).toContain('"paid_halalas" + "credited_halalas" >= "total_halalas"');
+    expect(sql).toContain("THEN 'credit_noted'");
+    expect(sql).toContain("ELSE 'paid'");
   });
 });

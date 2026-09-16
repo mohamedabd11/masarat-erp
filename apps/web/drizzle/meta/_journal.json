@@ -57,6 +57,13 @@
       "when": 1789456425937,
       "tag": "0007_clever_living_mummy",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1789544035412,
+      "tag": "0008_normalize_credited_invoice_status",
+      "breakpoints": true
     }
   ]
 }
