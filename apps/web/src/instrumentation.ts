@@ -15,9 +15,10 @@ export async function register() {
   const { getAdminDatabaseUrl } = await import('@/lib/admin-database-url');
   validateEnv();
 
-  if (process.env.SENTRY_DSN) {
+  const sentryDsn = process.env.SENTRY_DSN ?? process.env.NEXT_PUBLIC_SENTRY_DSN;
+  if (sentryDsn) {
     const { init } = await import('@sentry/nextjs');
-    init({ dsn: process.env.SENTRY_DSN, tracesSampleRate: 0.1 });
+    init({ dsn: sentryDsn, tracesSampleRate: 0.1, sendDefaultPii: false });
   }
 
   const adminDatabaseUrl = getAdminDatabaseUrl();

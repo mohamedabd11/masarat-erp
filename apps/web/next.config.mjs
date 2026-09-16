@@ -12,7 +12,9 @@ const CSP = [
   // Next.js RSC streaming requires 'unsafe-inline' for __next_f payload scripts.
   // 'unsafe-eval' is retained for webpack hot-module replacement in development.
   "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://apis.google.com https://www.gstatic.com",
-  "connect-src 'self' https://*.firebaseio.com https://*.googleapis.com wss://*.firebaseio.com https://identitytoolkit.googleapis.com https://securetoken.googleapis.com",
+  // Sentry's US and EU ingestion hosts are allowed for browser-side error
+  // telemetry. No Sentry dashboards or third-party scripts are loaded here.
+  "connect-src 'self' https://*.firebaseio.com https://*.googleapis.com wss://*.firebaseio.com https://identitytoolkit.googleapis.com https://securetoken.googleapis.com https://*.ingest.sentry.io https://*.ingest.de.sentry.io",
   "img-src 'self' data: blob: https://firebasestorage.googleapis.com",
   "frame-src 'none'",
   "object-src 'none'",
