@@ -75,14 +75,14 @@ describe('VAT category presentation', () => {
 describe('invoice document labels', () => {
   it('labels B2C tax credit notes as credit notes rather than invoices', () => {
     expect(invoiceDocumentLabel('381', true, false)).toEqual({
-      ar: 'إشعار دائن ضريبي مبسط (مرحلة أولى)',
-      en: 'Simplified Tax Credit Note (Phase 1)',
+      ar: 'إشعار دائن ضريبي مبسط',
+      en: 'Simplified Tax Credit Note',
     });
   });
 
   it('preserves B2B and non-VAT document distinctions', () => {
-    expect(invoiceDocumentLabel('381', true, true).ar).toBe('إشعار دائن ضريبي (مرحلة أولى)');
+    expect(invoiceDocumentLabel('381', true, true).ar).toBe('إشعار دائن ضريبي');
     expect(invoiceDocumentLabel('381', false, false).ar).toBe('إشعار دائن تجاري');
-    expect(invoiceDocumentLabel('388', true, false).ar).toBe('فاتورة ضريبية مبسطة (مرحلة أولى)');
+    expect(invoiceDocumentLabel('388', true, false).ar).toBe('فاتورة ضريبية مبسطة');
   });
 });

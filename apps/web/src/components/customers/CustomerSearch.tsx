@@ -37,6 +37,13 @@ const TIER_COLORS: Record<string, string> = {
   platinum:  'bg-violet-100 text-violet-700',
 };
 
+const TIER_LABELS: Record<string, { ar: string; en: string }> = {
+  standard: { ar: 'عادي', en: 'Standard' },
+  silver: { ar: 'فضي', en: 'Silver' },
+  gold: { ar: 'ذهبي', en: 'Gold' },
+  platinum: { ar: 'بلاتيني', en: 'Platinum' },
+};
+
 const NATIONALITY_FLAGS: Record<string, string> = {
   SA: '🇸🇦', EG: '🇪🇬', JO: '🇯🇴', PK: '🇵🇰', IN: '🇮🇳',
   PH: '🇵🇭', BD: '🇧🇩', YE: '🇾🇪', SY: '🇸🇾', IQ: '🇮🇶',
@@ -474,11 +481,11 @@ function CustomerRow({ c, isAr, onSelect }: { c: CustomerRecord; isAr: boolean; 
       {/* Info */}
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-1.5">
-          <p className="text-sm font-semibold text-slate-900 truncate">{c.nameAr ?? c.nameEn}</p>
+          <p className="text-sm font-semibold text-slate-900 truncate">{isAr ? (c.nameAr ?? c.nameEn) : (c.nameEn ?? c.nameAr)}</p>
           {flag && <span className="text-sm leading-none flex-shrink-0">{flag}</span>}
           {c.tier && c.tier !== 'standard' && (
             <span className={cn('text-[10px] font-bold px-1.5 py-0.5 rounded-full flex-shrink-0', TIER_COLORS[c.tier])}>
-              {c.tier}
+              {TIER_LABELS[c.tier] ? (isAr ? TIER_LABELS[c.tier]!.ar : TIER_LABELS[c.tier]!.en) : c.tier}
             </span>
           )}
         </div>

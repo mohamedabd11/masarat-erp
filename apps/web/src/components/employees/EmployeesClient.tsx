@@ -682,7 +682,6 @@ function EmployeesTab({ isAr, agencyId, locale }: { isAr: boolean; agencyId: str
                           </div>
                           <div>
                             <p className="font-medium text-slate-900">{name}</p>
-                            {emp.nameEn && isAr && <p className="text-xs text-slate-400">{emp.nameEn}</p>}
                           </div>
                         </div>
                       </td>

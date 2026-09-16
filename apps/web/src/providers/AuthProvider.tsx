@@ -14,6 +14,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
   const { user, loading } = useAuth();
   const router = useRouter();
   const pathname = usePathname();
+  const isAr = (pathname?.split('/')[1] ?? 'ar') === 'ar';
   const syncedUidRef = useRef<string | null>(null);
 
   const isAuthPage = pathname?.includes('/login')
@@ -57,7 +58,9 @@ export function AuthProvider({ children }: AuthProviderProps) {
       <div className="fixed inset-0 flex items-center justify-center bg-white z-50">
         <div className="flex flex-col items-center gap-4">
           <div className="w-12 h-12 border-4 border-brand-600 border-t-transparent rounded-full animate-spin" />
-          <p className="text-sm text-slate-500 font-medium">جارٍ التحقق من الهوية...</p>
+          <p className="text-sm text-slate-500 font-medium">
+            {isAr ? 'جارٍ التحقق من الهوية...' : 'Verifying your identity...'}
+          </p>
         </div>
       </div>
     );

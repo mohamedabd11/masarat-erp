@@ -325,9 +325,6 @@ export default function CustomerDetailPage({ params }: { params: { locale: strin
               <h2 className="text-base font-bold text-slate-900">
                 {isAr ? customer.nameAr : (customer.nameEn || customer.nameAr)}
               </h2>
-              {customer.nameEn && customer.nameAr && (
-                <p className="text-xs text-slate-400">{isAr ? customer.nameEn : customer.nameAr}</p>
-              )}
               {customer.nationality && (
                 <p className="text-sm text-slate-500 mt-0.5">{customer.nationality}</p>
               )}

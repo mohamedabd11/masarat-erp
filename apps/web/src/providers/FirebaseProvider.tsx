@@ -1,6 +1,7 @@
 'use client';
 
 import type { ReactNode } from 'react';
+import { useLocale } from 'next-intl';
 import { initFirebase } from '@masarat/firebase';
 
 // Initialize Firebase synchronously at module-load time (client only).
@@ -34,9 +35,12 @@ if (typeof window !== 'undefined') {
 interface Props { children: ReactNode; }
 
 export function FirebaseProvider({ children }: Props) {
+  const locale = useLocale();
+  const isAr = locale === 'ar';
+
   if (_initError) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-slate-50 p-6" dir="rtl">
+      <div className="min-h-screen flex items-center justify-center bg-slate-50 p-6" dir={isAr ? 'rtl' : 'ltr'}>
         <div className="max-w-sm text-center">
           <div className="w-16 h-16 bg-amber-100 rounded-full flex items-center justify-center mx-auto mb-4">
             <svg className="w-8 h-8 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -44,9 +48,11 @@ export function FirebaseProvider({ children }: Props) {
                 d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
             </svg>
           </div>
-          <h1 className="text-lg font-bold text-slate-900 mb-2 font-arabic">تعذّر الاتصال بالخدمة</h1>
-          <p className="text-slate-500 text-sm font-arabic leading-relaxed">
-            يتعذّر تحميل خدمة المصادقة. إذا استمرت المشكلة، تواصل مع الدعم الفني.
+          <h1 className="text-lg font-bold text-slate-900 mb-2">{isAr ? 'تعذّر الاتصال بالخدمة' : 'Unable to connect'}</h1>
+          <p className="text-slate-500 text-sm leading-relaxed">
+            {isAr
+              ? 'يتعذّر تحميل خدمة تسجيل الدخول. إذا استمرت المشكلة، تواصل مع الدعم الفني.'
+              : 'The sign-in service could not be loaded. Contact support if the problem continues.'}
           </p>
         </div>
       </div>

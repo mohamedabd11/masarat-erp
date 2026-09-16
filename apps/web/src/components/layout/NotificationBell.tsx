@@ -81,10 +81,10 @@ export function NotificationBell({ locale }: NotificationBellProps) {
               <div className="flex flex-col items-center gap-2 py-10 text-center px-6">
                 <CheckCircle2 size={32} className="text-emerald-400" />
                 <p className="text-sm font-semibold text-slate-700">
-                  {isAr ? 'لا توجد تنبيهات' : 'All clear!'}
+                  {isAr ? 'لا توجد تنبيهات' : 'No notifications'}
                 </p>
                 <p className="text-xs text-slate-400">
-                  {isAr ? 'كل شيء على ما يرام' : 'No pending alerts'}
+                  {isAr ? 'لا توجد عناصر تحتاج إلى متابعة' : 'Nothing needs your attention'}
                 </p>
               </div>
             ) : (

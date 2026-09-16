@@ -41,6 +41,41 @@ function employeeName(employee: EmployeeRow | undefined, isAr: boolean): string 
   return isAr ? employee.nameAr : (employee.nameEn || employee.nameAr);
 }
 
+const CONTRACT_STATUS_LABELS: Record<string, { ar: string; en: string }> = {
+  active: { ar: 'نشط', en: 'Active' },
+  expired: { ar: 'منتهي', en: 'Expired' },
+  terminated: { ar: 'منهى', en: 'Terminated' },
+};
+
+const INSTALLMENT_STATUS_LABELS: Record<string, { ar: string; en: string }> = {
+  pending: { ar: 'مستحق', en: 'Pending' },
+  paid: { ar: 'مسدد', en: 'Paid' },
+  deferred: { ar: 'مؤجل', en: 'Deferred' },
+  repaid: { ar: 'مسدد مبكرًا', en: 'Repaid' },
+};
+
+const TERMINATION_STATUS_LABELS: Record<string, { ar: string; en: string }> = {
+  draft: { ar: 'مسودة', en: 'Draft' },
+  approved: { ar: 'معتمدة', en: 'Approved' },
+  paid: { ar: 'مدفوعة', en: 'Paid' },
+  cancelled: { ar: 'ملغاة', en: 'Cancelled' },
+};
+
+const TERMINATION_TYPE_LABELS: Record<string, { ar: string; en: string }> = {
+  contract_end: { ar: 'انتهاء العقد', en: 'Contract end' },
+  employer: { ar: 'إنهاء من صاحب العمل', en: 'Employer termination' },
+  resignation: { ar: 'استقالة', en: 'Resignation' },
+  article_80: { ar: 'المادة 80', en: 'Article 80' },
+  article_87: { ar: 'حالة مشمولة بالمادة 87', en: 'Article 87 case' },
+  force_majeure: { ar: 'قوة قاهرة', en: 'Force majeure' },
+  other: { ar: 'أخرى', en: 'Other' },
+};
+
+function enumLabel(labels: Record<string, { ar: string; en: string }>, value: string, isAr: boolean): string {
+  const label = labels[value];
+  return label ? (isAr ? label.ar : label.en) : value;
+}
+
 function ErrorBanner({ message }: { message: string }) {
   return message ? <div role="alert" className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{message}</div> : null;
 }
@@ -233,7 +268,7 @@ export function ContractsTab({ isAr, agencyId }: { isAr: boolean; agencyId: stri
       <div className="flex gap-3 justify-end mt-4"><Button size="sm" variant="ghost" onClick={closeForm}>{isAr ? 'إلغاء' : 'Cancel'}</Button><Button size="sm" onClick={save} disabled={saving || !canSave}>{saving ? <Spinner size="sm" /> : <FileText size={15} />}{editContract ? (isAr ? 'حفظ التعديلات' : 'Save changes') : (isAr ? 'حفظ العقد' : 'Save contract')}</Button></div>
     </Card> : null}
     {contracts.length === 0 ? <EmptyState icon={<FileText size={48} />} title={isAr ? 'لا توجد عقود' : 'No contracts'} description={isAr ? 'أضف أول عقد موظف' : 'Add the first employee contract'} /> : <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">{contracts.map(contract => <Card key={contract.id}>
-      <div className="flex justify-between gap-3"><div><p className="font-semibold text-slate-900">{employeeName(employeeById.get(contract.employeeId), isAr)}</p><p className="text-xs text-slate-500 mt-1">{contract.contractNumber} · {contract.startDate} — {contract.endDate || (isAr ? 'مفتوح' : 'Open')}</p></div><Badge variant={contract.status === 'active' ? 'success' : 'neutral'}>{contract.status}</Badge></div>
+      <div className="flex justify-between gap-3"><div><p className="font-semibold text-slate-900">{employeeName(employeeById.get(contract.employeeId), isAr)}</p><p className="text-xs text-slate-500 mt-1">{contract.contractNumber} · {contract.startDate} — {contract.endDate || (isAr ? 'مفتوح' : 'Open')}</p></div><Badge variant={contract.status === 'active' ? 'success' : 'neutral'}>{enumLabel(CONTRACT_STATUS_LABELS, contract.status, isAr)}</Badge></div>
       <div className="mt-3 grid grid-cols-2 gap-2 text-sm"><span className="text-slate-500">{isAr ? 'الراتب الأساسي' : 'Base salary'}</span><span className="font-medium text-end">{formatCurrency(contract.baseSalaryHalalas, isAr ? 'ar-SA' : 'en-US')}</span><span className="text-slate-500">{isAr ? 'إجمالي البدلات' : 'Allowances'}</span><span className="font-medium text-end">{formatCurrency(contract.housingAllowanceHalalas + contract.transportAllowanceHalalas + contract.otherAllowancesHalalas, isAr ? 'ar-SA' : 'en-US')}</span></div>
       <div className="flex justify-end gap-2 mt-3">
         <Button size="sm" variant="ghost" onClick={() => openEdit(contract)}><Pencil size={14} />{isAr ? 'تعديل' : 'Edit'}</Button>
@@ -299,7 +334,7 @@ export function AdvancesTab({ isAr, agencyId }: { isAr: boolean; agencyId: strin
     </div><p className="mt-3 text-xs text-slate-500">{isAr ? 'يتحقق النظام تلقائيًا من ألا يتجاوز مجموع أقساط السلف 10% من أجر الموظف في الشهر.' : 'The system automatically keeps total monthly advance deductions within 10% of wage.'}</p><div className="flex justify-end mt-4"><Button size="sm" onClick={save} disabled={saving || !form.employeeId || !form.amount || !form.deductFrom}>{saving ? <Spinner size="sm" /> : <WalletCards size={15} />}{isAr ? 'صرف وجدولة' : 'Issue & schedule'}</Button></div></Card> : null}
     {advances.length === 0 ? <EmptyState icon={<WalletCards size={48} />} title={isAr ? 'لا توجد سلف' : 'No advances'} description={isAr ? 'يمكن صرف السلفة وجدولة أقساطها من هنا' : 'Issue and schedule an advance here'} /> : <div className="space-y-4">{advances.map(advance => <Card key={advance.id}>
       <div className="flex flex-wrap justify-between gap-3"><div><p className="font-semibold">{employeeName(employeeById.get(advance.employeeId), isAr)}</p><p className="text-xs text-slate-500">{advance.requestDate} · {advance.installmentCount} {isAr ? 'قسط' : 'installments'}</p></div><div className="text-end"><p className="font-bold">{formatCurrency(advance.amountHalalas, isAr ? 'ar-SA' : 'en-US')}</p><p className="text-xs text-slate-500">{isAr ? 'متبقي' : 'Remaining'}: {formatCurrency(advance.remainingHalalas, isAr ? 'ar-SA' : 'en-US')}</p></div></div>
-      <div className="mt-4 overflow-x-auto"><table className="w-full text-sm"><thead><tr className="text-slate-500 border-b"><th className="text-start py-2">#</th><th className="text-start">{isAr ? 'الشهر' : 'Month'}</th><th className="text-start">{isAr ? 'المبلغ' : 'Amount'}</th><th className="text-start">{isAr ? 'الحالة' : 'Status'}</th><th /></tr></thead><tbody>{advance.installments.map(installment => <tr key={installment.id} className="border-b last:border-0"><td className="py-2">{installment.installmentNumber}</td><td>{installment.dueMonth}</td><td>{formatCurrency(installment.amountHalalas, isAr ? 'ar-SA' : 'en-US')}</td><td>{installment.status}</td><td className="text-end">{installment.status === 'pending' ? <button onClick={() => defer(advance.id, installment)} className="text-xs text-brand-600">{isAr ? 'تأجيل' : 'Defer'}</button> : null}</td></tr>)}</tbody></table></div>
+      <div className="mt-4 overflow-x-auto"><table className="w-full text-sm"><thead><tr className="text-slate-500 border-b"><th className="text-start py-2">#</th><th className="text-start">{isAr ? 'الشهر' : 'Month'}</th><th className="text-start">{isAr ? 'المبلغ' : 'Amount'}</th><th className="text-start">{isAr ? 'الحالة' : 'Status'}</th><th /></tr></thead><tbody>{advance.installments.map(installment => <tr key={installment.id} className="border-b last:border-0"><td className="py-2">{installment.installmentNumber}</td><td>{installment.dueMonth}</td><td>{formatCurrency(installment.amountHalalas, isAr ? 'ar-SA' : 'en-US')}</td><td>{enumLabel(INSTALLMENT_STATUS_LABELS, installment.status, isAr)}</td><td className="text-end">{installment.status === 'pending' ? <button onClick={() => defer(advance.id, installment)} className="text-xs text-brand-600">{isAr ? 'تأجيل' : 'Defer'}</button> : null}</td></tr>)}</tbody></table></div>
       {advance.remainingHalalas > 0 ? <div className="flex justify-end mt-3"><Button size="sm" variant="ghost" onClick={() => repay(advance)}>{isAr ? 'سداد مبكر' : 'Early repayment'}</Button></div> : null}
     </Card>)}</div>}
   </div>;
@@ -352,7 +387,7 @@ export function EndOfServiceTab({ isAr, agencyId }: { isAr: boolean; agencyId: s
     <h2 className="font-semibold text-slate-900">{isAr ? 'تسويات نهاية الخدمة' : 'Termination settlements'}</h2>
     {terminations.length === 0 ? <p className="text-sm text-slate-500">{isAr ? 'لا توجد تسويات.' : 'No settlements.'}</p> : <div className="space-y-3">{terminations.map(termination => {
       const paymentDate = paymentDates[termination.id] ?? '';
-      return <Card key={termination.id}><div className="flex flex-wrap justify-between gap-3"><div><p className="font-semibold">{employeeName(employeeById.get(termination.employeeId), isAr)}</p><p className="text-xs text-slate-500">{termination.terminationDate} · {termination.terminationType}</p></div><div className="text-end"><Badge variant={termination.status === 'paid' ? 'success' : 'neutral'}>{termination.status}</Badge><p className="mt-1 font-bold">{formatCurrency(termination.settlementHalalas, isAr ? 'ar-SA' : 'en-US')}</p></div></div><div className="flex flex-wrap items-end justify-end gap-2 mt-3">{termination.status === 'draft' ? <><Button size="sm" onClick={() => act(termination.id, 'approve')}>{isAr ? 'اعتماد' : 'Approve'}</Button><Button size="sm" variant="ghost" onClick={() => act(termination.id, 'cancel')}>{isAr ? 'إلغاء' : 'Cancel'}</Button></> : null}{termination.status === 'approved' ? <><div><label className={labelCls}>{isAr ? 'تاريخ الدفع *' : 'Payment date *'}</label><input aria-label={isAr ? 'تاريخ دفع نهاية الخدمة' : 'Termination payment date'} type="date" min={termination.terminationDate} className={inputCls} value={paymentDate} onChange={event => setPaymentDates(current => ({ ...current, [termination.id]: event.target.value }))} /></div><Button size="sm" disabled={!canRecordTerminationPayment(paymentDate, termination.terminationDate)} onClick={() => act(termination.id, 'pay', paymentDate)}>{isAr ? 'تسجيل الدفع' : 'Record payment'}</Button></> : null}</div></Card>;
+      return <Card key={termination.id}><div className="flex flex-wrap justify-between gap-3"><div><p className="font-semibold">{employeeName(employeeById.get(termination.employeeId), isAr)}</p><p className="text-xs text-slate-500">{termination.terminationDate} · {enumLabel(TERMINATION_TYPE_LABELS, termination.terminationType, isAr)}</p></div><div className="text-end"><Badge variant={termination.status === 'paid' ? 'success' : 'neutral'}>{enumLabel(TERMINATION_STATUS_LABELS, termination.status, isAr)}</Badge><p className="mt-1 font-bold">{formatCurrency(termination.settlementHalalas, isAr ? 'ar-SA' : 'en-US')}</p></div></div><div className="flex flex-wrap items-end justify-end gap-2 mt-3">{termination.status === 'draft' ? <><Button size="sm" onClick={() => act(termination.id, 'approve')}>{isAr ? 'اعتماد' : 'Approve'}</Button><Button size="sm" variant="ghost" onClick={() => act(termination.id, 'cancel')}>{isAr ? 'إلغاء' : 'Cancel'}</Button></> : null}{termination.status === 'approved' ? <><div><label className={labelCls}>{isAr ? 'تاريخ الدفع *' : 'Payment date *'}</label><input aria-label={isAr ? 'تاريخ دفع نهاية الخدمة' : 'Termination payment date'} type="date" min={termination.terminationDate} className={inputCls} value={paymentDate} onChange={event => setPaymentDates(current => ({ ...current, [termination.id]: event.target.value }))} /></div><Button size="sm" disabled={!canRecordTerminationPayment(paymentDate, termination.terminationDate)} onClick={() => act(termination.id, 'pay', paymentDate)}>{isAr ? 'تسجيل الدفع' : 'Record payment'}</Button></> : null}</div></Card>;
     })}</div>}
   </div>;
 }

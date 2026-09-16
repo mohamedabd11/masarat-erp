@@ -7,7 +7,7 @@ import { useAuth } from '@masarat/firebase';
 import { MasaratLogo } from '@/components/ui/MasaratLogo';
 import {
   Calculator, ReceiptText, Plane, Coins, Users, Landmark,
-  ArrowLeft, CheckCircle2, Clock, ShieldCheck,
+  ArrowLeft, CheckCircle2, ShieldCheck,
 } from 'lucide-react';
 
 export default function LandingPage() {
@@ -35,9 +35,9 @@ export default function LandingPage() {
     },
     {
       icon: ReceiptText,
-      title: L('الضريبة وفاتورة ZATCA', 'VAT & ZATCA invoice'),
-      desc:  L('احتساب ضريبة القيمة المضافة (15%)، إقرار ضريبي، ورمز QR متوافق مع هيئة الزكاة والضريبة (المرحلة الأولى).',
-               '15% VAT, a VAT-return report, and a ZATCA-compliant QR code (Phase 1) on every invoice.'),
+      title: L('الضريبة والفوترة الإلكترونية', 'VAT & e-invoicing'),
+      desc:  L('احتساب ضريبة القيمة المضافة (15%)، وإعداد الإقرار الضريبي، وإصدار فاتورة ضريبية تتضمن رمز QR.',
+               'Calculate 15% VAT, prepare the VAT return, and issue tax invoices with a QR code.'),
     },
     {
       icon: Plane,
@@ -105,7 +105,7 @@ export default function LandingPage() {
             {L('نظام إدارة وكالات السفر المتكامل', 'The integrated travel-agency management system')}
           </h1>
           <p className="mx-auto mt-5 max-w-2xl text-lg text-slate-600">
-            {L('أدِر الحجوزات والتذاكر والفواتير والمحاسبة والموارد البشرية لوكالتك من منصّة واحدة — وفق مبادئ المحاسبة الدولية (IFRS) وضريبة القيمة المضافة السعودية.',
+            {L('أدِر الحجوزات والتذاكر والفواتير والمحاسبة والموارد البشرية لوكالتك من منصّة واحدة — وفق مبادئ المعايير الدولية للتقارير المالية وضريبة القيمة المضافة السعودية.',
                'Run your agency’s bookings, tickets, invoices, accounting and HR from one platform — aligned with IFRS principles and Saudi VAT.')}
           </p>
 
@@ -139,38 +139,13 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* ── Coming soon (honest about what is NOT yet wired) ────────────────── */}
-      <section className="mx-auto max-w-6xl px-4 py-12 sm:px-6">
-        <div className="rounded-2xl border border-amber-200 bg-amber-50/60 p-6 sm:p-8">
-          <div className="flex items-start gap-4">
-            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-amber-100 text-amber-700">
-              <Clock size={22} />
-            </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <h3 className="text-base font-semibold text-slate-900">
-                  {L('قيد التطوير — قريباً', 'Under development — coming soon')}
-                </h3>
-                <span className="rounded-full bg-amber-200/70 px-2.5 py-0.5 text-xs font-medium text-amber-800">
-                  {L('قريباً', 'Soon')}
-                </span>
-              </div>
-              <p className="mt-2 text-sm leading-relaxed text-slate-700">
-                {L('تكامل ZATCA المرحلة الثانية: الربط المباشر والإبلاغ اللحظي للفواتير الإلكترونية مع هيئة الزكاة والضريبة والجمارك. الأساس التقني (التوقيع والشهادات) جاهز، وربط الإبلاغ التلقائي قيد التطوير.',
-                   'ZATCA Phase 2 integration: live clearance/reporting of e-invoices with ZATCA. The cryptographic foundation (signing & certificates) is in place; automatic per-invoice reporting is under development.')}
-              </p>
-            </div>
-          </div>
-        </div>
-      </section>
-
       {/* ── Trust strip ─────────────────────────────────────────────────────── */}
-      <section className="border-y border-slate-200 bg-white">
+      <section className="mt-12 border-y border-slate-200 bg-white">
         <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-center gap-x-8 gap-y-3 px-4 py-6 text-sm text-slate-600 sm:px-6">
-          <span className="inline-flex items-center gap-2"><CheckCircle2 size={16} className="text-emerald-500" />{L('محاسبة وفق IFRS', 'IFRS-aligned accounting')}</span>
+          <span className="inline-flex items-center gap-2"><CheckCircle2 size={16} className="text-emerald-500" />{L('محاسبة وفق المعايير الدولية', 'IFRS-aligned accounting')}</span>
           <span className="inline-flex items-center gap-2"><ShieldCheck size={16} className="text-brand-600" />{L('ضريبة القيمة المضافة 15%', '15% VAT support')}</span>
-          <span className="inline-flex items-center gap-2"><CheckCircle2 size={16} className="text-emerald-500" />{L('رمز ZATCA QR (المرحلة 1)', 'ZATCA QR (Phase 1)')}</span>
-          <span className="inline-flex items-center gap-2"><CheckCircle2 size={16} className="text-emerald-500" />{L('عربي / English', 'Arabic / English')}</span>
+          <span className="inline-flex items-center gap-2"><CheckCircle2 size={16} className="text-emerald-500" />{L('رمز QR للفاتورة الضريبية', 'Tax-invoice QR code')}</span>
+          <span className="inline-flex items-center gap-2"><CheckCircle2 size={16} className="text-emerald-500" />{L('العربية والإنجليزية', 'Arabic and English')}</span>
         </div>
       </section>
 

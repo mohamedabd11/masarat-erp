@@ -701,16 +701,6 @@ export function ChartOfAccountsClient({ locale }: ChartOfAccountsClientProps) {
                                 </span>
                               )}
                             </p>
-                            {isAr && account.nameEn && (
-                              <p className="text-xs text-slate-400 mt-0.5 font-mono">
-                                {account.nameEn}
-                              </p>
-                            )}
-                            {!isAr && account.nameAr && (
-                              <p className="text-xs text-slate-400 mt-0.5" dir="rtl">
-                                {account.nameAr}
-                              </p>
-                            )}
                           </td>
 
                           {/* Type */}

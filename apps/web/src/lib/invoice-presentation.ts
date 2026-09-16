@@ -40,21 +40,21 @@ export function invoiceDocumentLabel(
 
   if (isCredit) {
     return {
-      ar: `إشعار دائن ضريبي${simplifiedAr} (مرحلة أولى)`,
-      en: `${simplifiedEn}Tax Credit Note (Phase 1)`,
+      ar: `إشعار دائن ضريبي${simplifiedAr}`,
+      en: `${simplifiedEn}Tax Credit Note`,
     };
   }
 
   if (isDebit) {
     return {
-      ar: `إشعار مدين ضريبي${simplifiedAr} (مرحلة أولى)`,
-      en: `${simplifiedEn}Tax Debit Note (Phase 1)`,
+      ar: `إشعار مدين ضريبي${simplifiedAr}`,
+      en: `${simplifiedEn}Tax Debit Note`,
     };
   }
 
   return isBuyerBusiness
-    ? { ar: 'فاتورة ضريبية (مرحلة أولى)', en: 'Tax Invoice (Phase 1)' }
-    : { ar: 'فاتورة ضريبية مبسطة (مرحلة أولى)', en: 'Simplified Tax Invoice (Phase 1)' };
+    ? { ar: 'فاتورة ضريبية', en: 'Tax Invoice' }
+    : { ar: 'فاتورة ضريبية مبسطة', en: 'Simplified Tax Invoice' };
 }
 
 const NON_RECEIVABLE_STATUSES = new Set([

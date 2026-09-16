@@ -110,7 +110,7 @@ export function BookingActions({
             )}
           </>
         ) : (
-          <p className="text-xs text-slate-400">للعرض فقط / Read-only</p>
+          <p className="text-xs text-slate-400">{isAr ? 'للعرض فقط' : 'Read-only'}</p>
         )}
 
         {/* Quick link to invoice page when exists */}

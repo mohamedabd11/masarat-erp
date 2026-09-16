@@ -41,8 +41,8 @@ export function UpgradeGate({ feature, children }: UpgradeGateProps) {
           </h2>
           <p className="text-slate-500 text-sm leading-relaxed">
             {isAr
-              ? 'هذه الميزة غير مفعّلة لحسابك. يرجى التواصل مع إدارة النظام.'
-              : 'This feature is not enabled for your account. Please contact your system administrator.'}
+              ? 'هذه الميزة غير مشمولة في باقتك الحالية.'
+              : 'This feature is not included in your current plan.'}
           </p>
         </div>
 

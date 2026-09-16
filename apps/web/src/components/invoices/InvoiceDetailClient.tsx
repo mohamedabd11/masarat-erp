@@ -10,7 +10,7 @@ import { formatCurrency, formatDate } from '@/lib/utils';
 import { cn } from '@/lib/utils';
 import {
   ArrowRight, ArrowLeft, Printer, Building2, User,
-  CalendarDays, Hash, ShieldCheck, Receipt, CheckCircle2,
+  CalendarDays, Receipt, CheckCircle2,
   FileX, AlertTriangle,
 } from 'lucide-react';
 import { ProcessPaymentModal } from '@/components/bookings/ProcessPaymentModal';
@@ -18,7 +18,7 @@ import { invoiceOutstanding, invoiceSettlementStatus, isCreditNote as isCreditNo
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-type ZatcaStatus = 'not_submitted' | 'submitted' | 'reported' | 'cleared' | 'rejected';
+type ZatcaStatus = 'pending' | 'reported' | 'cleared' | 'warning' | 'failed';
 
 interface InvoiceLine {
   description:      string;
@@ -64,17 +64,20 @@ interface FirestoreInvoice {
   dueDate?: string | null;
   createdAt?: string;
   zatcaUuid?: string;
+  zatcaHash?: string | null;
+  zatcaQr?: string | null;
+  zatcaStatus?: string | null;
   isEInvoice?: boolean;
 }
 
 // ─── ZATCA status styling ──────────────────────────────────────────────────────
 
 const ZATCA_STYLE: Record<ZatcaStatus, { bg: string; dot: string; ar: string; en: string }> = {
-  not_submitted: { bg: 'bg-amber-50 text-amber-700 ring-amber-200',    dot: 'bg-amber-400',   ar: 'بانتظار الإرسال', en: 'Pending' },
-  submitted:     { bg: 'bg-sky-50 text-sky-700 ring-sky-200',          dot: 'bg-sky-400',     ar: 'تم الإرسال',     en: 'Submitted' },
-  reported:      { bg: 'bg-emerald-50 text-emerald-700 ring-emerald-200', dot: 'bg-emerald-500', ar: 'مبلغ عنها',    en: 'Reported' },
-  cleared:       { bg: 'bg-emerald-50 text-emerald-700 ring-emerald-200', dot: 'bg-emerald-500', ar: 'مخلصة',         en: 'Cleared' },
-  rejected:      { bg: 'bg-red-50 text-red-700 ring-red-200',          dot: 'bg-red-500',     ar: 'مرفوضة',         en: 'Rejected' },
+  pending:  { bg: 'bg-sky-50 text-sky-700 ring-sky-200',              dot: 'bg-sky-400',     ar: 'جارٍ الإرسال',          en: 'Submitting' },
+  reported: { bg: 'bg-emerald-50 text-emerald-700 ring-emerald-200',  dot: 'bg-emerald-500', ar: 'تم الإبلاغ',            en: 'Reported' },
+  cleared:  { bg: 'bg-emerald-50 text-emerald-700 ring-emerald-200',  dot: 'bg-emerald-500', ar: 'تم الاعتماد',            en: 'Cleared' },
+  warning:  { bg: 'bg-amber-50 text-amber-700 ring-amber-200',        dot: 'bg-amber-400',   ar: 'تم الإرسال مع ملاحظات', en: 'Submitted with warnings' },
+  failed:   { bg: 'bg-red-50 text-red-700 ring-red-200',              dot: 'bg-red-500',     ar: 'تعذر الإرسال',          en: 'Submission failed' },
 };
 
 // ─── Component ────────────────────────────────────────────────────────────────
@@ -91,6 +94,7 @@ export function InvoiceDetailClient({ locale, invoiceId }: InvoiceDetailClientPr
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
   const [isVatRegistered, setIsVatRegistered] = useState(false);
+  const [qrDataUrl, setQrDataUrl] = useState('');
   const [resolvedBookingNumber, setResolvedBookingNumber] = useState<string | null>(null);
   const [amountDue, setAmountDue]   = useState(0);
   const [amountPaid, setAmountPaid] = useState(0);
@@ -118,6 +122,15 @@ export function InvoiceDetailClient({ locale, invoiceId }: InvoiceDetailClientPr
         setAmountPaid(paid);
         setAmountDue(invoiceOutstanding(inv));
         setIsVatRegistered(inv.isEInvoice === true || inv.vatHalalas > 0);
+
+        if (inv.zatcaQr || inv.zatcaHash) {
+          try {
+            const qr = await apiFetch<{ dataUrl: string }>(`/api/invoices/${invoiceId}/qr`);
+            if (!cancelled) setQrDataUrl(qr.dataUrl);
+          } catch {
+            // QR display is optional; invoice details remain available.
+          }
+        }
 
         // Resolve booking number from invoice or fetch booking
         if (inv.bookingNumber) {
@@ -159,9 +172,8 @@ export function InvoiceDetailClient({ locale, invoiceId }: InvoiceDetailClientPr
   // ── Extract data ──────────────────────────────────────────────────────────
 
   const isCreditNote = isCreditNoteDocument(invoice);
-  const zatcaStatus = 'not_submitted' as ZatcaStatus;
-  const zStyle = ZATCA_STYLE[zatcaStatus] ?? ZATCA_STYLE.not_submitted;
-  const uuid = invoice.zatcaUuid ?? '';
+  const zatcaStatus = invoice.zatcaStatus as ZatcaStatus | undefined;
+  const zStyle = zatcaStatus ? ZATCA_STYLE[zatcaStatus] : undefined;
   const issueDate = invoice.issueDate ? new Date(invoice.issueDate) : (invoice.createdAt ? new Date(invoice.createdAt) : new Date());
   const dueDate = invoice.dueDate ? new Date(invoice.dueDate) : null;
 
@@ -269,14 +281,14 @@ export function InvoiceDetailClient({ locale, invoiceId }: InvoiceDetailClientPr
                   {isAr ? 'إشعار دائن' : 'Credit Note'}
                 </span>
               )}
-              {/* ZATCA status — only shown for VAT-registered agencies */}
-              {isVatRegistered && (
+              {/* Only show a real submission state; never imply a pending integration. */}
+              {isVatRegistered && zStyle && (
                 <span className={cn(
                   'inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium ring-1 ring-inset',
                   zStyle.bg,
                 )}>
                   <span className={cn('w-1.5 h-1.5 rounded-full', zStyle.dot)} />
-                  ZATCA: {isAr ? zStyle.ar : zStyle.en}
+                  {isAr ? 'الفوترة الإلكترونية:' : 'ZATCA:'} {isAr ? zStyle.ar : zStyle.en}
                 </span>
               )}
             </div>
@@ -299,40 +311,16 @@ export function InvoiceDetailClient({ locale, invoiceId }: InvoiceDetailClientPr
                   </div>
                 </div>
               )}
-              {isVatRegistered && uuid && (
-                <div className="col-span-2 flex items-start gap-2">
-                  <Hash size={15} className="text-slate-400 mt-0.5 flex-shrink-0" />
-                  <div>
-                    <p className="text-xs text-slate-400">{isAr ? 'معرف ZATCA' : 'ZATCA UUID'}</p>
-                    <p className="text-xs font-mono text-slate-600 break-all">{uuid}</p>
-                  </div>
-                </div>
-              )}
             </div>
           </div>
 
-          {/* QR placeholder — only for VAT-registered agencies */}
-          {isVatRegistered && (
+          {/* Show the real QR only; no development placeholder. */}
+          {isVatRegistered && qrDataUrl && (
             <div className="flex flex-col items-center gap-2 flex-shrink-0">
-              <div className="w-28 h-28 rounded-lg border-2 border-dashed border-slate-200 bg-slate-50 flex items-center justify-center">
-                {false ? (
-                  <span className="text-[10px] text-slate-400 text-center px-2 break-all font-mono">
-                    QR
-                  </span>
-                ) : (
-                  <div className="text-center">
-                    <div className="grid grid-cols-3 gap-0.5 mb-1 mx-auto w-fit">
-                      {Array.from({ length: 9 }).map((_, i) => (
-                        <div key={i} className={cn('w-2.5 h-2.5 rounded-sm',
-                          [0, 2, 6, 8, 4].includes(i) ? 'bg-slate-300' : 'bg-slate-100')} />
-                      ))}
-                    </div>
-                    <p className="text-[9px] text-slate-400">{isAr ? 'قريباً' : 'Soon'}</p>
-                  </div>
-                )}
-              </div>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={qrDataUrl} width={112} height={112} alt={isAr ? 'رمز التحقق الضريبي' : 'Tax verification QR code'} />
               <p className="text-[10px] text-slate-400 text-center max-w-[7rem]">
-                {isAr ? 'امسح للتحقق' : 'Scan to verify'}
+                {isAr ? 'رمز التحقق الضريبي' : 'Tax verification QR code'}
               </p>
             </div>
           )}
@@ -806,34 +794,6 @@ export function InvoiceDetailClient({ locale, invoiceId }: InvoiceDetailClientPr
         </div>
       )}
 
-      {/* ── ZATCA compliance footer — only shown for VAT-registered agencies ──── */}
-      {isVatRegistered && <Card className={cn(
-        zatcaStatus === 'cleared' || zatcaStatus === 'reported'
-          ? 'border-emerald-200 bg-emerald-50/40'
-          : 'border-amber-200 bg-amber-50/40',
-      )}>
-        <div className="flex items-start gap-3">
-          <ShieldCheck size={20} className={cn(
-            'flex-shrink-0 mt-0.5',
-            zatcaStatus === 'cleared' || zatcaStatus === 'reported' ? 'text-emerald-600' : 'text-amber-600',
-          )} />
-          <div className="text-sm space-y-1">
-            <p className="font-semibold text-amber-800">
-              {isAr
-                ? 'فاتورة ضريبية (مرحلة أولى) — تكامل ZATCA المرحلة الثانية قيد التطوير'
-                : 'Tax Invoice (Phase 1) — ZATCA Phase 2 Integration Pending'}
-            </p>
-            <p className="text-xs text-amber-700">
-              {isAr
-                ? 'الفوترة الإلكترونية عبر منصة ZATCA المرحلة الثانية غير مفعّلة حالياً في هذا النظام.'
-                : 'ZATCA Phase 2 electronic invoicing is not yet active in this system.'}
-            </p>
-            {uuid && (
-              <p className="text-xs text-slate-500 font-mono">{`UUID: ${uuid}`}</p>
-            )}
-          </div>
-        </div>
-      </Card>}
     </div>
   );
 }

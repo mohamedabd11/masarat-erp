@@ -70,14 +70,12 @@ interface PrintableInvoiceProps {
   onClose?: () => void;
 }
 
-// ─── Helper: stacked bilingual info field ─────────────────────────────────────
+// ─── Helper: stacked info field ───────────────────────────────────────────────
 
-function InfoField({ ar, en, value, mono }: { ar: string; en: string; value: string; mono?: boolean }) {
+function InfoField({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
   return (
     <div>
-      <p className="text-[10px] text-slate-400 leading-none mb-0.5">
-        {ar} <span className="text-slate-300">/ {en}</span>
-      </p>
+      <p className="text-[10px] text-slate-400 leading-none mb-0.5">{label}</p>
       <p className={cn('text-sm font-semibold text-slate-900', mono && 'font-mono text-xs')}>{value}</p>
     </div>
   );
@@ -88,9 +86,17 @@ function InfoField({ ar, en, value, mono }: { ar: string; en: string; value: str
 export function PrintableInvoice({ invoice, onClose }: PrintableInvoiceProps) {
   const locale = useLocale();
   const isAr = locale === 'ar';
+  const fmtLocale = isAr ? 'ar-SA' : 'en-SA';
   const isVatRegistered = invoice.seller.isVatRegistered === true;
   const isBuyerBusiness = isVatRegistered && !!(invoice.buyer.vatNumber?.trim());
   const typeLabel = invoiceDocumentLabel(invoice.invoiceTypeCode, isVatRegistered, isBuyerBusiness);
+  const documentLabel = isAr ? typeLabel.ar : typeLabel.en;
+  const sellerName = isAr
+    ? (invoice.seller.nameAr || invoice.seller.nameEn)
+    : (invoice.seller.nameEn || invoice.seller.nameAr);
+  const buyerName = isAr
+    ? (invoice.buyer.nameAr || invoice.buyer.nameEn || '—')
+    : (invoice.buyer.nameEn || invoice.buyer.nameAr || '—');
 
   const sellerAddress = [
     invoice.seller.address.streetName,
@@ -98,7 +104,7 @@ export function PrintableInvoice({ invoice, onClose }: PrintableInvoiceProps) {
     invoice.seller.address.district,
     invoice.seller.address.city,
     invoice.seller.address.postalCode,
-  ].filter(Boolean).join('، ');
+  ].filter(Boolean).join(isAr ? '، ' : ', ');
 
   function handlePrint() { window.print(); }
 
@@ -129,36 +135,32 @@ export function PrintableInvoice({ invoice, onClose }: PrintableInvoiceProps) {
       {/* ── Invoice document ── */}
       <div
         id="printable-invoice"
-        dir="rtl"
+        dir={isAr ? 'rtl' : 'ltr'}
         className="bg-white mx-auto shadow-lg print:shadow-none w-full max-w-3xl print:text-sm"
-        style={{ fontFamily: "'Tajawal', 'Arial', sans-serif" }}
+        style={{ fontFamily: isAr ? "'Tajawal', 'Arial', sans-serif" : "'Inter', 'Arial', sans-serif" }}
       >
 
         {/* ══ HEADER BAND ══════════════════════════════════════════════════════ */}
         <div className="bg-brand-600 px-8 py-5 flex items-center justify-between">
           {/* Invoice title (RIGHT in RTL) */}
           <div>
-            <h1 className="text-2xl font-black text-white tracking-tight">{typeLabel.ar}</h1>
-            <p className="text-brand-200 text-sm font-medium mt-0.5">{typeLabel.en}</p>
+            <h1 className="text-2xl font-black text-white tracking-tight">{documentLabel}</h1>
           </div>
           {/* Agency logo + name (LEFT in RTL) */}
           <div className="flex items-center gap-3">
             <div className="text-end">
-              <p className="text-white font-bold text-lg leading-tight">{invoice.seller.nameAr}</p>
-              {invoice.seller.nameEn && (
-                <p className="text-brand-200 text-xs mt-0.5">{invoice.seller.nameEn}</p>
-              )}
+              <p className="text-white font-bold text-lg leading-tight">{sellerName}</p>
             </div>
             {invoice.seller.logoUrl ? (
               /* eslint-disable-next-line @next/next/no-img-element */
               <img
                 src={invoice.seller.logoUrl}
-                alt={invoice.seller.nameAr}
+                alt={sellerName}
                 style={{ height: 48, width: 'auto', objectFit: 'contain', maxWidth: 120, background: 'white', borderRadius: 8, padding: 4 }}
               />
             ) : (
               <div className="w-12 h-12 rounded-xl bg-white/20 flex items-center justify-center flex-shrink-0">
-                <span className="text-2xl font-black text-white">م</span>
+                <span className="text-2xl font-black text-white">{isAr ? 'م' : 'M'}</span>
               </div>
             )}
           </div>
@@ -167,8 +169,7 @@ export function PrintableInvoice({ invoice, onClose }: PrintableInvoiceProps) {
         {/* ══ INVOICE NUMBER STRIP ═════════════════════════════════════════════ */}
         <div className="bg-brand-50 border-b border-brand-100 px-8 py-3 flex items-center justify-between">
           <p className="text-[10px] text-brand-500 uppercase tracking-widest font-semibold">
-            {typeLabel.ar} / {typeLabel.en}
-            {isVatRegistered ? (isBuyerBusiness ? ' (B2B)' : ' (B2C)') : ''}
+            {documentLabel}
           </p>
           <p className="font-mono font-bold text-brand-700 text-base">{invoice.invoiceNumber}</p>
         </div>
@@ -180,42 +181,28 @@ export function PrintableInvoice({ invoice, onClose }: PrintableInvoiceProps) {
 
             {/* Info fields — stacked label-above-value (fixes date alignment bug) */}
             <div className="grid grid-cols-2 gap-x-6 gap-y-4">
-              <InfoField ar="تاريخ الإصدار" en="Issue Date" value={formatDate(invoice.issueDate, 'ar-SA')} />
-              <InfoField ar="العملة" en="Currency" value="SAR — ريال سعودي" />
+              <InfoField label={isAr ? 'تاريخ الإصدار' : 'Issue Date'} value={formatDate(invoice.issueDate, fmtLocale)} />
+              <InfoField label={isAr ? 'العملة' : 'Currency'} value={isAr ? 'ريال سعودي' : 'Saudi riyal'} />
               {invoice.dueDate && (
-                <InfoField ar="تاريخ الاستحقاق" en="Due Date" value={formatDate(invoice.dueDate, 'ar-SA')} />
-              )}
-              {isVatRegistered && invoice.uuid && (
-                <div className="col-span-2">
-                  <p className="text-[10px] text-slate-400 leading-none mb-0.5">
-                    UUID <span className="text-slate-300">/ معرّف الفاتورة</span>
-                  </p>
-                  <p className="font-mono text-[10px] text-slate-600 break-all">{invoice.uuid}</p>
-                </div>
+                <InfoField label={isAr ? 'تاريخ الاستحقاق' : 'Due Date'} value={formatDate(invoice.dueDate, fmtLocale)} />
               )}
             </div>
 
             {/* QR code (VAT) or contact summary (non-VAT) */}
-            {isVatRegistered ? (
+            {isVatRegistered && invoice.qrCodeData ? (
               <div className="flex flex-col items-center justify-center border-2 border-dashed border-slate-200 rounded-xl p-4 bg-slate-50">
-                {invoice.qrCodeData ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img src={invoice.qrCodeData} width={120} height={120} alt="ZATCA QR" style={{ display: 'block' }} />
-                ) : (
-                  <div style={{ width: 120, height: 120, border: '1px dashed #d1d5db', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 9, color: '#9ca3af', textAlign: 'center' }}>
-                    QR غير متاح
-                  </div>
-                )}
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={invoice.qrCodeData} width={120} height={120} alt={isAr ? 'رمز التحقق الضريبي' : 'Tax verification QR code'} style={{ display: 'block' }} />
               </div>
             ) : (
               <div className="rounded-xl border border-brand-100 bg-brand-50 p-4 space-y-2">
-                <p className="text-[10px] font-bold text-brand-600 uppercase tracking-widest">بيانات التواصل</p>
+                <p className="text-[10px] font-bold text-brand-600 uppercase tracking-widest">{isAr ? 'بيانات التواصل' : 'Contact details'}</p>
                 {sellerAddress && <p className="text-xs text-slate-600 leading-relaxed">{sellerAddress}</p>}
                 {invoice.seller.phone && <p className="text-xs text-slate-600">{invoice.seller.phone}</p>}
                 {invoice.seller.email && <p className="text-xs text-slate-500 break-all">{invoice.seller.email}</p>}
                 {invoice.seller.crNumber && (
                   <p className="text-[10px] text-slate-500">
-                    س.ت: <span className="font-mono font-semibold">{invoice.seller.crNumber}</span>
+                    {isAr ? 'السجل التجاري:' : 'CR number:'} <span className="font-mono font-semibold">{invoice.seller.crNumber}</span>
                   </p>
                 )}
               </div>
@@ -229,41 +216,40 @@ export function PrintableInvoice({ invoice, onClose }: PrintableInvoiceProps) {
             <div className="rounded-xl border border-brand-200 overflow-hidden">
               <div className="bg-brand-600 px-4 py-2">
                 <p className="text-[10px] font-bold text-brand-100 uppercase tracking-widest">
-                  المورد / Seller Details
+                  {isAr ? 'بيانات المورد' : 'Seller details'}
                 </p>
               </div>
               <div className="p-4 space-y-2 text-xs">
                 <div>
-                  <p className="font-bold text-slate-900 text-sm">{invoice.seller.nameAr}</p>
-                  {invoice.seller.nameEn && <p className="text-slate-500">{invoice.seller.nameEn}</p>}
+                  <p className="font-bold text-slate-900 text-sm">{sellerName}</p>
                 </div>
                 {sellerAddress && (
                   <div>
-                    <p className="text-slate-400 text-[10px]">العنوان / Address</p>
+                    <p className="text-slate-400 text-[10px]">{isAr ? 'العنوان' : 'Address'}</p>
                     <p className="text-slate-700">{sellerAddress}</p>
                   </div>
                 )}
                 {isVatRegistered && invoice.seller.vatNumber && (
                   <div>
-                    <p className="text-slate-400 text-[10px]">الرقم الضريبي / VAT No</p>
+                    <p className="text-slate-400 text-[10px]">{isAr ? 'الرقم الضريبي' : 'VAT number'}</p>
                     <p className="font-mono font-semibold text-slate-900">{invoice.seller.vatNumber}</p>
                   </div>
                 )}
                 {invoice.seller.crNumber && (
                   <div>
-                    <p className="text-slate-400 text-[10px]">السجل التجاري / CR No</p>
+                    <p className="text-slate-400 text-[10px]">{isAr ? 'السجل التجاري' : 'CR number'}</p>
                     <p className="font-mono font-semibold text-slate-900">{invoice.seller.crNumber}</p>
                   </div>
                 )}
                 {invoice.seller.phone && (
                   <div>
-                    <p className="text-slate-400 text-[10px]">الهاتف / Phone</p>
+                    <p className="text-slate-400 text-[10px]">{isAr ? 'الهاتف' : 'Phone'}</p>
                     <p className="text-slate-700">{invoice.seller.phone}</p>
                   </div>
                 )}
                 {invoice.seller.email && (
                   <div>
-                    <p className="text-slate-400 text-[10px]">البريد / Email</p>
+                    <p className="text-slate-400 text-[10px]">{isAr ? 'البريد الإلكتروني' : 'Email'}</p>
                     <p className="text-slate-700 break-all">{invoice.seller.email}</p>
                   </div>
                 )}
@@ -274,31 +260,28 @@ export function PrintableInvoice({ invoice, onClose }: PrintableInvoiceProps) {
             <div className="rounded-xl border border-slate-200 overflow-hidden">
               <div className="bg-slate-700 px-4 py-2">
                 <p className="text-[10px] font-bold text-slate-200 uppercase tracking-widest">
-                  العميل / Buyer Details
+                  {isAr ? 'بيانات العميل' : 'Buyer details'}
                 </p>
               </div>
               <div className="p-4 space-y-2 text-xs">
                 <div>
-                  <p className="font-bold text-slate-900 text-sm">{invoice.buyer.nameAr}</p>
-                  {invoice.buyer.nameEn && invoice.buyer.nameEn !== invoice.buyer.nameAr && (
-                    <p className="text-slate-500">{invoice.buyer.nameEn}</p>
-                  )}
+                  <p className="font-bold text-slate-900 text-sm">{buyerName}</p>
                 </div>
                 {invoice.buyer.phone && (
                   <div>
-                    <p className="text-slate-400 text-[10px]">الهاتف / Phone</p>
+                    <p className="text-slate-400 text-[10px]">{isAr ? 'الهاتف' : 'Phone'}</p>
                     <p className="text-slate-700">{invoice.buyer.phone}</p>
                   </div>
                 )}
                 {invoice.buyer.vatNumber && (
                   <div>
-                    <p className="text-slate-400 text-[10px]">الرقم الضريبي / VAT No</p>
+                    <p className="text-slate-400 text-[10px]">{isAr ? 'الرقم الضريبي' : 'VAT number'}</p>
                     <p className="font-mono font-semibold text-slate-900">{invoice.buyer.vatNumber}</p>
                   </div>
                 )}
                 {invoice.buyer.address?.city && (
                   <div>
-                    <p className="text-slate-400 text-[10px]">المدينة / City</p>
+                    <p className="text-slate-400 text-[10px]">{isAr ? 'المدينة' : 'City'}</p>
                     <p className="text-slate-700">{invoice.buyer.address.city}</p>
                   </div>
                 )}
@@ -308,31 +291,30 @@ export function PrintableInvoice({ invoice, onClose }: PrintableInvoiceProps) {
 
           {/* ══ LINE ITEMS TABLE ════════════════════════════════════════════════ */}
           <div className="rounded-xl border border-slate-200 overflow-hidden">
-            <table className="w-full text-sm" dir="rtl">
+            <table className="w-full text-sm" dir={isAr ? 'rtl' : 'ltr'}>
               <thead>
                 <tr className="bg-slate-700 text-white">
                   <th className="text-start pe-3 ps-4 py-3 font-semibold text-xs uppercase tracking-wide rounded-se-none">
-                    تفاصيل السلع أو الخدمات<br/>
-                    <span className="font-normal text-slate-300 normal-case tracking-normal">Description</span>
+                    {isAr ? 'تفاصيل السلع أو الخدمات' : 'Goods or services'}
                   </th>
                   <th className="text-center px-3 py-3 font-semibold text-xs uppercase tracking-wide">
-                    الكمية<br/><span className="font-normal text-slate-300 normal-case tracking-normal">Qty</span>
+                    {isAr ? 'الكمية' : 'Quantity'}
                   </th>
                   <th className="text-end px-3 py-3 font-semibold text-xs uppercase tracking-wide">
-                    سعر الوحدة<br/><span className="font-normal text-slate-300 normal-case tracking-normal">Unit Price</span>
+                    {isAr ? 'سعر الوحدة' : 'Unit price'}
                   </th>
                   {isVatRegistered && (
                     <th className="text-center px-3 py-3 font-semibold text-xs uppercase tracking-wide">
-                      ض.ق.م<br/><span className="font-normal text-slate-300 normal-case tracking-normal">VAT%</span>
+                      {isAr ? 'نسبة الضريبة' : 'VAT rate'}
                     </th>
                   )}
                   {isVatRegistered && (
                     <th className="text-end px-3 py-3 font-semibold text-xs uppercase tracking-wide">
-                      مبلغ الضريبة<br/><span className="font-normal text-slate-300 normal-case tracking-normal">VAT Amt</span>
+                      {isAr ? 'مبلغ الضريبة' : 'VAT amount'}
                     </th>
                   )}
                   <th className="text-end px-3 pe-4 py-3 font-semibold text-xs uppercase tracking-wide">
-                    الإجمالي<br/><span className="font-normal text-slate-300 normal-case tracking-normal">Total SAR</span>
+                    {isAr ? 'الإجمالي' : 'Total'}
                   </th>
                 </tr>
               </thead>
@@ -340,21 +322,21 @@ export function PrintableInvoice({ invoice, onClose }: PrintableInvoiceProps) {
                 {invoice.lines.map((line, idx) => (
                   <tr key={line.id} className={idx % 2 === 0 ? 'bg-white' : 'bg-slate-50/60'}>
                     <td className="pe-3 ps-4 py-3">
-                      <p className="font-medium text-slate-900">{line.nameAr}</p>
-                      {line.nameEn && <p className="text-[11px] text-slate-400 mt-0.5">{line.nameEn}</p>}
+                      <p className="font-medium text-slate-900">
+                        {isAr ? (line.nameAr || line.nameEn) : (line.nameEn || line.nameAr)}
+                      </p>
                     </td>
                     <td className="px-3 py-3 text-center text-slate-600 text-xs">
-                      {line.quantity}<br/>
-                      <span className="text-slate-400">{line.unitCode}</span>
+                      {line.quantity}
                     </td>
                     <td className="px-3 py-3 text-end text-slate-700 tabular-nums">
-                      {formatCurrency(line.unitPriceExclVatHalalas, 'ar-SA')}
+                      {formatCurrency(line.unitPriceExclVatHalalas, fmtLocale)}
                     </td>
                     {isVatRegistered && (
                       <td className="px-3 py-3 text-center">
                         {line.vatRate === 0 ? (
                           <span className="text-[10px] bg-slate-100 text-slate-500 px-2 py-0.5 rounded font-medium">
-                            {vatCategoryLabel(line.vatCategory, true)}
+                            {vatCategoryLabel(line.vatCategory, isAr)}
                           </span>
                         ) : (
                           <span className="text-slate-700 font-semibold">{(line.vatRate * 100).toFixed(0)}%</span>
@@ -363,13 +345,13 @@ export function PrintableInvoice({ invoice, onClose }: PrintableInvoiceProps) {
                     )}
                     {isVatRegistered && (
                       <td className="px-3 py-3 text-end text-slate-600 tabular-nums">
-                        {formatCurrency(line.vatAmountHalalas, 'ar-SA')}
+                        {formatCurrency(line.vatAmountHalalas, fmtLocale)}
                       </td>
                     )}
                     <td className="px-3 pe-4 py-3 text-end font-bold text-slate-900 tabular-nums">
                       {formatCurrency(
                         isVatRegistered ? line.totalInclVatHalalas : line.totalExclVatHalalas,
-                        'ar-SA'
+                        fmtLocale
                       )}
                     </td>
                   </tr>
@@ -385,17 +367,15 @@ export function PrintableInvoice({ invoice, onClose }: PrintableInvoiceProps) {
                 <div className="border border-slate-200 rounded-xl overflow-hidden mb-2">
                   <div className="divide-y divide-slate-100">
                     <div className="flex justify-between items-center px-4 py-2.5 text-sm">
-                      <span className="text-slate-400 text-xs">Subtotal excl. VAT</span>
-                      <span className="text-slate-500 text-xs">المجموع قبل الضريبة</span>
+                      <span className="text-slate-500 text-xs">{isAr ? 'المجموع قبل الضريبة' : 'Subtotal excluding VAT'}</span>
                       <span className="font-medium text-slate-700 tabular-nums">
-                        {formatCurrency(invoice.totals.subtotalExclVatHalalas, 'ar-SA')}
+                        {formatCurrency(invoice.totals.subtotalExclVatHalalas, fmtLocale)}
                       </span>
                     </div>
                     <div className="flex justify-between items-center px-4 py-2.5 text-sm">
-                      <span className="text-slate-400 text-xs">VAT 15%</span>
-                      <span className="text-slate-500 text-xs">ضريبة القيمة المضافة</span>
+                      <span className="text-slate-500 text-xs">{isAr ? 'ضريبة القيمة المضافة' : 'VAT'}</span>
                       <span className="font-medium text-slate-700 tabular-nums">
-                        {formatCurrency(invoice.totals.totalVatHalalas, 'ar-SA')}
+                        {formatCurrency(invoice.totals.totalVatHalalas, fmtLocale)}
                       </span>
                     </div>
                   </div>
@@ -405,12 +385,13 @@ export function PrintableInvoice({ invoice, onClose }: PrintableInvoiceProps) {
                 'flex items-center justify-between px-5 py-4 rounded-xl text-white font-bold',
                 isVatRegistered ? 'bg-brand-600' : 'bg-slate-800'
               )}>
-                <div className="text-xs opacity-80">
-                  <p>{isVatRegistered ? 'Gross Total (Incl. VAT)' : 'Total Amount'}</p>
-                  <p>{isVatRegistered ? 'الإجمالي شامل الضريبة' : 'إجمالي المبلغ المستحق'}</p>
-                </div>
+                <p className="text-xs opacity-80">
+                  {isAr
+                    ? (isVatRegistered ? 'الإجمالي شامل الضريبة' : 'إجمالي المبلغ المستحق')
+                    : (isVatRegistered ? 'Total including VAT' : 'Total amount due')}
+                </p>
                 <p className="text-xl tabular-nums font-black">
-                  {formatCurrency(invoice.totals.grandTotalHalalas, 'ar-SA')}
+                  {formatCurrency(invoice.totals.grandTotalHalalas, fmtLocale)}
                 </p>
               </div>
             </div>
@@ -419,7 +400,7 @@ export function PrintableInvoice({ invoice, onClose }: PrintableInvoiceProps) {
           {/* ══ NOTES ════════════════════════════════════════════════════════════ */}
           {invoice.notes && (
             <div className="p-4 rounded-xl bg-amber-50 border border-amber-100">
-              <p className="text-xs font-semibold text-amber-700 mb-1">ملاحظات / Notes</p>
+              <p className="text-xs font-semibold text-amber-700 mb-1">{isAr ? 'ملاحظات' : 'Notes'}</p>
               <p className="text-sm text-slate-700">{invoice.notes}</p>
             </div>
           )}
@@ -433,16 +414,15 @@ export function PrintableInvoice({ invoice, onClose }: PrintableInvoiceProps) {
             {/* Compliance notice */}
             <div className="text-xs text-slate-500 space-y-1 flex-1">
               {isVatRegistered ? (
-                <>
-                  <p className="font-semibold text-slate-700">{typeLabel.ar} / {typeLabel.en}</p>
-                  <p>مستند ضريبي ورقي وفق متطلبات ضريبة القيمة المضافة — المرحلة الأولى من برنامج الفوترة الإلكترونية.</p>
-                  <p dir="ltr" className="text-slate-400">VAT document — Phase 1 (paper-based). ZATCA Phase 2 e-invoicing integration is pending.</p>
-                </>
+                <p className="font-semibold text-slate-700">{documentLabel}</p>
               ) : (
                 <>
-                  <p className="font-semibold text-slate-700">{typeLabel.ar} / {typeLabel.en}</p>
-                  <p>هذا المستند صادر عن منشأة غير مسجّلة في ضريبة القيمة المضافة لدى هيئة الزكاة والضريبة والجمارك.</p>
-                  <p dir="ltr" className="text-slate-400">Commercial document — Issued by a non-VAT registered entity.</p>
+                  <p className="font-semibold text-slate-700">{documentLabel}</p>
+                  <p>
+                    {isAr
+                      ? 'صادر عن منشأة غير مسجّلة في ضريبة القيمة المضافة.'
+                      : 'Issued by an entity that is not registered for VAT.'}
+                  </p>
                 </>
               )}
             </div>
@@ -450,12 +430,7 @@ export function PrintableInvoice({ invoice, onClose }: PrintableInvoiceProps) {
             {/* Invoice ref + branding */}
             <div className="text-end text-xs text-slate-400 flex-shrink-0">
               <p className="font-mono font-semibold text-slate-600">{invoice.invoiceNumber}</p>
-              {isVatRegistered && invoice.uuid && (
-                <p className="font-mono text-[10px] mt-0.5 max-w-[160px] truncate" title={invoice.uuid}>
-                  {invoice.uuid}
-                </p>
-              )}
-              <p className="mt-2 text-slate-300">نظام مسارات ERP © 2026</p>
+              <p className="mt-2 text-slate-300">{isAr ? 'نظام مسارات © 2026' : 'Masarat ERP © 2026'}</p>
             </div>
           </div>
         </div>

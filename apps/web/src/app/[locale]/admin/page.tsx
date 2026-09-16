@@ -64,6 +64,7 @@ function WipeModal({
   onWiped:    (msg: string) => void;
   getIdToken: () => Promise<string>;
 }) {
+  const isAr = useLocale() === 'ar';
   const [inputVal, setInputVal] = useState('');
   const [loading,  setLoading]  = useState(false);
   const [error,    setError]    = useState('');
@@ -82,18 +83,18 @@ function WipeModal({
         body:    JSON.stringify({ agencyId: agency.id, confirmName: agency.nameAr }),
       });
       const data = await resp.json() as { message?: string; error?: string };
-      if (!resp.ok) throw new Error(data.error ?? 'خطأ');
-      onWiped(data.message ?? 'تم التصفير');
+      if (!resp.ok) throw new Error(data.error ?? (isAr ? 'تعذر تنفيذ العملية' : 'The operation could not be completed'));
+      onWiped(isAr ? 'تم تصفير بيانات الوكالة' : 'Agency data was reset');
       onClose();
     } catch (err: unknown) {
-      setError((err as { message?: string }).message ?? 'خطأ في الخادم');
+      setError((err as { message?: string }).message ?? (isAr ? 'تعذر الاتصال بالخادم' : 'Could not connect to the server'));
     } finally {
       setLoading(false);
     }
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4" dir={isAr ? 'rtl' : 'ltr'}>
       <div className="bg-slate-900 border border-red-800/60 rounded-2xl w-full max-w-md shadow-2xl">
 
         <div className="flex items-center gap-3 px-6 py-5 border-b border-slate-800">
@@ -101,40 +102,42 @@ function WipeModal({
             <TriangleAlert size={20} className="text-red-400" />
           </div>
           <div>
-            <p className="font-bold text-white">تصفير بيانات الوكالة</p>
-            <p className="text-xs text-slate-400">هذا الإجراء لا يمكن التراجع عنه</p>
+            <p className="font-bold text-white">{isAr ? 'تصفير بيانات الوكالة' : 'Reset agency data'}</p>
+            <p className="text-xs text-slate-400">{isAr ? 'هذا الإجراء لا يمكن التراجع عنه' : 'This action cannot be undone'}</p>
           </div>
         </div>
 
         <div className="px-6 py-5 space-y-4">
           <div className="bg-red-900/20 border border-red-800/40 rounded-xl p-4 text-sm text-red-300 space-y-1">
-            <p>سيتم حذف جميع بيانات الوكالة التشغيلية:</p>
+            <p>{isAr ? 'سيتم حذف جميع بيانات الوكالة التشغيلية:' : 'All operational agency data will be deleted:'}</p>
             <p className="text-xs text-red-400 leading-relaxed">
-              الفواتير · الحجوزات · العملاء · الدفعات · القيود المحاسبية · الموردين · الموظفين · الأقسام · الحسابات البنكية · دليل الحسابات
+              {isAr
+                ? 'الفواتير · الحجوزات · العملاء · الدفعات · القيود المحاسبية · الموردون · الموظفون · الأقسام · الحسابات البنكية · دليل الحسابات'
+                : 'Invoices · bookings · customers · payments · journal entries · suppliers · employees · departments · bank accounts · chart of accounts'}
             </p>
             <p className="text-xs text-slate-400 mt-2">
-              تبقى: بيانات الوكالة الأساسية + المستخدمين + إعدادات النظام
+              {isAr ? 'ستبقى بيانات الوكالة الأساسية والمستخدمون وإعدادات النظام.' : 'Agency profile, users, and system settings will remain.'}
             </p>
           </div>
 
           <div className="bg-slate-800 rounded-xl p-3 text-sm">
-            <p className="text-slate-400 text-xs mb-0.5">الوكالة المستهدفة</p>
-            <p className="font-bold text-white">{agency.nameAr}</p>
+            <p className="text-slate-400 text-xs mb-0.5">{isAr ? 'الوكالة المستهدفة' : 'Target agency'}</p>
+            <p className="font-bold text-white">{isAr ? agency.nameAr : (agency.nameEn || agency.nameAr)}</p>
             <p className="text-xs text-slate-500 mt-0.5">{agency.contactEmail}</p>
           </div>
 
           <div>
             <label className="block text-xs text-slate-400 mb-1.5">
-              اكتب اسم الوكالة للتأكيد:
+              {isAr ? 'اكتب اسم الوكالة بالعربية للتأكيد:' : 'Enter the agency’s Arabic name to confirm:'}
               <span className="text-white font-semibold"> {agency.nameAr}</span>
             </label>
             <input
               type="text"
               value={inputVal}
               onChange={e => setInputVal(e.target.value)}
-              placeholder="اكتب الاسم هنا…"
+              placeholder={isAr ? 'اكتب الاسم هنا…' : 'Enter the name here…'}
               className="w-full bg-slate-800 border border-slate-700 rounded-xl px-4 py-2.5 text-sm text-white placeholder-slate-600 focus:outline-none focus:border-red-600"
-              dir="rtl"
+              dir={isAr ? 'rtl' : 'ltr'}
             />
           </div>
 
@@ -149,7 +152,7 @@ function WipeModal({
             disabled={loading}
             className="flex-1 px-4 py-2.5 bg-slate-800 hover:bg-slate-700 disabled:opacity-50 rounded-xl text-sm font-medium text-slate-300 transition-colors"
           >
-            إلغاء
+            {isAr ? 'إلغاء' : 'Cancel'}
           </button>
           <button
             onClick={handleWipe}
@@ -157,7 +160,7 @@ function WipeModal({
             className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 bg-red-700 hover:bg-red-600 disabled:opacity-30 rounded-xl text-sm font-bold text-white transition-colors"
           >
             {loading ? <Spinner size="sm" /> : <Trash2 size={14} />}
-            تصفير البيانات
+            {isAr ? 'تصفير البيانات' : 'Reset data'}
           </button>
         </div>
       </div>
@@ -175,11 +178,11 @@ interface FeatureRow {
   notes:        string | null;
 }
 
-const GROUP_META: Record<string, { ar: string; color: string }> = {
-  core:       { ar: 'أساسي',             color: 'text-slate-300' },
-  operations: { ar: 'التشغيل',           color: 'text-sky-400' },
-  finance:    { ar: 'المالية',           color: 'text-emerald-400' },
-  hr:         { ar: 'الموارد البشرية',   color: 'text-violet-400' },
+const GROUP_META: Record<string, { ar: string; en: string; color: string }> = {
+  core:       { ar: 'أساسي',           en: 'Core', color: 'text-slate-300' },
+  operations: { ar: 'التشغيل',         en: 'Operations', color: 'text-sky-400' },
+  finance:    { ar: 'المالية',          en: 'Finance', color: 'text-emerald-400' },
+  hr:         { ar: 'الموارد البشرية', en: 'Human resources', color: 'text-violet-400' },
 };
 
 function FeaturesModal({
@@ -191,6 +194,7 @@ function FeaturesModal({
   onClose:    () => void;
   getIdToken: () => Promise<string>;
 }) {
+  const isAr = useLocale() === 'ar';
   const [features, setFeatures] = useState<FeatureRow[]>([]);
   const [loading,  setLoading]  = useState(true);
   const [applying, setApplying] = useState(false);
@@ -205,14 +209,14 @@ function FeaturesModal({
         headers: { Authorization: `Bearer ${token}` },
       });
       const data = await resp.json() as { features?: FeatureRow[]; error?: string };
-      if (!resp.ok) throw new Error(data.error ?? 'خطأ');
+      if (!resp.ok) throw new Error(data.error ?? (isAr ? 'تعذر تحميل الميزات' : 'Could not load features'));
       setFeatures(data.features ?? []);
     } catch (err: unknown) {
-      setError((err as { message?: string }).message ?? 'خطأ في التحميل');
+      setError((err as { message?: string }).message ?? (isAr ? 'تعذر تحميل البيانات' : 'Could not load data'));
     } finally {
       setLoading(false);
     }
-  }, [agency.id, getToken]);
+  }, [agency.id, getToken, isAr]);
 
   useEffect(() => { void load(); }, [load]);
 
@@ -229,11 +233,11 @@ function FeaturesModal({
       });
       if (!resp.ok) {
         const data = await resp.json().catch(() => ({})) as { error?: string };
-        throw new Error(data.error ?? `خطأ ${resp.status}`);
+        throw new Error(data.error ?? (isAr ? `تعذر تنفيذ العملية (${resp.status})` : `Request failed (${resp.status})`));
       }
       await load();
     } catch (err: unknown) {
-      setError((err as { message?: string }).message ?? 'فشل تغيير الميزة');
+      setError((err as { message?: string }).message ?? (isAr ? 'تعذر تغيير الميزة' : 'Could not update the feature'));
     }
     setApplying(false);
   }
@@ -250,11 +254,11 @@ function FeaturesModal({
       });
       if (!resp.ok) {
         const data = await resp.json().catch(() => ({})) as { error?: string };
-        throw new Error(data.error ?? `خطأ ${resp.status}`);
+        throw new Error(data.error ?? (isAr ? `تعذر تنفيذ العملية (${resp.status})` : `Request failed (${resp.status})`));
       }
       await load();
     } catch (err: unknown) {
-      setError((err as { message?: string }).message ?? 'فشل تنفيذ الإجراء');
+      setError((err as { message?: string }).message ?? (isAr ? 'تعذر تنفيذ الإجراء' : 'Could not complete the action'));
     }
     setApplying(false);
   }
@@ -264,6 +268,7 @@ function FeaturesModal({
   return (
     <div
       className="fixed inset-0 bg-black/75 z-50 flex items-center justify-center p-4"
+      dir={isAr ? 'rtl' : 'ltr'}
       onClick={e => { if (e.target === e.currentTarget) onClose(); }}
     >
       <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-xl max-h-[88vh] flex flex-col shadow-2xl">
@@ -271,12 +276,12 @@ function FeaturesModal({
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-4 border-b border-slate-700">
           <div>
-            <h2 className="font-bold text-white text-sm">{agency.nameAr}</h2>
+            <h2 className="font-bold text-white text-sm">{isAr ? agency.nameAr : (agency.nameEn || agency.nameAr)}</h2>
             <p className="text-[11px] text-slate-400 mt-0.5">
-              إدارة الميزات —{' '}
+              {isAr ? 'إدارة الميزات' : 'Feature management'} —{' '}
               {revokedCount === 0
-                ? <span className="text-emerald-400">كل الميزات مفعّلة</span>
-                : <span className="text-red-400">{revokedCount} ميزة معطّلة</span>
+                ? <span className="text-emerald-400">{isAr ? 'كل الميزات مفعّلة' : 'All features are enabled'}</span>
+                : <span className="text-red-400">{isAr ? `${revokedCount} ميزة معطّلة` : `${revokedCount} disabled features`}</span>
               }
             </p>
           </div>
@@ -290,13 +295,13 @@ function FeaturesModal({
 
         {/* Global actions */}
         <div className="px-5 py-3 border-b border-slate-700/50 flex items-center gap-2 bg-slate-800/40 flex-wrap">
-          <span className="text-[11px] text-slate-500 font-medium me-1">إجراءات سريعة:</span>
+          <span className="text-[11px] text-slate-500 font-medium me-1">{isAr ? 'إجراءات سريعة:' : 'Quick actions:'}</span>
           <button
             onClick={() => void bulkAction('enable_all')}
             disabled={applying || loading || revokedCount === 0}
             className="px-3 py-1.5 rounded-lg text-[11px] font-bold bg-emerald-700 hover:bg-emerald-600 text-white transition-colors disabled:opacity-40"
           >
-            تفعيل جميع الميزات
+            {isAr ? 'تفعيل جميع الميزات' : 'Enable all features'}
           </button>
           {applying && <Spinner size="sm" />}
         </div>
@@ -311,7 +316,7 @@ function FeaturesModal({
           ) : (
             FEATURE_GROUPS.map(group => {
               const items      = features.filter(f => f.group === group.key);
-              const meta       = GROUP_META[group.key] ?? { ar: group.key, color: 'text-slate-400' };
+              const meta       = GROUP_META[group.key] ?? { ar: group.key, en: group.key, color: 'text-slate-400' };
               const allRevoked  = items.length > 0 && items.every(f => f.overrideType === 'revoke');
               const noneRevoked = items.every(f => !f.overrideType);
 
@@ -319,7 +324,7 @@ function FeaturesModal({
                 <div key={group.key}>
                   <div className="flex items-center justify-between mb-2">
                     <p className={cn('text-[11px] font-bold uppercase tracking-widest', meta.color)}>
-                      {meta.ar} ({items.length})
+                      {isAr ? meta.ar : meta.en} ({items.length})
                     </p>
                     <div className="flex gap-1">
                       <button
@@ -327,14 +332,14 @@ function FeaturesModal({
                         disabled={applying || noneRevoked}
                         className="px-2 py-1 rounded text-[10px] bg-emerald-900/40 hover:bg-emerald-700 text-emerald-400 hover:text-white disabled:opacity-30 transition-colors"
                       >
-                        تفعيل المجموعة
+                        {isAr ? 'تفعيل المجموعة' : 'Enable group'}
                       </button>
                       <button
                         onClick={() => void bulkAction('disable_group', group.key)}
                         disabled={applying || allRevoked}
                         className="px-2 py-1 rounded text-[10px] bg-red-900/30 hover:bg-red-700 text-red-400 hover:text-white disabled:opacity-30 transition-colors"
                       >
-                        تعطيل المجموعة
+                        {isAr ? 'تعطيل المجموعة' : 'Disable group'}
                       </button>
                     </div>
                   </div>
@@ -351,7 +356,7 @@ function FeaturesModal({
                           )}
                         >
                           <span className={cn('text-[13px]', isRevoked ? 'text-red-300 line-through' : 'text-slate-200')}>
-                            {label?.ar ?? f.featureKey}
+                            {(isAr ? label?.ar : label?.en) ?? f.featureKey}
                           </span>
                           <button
                             onClick={() => void toggleFeature(f.featureKey, f.overrideType)}
@@ -363,7 +368,7 @@ function FeaturesModal({
                                 : 'bg-red-900/50 hover:bg-red-700 text-red-400 hover:text-white',
                             )}
                           >
-                            {isRevoked ? 'تفعيل' : 'تعطيل'}
+                            {isRevoked ? (isAr ? 'تفعيل' : 'Enable') : (isAr ? 'تعطيل' : 'Disable')}
                           </button>
                         </div>
                       );
@@ -381,27 +386,27 @@ function FeaturesModal({
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-function StatusBadge({ status }: { status: string }) {
-  const cfg: Record<string, { label: string; className: string; icon: React.ReactNode }> = {
-    trial:     { label: 'تجريبي',  className: 'bg-blue-100   text-blue-700',    icon: <Clock size={11} /> },
-    active:    { label: 'نشط',     className: 'bg-emerald-100 text-emerald-700', icon: <CheckCircle2 size={11} /> },
-    lifetime:  { label: 'دائم',    className: 'bg-amber-100   text-amber-700',   icon: <CheckCircle2 size={11} /> },
-    suspended: { label: 'موقوف',   className: 'bg-orange-100  text-orange-700',  icon: <Ban size={11} /> },
-    expired:   { label: 'منتهي',   className: 'bg-red-100     text-red-700',     icon: <TimerOff size={11} /> },
-    past_due:  { label: 'متأخر',   className: 'bg-red-100     text-red-700',     icon: <AlertTriangle size={11} /> },
-    cancelled: { label: 'ملغي',    className: 'bg-slate-100   text-slate-500',   icon: <XCircle size={11} /> },
+function StatusBadge({ status, isAr }: { status: string; isAr: boolean }) {
+  const cfg: Record<string, { ar: string; en: string; className: string; icon: React.ReactNode }> = {
+    trial:     { ar: 'تجريبي', en: 'Trial', className: 'bg-blue-100 text-blue-700', icon: <Clock size={11} /> },
+    active:    { ar: 'نشط', en: 'Active', className: 'bg-emerald-100 text-emerald-700', icon: <CheckCircle2 size={11} /> },
+    lifetime:  { ar: 'دائم', en: 'Lifetime', className: 'bg-amber-100 text-amber-700', icon: <CheckCircle2 size={11} /> },
+    suspended: { ar: 'موقوف', en: 'Suspended', className: 'bg-orange-100 text-orange-700', icon: <Ban size={11} /> },
+    expired:   { ar: 'منتهي', en: 'Expired', className: 'bg-red-100 text-red-700', icon: <TimerOff size={11} /> },
+    past_due:  { ar: 'متأخر', en: 'Past due', className: 'bg-red-100 text-red-700', icon: <AlertTriangle size={11} /> },
+    cancelled: { ar: 'ملغي', en: 'Cancelled', className: 'bg-slate-100 text-slate-500', icon: <XCircle size={11} /> },
   };
   const c = cfg[status] ?? cfg['trial']!;
   return (
     <span className={cn('inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold', c.className)}>
-      {c.icon}{c.label}
+      {c.icon}{isAr ? c.ar : c.en}
     </span>
   );
 }
 
-function formatDate(iso: string | null): string {
+function formatDate(iso: string | null, isAr: boolean): string {
   if (!iso) return '—';
-  return new Date(iso).toLocaleDateString('ar-SA', { year: 'numeric', month: 'short', day: 'numeric' });
+  return new Date(iso).toLocaleDateString(isAr ? 'ar-SA' : 'en-US', { year: 'numeric', month: 'short', day: 'numeric' });
 }
 
 function daysLeft(iso: string | null): number | null {
@@ -418,7 +423,7 @@ async function getIdToken(): Promise<string> {
 
 export default function SuperAdminPage() {
   const locale = useLocale();
-  const _locale = locale; // used via buildHref if needed
+  const isAr = locale === 'ar';
   const { user, loading: authLoading } = useAuth();
 
   const [agencies,       setAgencies]      = useState<AgencyRow[]>([]);
@@ -443,14 +448,14 @@ export default function SuperAdminPage() {
         headers: { Authorization: `Bearer ${token}` },
       });
       const data = await resp.json() as { agencies?: AgencyRow[]; error?: string };
-      if (!resp.ok) throw new Error(data.error ?? 'خطأ');
+      if (!resp.ok) throw new Error(data.error ?? (isAr ? 'تعذر تحميل الوكالات' : 'Could not load agencies'));
       setAgencies(data.agencies ?? []);
     } catch (err: unknown) {
-      setError((err as { message?: string }).message ?? 'خطأ في تحميل البيانات');
+      setError((err as { message?: string }).message ?? (isAr ? 'تعذر تحميل البيانات' : 'Could not load data'));
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [isAr]);
 
   useEffect(() => {
     if (!authLoading && isSuperAdmin) void loadAgencies();
@@ -474,11 +479,11 @@ export default function SuperAdminPage() {
         body:    JSON.stringify({ agencyId, action, value }),
       });
       const data = await resp.json() as { message?: string; error?: string };
-      if (!resp.ok) throw new Error(data.error ?? 'خطأ');
-      showToast(data.message ?? 'تم');
+      if (!resp.ok) throw new Error(data.error ?? (isAr ? 'تعذر تنفيذ الإجراء' : 'Could not complete the action'));
+      showToast(isAr ? 'تم تنفيذ الإجراء' : 'Action completed');
       await loadAgencies();
     } catch (err: unknown) {
-      showToast('خطأ: ' + ((err as { message?: string }).message ?? 'unknown'));
+      showToast((isAr ? 'خطأ: ' : 'Error: ') + ((err as { message?: string }).message ?? (isAr ? 'غير معروف' : 'Unknown')));
     } finally {
       setActing(null);
     }
@@ -487,7 +492,7 @@ export default function SuperAdminPage() {
   async function handleSetMaxUsers(agencyId: string) {
     const val = parseInt(maxUsersEdits[agencyId] ?? '', 10);
     if (!val || val < 1 || val > 9999) {
-      showToast('قيمة غير صالحة (1–9999)');
+      showToast(isAr ? 'قيمة غير صالحة (1–9999)' : 'Invalid value (1–9999)');
       return;
     }
     await doAction(agencyId, 'set_max_users', val);
@@ -507,7 +512,7 @@ export default function SuperAdminPage() {
   if (!user) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-slate-950">
-        <p className="text-slate-400">يجب تسجيل الدخول أولاً</p>
+        <p className="text-slate-400">{isAr ? 'يجب تسجيل الدخول أولاً' : 'Please sign in first'}</p>
       </div>
     );
   }
@@ -516,8 +521,8 @@ export default function SuperAdminPage() {
     return (
       <div className="min-h-screen flex items-center justify-center bg-slate-950 flex-col gap-3">
         <XCircle size={48} className="text-red-500" />
-        <p className="text-slate-300 font-bold text-lg">403 — ممنوع الوصول</p>
-        <p className="text-slate-500 text-sm">هذه الصفحة للمطور فقط</p>
+        <p className="text-slate-300 font-bold text-lg">403 — {isAr ? 'ممنوع الوصول' : 'Access denied'}</p>
+        <p className="text-slate-500 text-sm">{isAr ? 'هذه الصفحة مخصصة لإدارة النظام' : 'This page is restricted to system administrators'}</p>
       </div>
     );
   }
@@ -525,7 +530,7 @@ export default function SuperAdminPage() {
   // ── Main UI ────────────────────────────────────────────────────────────────
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 p-6" dir="rtl">
+    <div className="min-h-screen bg-slate-950 text-slate-100 p-6" dir={isAr ? 'rtl' : 'ltr'}>
 
       {/* Wipe Modal */}
       {wipeTarget && (
@@ -560,8 +565,8 @@ export default function SuperAdminPage() {
             <ShieldCheck size={20} />
           </div>
           <div>
-            <h1 className="text-xl font-bold">لوحة تحكم المطور</h1>
-            <p className="text-xs text-slate-500">Super Admin — مسارات ERP</p>
+            <h1 className="text-xl font-bold">{isAr ? 'لوحة إدارة النظام' : 'System administration'}</h1>
+            <p className="text-xs text-slate-500">{isAr ? 'الإدارة العامة — مسارات' : 'Masarat — Super administration'}</p>
           </div>
         </div>
         <button
@@ -569,19 +574,19 @@ export default function SuperAdminPage() {
           className="flex items-center gap-2 px-4 py-2 bg-slate-800 hover:bg-slate-700 rounded-xl text-sm transition-colors"
         >
           <RefreshCw size={14} />
-          تحديث
+          {isAr ? 'تحديث' : 'Refresh'}
         </button>
       </div>
 
       {/* Stats bar */}
       <div className="grid grid-cols-3 sm:grid-cols-6 gap-3 mb-6">
         {[
-          { label: 'الإجمالي',  value: agencies.length,                                                                                   color: 'text-white' },
-          { label: 'تجريبية',   value: agencies.filter(a => a.subscriptionStatus === 'trial').length,                                      color: 'text-blue-400' },
-          { label: 'نشطة',      value: agencies.filter(a => a.subscriptionStatus === 'active').length,                                     color: 'text-emerald-400' },
-          { label: 'دائم',      value: agencies.filter(a => a.subscriptionStatus === 'lifetime').length,                                   color: 'text-amber-400' },
-          { label: 'موقوفة',    value: agencies.filter(a => a.subscriptionStatus === 'suspended').length,                                  color: 'text-orange-400' },
-          { label: 'منتهية',    value: agencies.filter(a => ['expired','past_due','cancelled'].includes(a.subscriptionStatus)).length,     color: 'text-red-400' },
+          { label: isAr ? 'الإجمالي' : 'Total', value: agencies.length, color: 'text-white' },
+          { label: isAr ? 'تجريبية' : 'Trial', value: agencies.filter(a => a.subscriptionStatus === 'trial').length, color: 'text-blue-400' },
+          { label: isAr ? 'نشطة' : 'Active', value: agencies.filter(a => a.subscriptionStatus === 'active').length, color: 'text-emerald-400' },
+          { label: isAr ? 'دائمة' : 'Lifetime', value: agencies.filter(a => a.subscriptionStatus === 'lifetime').length, color: 'text-amber-400' },
+          { label: isAr ? 'موقوفة' : 'Suspended', value: agencies.filter(a => a.subscriptionStatus === 'suspended').length, color: 'text-orange-400' },
+          { label: isAr ? 'منتهية' : 'Expired', value: agencies.filter(a => ['expired','past_due','cancelled'].includes(a.subscriptionStatus)).length, color: 'text-red-400' },
         ].map(s => (
           <div key={s.label} className="bg-slate-800 rounded-xl px-4 py-3 border border-slate-700">
             <p className="text-xs text-slate-500 mb-1">{s.label}</p>
@@ -601,7 +606,7 @@ export default function SuperAdminPage() {
       {agencies.length === 0 ? (
         <div className="text-center py-20 text-slate-600">
           <Building2 size={40} className="mx-auto mb-3" />
-          <p>لا توجد وكالات مسجلة بعد</p>
+          <p>{isAr ? 'لا توجد وكالات مسجلة بعد' : 'No agencies have been registered yet'}</p>
         </div>
       ) : (
         <div className="space-y-3">
@@ -626,10 +631,10 @@ export default function SuperAdminPage() {
                   <div className="flex flex-col sm:flex-row sm:items-start gap-3">
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 flex-wrap">
-                        <p className="font-bold text-white">{agency.nameAr}</p>
-                        <StatusBadge status={agency.subscriptionStatus} />
+                        <p className="font-bold text-white">{isAr ? agency.nameAr : (agency.nameEn || agency.nameAr)}</p>
+                        <StatusBadge status={agency.subscriptionStatus} isAr={isAr} />
                         {!agency.isActive && (
-                          <span className="text-[10px] bg-red-900/50 text-red-400 px-2 py-0.5 rounded-full">معطّل</span>
+                          <span className="text-[10px] bg-red-900/50 text-red-400 px-2 py-0.5 rounded-full">{isAr ? 'معطّلة' : 'Disabled'}</span>
                         )}
                         {agency.isVatRegistered && (
                           <span className="inline-flex items-center gap-1 text-[10px] bg-teal-900/40 text-teal-400 px-2 py-0.5 rounded-full">
@@ -649,10 +654,10 @@ export default function SuperAdminPage() {
                         <span className="flex items-center gap-1">
                           <Users size={11} />
                           <span className={seatsLeft <= 0 ? 'text-red-400 font-semibold' : ''}>
-                            {agency.userCount}/{agency.maxUsers} مستخدم
+                            {agency.userCount}/{agency.maxUsers} {isAr ? 'مستخدم' : 'users'}
                             {seatsLeft > 0
-                              ? <span className="text-slate-600"> ({seatsLeft} متبقي)</span>
-                              : <span className="text-red-400"> (ممتلئ)</span>
+                              ? <span className="text-slate-600"> ({isAr ? `${seatsLeft} متبقي` : `${seatsLeft} remaining`})</span>
+                              : <span className="text-red-400"> ({isAr ? 'ممتلئ' : 'Full'})</span>
                             }
                           </span>
                         </span>
@@ -660,7 +665,7 @@ export default function SuperAdminPage() {
                         {/* Subscription dates */}
                         {agency.isLifetime ? (
                           <span className="flex items-center gap-1 text-amber-400 font-semibold">
-                            اشتراك دائم · بلا تاريخ انتهاء
+                            {isAr ? 'اشتراك دائم · بلا تاريخ انتهاء' : 'Lifetime subscription · no expiry date'}
                           </span>
                         ) : endDate && days !== null ? (
                           <span className={cn(
@@ -669,16 +674,16 @@ export default function SuperAdminPage() {
                           )}>
                             <CalendarDays size={11} />
                             {days < 0
-                              ? `انتهى منذ ${Math.abs(days)} يوم`
-                              : `ينتهي بعد ${days} يوم`}
-                            {' '}({formatDate(endDate)})
+                              ? (isAr ? `انتهى منذ ${Math.abs(days)} يوم` : `Expired ${Math.abs(days)} days ago`)
+                              : (isAr ? `ينتهي بعد ${days} يوم` : `Expires in ${days} days`)}
+                            {' '}({formatDate(endDate, isAr)})
                           </span>
                         ) : null}
 
                         {/* Created */}
                         <span className="flex items-center gap-1">
                           <Clock size={11} />
-                          {formatDate(agency.createdAt)}
+                          {formatDate(agency.createdAt, isAr)}
                         </span>
                       </div>
                     </div>
@@ -694,7 +699,7 @@ export default function SuperAdminPage() {
                       className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-700 hover:bg-emerald-600 disabled:opacity-50 rounded-lg text-xs font-semibold transition-colors"
                     >
                       {isActingThis && acting?.endsWith('activate_month') ? <Spinner size="sm" /> : <CalendarCheck size={13} />}
-                      شهر
+                      {isAr ? 'شهر' : 'One month'}
                     </button>
 
                     <button
@@ -703,12 +708,12 @@ export default function SuperAdminPage() {
                       className="flex items-center gap-1.5 px-3 py-1.5 bg-brand-600 hover:bg-brand-500 disabled:opacity-50 rounded-lg text-xs font-semibold transition-colors"
                     >
                       {isActingThis && acting?.endsWith('activate_year') ? <Spinner size="sm" /> : <Zap size={13} />}
-                      سنة
+                      {isAr ? 'سنة' : 'One year'}
                     </button>
 
                     <button
                       onClick={() => {
-                        if (confirm(`تفعيل الاشتراك الدائم لـ "${agency.nameAr}"؟`)) {
+                        if (confirm(isAr ? `تفعيل الاشتراك الدائم لـ "${agency.nameAr}"؟` : `Activate a lifetime subscription for "${agency.nameEn || agency.nameAr}"?`)) {
                           void doAction(agency.id, 'activate_lifetime');
                         }
                       }}
@@ -716,7 +721,7 @@ export default function SuperAdminPage() {
                       className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-600 hover:bg-amber-500 disabled:opacity-30 rounded-lg text-xs font-semibold transition-colors"
                     >
                       {isActingThis && acting?.endsWith('activate_lifetime') ? <Spinner size="sm" /> : '♾'}
-                      دائم
+                      {isAr ? 'دائم' : 'Lifetime'}
                     </button>
 
                     <button
@@ -725,7 +730,7 @@ export default function SuperAdminPage() {
                       className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-700 hover:bg-slate-600 disabled:opacity-50 rounded-lg text-xs font-semibold transition-colors"
                     >
                       {isActingThis && acting?.endsWith('extend_trial') ? <Spinner size="sm" /> : <Clock size={13} />}
-                      تمديد تجريبي
+                      {isAr ? 'تمديد تجريبي' : 'Extend trial'}
                     </button>
 
                     <button
@@ -734,12 +739,12 @@ export default function SuperAdminPage() {
                       className="flex items-center gap-1.5 px-3 py-1.5 bg-sky-700 hover:bg-sky-600 disabled:opacity-30 rounded-lg text-xs font-semibold transition-colors"
                     >
                       {isActingThis && acting?.endsWith('reactivate') ? <Spinner size="sm" /> : <RotateCcw size={13} />}
-                      إعادة تفعيل
+                      {isAr ? 'إعادة تفعيل' : 'Reactivate'}
                     </button>
 
                     <button
                       onClick={() => {
-                        if (confirm(`تعيين اشتراك "${agency.nameAr}" كمنتهٍ؟`)) {
+                        if (confirm(isAr ? `تعيين اشتراك "${agency.nameAr}" كمنتهٍ؟` : `Mark "${agency.nameEn || agency.nameAr}" subscription as expired?`)) {
                           void doAction(agency.id, 'expire');
                         }
                       }}
@@ -747,12 +752,12 @@ export default function SuperAdminPage() {
                       className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-700 hover:bg-slate-600 disabled:opacity-30 rounded-lg text-xs font-semibold text-slate-300 transition-colors"
                     >
                       {isActingThis && acting?.endsWith('expire') ? <Spinner size="sm" /> : <TimerOff size={13} />}
-                      انهاء
+                      {isAr ? 'إنهاء' : 'Expire'}
                     </button>
 
                     <button
                       onClick={() => {
-                        if (confirm(`إيقاف وكالة "${agency.nameAr}"؟`)) {
+                        if (confirm(isAr ? `إيقاف وكالة "${agency.nameAr}"؟` : `Suspend "${agency.nameEn || agency.nameAr}"?`)) {
                           void doAction(agency.id, 'suspend');
                         }
                       }}
@@ -760,7 +765,7 @@ export default function SuperAdminPage() {
                       className="flex items-center gap-1.5 px-3 py-1.5 bg-red-900/50 hover:bg-red-800 disabled:opacity-30 rounded-lg text-xs font-semibold text-red-400 hover:text-red-300 transition-colors"
                     >
                       {isActingThis && acting?.endsWith('suspend') ? <Spinner size="sm" /> : <Ban size={13} />}
-                      إيقاف
+                      {isAr ? 'إيقاف' : 'Suspend'}
                     </button>
 
                     {/* Features */}
@@ -770,7 +775,7 @@ export default function SuperAdminPage() {
                       className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-700 hover:bg-brand-700 disabled:opacity-30 rounded-lg text-xs font-semibold text-slate-300 hover:text-white transition-colors"
                     >
                       <Sliders size={13} />
-                      الميزات
+                      {isAr ? 'الميزات' : 'Features'}
                     </button>
 
                     {/* Wipe — trial only */}
@@ -781,7 +786,7 @@ export default function SuperAdminPage() {
                         className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-800 hover:bg-red-900/60 border border-slate-700 hover:border-red-700 disabled:opacity-30 rounded-lg text-xs font-semibold text-slate-400 hover:text-red-400 transition-colors"
                       >
                         <Trash2 size={13} />
-                        تصفير
+                        {isAr ? 'تصفير' : 'Reset'}
                       </button>
                     )}
                   </div>
@@ -789,7 +794,7 @@ export default function SuperAdminPage() {
                   {/* Max-users inline editor */}
                   <div className="flex items-center gap-2 pt-1 border-t border-slate-700/50">
                     <UserPlus size={13} className="text-slate-500 flex-shrink-0" />
-                    <span className="text-[11px] text-slate-500">الحد الأقصى للمستخدمين:</span>
+                    <span className="text-[11px] text-slate-500">{isAr ? 'الحد الأقصى للمستخدمين:' : 'Maximum users:'}</span>
                     <input
                       type="number"
                       min={1}
@@ -804,7 +809,7 @@ export default function SuperAdminPage() {
                       disabled={!!acting || !maxUsersEdits[agency.id]}
                       className="px-3 py-1 bg-slate-700 hover:bg-slate-600 disabled:opacity-30 rounded-lg text-[11px] font-semibold text-slate-300 transition-colors"
                     >
-                      {isActingThis && acting?.endsWith('set_max_users') ? <Spinner size="sm" /> : 'تعيين'}
+                      {isActingThis && acting?.endsWith('set_max_users') ? <Spinner size="sm" /> : (isAr ? 'تعيين' : 'Set')}
                     </button>
                   </div>
 
@@ -816,7 +821,7 @@ export default function SuperAdminPage() {
       )}
 
       <p className="text-center text-xs text-slate-700 mt-8">
-        مسارات ERP — Super Admin Panel · {agencies.length} وكالة مسجلة
+        {isAr ? `لوحة إدارة مسارات · ${agencies.length} وكالة مسجلة` : `Masarat administration · ${agencies.length} registered agencies`}
       </p>
     </div>
   );

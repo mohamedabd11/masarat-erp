@@ -54,6 +54,13 @@ const MEMBER_STATUS: Record<string, { ar: string; en: string; cls: string }> = {
   cancelled:  { ar: 'ملغي',   en: 'Cancelled',  cls: 'bg-red-100    text-red-600'   },
 };
 
+const ROOM_TYPE: Record<string, { ar: string; en: string }> = {
+  single: { ar: 'فردي', en: 'Single' },
+  double: { ar: 'مزدوج', en: 'Double' },
+  triple: { ar: 'ثلاثي', en: 'Triple' },
+  quad: { ar: 'رباعي', en: 'Quad' },
+};
+
 const TRIP_STATUS: Record<string, { ar: string; en: string; cls: string; nextStatuses: string[] }> = {
   planning:  { ar: 'تخطيط',  en: 'Planning',  cls: 'bg-slate-100  text-slate-700',   nextStatuses: ['open', 'cancelled'] },
   open:      { ar: 'مفتوح',  en: 'Open',       cls: 'bg-blue-100   text-blue-700',    nextStatuses: ['closed', 'cancelled'] },
@@ -119,10 +126,7 @@ function AddMemberModal({ tripId, isAr, onClose, onAdded }: AddMemberModalProps)
   const visaOpts = Object.entries(VISA_STATUS).map(([k, v]) => ({ value: k, label: isAr ? v.ar : v.en }));
   const roomOpts = [
     { value: '',       label: isAr ? 'بدون تحديد' : 'Not specified' },
-    { value: 'single', label: isAr ? 'فردي' : 'Single' },
-    { value: 'double', label: isAr ? 'مزدوج' : 'Double' },
-    { value: 'triple', label: isAr ? 'ثلاثي' : 'Triple' },
-    { value: 'quad',   label: isAr ? 'رباعي' : 'Quad' },
+    ...Object.entries(ROOM_TYPE).map(([value, label]) => ({ value, label: isAr ? label.ar : label.en })),
   ];
 
   return (
@@ -544,8 +548,7 @@ export function GroupTripDetailClient({ locale, tripId }: { locale: string; trip
                         </td>
                         <td className="py-2.5 px-2 text-slate-400 font-mono text-xs">{idx + 1}</td>
                         <td className="py-2.5 px-2">
-                          <p className="font-medium text-slate-900">{m.nameAr}</p>
-                          {m.nameEn && <p className="text-xs text-slate-400">{m.nameEn}</p>}
+                          <p className="font-medium text-slate-900">{isAr ? m.nameAr : (m.nameEn || m.nameAr)}</p>
                           {m.phone && (
                             <p className="text-xs text-slate-400 flex items-center gap-1 mt-0.5">
                               <Phone size={9} />{m.phone}
@@ -574,7 +577,7 @@ export function GroupTripDetailClient({ locale, tripId }: { locale: string; trip
                         </td>
                         <td className="py-2.5 px-2 hidden md:table-cell">
                           {m.roomType
-                            ? <span className="text-xs text-slate-600">{m.roomType}</span>
+                            ? <span className="text-xs text-slate-600">{ROOM_TYPE[m.roomType] ? (isAr ? ROOM_TYPE[m.roomType]!.ar : ROOM_TYPE[m.roomType]!.en) : m.roomType}</span>
                             : <span className="text-slate-300 text-xs">—</span>}
                         </td>
                         <td className="py-2.5 px-2">

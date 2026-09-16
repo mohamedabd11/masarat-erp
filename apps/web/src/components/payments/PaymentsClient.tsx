@@ -151,7 +151,7 @@ export function PaymentsClient({ locale }: PaymentsClientProps) {
 
       <Card>
         <div className="flex items-center justify-between mb-4">
-          <h2 className="text-sm font-bold text-slate-900">{isAr ? 'تقرير تقادم الديون (Aging Report)' : 'Aging Report — Outstanding by Age'}</h2>
+          <h2 className="text-sm font-bold text-slate-900">{isAr ? 'تقرير تقادم الديون' : 'Aging Report — Outstanding by Age'}</h2>
           <span className="text-xs text-slate-400">{isAr ? 'المبالغ المستحقة حسب عمر الدين' : 'Outstanding balances by age'}</span>
         </div>
         <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">

@@ -48,7 +48,7 @@ export default function HelpPage() {
           </p>
         </div>
         <div className="text-white/70 group-hover:text-white transition-colors text-2xl">
-          ←
+          {isAr ? '←' : '→'}
         </div>
       </a>
 
@@ -104,12 +104,6 @@ export default function HelpPage() {
         </div>
       </a>
 
-      {/* Footer note */}
-      <p className="text-xs text-slate-400 text-center pb-2">
-        {isAr
-          ? 'سيتم إضافة قنوات دعم إضافية قريباً'
-          : 'Additional support channels coming soon'}
-      </p>
     </div>
   );
 }

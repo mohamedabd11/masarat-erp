@@ -748,10 +748,9 @@ function NewBookingContent() {
                       {selectedCustomer.nameAr[0] ?? '؟'}
                     </div>
                     <div className="flex-1 min-w-0">
-                      <p className="text-sm font-bold text-slate-900 truncate">{selectedCustomer.nameAr}</p>
-                      {selectedCustomer.nameEn && (
-                        <p className="text-xs text-slate-400 truncate">{selectedCustomer.nameEn}</p>
-                      )}
+                      <p className="text-sm font-bold text-slate-900 truncate">
+                        {isAr ? selectedCustomer.nameAr : (selectedCustomer.nameEn || selectedCustomer.nameAr)}
+                      </p>
                       <p className="text-xs text-slate-500" dir="ltr">{selectedCustomer.phone}</p>
                     </div>
                     <button
@@ -839,8 +838,8 @@ function NewBookingContent() {
               </CardHeader>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 {[
-                  { value: 'agent',     titleAr: 'وكيل (Agent)',     descAr: 'يُسجَّل صافي الإيراد — العمولة والرسوم فقط',     titleEn: 'Agent Model',     descEn: 'Net revenue — commission & fees only (IFRS 15)' },
-                  { value: 'principal', titleAr: 'مالك (Principal)',  descAr: 'يُسجَّل الإيراد الإجمالي — سعر البيع كاملاً',   titleEn: 'Principal Model', descEn: 'Gross revenue — full selling price (IFRS 15)' },
+                  { value: 'agent',     titleAr: 'وكيل',  descAr: 'يُسجَّل صافي الإيراد — العمولة والرسوم فقط',   titleEn: 'Agent Model',     descEn: 'Net revenue — commission and fees only (IFRS 15)' },
+                  { value: 'principal', titleAr: 'أصيل',  descAr: 'يُسجَّل الإيراد الإجمالي — سعر البيع كاملاً', titleEn: 'Principal Model', descEn: 'Gross revenue — full selling price (IFRS 15)' },
                 ].map(m => {
                   const sel = watch('revenueModel') === m.value;
                   return (

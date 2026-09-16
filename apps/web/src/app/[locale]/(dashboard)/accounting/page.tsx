@@ -944,6 +944,13 @@ function BspTab({ isAr, agencyId }: { isAr: boolean; agencyId: string | null }) 
     disputed: 'bg-purple-100 text-purple-700',
   }[s] ?? 'bg-slate-100 text-slate-600');
 
+  const statusLabel = (status: string) => ({
+    pending: isAr ? 'معلق' : 'Pending',
+    paid: isAr ? 'مدفوع' : 'Paid',
+    overdue: isAr ? 'متأخر' : 'Overdue',
+    disputed: isAr ? 'محل اعتراض' : 'Disputed',
+  }[status] ?? status);
+
   if (loading) return (
     <div className="flex items-center justify-center py-20 text-slate-400 text-sm gap-2">
       <Loader2 size={18} className="animate-spin" />
@@ -1004,7 +1011,7 @@ function BspTab({ isAr, agencyId }: { isAr: boolean; agencyId: string | null }) 
                     <td className="px-4 py-3 text-slate-500">{b.dueDate}</td>
                     <td className="px-4 py-3">
                       <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-medium ${statusColor(b.status)}`}>
-                        {b.status}
+                        {statusLabel(b.status)}
                       </span>
                     </td>
                   </tr>
@@ -1064,7 +1071,7 @@ function BspTab({ isAr, agencyId }: { isAr: boolean; agencyId: string | null }) 
                     <td className="px-4 py-3 text-slate-600 max-w-[200px] truncate">{a.reason}</td>
                     <td className="px-4 py-3">
                       <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-medium ${statusColor(a.status)}`}>
-                        {a.status}
+                        {statusLabel(a.status)}
                       </span>
                     </td>
                   </tr>

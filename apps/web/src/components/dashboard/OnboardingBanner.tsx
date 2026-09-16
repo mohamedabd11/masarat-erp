@@ -79,7 +79,7 @@ export function OnboardingBanner() {
             en:     'Configure Invoice Type',
             descAr: ag.isVatRegistered
               ? 'أنت مسجّل بضريبة القيمة المضافة — تأكد من الرقم الضريبي'
-              : 'اختر: فاتورة تجارية (سجل تجاري) أو فاتورة ضريبية (VAT)',
+              : 'اختر بين الفاتورة التجارية والفاتورة الضريبية',
             descEn: ag.isVatRegistered
               ? 'VAT registered — verify your VAT number is entered'
               : 'Choose: commercial invoice (CR only) or tax invoice (VAT)',

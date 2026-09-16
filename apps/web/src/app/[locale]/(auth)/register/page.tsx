@@ -18,27 +18,35 @@ import {
 
 // ─── Validation ───────────────────────────────────────────────────────────────
 
-const schema = z.object({
-  agencyNameAr: z.string().min(2, 'اسم الوكالة مطلوب (حرفان على الأقل)'),
-  agencyNameEn: z.string().optional(),
-  adminNameAr:  z.string().min(2, 'اسم المسؤول مطلوب'),
-  adminNameEn:  z.string().optional(),
-  adminEmail:   z.string().email('صيغة البريد الإلكتروني غير صحيحة'),
-  adminMobile:  z.string().optional(),
-  password:     z.string().min(8, 'كلمة المرور يجب أن تكون 8 أحرف على الأقل'),
-  confirmPassword: z.string(),
-}).refine(d => d.password === d.confirmPassword, {
-  message: 'كلمتا المرور غير متطابقتين',
-  path: ['confirmPassword'],
-});
-
-type FormValues = z.infer<typeof schema>;
+interface FormValues {
+  agencyNameAr: string;
+  agencyNameEn?: string;
+  adminNameAr: string;
+  adminNameEn?: string;
+  adminEmail: string;
+  adminMobile?: string;
+  password: string;
+  confirmPassword: string;
+}
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function RegisterPage() {
   const locale = useLocale();
   const isAr   = locale === 'ar';
+  const schema: z.ZodType<FormValues> = z.object({
+    agencyNameAr: z.string().min(2, isAr ? 'اسم الوكالة مطلوب (حرفان على الأقل)' : 'Agency name must contain at least 2 characters'),
+    agencyNameEn: z.string().optional(),
+    adminNameAr:  z.string().min(2, isAr ? 'اسم المسؤول مطلوب' : 'Administrator name is required'),
+    adminNameEn:  z.string().optional(),
+    adminEmail:   z.string().email(isAr ? 'صيغة البريد الإلكتروني غير صحيحة' : 'Enter a valid email address'),
+    adminMobile:  z.string().optional(),
+    password:     z.string().min(8, isAr ? 'كلمة المرور يجب أن تكون 8 أحرف على الأقل' : 'Password must contain at least 8 characters'),
+    confirmPassword: z.string(),
+  }).refine(d => d.password === d.confirmPassword, {
+    message: isAr ? 'كلمتا المرور غير متطابقتين' : 'Passwords do not match',
+    path: ['confirmPassword'],
+  });
 
   const [step,        setStep]        = useState<'form' | 'success'>('form');
   const [serverError, setServerError] = useState('');
@@ -146,7 +154,7 @@ export default function RegisterPage() {
           </p>
           <div className="space-y-3 bg-slate-50 border border-slate-200 rounded-xl p-4">
             <Input
-              label={isAr ? 'اسم الوكالة *' : 'Agency Name *'}
+              label={isAr ? 'اسم الوكالة بالعربية *' : 'Agency Name in Arabic *'}
               startIcon={<Building2 size={16} />}
               dir="rtl"
               error={errors.agencyNameAr?.message}
@@ -154,10 +162,10 @@ export default function RegisterPage() {
             />
             {showEnglish ? (
               <Input
-                label={isAr ? 'اسم الوكالة (إنجليزي)' : 'Agency Name (English)'}
+                label={isAr ? 'اسم الوكالة بالإنجليزية' : 'Agency Name in English'}
                 startIcon={<Globe size={16} />}
                 dir="ltr"
-                placeholder="Optional"
+                placeholder={isAr ? 'اختياري' : 'Optional'}
                 error={errors.agencyNameEn?.message}
                 {...register('agencyNameEn')}
               />
@@ -181,7 +189,7 @@ export default function RegisterPage() {
           </p>
           <div className="space-y-3 bg-slate-50 border border-slate-200 rounded-xl p-4">
             <Input
-              label={isAr ? 'الاسم الكامل *' : 'Full Name *'}
+              label={isAr ? 'اسم المسؤول بالعربية *' : 'Administrator Name in Arabic *'}
               startIcon={<User size={16} />}
               dir="rtl"
               error={errors.adminNameAr?.message}
@@ -206,7 +214,7 @@ export default function RegisterPage() {
             />
             {showEnglish && (
               <Input
-                label={isAr ? 'الاسم (إنجليزي — اختياري)' : 'Name (English — optional)'}
+                label={isAr ? 'اسم المسؤول بالإنجليزية (اختياري)' : 'Administrator Name in English (optional)'}
                 startIcon={<User size={16} />}
                 dir="ltr"
                 {...register('adminNameEn')}

@@ -1,7 +1,9 @@
 import type { ReactNode } from 'react';
 import { MasaratLogo } from '@/components/ui/MasaratLogo';
 
-export default function AuthLayout({ children }: { children: ReactNode }) {
+export default function AuthLayout({ children, params: { locale } }: { children: ReactNode; params: { locale: string } }) {
+  const isAr = locale === 'ar';
+
   return (
     <div className="min-h-screen flex">
       {/* Left panel — calm brand panel (hidden on mobile). Marketing lives on the
@@ -17,23 +19,24 @@ export default function AuthLayout({ children }: { children: ReactNode }) {
             <MasaratLogo size={120} variant="full" />
           </div>
 
-          <p className="text-lg text-brand-100">نظام إدارة وكالات السفر</p>
-          <p className="text-brand-300 text-sm mt-1">Travel Agency Management System</p>
+          <p className="text-lg text-brand-100">
+            {isAr ? 'نظام إدارة وكالات السفر' : 'Travel Agency Management System'}
+          </p>
 
           {/* Minimal trust row — not a marketing grid */}
           <div className="mt-10 flex items-center justify-center gap-5 text-sm text-brand-100/90">
-            <span>محاسبة IFRS</span>
+            <span>{isAr ? 'محاسبة متكاملة' : 'Integrated accounting'}</span>
             <span className="w-1 h-1 rounded-full bg-white/40" />
-            <span>ضريبة VAT</span>
+            <span>{isAr ? 'ضريبة القيمة المضافة' : 'VAT support'}</span>
             <span className="w-1 h-1 rounded-full bg-white/40" />
-            <span>عربي / English</span>
+            <span>{isAr ? 'العربية والإنجليزية' : 'Arabic and English'}</span>
           </div>
 
           <a
-            href="/"
+            href={`/${locale}`}
             className="mt-10 inline-block text-sm text-white/80 hover:text-white underline underline-offset-4 transition-colors"
           >
-            ← تعرّف على النظام
+            {isAr ? '← تعرّف على النظام' : 'Learn about Masarat →'}
           </a>
         </div>
       </div>

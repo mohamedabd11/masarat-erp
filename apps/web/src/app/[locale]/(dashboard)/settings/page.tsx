@@ -68,7 +68,7 @@ const ALL_TABS: Array<{ key: Tab; ar: string; en: string; icon: React.ReactNode;
   { key: 'users',         ar: 'إدارة المستخدمين', en: 'Users',          icon: <Users size={16} /> },
   { key: 'modules',       ar: 'الوحدات',          en: 'Modules',        icon: <Package size={16} /> },
   { key: 'service_types', ar: 'أنواع الخدمات',    en: 'Service Types',  icon: <Layers size={16} /> },
-  { key: 'zatca',         ar: 'ZATCA',            en: 'ZATCA',          icon: <Shield size={16} />, vatOnly: true },
+  { key: 'zatca',         ar: 'الفوترة الإلكترونية', en: 'E-Invoicing', icon: <Shield size={16} />, vatOnly: true },
   { key: 'billing',       ar: 'الاشتراك',         en: 'Billing',        icon: <CreditCard size={16} /> },
   { key: 'providers',     ar: 'مزودو GDS',        en: 'GDS Providers',  icon: <Server size={16} /> },
   { key: 'monitoring',    ar: 'المراقبة',          en: 'Monitoring',     icon: <Activity size={16} /> },
@@ -939,7 +939,7 @@ export default function SettingsPage() {
                     <div className="flex items-center justify-between gap-4 mb-3">
                       <div>
                         <p className="text-sm font-semibold text-slate-800">
-                          {isAr ? 'تسجيل ضريبة القيمة المضافة (VAT)' : 'VAT Registration'}
+                          {isAr ? 'التسجيل في ضريبة القيمة المضافة' : 'VAT Registration'}
                         </p>
                         <p className="text-xs text-slate-500 mt-0.5">
                           {isAr
@@ -982,10 +982,10 @@ export default function SettingsPage() {
                         </div>
                         <ul className="space-y-1">
                           {[
-                            isAr ? '✓ فاتورة تجارية بدون VAT' : '✓ Commercial invoice (no VAT)',
+                            isAr ? '✓ فاتورة تجارية بدون ضريبة قيمة مضافة' : '✓ Commercial invoice without VAT',
                             isAr ? '✓ رقم السجل التجاري' : '✓ Commercial registration number',
                             isAr ? '✓ قيد محاسبي مبسّط' : '✓ Simplified journal entry',
-                            isAr ? '✗ لا QR code زاتكا' : '✗ No ZATCA QR code',
+                            isAr ? '✗ لا يتضمن رمز تحقق ضريبي' : '✗ No tax verification QR code',
                             isAr ? '✗ لا تقرير ضريبي' : '✗ No tax report',
                           ].map(f => (
                             <li key={f} className={cn(
@@ -1019,11 +1019,10 @@ export default function SettingsPage() {
                         <ul className="space-y-1">
                           {[
                             { text: isAr ? '✓ فاتورة ضريبية رسمية'                      : '✓ Official tax invoice',          cls: 'text-slate-600' },
-                            { text: isAr ? '✓ QR code المرحلة الأولى (TLV)'             : '✓ QR code Phase 1 (TLV)',          cls: 'text-slate-600' },
+                            { text: isAr ? '✓ رمز تحقق ضريبي على الفاتورة'              : '✓ Tax verification QR code',      cls: 'text-slate-600' },
                             { text: isAr ? '✓ قيد محاسبي مع ضريبة'                      : '✓ Journal entry with VAT',         cls: 'text-slate-600' },
                             { text: isAr ? '✓ تقرير ضريبة القيمة المضافة'               : '✓ VAT report',                    cls: 'text-slate-600' },
                             { text: isAr ? '✓ السجل التجاري + الرقم الضريبي'            : '✓ CR + VAT numbers',              cls: 'text-slate-600' },
-                            { text: isAr ? '— زاتكا المرحلة الثانية: قريباً'            : '— ZATCA Phase 2: coming soon',    cls: 'text-amber-600 font-medium' },
                           ].map(f => (
                             <li key={f.text} className={`text-[11px] ${f.cls}`}>{f.text}</li>
                           ))}
@@ -1037,7 +1036,7 @@ export default function SettingsPage() {
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   {isVatRegistered && (
                     <Input
-                      label={isAr ? 'الرقم الضريبي (VAT)' : 'VAT Number'}
+                      label={isAr ? 'الرقم الضريبي' : 'VAT Number'}
                       value={vatNumber}
                       onChange={e => setVatNumber(e.target.value)}
                       hint={isAr ? '15 خانة تبدأ بـ 300' : '15 digits starting with 300'}
@@ -1803,9 +1802,8 @@ export default function SettingsPage() {
                             <Layers size={16} />
                           </div>
                           <div className="flex-1 min-w-0">
-                            <p className="text-sm font-medium text-slate-900">{ct.nameAr}</p>
+                            <p className="text-sm font-medium text-slate-900">{isAr ? ct.nameAr : (ct.nameEn || ct.nameAr)}</p>
                             <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
-                              {ct.nameEn && <p className="text-xs text-slate-400">{ct.nameEn}</p>}
                               <span className={cn(
                                 'text-[10px] font-bold px-1.5 py-0.5 rounded-full',
                                 (ct.revenueMode ?? 'principal') === 'agent'
@@ -1821,7 +1819,7 @@ export default function SettingsPage() {
                           <ToggleSwitch
                             checked={ct.isActive}
                             onChange={() => handleToggleServiceType(ct.id)}
-                            label={`Toggle ${ct.nameEn}`}
+                            label={isAr ? `تبديل حالة ${ct.nameAr}` : `Toggle ${ct.nameEn || ct.nameAr}`}
                           />
                           <button
                             onClick={() => {
@@ -1847,7 +1845,7 @@ export default function SettingsPage() {
             </div>
           )}
 
-          {/* ── ZATCA Phase 2 ───────────────────────────────────────────── */}
+          {/* ── Electronic invoicing ───────────────────────────────────── */}
           {activeTab === 'zatca' && (
             <div className="space-y-5">
 
@@ -1856,7 +1854,7 @@ export default function SettingsPage() {
                 <CardHeader>
                   <CardTitle>
                     <Shield size={18} className="text-brand-600" />
-                    ZATCA {isAr ? 'المرحلة الثانية' : 'Phase 2'}
+                    {isAr ? 'الفوترة الإلكترونية — هيئة الزكاة والضريبة والجمارك' : 'E-Invoicing — ZATCA'}
                   </CardTitle>
                   <div className="flex items-center gap-2">
                     {loadingZatca ? (
@@ -1928,7 +1926,7 @@ export default function SettingsPage() {
                         <Shield size={16} className="text-blue-600 flex-shrink-0 mt-0.5" />
                         <div>
                           <p className="text-sm font-semibold text-blue-900">
-                            {isAr ? 'وضع الامتثال (Compliance Mode)' : 'Compliance Mode'}
+                            {isAr ? 'وضع اختبار الامتثال' : 'Compliance Testing'}
                           </p>
                           <p className="text-xs text-blue-700 mt-1 leading-relaxed">
                             {isAr
@@ -1959,7 +1957,7 @@ export default function SettingsPage() {
               {(!zatcaStatusData || zatcaStatusData.status === 'not_started' || zatcaStatusData.status === 'error') && (
                 <Card>
                   <CardHeader>
-                    <CardTitle>{isAr ? 'ربط بـ ZATCA' : 'Connect to ZATCA'}</CardTitle>
+                    <CardTitle>{isAr ? 'ربط الفوترة الإلكترونية' : 'Connect E-Invoicing'}</CardTitle>
                   </CardHeader>
 
                   <div className="space-y-5">
@@ -1991,7 +1989,7 @@ export default function SettingsPage() {
 
                     {/* VAT number */}
                     <Input
-                      label={isAr ? 'الرقم الضريبي (VAT)' : 'VAT Number'}
+                      label={isAr ? 'الرقم الضريبي' : 'VAT Number'}
                       value={zatcaVatNumber}
                       onChange={e => setZatcaVatNumber(e.target.value)}
                       hint={isAr
@@ -2024,15 +2022,15 @@ export default function SettingsPage() {
                           [
                             {
                               value: 'simulation' as const,
-                              ar: 'اختبار (Simulation)',
+                              ar: 'اختبار',
                               en: 'Testing (Simulation)',
-                              descAr: 'للتجربة والتطوير — يُنصح للبدء',
+                              descAr: 'للتحقق من الإعداد قبل التفعيل الفعلي',
                               descEn: 'For testing & development — recommended to start',
                               safe: true,
                             },
                             {
                               value: 'production' as const,
-                              ar: 'إنتاج (Production)',
+                              ar: 'إنتاج',
                               en: 'Production',
                               descAr: 'للفواتير الحقيقية — قرار نهائي',
                               descEn: 'For real invoices — final decision',
@@ -2080,7 +2078,7 @@ export default function SettingsPage() {
                     {/* OTP input */}
                     <div>
                       <Input
-                        label={isAr ? 'رمز OTP من بوابة فاتورة' : 'OTP from Fatoora Portal'}
+                        label={isAr ? 'رمز التحقق من بوابة فاتورة' : 'OTP from Fatoora Portal'}
                         value={zatcaOtp}
                         onChange={e => setZatcaOtp(e.target.value)}
                         required
@@ -2124,7 +2122,7 @@ export default function SettingsPage() {
                         <Shield size={15} />
                         {zatcaSubmitting
                           ? (isAr ? 'جارٍ الربط...' : 'Connecting...')
-                          : (isAr ? 'ربط بـ ZATCA' : 'Connect to ZATCA')}
+                          : (isAr ? 'ربط الفوترة الإلكترونية' : 'Connect E-Invoicing')}
                       </Button>
                     </div>
                   </div>
@@ -2138,7 +2136,7 @@ export default function SettingsPage() {
                     <AlertTriangle size={16} className="text-amber-600 flex-shrink-0 mt-0.5" />
                     <div>
                       <p className="text-sm font-semibold text-amber-900">
-                        {isAr ? 'في انتظار تأكيد OTP' : 'Waiting for OTP Confirmation'}
+                        {isAr ? 'في انتظار تأكيد رمز التحقق' : 'Waiting for OTP Confirmation'}
                       </p>
                       <p className="text-xs text-amber-700 mt-1">
                         {isAr
@@ -2149,35 +2147,6 @@ export default function SettingsPage() {
                   </div>
                 </Card>
               )}
-
-              {/* ── Phase 1 vs Phase 2 info box ── */}
-              <div className="flex items-start gap-3 p-4 rounded-2xl bg-slate-50 border border-slate-200">
-                <div className="flex-1 min-w-0">
-                  <p className="text-xs font-semibold text-slate-700 mb-2">
-                    {isAr ? 'المرحلة الأولى مقابل المرحلة الثانية' : 'Phase 1 vs Phase 2'}
-                  </p>
-                  <div className="flex items-center gap-4 text-[11px] flex-wrap">
-                    <span className="flex items-center gap-1.5 text-emerald-700">
-                      <CheckCircle2 size={11} className="text-emerald-500" />
-                      {isAr ? 'المرحلة الأولى (ورقية): مدعومة' : 'Phase 1 (paper): supported'}
-                    </span>
-                    <span className={cn(
-                      'flex items-center gap-1.5',
-                      zatcaStatusData?.isReady ? 'text-emerald-700' : 'text-slate-400',
-                    )}>
-                      {zatcaStatusData?.isReady
-                        ? <CheckCircle2 size={11} className="text-emerald-500" />
-                        : <span className="w-2.5 h-2.5 rounded-full bg-slate-300 inline-block" />}
-                      {isAr ? 'المرحلة الثانية (إلكترونية)' : 'Phase 2 (e-invoicing)'}
-                      {!zatcaStatusData?.isReady && (
-                        <span className="text-slate-400">
-                          {isAr ? ' — يتطلب الربط' : ' — requires connection'}
-                        </span>
-                      )}
-                    </span>
-                  </div>
-                </div>
-              </div>
 
             </div>
           )}
@@ -2359,22 +2328,7 @@ export default function SettingsPage() {
                           className="w-full text-sm border border-slate-200 rounded-lg px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-brand-400"
                         >
                           <option value="amadeus">Amadeus</option>
-                          <option value="sabre">Sabre (قريباً)</option>
-                          <option value="galileo">Galileo (قريباً)</option>
-                          <option value="worldspan">Worldspan (قريباً)</option>
                         </select>
-                      </div>
-                    )}
-
-                    {/* Coming-soon notice for providers not yet integrated */}
-                    {providerForm.providerCode !== 'amadeus' && (
-                      <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
-                        <AlertTriangle size={16} className="mt-0.5 flex-shrink-0 text-amber-500" />
-                        <span>
-                          {isAr
-                            ? `${providerForm.providerCode.toUpperCase()} قيد التطوير — التكامل الكامل مع هذا المزود غير متاح بعد. المزود المدعوم حالياً هو Amadeus فقط.`
-                            : `${providerForm.providerCode.toUpperCase()} is not yet integrated — full GDS connectivity is under development. Only Amadeus is currently supported.`}
-                        </span>
                       </div>
                     )}
 
@@ -2395,19 +2349,19 @@ export default function SettingsPage() {
                       <>
                         <div>
                           <label className="block text-xs font-medium text-slate-600 mb-1">
-                            Client ID
+                            {isAr ? 'معرّف العميل' : 'Client ID'}
                             {editingProvider && <span className="text-slate-400 ms-1">({isAr ? 'اتركه فارغاً للإبقاء على القديم' : 'leave blank to keep current'})</span>}
                           </label>
                           <Input
                             value={providerForm.clientId}
                             onChange={e => setProviderForm(f => ({ ...f, clientId: e.target.value }))}
-                            placeholder="Client ID"
+                              placeholder={isAr ? 'معرّف العميل' : 'Client ID'}
                             dir="ltr"
                           />
                         </div>
                         <div>
                           <label className="block text-xs font-medium text-slate-600 mb-1">
-                            Client Secret
+                            {isAr ? 'مفتاح العميل' : 'Client Secret'}
                             {editingProvider && <span className="text-slate-400 ms-1">({isAr ? 'اتركه فارغاً للإبقاء على القديم' : 'leave blank to keep current'})</span>}
                           </label>
                           <div className="relative">
@@ -2415,7 +2369,7 @@ export default function SettingsPage() {
                               type={showSecret ? 'text' : 'password'}
                               value={providerForm.clientSecret}
                               onChange={e => setProviderForm(f => ({ ...f, clientSecret: e.target.value }))}
-                              placeholder="Client Secret"
+                              placeholder={isAr ? 'مفتاح العميل' : 'Client Secret'}
                               dir="ltr"
                               className="pe-10"
                             />
@@ -2438,8 +2392,8 @@ export default function SettingsPage() {
                             className="w-full text-sm border border-slate-200 rounded-lg px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-brand-400"
                             dir="ltr"
                           >
-                            <option value="test.api.amadeus.com">Test — test.api.amadeus.com</option>
-                            <option value="api.amadeus.com">Production — api.amadeus.com</option>
+                            <option value="test.api.amadeus.com">{isAr ? 'اختبار' : 'Test'} — test.api.amadeus.com</option>
+                            <option value="api.amadeus.com">{isAr ? 'إنتاج' : 'Production'} — api.amadeus.com</option>
                           </select>
                         </div>
                       </>
