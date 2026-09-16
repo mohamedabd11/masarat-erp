@@ -2,7 +2,7 @@ import { Badge } from './Badge';
 
 type BookingStatus = 'draft' | 'pending_approval' | 'confirmed' | 'ticketed' | 'in_progress' | 'completed' | 'cancelled' | 'refunded';
 type InvoiceStatus = 'draft' | 'pending' | 'issued' | 'partial' | 'paid' | 'overdue' | 'cancelled' | 'refunded' | 'credit_noted';
-type PaymentStatus = 'unpaid' | 'partial' | 'fully_paid' | 'refunded';
+type PaymentStatus = 'unpaid' | 'partial' | 'fully_paid' | 'settled' | 'refunded';
 
 const bookingVariants: Record<BookingStatus, 'neutral' | 'warning' | 'success' | 'info' | 'default' | 'danger'> = {
   draft:            'neutral',
@@ -31,6 +31,7 @@ const paymentVariants: Record<PaymentStatus, 'neutral' | 'warning' | 'success' |
   unpaid:     'danger',
   partial:    'warning',
   fully_paid: 'success',
+  settled:    'info',
   refunded:   'info',
 };
 
@@ -61,6 +62,7 @@ const paymentLabels: Record<PaymentStatus, { ar: string; en: string }> = {
   unpaid:     { ar: 'غير مدفوع',    en: 'Unpaid' },
   partial:    { ar: 'مدفوع جزئياً', en: 'Partial' },
   fully_paid: { ar: 'مدفوع بالكامل', en: 'Paid' },
+  settled:    { ar: 'تمت التسوية',  en: 'Settled' },
   refunded:   { ar: 'مسترجع',       en: 'Refunded' },
 };
 

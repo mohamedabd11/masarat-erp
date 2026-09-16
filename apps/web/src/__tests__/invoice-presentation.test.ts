@@ -3,6 +3,7 @@ import {
   collectibleBalance,
   invoiceDocumentLabel,
   invoiceOutstanding,
+  invoiceSettlementStatus,
   signedInvoiceTotal,
   summarizeInvoiceDocuments,
   vatCategoryLabel,
@@ -41,6 +42,24 @@ describe('invoice presentation after refunds', () => {
       paidHalalas: 60_000,
       creditedHalalas: 40_000,
     })).toBe(0);
+  });
+
+  it('distinguishes cash payment from settlement by credit note', () => {
+    expect(invoiceSettlementStatus({
+      status: 'paid', totalHalalas: 100_000, paidHalalas: 100_000, creditedHalalas: 0,
+    })).toBe('fully_paid');
+    expect(invoiceSettlementStatus({
+      status: 'paid', totalHalalas: 100_000, paidHalalas: 60_000, creditedHalalas: 40_000,
+    })).toBe('settled');
+    expect(invoiceSettlementStatus({
+      status: 'partial', totalHalalas: 100_000, paidHalalas: 30_000, creditedHalalas: 20_000,
+    })).toBe('partial');
+    expect(invoiceSettlementStatus({
+      status: 'credit_noted', totalHalalas: 100_000, paidHalalas: 0, creditedHalalas: 100_000,
+    })).toBe('settled');
+    expect(invoiceSettlementStatus({
+      status: 'refunded', totalHalalas: 100_000, paidHalalas: 0, creditedHalalas: 100_000,
+    })).toBe('refunded');
   });
 });
 

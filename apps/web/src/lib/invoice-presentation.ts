@@ -78,6 +78,21 @@ export function collectibleBalance(
   return Math.max(0, invoice.totalHalalas - invoice.paidHalalas - (invoice.creditedHalalas ?? 0));
 }
 
+export type SettlementStatus = 'unpaid' | 'partial' | 'fully_paid' | 'settled' | 'refunded';
+
+export function invoiceSettlementStatus(
+  invoice: Pick<InvoicePresentationInput, 'status' | 'totalHalalas' | 'paidHalalas' | 'creditedHalalas'>,
+  forceRefunded = false,
+): SettlementStatus {
+  if (forceRefunded || invoice.status === 'refunded' || invoice.status === 'cancelled') return 'refunded';
+
+  const credited = invoice.creditedHalalas ?? 0;
+  const settled = invoice.paidHalalas + credited;
+  if (settled <= 0 || invoice.totalHalalas <= 0) return 'unpaid';
+  if (collectibleBalance(invoice) > 0) return 'partial';
+  return credited > 0 ? 'settled' : 'fully_paid';
+}
+
 export function invoiceOutstanding(invoice: InvoicePresentationInput): number {
   if (isCreditNote(invoice) || NON_RECEIVABLE_STATUSES.has(invoice.status)) return 0;
   if (!['issued', 'partial', 'overdue'].includes(invoice.status)) return 0;

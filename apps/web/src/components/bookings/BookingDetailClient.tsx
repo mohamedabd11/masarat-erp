@@ -251,6 +251,7 @@ export function BookingDetailClient({ locale, bookingId }: BookingDetailClientPr
   const isCompleted = booking.status === 'completed';
   const isCancelled = booking.status === 'cancelled';
   const isPaid      = financialTotalHalalas > 0 && outstandingHalalas === 0;
+  const isSettledWithCredit = isPaid && creditedHalalas > 0 && !isCancelled;
   const isPartial   = paidHalalas + creditedHalalas > 0 && !isPaid;
   const hasInvoice  = !!existingInvoiceId;
 
@@ -268,8 +269,8 @@ export function BookingDetailClient({ locale, bookingId }: BookingDetailClientPr
       status:  hasInvoice ? 'done' : 'current',
     },
     {
-      labelAr: isPaid ? 'مدفوع بالكامل' : isPartial ? 'دفع جزئي' : 'الدفع',
-      labelEn: isPaid ? 'Fully Paid'    : isPartial ? 'Partial'   : 'Payment',
+      labelAr: isSettledWithCredit ? 'تمت التسوية' : isPaid ? 'مدفوع بالكامل' : isPartial ? 'دفع جزئي' : 'الدفع',
+      labelEn: isSettledWithCredit ? 'Settled'      : isPaid ? 'Fully Paid'    : isPartial ? 'Partial'   : 'Payment',
       status:  isPaid ? 'done' : isPartial ? 'partial' : hasInvoice ? 'current' : 'pending',
       subAr:   isPartial
         ? `${formatCurrency(paidHalalas + creditedHalalas, 'ar-SA')} / ${formatCurrency(financialTotalHalalas, 'ar-SA')}`

@@ -14,7 +14,7 @@ import {
   FileX, AlertTriangle,
 } from 'lucide-react';
 import { ProcessPaymentModal } from '@/components/bookings/ProcessPaymentModal';
-import { invoiceOutstanding, isCreditNote as isCreditNoteDocument, vatCategoryLabel } from '@/lib/invoice-presentation';
+import { invoiceOutstanding, invoiceSettlementStatus, isCreditNote as isCreditNoteDocument, vatCategoryLabel } from '@/lib/invoice-presentation';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -173,8 +173,10 @@ export function InvoiceDetailClient({ locale, invoiceId }: InvoiceDetailClientPr
   const sellerNameEn = invoice.sellerNameEn ?? '';
 
   const grandTotal = invoice.totalHalalas ?? 0;
+  const creditedTotal = invoice.creditedHalalas ?? 0;
   const subtotalExclVat = invoice.subtotalHalalas ?? Math.round(grandTotal / 1.15);
   const totalVat = invoice.vatHalalas ?? (grandTotal - subtotalExclVat);
+  const settlementStatus = invoiceSettlementStatus(invoice);
 
   // ── Line items: use stored items or create synthetic line ─────────────────
   const lines: InvoiceLine[] = (invoice.items && invoice.items.length > 0)
@@ -258,7 +260,10 @@ export function InvoiceDetailClient({ locale, invoiceId }: InvoiceDetailClientPr
             {/* Number + status badges */}
             <div className="flex flex-wrap items-center gap-3">
               <span className="font-mono text-lg font-bold text-slate-900">{invoice.invoiceNumber}</span>
-              <InvoiceStatusBadge status={(invoice.paymentStatus ?? invoice.status) as never} locale={locale} />
+              <InvoiceStatusBadge
+                status={(!isCreditNote && settlementStatus === 'settled') ? 'settled' : (invoice.paymentStatus ?? invoice.status)}
+                locale={locale}
+              />
               {isCreditNote && (
                 <span className="text-[11px] bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full font-semibold">
                   {isAr ? 'إشعار دائن' : 'Credit Note'}
@@ -540,6 +545,12 @@ export function InvoiceDetailClient({ locale, invoiceId }: InvoiceDetailClientPr
                   <span className="tabular-nums">{formatCurrency(amountPaid, fmtLocale)}</span>
                 </div>
               )}
+              {creditedTotal > 0 && !isCreditNote && (
+                <div className="flex items-center justify-between text-sm text-purple-700 font-medium">
+                  <span>{isAr ? 'الإشعارات الدائنة' : 'Credit Notes'}</span>
+                  <span className="tabular-nums">{formatCurrency(creditedTotal, fmtLocale)}</span>
+                </div>
+              )}
               {amountDue > 0 && (
                 <div className="flex items-center justify-between text-sm text-red-600 font-bold">
                   <span>{isAr ? 'المتبقي' : 'Balance Due'}</span>
@@ -564,7 +575,9 @@ export function InvoiceDetailClient({ locale, invoiceId }: InvoiceDetailClientPr
               ) : grandTotal > 0 ? (
                 <div className="mt-3 flex items-center justify-center gap-2 text-sm text-emerald-700 font-medium">
                   <CheckCircle2 size={15} />
-                  {isAr ? 'مدفوعة بالكامل' : 'Fully Paid'}
+                  {creditedTotal > 0
+                    ? (isAr ? 'تمت التسوية بالكامل' : 'Fully Settled')
+                    : (isAr ? 'مدفوعة بالكامل' : 'Fully Paid')}
                 </div>
               ) : null}
             </div>
@@ -581,7 +594,7 @@ export function InvoiceDetailClient({ locale, invoiceId }: InvoiceDetailClientPr
           remainingDueHalalas={amountDue}
           onClose={() => setShowPayment(false)}
           onSuccess={(remaining) => {
-            setAmountPaid(grandTotal - remaining);
+            setAmountPaid(Math.max(0, grandTotal - creditedTotal - remaining));
             setAmountDue(remaining);
           }}
         />

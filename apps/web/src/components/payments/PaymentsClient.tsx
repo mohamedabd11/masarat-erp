@@ -4,7 +4,7 @@ import { useEffect, useState, useMemo } from 'react';
 import { useFirestoreBookings, type BookingListItem } from '@/hooks/useFirestoreBookings';
 import { useAuth } from '@masarat/firebase';
 import { apiFetch } from '@/lib/api-client';
-import { collectibleBalance } from '@/lib/invoice-presentation';
+import { collectibleBalance, invoiceSettlementStatus } from '@/lib/invoice-presentation';
 import { Card } from '@/components/ui/Card';
 import { Spinner } from '@/components/ui/Spinner';
 import { EmptyState } from '@/components/ui/EmptyState';
@@ -28,11 +28,14 @@ function paymentAmounts(b: BookingListItem) {
 }
 
 function paymentStatus(b: BookingListItem): string {
-  if (b.status === 'cancelled' || b.status === 'refunded' || b.invoiceStatus === 'refunded' || b.invoiceStatus === 'credit_noted') return 'refunded';
-  const { paid, credited, due } = paymentAmounts(b);
-  if (paid + credited <= 0) return 'unpaid';
-  if (due === 0) return 'paid';
-  return 'partial';
+  const { total, paid, credited } = paymentAmounts(b);
+  const status = invoiceSettlementStatus({
+    status: b.invoiceStatus ?? b.status,
+    totalHalalas: total,
+    paidHalalas: paid,
+    creditedHalalas: credited,
+  }, b.status === 'cancelled' || b.status === 'refunded' || b.invoiceStatus === 'refunded');
+  return status === 'fully_paid' ? 'paid' : status;
 }
 
 function PaymentStatusBadge({ status, isAr }: { status: string; isAr: boolean }) {
@@ -40,6 +43,7 @@ function PaymentStatusBadge({ status, isAr }: { status: string; isAr: boolean })
     unpaid:  { ar: 'غير مدفوع', en: 'Unpaid',   cls: 'bg-red-100 text-red-700',        icon: AlertCircle },
     partial: { ar: 'دفع جزئي',  en: 'Partial',  cls: 'bg-amber-100 text-amber-700',     icon: Clock },
     paid:    { ar: 'مكتمل',     en: 'Paid',     cls: 'bg-emerald-100 text-emerald-700', icon: CheckCircle2 },
+    settled: { ar: 'تمت التسوية', en: 'Settled', cls: 'bg-purple-100 text-purple-700', icon: CheckCircle2 },
     refunded:{ ar: 'مسترد',     en: 'Refunded', cls: 'bg-purple-100 text-purple-700',    icon: Clock },
   };
   const m = map[status] ?? { ar: status, en: status, cls: 'bg-slate-100 text-slate-600', icon: Clock };
@@ -208,7 +212,7 @@ export function PaymentsClient({ locale }: PaymentsClientProps) {
           <MobileList>
             {filtered.map(b => {
               const name    = isAr ? (b.customerNameAr ?? '') : (b.customerNameEn ?? b.customerNameAr ?? '');
-              const { paid: paidAmt, due: dueAmt } = paymentAmounts(b);
+              const { paid: paidAmt, credited, due: dueAmt } = paymentAmounts(b);
               const displayedDue = b.status === 'cancelled' || b.status === 'refunded' ? 0 : dueAmt;
               const status  = paymentStatus(b);
               return (
@@ -222,6 +226,7 @@ export function PaymentsClient({ locale }: PaymentsClientProps) {
                     <span className="text-xs text-slate-400">{formatDate(b.createdAt as unknown as string, fmtLocale)}</span>
                     <span className="inline-flex items-center gap-2">
                       {paidAmt > 0 && <span className="text-xs font-semibold tabular-nums text-emerald-700">{formatCurrency(paidAmt, fmtLocale)}</span>}
+                      {credited > 0 && <span className="text-xs font-semibold tabular-nums text-purple-700">{isAr ? 'دائن ' : 'Credit '}{formatCurrency(credited, fmtLocale)}</span>}
                       {displayedDue > 0 && <span className="text-sm font-bold tabular-nums text-red-600">{isAr ? 'مستحق ' : 'Due '}{formatCurrency(displayedDue, fmtLocale)}</span>}
                     </span>
                   </MobileItemFooter>
@@ -241,6 +246,7 @@ export function PaymentsClient({ locale }: PaymentsClientProps) {
                   <th className="text-start px-3 py-3.5 text-xs font-bold text-slate-500 uppercase tracking-wider">{isAr ? 'حالة الدفع' : 'Status'}</th>
                   <th className="text-start px-3 py-3.5 text-xs font-bold text-slate-500 uppercase tracking-wider hidden md:table-cell">{isAr ? 'تقدم التحصيل' : 'Progress'}</th>
                   <th className="text-end px-3 py-3.5 text-xs font-bold text-slate-500 uppercase tracking-wider">{isAr ? 'المدفوع' : 'Paid'}</th>
+                  <th className="text-end px-3 py-3.5 text-xs font-bold text-slate-500 uppercase tracking-wider">{isAr ? 'إشعارات دائنة' : 'Credit Notes'}</th>
                   <th className="text-end pe-6 px-3 py-3.5 text-xs font-bold text-slate-500 uppercase tracking-wider">{isAr ? 'المستحق' : 'Due'}</th>
                 </tr>
               </thead>
@@ -273,7 +279,7 @@ export function PaymentsClient({ locale }: PaymentsClientProps) {
                         <div className="w-36">
                           <div className="flex justify-between text-[10px] text-slate-400 mb-1">
                             <span>{pct}%</span>
-                            <span>{formatCurrency(paidAmt, fmtLocale)}</span>
+                            <span>{formatCurrency(paidAmt + credited, fmtLocale)}</span>
                           </div>
                           <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
                             <div className={cn('h-full rounded-full', pct === 100 ? 'bg-emerald-500' : 'bg-amber-400')}
@@ -284,6 +290,11 @@ export function PaymentsClient({ locale }: PaymentsClientProps) {
                       <td className="px-3 py-4 text-end">
                         <span className="text-sm font-semibold tabular-nums text-emerald-700">
                           {paidAmt > 0 ? formatCurrency(paidAmt, fmtLocale) : <span className="text-slate-300">—</span>}
+                        </span>
+                      </td>
+                      <td className="px-3 py-4 text-end">
+                        <span className="text-sm font-semibold tabular-nums text-purple-700">
+                          {credited > 0 ? formatCurrency(credited, fmtLocale) : <span className="text-slate-300">—</span>}
                         </span>
                       </td>
                       <td className="pe-6 px-3 py-4 text-end">

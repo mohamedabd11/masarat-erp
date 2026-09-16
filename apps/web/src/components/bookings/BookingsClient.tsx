@@ -15,6 +15,7 @@ import {
   FileText, FileX, FileCheck,
 } from 'lucide-react';
 import type { BookingType } from '@/lib/schema';
+import { invoiceSettlementStatus } from '@/lib/invoice-presentation';
 
 // ─── Invoice status badge ─────────────────────────────────────────────────────
 
@@ -31,6 +32,12 @@ function InvoiceBadge({
     <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded-md bg-emerald-50 text-emerald-700">
       <FileCheck size={10} />
       {isAr ? 'مدفوع' : 'Paid'}
+    </span>
+  );
+  if (paymentStatus === 'settled') return (
+    <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded-md bg-purple-50 text-purple-700">
+      <FileCheck size={10} />
+      {isAr ? 'تمت التسوية' : 'Settled'}
     </span>
   );
   if (paymentStatus === 'partial') return (
@@ -213,14 +220,18 @@ export function BookingsClient({ locale, bookingType, initialQuery = '' }: Booki
             {filtered.map(b => {
               const name      = isAr ? (b.customerNameAr ?? b.customerNameEn ?? '') : (b.customerNameEn ?? b.customerNameAr ?? '');
               const typeMeta  = TYPE_META[b.serviceType] ?? { ar: b.serviceType, en: b.serviceType, bg: 'bg-slate-100', text: 'text-slate-600' };
-              const total     = b.totalPriceHalalas ?? 0;
-              const paidAmt   = b.paidHalalas ?? 0;
-              const paidPct   = total > 0 ? Math.min(100, Math.round((paidAmt / total) * 100)) : 0;
+              const total     = b.invoiceTotalHalalas ?? b.totalPriceHalalas ?? 0;
+              const paidAmt   = b.invoicePaidHalalas ?? b.paidHalalas ?? 0;
+              const credited  = b.invoiceCreditedHalalas ?? 0;
+              const paidPct   = total > 0 ? Math.min(100, Math.round(((paidAmt + credited) / total) * 100)) : 0;
               const createdAt = b.createdAt ? new Date(b.createdAt as unknown as string) : null;
               const hasInvoice = !!(b as Record<string, unknown>)['hasInvoice'];
-              const bPaymentStatus = b.status === 'cancelled'
-                ? 'refunded'
-                : paidAmt >= total && total > 0 ? 'fully_paid' : paidAmt > 0 ? 'partial' : 'unpaid';
+              const bPaymentStatus = invoiceSettlementStatus({
+                status: b.invoiceStatus ?? b.status,
+                totalHalalas: total,
+                paidHalalas: paidAmt,
+                creditedHalalas: credited,
+              }, b.status === 'cancelled' || b.status === 'refunded');
 
               return (
                 <Link key={b.id} href={`/${locale}/bookings/${b.id}`}
@@ -283,14 +294,18 @@ export function BookingsClient({ locale, bookingType, initialQuery = '' }: Booki
                 {filtered.map(b => {
                   const name       = isAr ? (b.customerNameAr ?? b.customerNameEn ?? '') : (b.customerNameEn ?? b.customerNameAr ?? '');
                   const typeMeta   = TYPE_META[b.serviceType] ?? { ar: b.serviceType, en: b.serviceType, bg: 'bg-slate-100', text: 'text-slate-600' };
-                  const total      = b.totalPriceHalalas ?? 0;
-                  const paidAmt    = b.paidHalalas ?? 0;
-                  const paidPct    = total > 0 ? Math.min(100, Math.round((paidAmt / total) * 100)) : 0;
+                  const total      = b.invoiceTotalHalalas ?? b.totalPriceHalalas ?? 0;
+                  const paidAmt    = b.invoicePaidHalalas ?? b.paidHalalas ?? 0;
+                  const credited   = b.invoiceCreditedHalalas ?? 0;
+                  const paidPct    = total > 0 ? Math.min(100, Math.round(((paidAmt + credited) / total) * 100)) : 0;
                   const createdAt  = b.createdAt ? new Date(b.createdAt as unknown as string) : null;
                   const hasInvoice = !!(b as Record<string, unknown>)['hasInvoice'];
-                  const bPaymentStatus = b.status === 'cancelled'
-                    ? 'refunded'
-                    : paidAmt >= total && total > 0 ? 'fully_paid' : paidAmt > 0 ? 'partial' : 'unpaid';
+                  const bPaymentStatus = invoiceSettlementStatus({
+                    status: b.invoiceStatus ?? b.status,
+                    totalHalalas: total,
+                    paidHalalas: paidAmt,
+                    creditedHalalas: credited,
+                  }, b.status === 'cancelled' || b.status === 'refunded');
 
                   return (
                     <tr key={b.id} className="hover:bg-slate-50/60 transition-colors group">
@@ -318,7 +333,9 @@ export function BookingsClient({ locale, bookingType, initialQuery = '' }: Booki
                           <div className="flex items-center justify-between mb-1">
                             <span className="text-[10px] text-slate-400">{paidPct}%</span>
                             <span className="text-[10px] text-slate-400">
-                              {paidPct === 100 ? (isAr ? 'مكتمل' : 'Paid') : (isAr ? 'جزئي' : 'Partial')}
+                              {paidPct === 100
+                                ? (credited > 0 ? (isAr ? 'مسوّى' : 'Settled') : (isAr ? 'مكتمل' : 'Paid'))
+                                : (isAr ? 'جزئي' : 'Partial')}
                             </span>
                           </div>
                           <div className="h-1.5 bg-slate-100 rounded-full overflow-hidden">
